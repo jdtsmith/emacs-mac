@@ -1102,6 +1102,7 @@ frame_parm_handler ns_frame_parm_handlers[] =
   ns_set_tool_bar_position,
   ns_set_inhibit_double_buffering,
   ns_set_undecorated,
+  ns_set_undecorated_round,
   ns_set_parent_frame,
   0, /* x_set_skip_taskbar */
   ns_set_no_focus_on_map,
@@ -1404,6 +1405,11 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
                              RES_TYPE_BOOLEAN);
   FRAME_UNDECORATED (f) = !NILP (tem) && !EQ (tem, Qunbound);
   store_frame_param (f, Qundecorated, FRAME_UNDECORATED (f) ? Qt : Qnil);
+
+  tem = gui_display_get_arg (dpyinfo, parms, Qundecorated_round, NULL, NULL,
+                             RES_TYPE_BOOLEAN);
+  FRAME_UNDECORATED_ROUND (f) = !NILP (tem) && !EQ (tem, Qunbound);
+  store_frame_param (f, Qundecorated_round, FRAME_UNDECORATED_ROUND (f) ? Qt : Qnil);
 
 #ifdef NS_IMPL_COCOA
   tem = gui_display_get_arg (dpyinfo, parms, Qns_appearance, NULL, NULL,

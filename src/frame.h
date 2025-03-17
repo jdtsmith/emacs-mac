@@ -476,6 +476,9 @@ struct frame
   /* True if this is an undecorated frame.  */
   bool_bf undecorated : 1;
 
+  /* True if this is an undecorated frame with round corners.  */
+  bool_bf undecorated_round : 1;
+
 #ifndef HAVE_NTGUI
   /* True if this is an override_redirect frame.  */
   bool_bf override_redirect : 1;
@@ -1273,6 +1276,7 @@ default_pixels_per_inch_y (void)
 
 #if defined (HAVE_WINDOW_SYSTEM)
 #define FRAME_UNDECORATED(f) ((f)->undecorated)
+#define FRAME_UNDECORATED_ROUND(f) ((f)->undecorated_round)
 #ifdef HAVE_NTGUI
 #define FRAME_OVERRIDE_REDIRECT(f) ((void) (f), 0)
 #else

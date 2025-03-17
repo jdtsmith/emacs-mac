@@ -1163,6 +1163,19 @@ mac_set_undecorated (struct frame *f, Lisp_Object new_value, Lisp_Object old_val
 }
 
 static void
+mac_set_undecorated_round (struct frame *f, Lisp_Object new_value, Lisp_Object old_value)
+{
+  if (!EQ (new_value, old_value))
+    {
+      FRAME_UNDECORATED_ROUND (f) = NILP (new_value) ? false : true;
+
+      block_input ();
+      mac_update_frame_window_style (f);
+      unblock_input ();
+    }
+}
+
+static void
 mac_set_parent_frame (struct frame *f, Lisp_Object new_value, Lisp_Object old_value)
 {
   struct frame *p = NULL;
@@ -2299,7 +2312,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   Lisp_Object frame, tem;
   Lisp_Object name;
   bool minibuffer_only = false;
-  bool undecorated = false, override_redirect = false;
+  bool undecorated = false, undecorated_round = false, override_redirect = false;
   long window_prompting = 0;
   specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object display;
@@ -2392,6 +2405,18 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 
   if (!NILP (tem = (gui_display_get_arg (dpyinfo,
                                          parms,
+                                         Qundecorated_round,
+                                         NULL,
+                                         NULL,
+                                         RES_TYPE_BOOLEAN)))
+      && !(BASE_EQ (tem, Qunbound)))
+    undecorated_round = true;
+
+  FRAME_UNDECORATED_ROUND (f) = undecorated_round;
+  store_frame_param (f, Qundecorated_round, undecorated_round ? Qt : Qnil);
+
+  if (!NILP (tem = (gui_display_get_arg (dpyinfo,
+                                         parms,
                                          Qoverride_redirect,
                                          NULL,
                                          NULL,
@@ -2411,7 +2436,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   FRAME_FONTSET (f) = -1;
   f->output_data.mac->white_relief.pixel = -1;
   f->output_data.mac->black_relief.pixel = -1;
-  FRAME_INTERNAL_TOOL_BAR_P (f) = undecorated || !NILP (parent_frame);
+  FRAME_INTERNAL_TOOL_BAR_P (f) = undecorated || undecorated_round || !NILP (parent_frame);
 
   fset_icon_name (f, gui_display_get_arg (dpyinfo,
                                           parms,
@@ -5270,6 +5295,7 @@ frame_parm_handler mac_frame_parm_handlers[] =
   0, /* mac_set_tool_bar_position, */
   mac_set_inhibit_double_buffering,
   mac_set_undecorated,
+  mac_set_undecorated_round,
   mac_set_parent_frame,
   mac_set_skip_taskbar,
   mac_set_no_focus_on_map,
