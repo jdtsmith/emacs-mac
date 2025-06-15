@@ -11231,6 +11231,8 @@ init_menu_bar (void)
   NSString *localizedTitleForServices = /* Mac OS X 10.6 and later.  */
     NSLocalizedStringFromTableInBundle (@"Services", @"Services",
 					appKitBundle, NULL);
+  NSString *localizedTitleForWindows =
+    NSLocalizedStringFromTableInBundle (@"Window", @"Window", appKitBundle, NULL);
 
   [NSApp setServicesMenu:servicesMenu];
 
@@ -11239,6 +11241,9 @@ init_menu_bar (void)
   [appleMenu addItemWithTitle:@"About Emacs"
 	     action:@selector(about:)
 	     keyEquivalent:@""];
+  [appleMenu setSubmenu:windowsMenu
+                forItem:[appleMenu addItemWithTitle:localizedTitleForWindows
+					     action:nil keyEquivalent:@""]];
   [appleMenu addItem:[NSMenuItem separatorItem]];
   [appleMenu addItemWithTitle:(mac_operating_system_version.major >= 13
 			       ? @"Settings..." : @"Preferences...")
@@ -11354,6 +11359,15 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 	  [NSApp setMainMenu:newMenu];
 	  if (helpMenu)
 	    [NSApp setHelpMenu:helpMenu];
+
+	  // HACK: On every update, apple adds an additional "Enter
+	  // Fullscreen" MenuItem. To stop this list from growing
+	  // endlessly, clear the menu and tell AppKit to repopulate.
+	  NSMenu *windowsMenu = [NSApp windowsMenu];
+	  if (windowsMenu) {
+	    [windowsMenu removeAllItems];
+	    [NSApp setWindowsMenu:windowsMenu];
+	  }
 	}
 
       MRC_RELEASE (newMenu);
