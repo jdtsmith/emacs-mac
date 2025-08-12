@@ -64,6 +64,13 @@ static Lisp_Object x_display_rdb_list;
 /* This is display since Mac does not support multiple ones.  */
 struct mac_display_info one_mac_display_info;
 
+/* Patterns for CGContextSetLineDash for dotted and dashed
+   underlines. The first number is the length of the drawn segment, the
+   second the length of the gap between.  */
+
+static const CGFloat mac_underdot_pattern[2] = { 1, 2 };
+static const CGFloat mac_underdash_pattern[2] = { 3, 2 };
+
 /* The keysyms to use for the various modifiers.  */
 
 static struct terminal *mac_create_terminal (struct mac_display_info *dpyinfo);
@@ -378,6 +385,33 @@ mac_draw_horizontal_wave (struct frame *f, GC gc, int x, int y,
 	gx1 += gperiod;
 	CGContextAddLineToPoint (context, gx1, gy1);
       }
+    CGContextStrokePath (context);
+  }
+  MAC_END_DRAW_TO_FRAME (f);
+}
+
+static void
+mac_draw_dashed_line (struct frame *f, GC gc, int x, int y, int width,
+		      CGFloat thickness, const CGFloat *pattern)
+{
+  CGRect clip = CGRectMake (x, y, width, thickness * 2);
+
+  MAC_BEGIN_DRAW_TO_FRAME (f, gc, clip, context);
+  {
+    CGFloat gxmax, gy, gpattern[2];
+
+    gxmax = CGRectGetMaxX (clip);
+    gy = y + (thickness / 2);
+    // Make the segments proportionate to thickness.
+    gpattern[0] = pattern[0] * thickness;
+    gpattern[1] = pattern[1] * thickness;
+
+    CGContextClipToRect (context, clip);
+    CGContextMoveToPoint (context, x, gy);
+    CGContextAddLineToPoint (context, gxmax, gy);
+    CGContextSetStrokeColorWithColor (context, gc->cg_fore_color);
+    CGContextSetLineWidth (context, thickness);
+    CGContextSetLineDash (context, 0, gpattern, 2);
     CGContextStrokePath (context);
   }
   MAC_END_DRAW_TO_FRAME (f);
@@ -2240,6 +2274,13 @@ mac_draw_underwave (struct glyph_string *s, int decoration_width)
 			    decoration_width, wave_height, wave_length);
 }
 
+static void
+mac_draw_underdash (struct glyph_string *s, int decoration_width, int y,
+		    CGFloat thickness, const CGFloat *pattern)
+{
+    mac_draw_dashed_line (s->f, s->gc, s->x, y, decoration_width,
+			  thickness, pattern);
+}
 
 /* Draw glyph string S.  */
 
@@ -2379,10 +2420,14 @@ mac_draw_glyph_string (struct glyph_string *s)
 		  mac_set_foreground (s->gc, xgcv.foreground);
 		}
 	    }
-	  else if (s->face->underline == FACE_UNDERLINE_SINGLE)
+	  else if (s->face->underline == FACE_UNDERLINE_SINGLE
+		   || s->face->underline == FACE_UNDERLINE_DOTS
+		   || s->face->underline == FACE_UNDERLINE_DASHES)
 	    {
 	      unsigned long thickness, position;
 	      int y;
+	      bool did_set_foreground = false;
+	      XGCValues xgcv;
 
               if (s->prev
 		  && s->prev->face->underline == FACE_UNDERLINE_SINGLE
@@ -2464,16 +2509,27 @@ mac_draw_glyph_string (struct glyph_string *s)
 	      s->underline_thickness = thickness;
 	      s->underline_position = position;
 	      y = s->ybase + position;
-	      if (s->face->underline_defaulted_p)
+
+	      if (!s->face->underline_defaulted_p)
+		{
+		  mac_get_gc_values (s->gc, GCForeground, &xgcv);
+		  mac_set_foreground (s->gc, s->face->underline_color);
+		  did_set_foreground = true;
+		}
+
+	      if (s->face->underline == FACE_UNDERLINE_SINGLE)
 		mac_fill_rectangle (s->f, s->gc, s->x, y, s->width, thickness);
 	      else
 		{
-		  XGCValues xgcv;
-		  mac_get_gc_values (s->gc, GCForeground, &xgcv);
-		  mac_set_foreground (s->gc, s->face->underline_color);
-		  mac_fill_rectangle (s->f, s->gc, s->x, y, s->width, thickness);
-		  mac_set_foreground (s->gc, xgcv.foreground);
+		  const CGFloat *pattern =
+		    (s->face->underline == FACE_UNDERLINE_DOTS)
+		    ? mac_underdot_pattern : mac_underdash_pattern;
+		  mac_draw_underdash (s, decoration_width, y,
+				      thickness, pattern);
 		}
+
+	      if (did_set_foreground)
+		mac_set_foreground (s->gc, xgcv.foreground);
 	    }
 	}
 
