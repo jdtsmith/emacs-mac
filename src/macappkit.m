@@ -1326,8 +1326,7 @@ static bool handling_queued_nsevents_p;
 }
 
 - (void)willSleep:(NSNotification *)notification {
-  // Do quick pre-sleep work here
-  NSLog(@"Entering sleep");
+  /* Do only quick pre-sleep work here */
   mac_draw_queue_sync();
 }
 
