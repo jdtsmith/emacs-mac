@@ -4368,6 +4368,32 @@ mac_set_frame_window_modified (struct frame *f, bool modified)
   mac_within_gui (^{[window setDocumentEdited:modified];});
 }
 
+static NSAppearanceName
+automatic_appearance_from_color(unsigned long color)
+{
+  /* This formula comes from frame-set-background-mode in frame.el.  */
+  return (RED_FROM_ULONG (color) + GREEN_FROM_ULONG (color)
+	  + BLUE_FROM_ULONG (color)) >= (int) (0xff * 3 * .6)
+    ? NSAppearanceNameVibrantLight : NSAppearanceNameVibrantDark;
+}
+
+void
+mac_set_frame_window_appearance (struct frame *f, enum mac_appearance_type appearance)
+{
+  EmacsWindow *window = FRAME_MAC_WINDOW_OBJECT (f);
+
+  mac_within_gui (^{
+      NSAppearanceName name =
+	appearance == mac_appearance_system_default
+	? automatic_appearance_from_color (FRAME_BACKGROUND_PIXEL (f))
+	: (appearance == mac_appearance_vibrant_light
+	   ? NSAppearanceNameVibrantLight : NSAppearanceNameVibrantDark);
+      window.appearanceCustomization.appearance =
+	[NSAppearance appearanceNamed:name];
+      window.appearance =
+	[NSAppearance appearanceNamed:name];});
+}
+
 void
 mac_set_frame_window_transparent_titlebar (struct frame *f, bool transparent)
 {
@@ -5315,18 +5341,13 @@ mac_set_frame_window_background (struct frame *f, unsigned long color)
 
   mac_within_gui (^{
       [window setBackgroundColor:[NSColor colorWithEmacsColorPixel:color]];
-      /* This formula comes from frame-set-background-mode in
-	 frame.el.  */
-      NSAppearanceName name =
-	((RED_FROM_ULONG (color) + GREEN_FROM_ULONG (color)
-	  + BLUE_FROM_ULONG (color)) >= (int) (0xff * 3 * .6)
-	 ? NSAppearanceNameVibrantLight : NSAppearanceNameVibrantDark);
-
-      window.appearanceCustomization.appearance =
-	[NSAppearance appearanceNamed:name];
-      window.appearance =
-	[NSAppearance appearanceNamed:name];
-    });
+      if (FRAME_MAC_APPEARANCE (f) == mac_appearance_system_default)
+	{
+	  NSAppearanceName name = automatic_appearance_from_color (color);
+	  window.appearanceCustomization.appearance =
+	    [NSAppearance appearanceNamed:name];
+	  window.appearance =
+	    [NSAppearance appearanceNamed:name];}});
 }
 
 /* Store the screen positions of frame F into XPTR and YPTR.

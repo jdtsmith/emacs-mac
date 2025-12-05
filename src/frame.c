@@ -1215,6 +1215,7 @@ make_frame (bool mini_p)
   f->ns_transparent_titlebar = false;
 #endif
 #ifdef HAVE_MACGUI
+  f->mac_appearance = mac_appearance_system_default;
   f->mac_transparent_titlebar = false;
 #endif
 #endif
@@ -4886,6 +4887,7 @@ static const struct frame_parm_table frame_parms[] =
   {"ns-transparent-titlebar",	SYMBOL_INDEX (Qns_transparent_titlebar)},
 #endif
 #ifdef HAVE_MACGUI
+  {"mac-appearance",            SYMBOL_INDEX (Qmac_appearance)},
   {"mac-transparent-titlebar",  SYMBOL_INDEX (Qmac_transparent_titlebar)},
 #endif
 };
@@ -7332,6 +7334,7 @@ syms_of_frame (void)
   DEFSYM (Qns_transparent_titlebar, "ns-transparent-titlebar");
 #endif
 #ifdef HAVE_MACGUI
+  DEFSYM (Qmac_appearance, "mac-appearance");
   DEFSYM (Qmac_transparent_titlebar, "mac-transparent-titlebar");
 #endif
 
