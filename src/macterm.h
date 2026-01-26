@@ -306,6 +306,7 @@ struct mac_output
     CGContextRef cg_context;
     CGLayerRef sandbox;
     int nesting_level; /* 0 = idle, >0 = inside atomic block */
+    unsigned backing_scale_factor;
   } atomic_draw;
   
   /* Data representing the array of NativeRectangle's that will be

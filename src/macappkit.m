@@ -7910,25 +7910,29 @@ mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
 					   ceilf(rect.size.height * scale * 1.2f));
 		needs_allocation = true;
 	      }
+	    if (atmc->backing_scale_factor != scale) /* Display changed? */
+	      {
+		currentSize.width = ceilf(currentSize.width * scale / atmc->backing_scale_factor);
+		currentSize.height = ceilf(currentSize.height * scale / atmc->backing_scale_factor);
+		needs_allocation = true;
+	      }
 	  }
       }
-    else
+    else  /* Initialize atomic sandbox */
       {
 	currentSize = rect.size;
-	if (scale > 1)
-	  {
-	    currentSize.width *= scale;
-	    currentSize.height *= scale;
-	  }
+	currentSize.width *= scale;
+	currentSize.height *= scale;
 	needs_allocation = true;
       }
-
+    
     if (needs_allocation)
       {
 	atmc->sandbox = CGLayerCreateWithContext(context, currentSize, NULL);
 	NSLog(@"[ATOMIC-DRAW] Reallocating layer at pixel size %0.1f, %0.1f (scale=%u)",
 	      currentSize.width, currentSize.height, scale);
 	atmc->cg_context = CGLayerGetContext(atmc->sandbox);
+	atmc->backing_scale_factor = scale;
 	if (scale > 1)
 	  CGContextScaleCTM(atmc->cg_context, scale, scale);  /* for Retina */
 	//CGContextSetInterpolationQuality(atmc->cg_context, kCGInterpolationLow);
