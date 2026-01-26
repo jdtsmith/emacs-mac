@@ -2060,57 +2060,63 @@ mac_draw_glyph_string_bg_rect (struct glyph_string *s, int x, int y, int w, int 
 static void
 mac_draw_image_glyph_string (struct glyph_string *s)
 {
-  int box_line_hwidth = max (s->face->box_vertical_line_width, 0);
-  int box_line_vwidth = max (s->face->box_horizontal_line_width, 0);
-  int height;
+  CGRect atomic_rect = CGRectMake (s->x, s->y, s->background_width, s->height);
 
-  height = s->height;
-  if (s->slice.y == 0)
-    height -= box_line_vwidth;
-  if (s->slice.y + s->slice.height >= s->img->height)
-    height -= box_line_vwidth;
+  /* We need atomic drawing to prevent bg-flickering */
+  MAC_BEGIN_DRAW_TO_FRAME_ATOMIC (s->f, s->gc, atomic_rect, context);
+  {
+    int box_line_hwidth = max (s->face->box_vertical_line_width, 0);
+    int box_line_vwidth = max (s->face->box_horizontal_line_width, 0);
+    int height;
+      
+    height = s->height;
+    if (s->slice.y == 0)
+      height -= box_line_vwidth;
+    if (s->slice.y + s->slice.height >= s->img->height)
+      height -= box_line_vwidth;
 
-  /* Fill background with face under the image.  Do it only if row is
-     taller than image or if image has a clip mask to reduce
-     flickering.  */
-  s->stippled_p = s->face->stipple > 0;
-  if (height > s->slice.height
-      || s->img->hmargin
-      || s->img->vmargin
-      || s->img->mask
-      || s->img->pixmap == 0
-      || s->width != s->background_width)
-    {
-      if (s->stippled_p)
-	s->row->stipple_p = true;
+    /* Fill background with face under the image, only if row is
+       taller than image or if image has a clip mask */
+    s->stippled_p = s->face->stipple > 0;
+    if (height > s->slice.height
+	|| s->img->hmargin
+	|| s->img->vmargin
+	|| s->img->mask
+	|| s->img->pixmap == 0
+	|| s->width != s->background_width)
+      {
+	if (s->stippled_p)
+	  s->row->stipple_p = true;
 
-      int x = s->x;
-      int y = s->y;
-      int width = s->background_width;
+	int x = s->x;
+	int y = s->y;
+	int width = s->background_width;
 
-      if (s->first_glyph->left_box_line_p
-	  && s->slice.x == 0)
-	{
-	  x += box_line_hwidth;
-	  width -= box_line_hwidth;
-	}
+	if (s->first_glyph->left_box_line_p
+	    && s->slice.x == 0)
+	  {
+	    x += box_line_hwidth;
+	    width -= box_line_hwidth;
+	  }
 
-      if (s->slice.y == 0)
-	y += box_line_vwidth;
+	if (s->slice.y == 0)
+	  y += box_line_vwidth;
 
-      mac_draw_glyph_string_bg_rect (s, x, y, width, height);
+	mac_draw_glyph_string_bg_rect (s, x, y, width, height);
 
-      s->background_filled_p = true;
-    }
+	s->background_filled_p = true;
+      }
 
-  /* Draw the foreground.  */
-  mac_draw_image_foreground (s);
+    /* Draw the foreground.  */
+    mac_draw_image_foreground (s);
 
-  /* If we must draw a relief around the image, do it.  */
-  if (s->img->relief
-      || s->hl == DRAW_IMAGE_RAISED
-      || s->hl == DRAW_IMAGE_SUNKEN)
-    mac_draw_image_relief (s);
+    /* If we need a relief around the image, draw it.  */
+    if (s->img->relief
+	|| s->hl == DRAW_IMAGE_RAISED
+	|| s->hl == DRAW_IMAGE_SUNKEN)
+      mac_draw_image_relief (s);
+  }
+  MAC_END_DRAW_TO_FRAME_ATOMIC(s->f);
 }
 
 

@@ -288,8 +288,7 @@ struct mac_output
   {
     GC gc;
     unsigned long pixel;
-  }
-  black_relief, white_relief;
+  } black_relief, white_relief;
 
   /* The background for which the above relief GCs were set up.
      They are changed only when a different background is involved.  */
@@ -301,6 +300,14 @@ struct mac_output
   /* Quartz 2D graphics context.  */
   CGContextRef cg_context;
 
+  /* Context and layer for atomic drawing (multiple draws with a single invalidation) */
+  struct atomic_draw
+  {
+    CGContextRef cg_context;
+    CGLayerRef sandbox;
+    int nesting_level; /* 0 = idle, >0 = inside atomic block */
+  } atomic_draw;
+  
   /* Data representing the array of NativeRectangle's that will be
      inverted on drawRect: invocation.  */
   CFDataRef flash_rectangles_data;
@@ -338,6 +345,10 @@ struct mac_output
   ((f)->output_data.mac->flash_rectangles_data)
 #define FRAME_MAC_DOUBLE_BUFFERED_P(f) \
   ((f)->output_data.mac->double_buffered_p)
+#define FRAME_ATOMIC_DRAW(f) \
+  ((f)->output_data.mac->atomic_draw)
+#define FRAME_ATOMIC_DRAW_P(f) \
+  ((f)->output_data.mac->atomic_draw.nesting_level > 0)
 
 /* This gives the mac_display_info structure for the display F is on.  */
 #define FRAME_DISPLAY_INFO(f) ((void) (f), (&one_mac_display_info))
@@ -676,6 +687,8 @@ extern void mac_draw_to_frame (struct frame *, GC, CGRect,
 extern CGContextRef mac_begin_cg_clip (struct frame *, GC, CGRect);
 extern void mac_end_cg_clip (struct frame *);
 #endif
+extern void mac_draw_to_frame_atomic(struct frame *, GC, CGRect,
+				     void (^) (CGContextRef, GC));
 extern void mac_scroll_area (struct frame *, GC, int, int, int, int, int, int);
 extern Lisp_Object mac_color_lookup (const char *);
 extern Lisp_Object mac_color_list_alist (void);
@@ -757,8 +770,8 @@ extern void mac_sound_play (CFTypeRef, Lisp_Object, Lisp_Object);
 extern void mac_within_gui (void (^block) (void));
 
 #if DRAWING_USE_GCD
-#define MAC_BEGIN_DRAW_TO_FRAME(f, gc, rect, context)			\
-  mac_draw_to_frame (f, gc, rect, ^(CGContextRef context, GC gc) {
+#define MAC_BEGIN_DRAW_TO_FRAME(f, gc_draw, rect, context)			\
+  mac_draw_to_frame (f, gc_draw, rect, ^(CGContextRef context, GC gc) {
 #define MAC_END_DRAW_TO_FRAME(f)		\
   })
 #else
@@ -767,6 +780,12 @@ extern void mac_within_gui (void (^block) (void));
 #define MAC_END_DRAW_TO_FRAME(f)		\
   mac_end_cg_clip (f);} while (0)
 #endif
+
+#define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC(f, gc_draw, rect, context)			\
+  mac_draw_to_frame_atomic (f, gc_draw, rect, ^(CGContextRef context, GC gc) {
+#define MAC_END_DRAW_TO_FRAME_ATOMIC(f)		\
+  })
+
 
 #define CG_CONTEXT_FILL_RECT_WITH_GC_BACKGROUND(f, context, rect, gc,	\
 						respect_alpha_background) \
