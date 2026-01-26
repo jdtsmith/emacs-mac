@@ -185,20 +185,16 @@ the following Mac-specific ones:
     swiping/flicking, exiting from the splash screen by typing "q",
     and the "About Emacs" and "Preferences..." menu items in the
     application menu (labeled "Emacs") in the menu bar.
-
-  * High-resolution image display support for Retina displays.  Dynamic
-    resolution change is also supported.  For bitmap formats,
-    high-resolution data can be specified either by the "@2x" file name
-    convention, the ":data-2x" property, or multi-image TIFF.
-    Additionally, if the DPI metadata in an image without any of these
-    properties indicates that it is a high-resolution image, it will
-    automatically be treated as a "2x" image.  Shrinking a large image
-    with the "imagemagick" (or Mac-specific "image-io") image type also
-    works but gives a non-optimal result on dynamic resolution change.
-    For vector formats, images are automatically re-rendered according
-    to the resolution of the display the frame in on.  DocView mode and
-    LaTeX fragment preview in Org mode are modified so they can take
-    advantage of this feature.
+  * High-resolution image display support for Retina displays.
+    Dynamic resolution change is also supported.  For bitmap formats,
+    high-resolution data can be specified either by the "@2x" file
+    name convention, the ":data-2x" property, or multi-image TIFF.
+    Shrinking a large image with the "imagemagick" (or Mac-specific
+    "image-io") image type also works but gives a non-optimal result
+    on dynamic resolution change.  For vector formats, images are
+    automatically re-rendered according to the resolution of the
+    frame.  DocView mode and LaTeX fragment preview in Org mode are
+    modified so they can take advantage of this feature.
 
 As Quickdraw-style font rendering is considered obsolete as of Mac OS
 X 10.5, the variable `mac-allow-anti-aliasing', which was supported in

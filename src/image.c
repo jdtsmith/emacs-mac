@@ -5220,23 +5220,6 @@ image_load_image_io (struct frame *f, struct image *img, CFStringRef type)
 
 		  if (cg_image)
 		    {
-		      CFNumberRef dpi_width_ref = CFDictionaryGetValue (props, kCGImagePropertyDPIWidth);
-		      CFNumberRef dpi_height_ref = CFDictionaryGetValue (props, kCGImagePropertyDPIHeight);
-
-		      /* Auto-detect high-DPI 2x images */
-		      if (img->target_backing_scale == 0 && (dpi_width_ref || dpi_height_ref))
-			{
-			  double dpi_width = 72.0, dpi_height = 72.0;
-
-			  if (dpi_width_ref)
-			    CFNumberGetValue (dpi_width_ref, kCFNumberDoubleType, &dpi_width);
-			  if (dpi_height_ref)
-			    CFNumberGetValue (dpi_height_ref, kCFNumberDoubleType, &dpi_height);
-
-			  double max_dpi = fmax(dpi_width, dpi_height);
-			  if (max_dpi > 115.0) /* High DPI */
-			    img->target_backing_scale = 2;
-			}
 		      width = CGImageGetWidth (cg_image);
 		      height = CGImageGetHeight (cg_image);
 		      if (img->target_backing_scale == 2)
