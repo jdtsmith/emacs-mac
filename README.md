@@ -19,12 +19,18 @@ Known working systems:
 
 Please see the [discussion](../../discussions/categories/show-and-tell) for advice on build configurations for your system.
 
->[!IMPORTANT]
+>[!NOTE]
 > Please start a [discussion](../../discussions/categories/show-and-tell) to report your build experiences, even if you encounter no problems.  Mention your OS version, CPU, which branch you built, and any other relevant details, including the build/configure flags you used.
 
 This build is kept current with the [`emacs-30`](https://github.com/emacs-mirror/emacs/tree/emacs-30) release branch.
 
 For an experimental build synced with Emacs master, see [this branch](https://github.com/jdtsmith/emacs-mac/tree/emacs-mac-gnu_master_exp).
+
+## Reporting problems
+
+> [!IMPORTANT]
+> If you encounter a problem with this build, **first** please [read this wiki note on debugging](../../wiki/How-to-help-improve-emacs%E2%80%90mac-with-actionable-issues-and-debug-info), then open [an issue](../../issues).
+
 
 ## Install & Config
 
