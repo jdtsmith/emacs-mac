@@ -7973,7 +7973,7 @@ mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
       {
 	CGContextSaveGState(context);
 	CGContextClipToRect(context, rect);  /* Stay within rect bounds */
-	/* display layers larger than the rect correctly */
+	/* handle display layers larger than the rect correctly */
 	CGRect layerRect = rect;
 	layerRect.size.width = currentSize.width / scale;
 	layerRect.size.height = currentSize.height / scale;
@@ -7987,13 +7987,13 @@ mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
       !dispatch_get_specific(kDrawingQueueKey)) /* no deadlocks! */
     {
       main_context = FRAME_CG_CONTEXT (f);
-      GC gc_copy = mac_duplicate_gc (gc);
+      GC gc_copy = gc ? mac_duplicate_gc (gc) : NULL;
       dispatch_async(global_focus_drawing_queue, ^{
 	  CGContextSaveGState (main_context);
-	  mac_clip_context_to_gc_rects (main_context, gc_copy);
 	  atomic_work (main_context, gc_copy);
 	  CGContextRestoreGState (main_context);
-	  mac_free_gc (gc_copy);
+	  if (gc_copy)
+	    mac_free_gc (gc_copy);
       });
       global_focus_view_modified_p = true;
     }
