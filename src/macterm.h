@@ -787,6 +787,25 @@ extern void mac_within_gui (void (^block) (void));
 #define MAC_END_DRAW_TO_FRAME_ATOMIC(f)		\
   })
 
+#if DRAWING_USE_GCD
+#define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(s_arg, rect, context) \
+  struct glyph_string *s_atomic = mac_persist_glyph_string(s_arg);     \
+  struct frame *f_atomic = s_arg->f;					\
+  GC gc_atomic = s_arg->gc;						\
+  mac_draw_to_frame_atomic (f_atomic, gc_atomic, rect, ^(CGContextRef context, GC gc) { \
+      struct glyph_string *s = s_atomic; /* alias s inside block */	\
+      s->gc = gc
+#define MAC_END_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(f)	       \
+      mac_free_persisted_glyph_string(s_atomic);		       \
+  })
+#else
+#define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(s_arg, rect, context) \
+  mac_draw_to_frame_atomic (s_arg->f, s_arg->gc, rect, ^(CGContextRef context, GC gc) { \
+      struct glyph_string *s = s_arg
+#define MAC_END_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(f)                   \
+  })
+#endif
+
 
 #define CG_CONTEXT_FILL_RECT_WITH_GC_BACKGROUND(f, context, rect, gc,	\
 						respect_alpha_background) \

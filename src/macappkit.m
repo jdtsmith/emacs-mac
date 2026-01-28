@@ -116,6 +116,8 @@ static void mac_within_lisp (void (^) (void));
 static void mac_within_lisp_deferred_unless_popup (void (^) (void));
 
 static void mac_draw_queue_sync(void);
+static bool mac_frame_atomic_draw_p(struct frame *);
+
 
 #define MAC_SELECT_ALLOW_LISP_EVALUATION 1
 #if MAC_SELECT_ALLOW_LISP_EVALUATION
@@ -7746,13 +7748,11 @@ unset_global_focus_view_frame (void)
   saved_focus_view_frame = NULL;
 }
 
-#if DRAWING_USE_GCD
-static
-#endif
-CGContextRef
-mac_begin_cg_clip (struct frame *f, GC gc, CGRect invalid_rect)
+/* Synchronous drawing */
+
+static void
+mac_clip_context_to_gc_rects(CGContextRef context, GC gc)
 {
-  CGContextRef context;
   const CGRect *clip_rects = NULL;
   CFIndex n_clip_rects = 0;
 
@@ -7762,7 +7762,19 @@ mac_begin_cg_clip (struct frame *f, GC gc, CGRect invalid_rect)
       n_clip_rects = CFDataGetLength (gc->clip_rects_data) / sizeof (CGRect);
     }
 
-  if (FRAME_ATOMIC_DRAW_P (f))
+  if (n_clip_rects > 0)
+    CGContextClipToRects (context, clip_rects, n_clip_rects);
+}
+
+#if DRAWING_USE_GCD
+static
+#endif
+CGContextRef
+mac_begin_cg_clip (struct frame *f, GC gc, CGRect invalid_rect)
+{
+  CGContextRef context;
+
+  if (mac_frame_atomic_draw_p (f))
     {
       context = FRAME_ATOMIC_DRAW_CG_CONTEXT (f);
     }
@@ -7782,10 +7794,9 @@ mac_begin_cg_clip (struct frame *f, GC gc, CGRect invalid_rect)
     }
   
   CGContextSaveGState (context);
-  if (n_clip_rects > 0)
-    CGContextClipToRects (context, clip_rects, n_clip_rects);
+  mac_clip_context_to_gc_rects(context, gc);
   
-  if (FRAME_MAC_DOUBLE_BUFFERED_P (f) && !FRAME_ATOMIC_DRAW_P (f))
+  if (FRAME_MAC_DOUBLE_BUFFERED_P (f) && !mac_frame_atomic_draw_p (f))
     {
       EmacsFrameController *frameController = FRAME_CONTROLLER (f);
 
@@ -7804,12 +7815,14 @@ static
 void
 mac_end_cg_clip (struct frame *f)
 {
-  CGContextRef context = FRAME_ATOMIC_DRAW_P (f) ?
-    FRAME_ATOMIC_DRAW_CG_CONTEXT (f) : FRAME_CG_CONTEXT (f);
+  bool atomic_p = mac_frame_atomic_draw_p (f);
+  CGContextRef context = atomic_p ?
+    FRAME_ATOMIC_DRAW_CG_CONTEXT (f) :
+    FRAME_CG_CONTEXT (f);
 
   CGContextRestoreGState (context);
 
-  if (FRAME_ATOMIC_DRAW_P (f))
+  if (atomic_p)
     return;
   
   if (global_focus_view_frame != f)
@@ -7827,44 +7840,29 @@ mac_end_cg_clip (struct frame *f)
     global_focus_view_modified_p = true;
 }
 
+/* Async drawing via the GCD queue */
 #if DRAWING_USE_GCD
 void
 mac_draw_to_frame (struct frame *f, GC gc, CGRect invalid_rect,
 		   void (^block) (CGContextRef, GC))
 {
   CGContextRef context;
-  if (FRAME_ATOMIC_DRAW_P(f) ||
+  if (mac_frame_atomic_draw_p (f) ||
       global_focus_view_frame != f ||
       global_focus_drawing_queue == NULL)
-    {  /* Process synchronously */
+    {  /* Process synchronously (including inside atomic draw) */
       context = mac_begin_cg_clip (f, gc, invalid_rect);  
       block (context, gc);
       mac_end_cg_clip (f);
     }
   else
     {
-      const CGRect *clip_rects;
-      CFIndex n_clip_rects;
-
-      if (gc->clip_rects_data)
-	{
-	  clip_rects = (const CGRect *) CFDataGetBytePtr (gc->clip_rects_data);
-	  n_clip_rects = (CFDataGetLength (gc->clip_rects_data)
-			  / sizeof (CGRect));
-	}
-      else
-	{
-	  clip_rects = NULL;   /* Just to avoid uninitialized use.  */
-	  n_clip_rects = 0;
-	}
-
       context = FRAME_CG_CONTEXT (f);
       gc = mac_duplicate_gc (gc);
 
       dispatch_async (global_focus_drawing_queue, ^{
 	  CGContextSaveGState (context);
-	  if (n_clip_rects)
-	    CGContextClipToRects (context, clip_rects, n_clip_rects);
+	  mac_clip_context_to_gc_rects (context, gc);
 	  if (FRAME_MAC_DOUBLE_BUFFERED_P (f))
 	    {
 	      EmacsFrameController *frameController = FRAME_CONTROLLER (f);
@@ -7884,12 +7882,33 @@ mac_draw_to_frame (struct frame *f, GC gc, CGRect invalid_rect,
 }
 #endif
 
-/* Atomic drawing (sync) */
+/* Atomic drawing (sync and/or async)
+
+  Composites multiple drawing actions into one atomic group which will
+  complete prior to backing invalidation.  Useful for preventing
+  flashing/flickering e.g. during pixel scrolling, for draw tasks all
+  targeting a single rectangular area of the frame.  While active, this
+  intercepts calls within BLOCK to `mac_draw_to_frame', and redirects
+  all drawing commands to a context associated with a CGLayer.  See
+  mac_draw_image_glyph_string for example usage.  Runs async if GCD is
+  enabled. */
+static bool
+mac_frame_atomic_draw_p(struct frame *f)
+{
+#if DRAWING_USE_GCD  
+  if (global_focus_drawing_queue &&
+      !dispatch_get_specific(kDrawingQueueKey))
+    return false;  /* Async atomic drawing happens ONLY on the drawing queue */
+#endif
+  return f->output_data.mac->atomic_draw.nesting_level > 0;
+}
+
 void
 mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
 			 void (^block) (CGContextRef, GC))
 {
-  void (^atomic_work)(CGContextRef) = ^(CGContextRef context) {
+  CGContextRef main_context;
+  void (^atomic_work)(CGContextRef, GC) = ^(CGContextRef context, GC gc) {
     struct atomic_draw *atmc = &FRAME_ATOMIC_DRAW (f);
     bool needs_allocation = false;
     CGSize currentSize;
@@ -7929,13 +7948,10 @@ mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
     if (needs_allocation)
       {
 	atmc->sandbox = CGLayerCreateWithContext(context, currentSize, NULL);
-	NSLog(@"[ATOMIC-DRAW] Reallocating layer at pixel size %0.1f, %0.1f (scale=%u)",
-	      currentSize.width, currentSize.height, scale);
 	atmc->cg_context = CGLayerGetContext(atmc->sandbox);
 	atmc->backing_scale_factor = scale;
 	if (scale > 1)
 	  CGContextScaleCTM(atmc->cg_context, scale, scale);  /* for Retina */
-	//CGContextSetInterpolationQuality(atmc->cg_context, kCGInterpolationLow);
       }
 
     CGContextSaveGState(atmc->cg_context);
@@ -7955,35 +7971,39 @@ mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
 
     if (atmc->nesting_level == 0) /* Composite Display */
       {
+	CGContextSaveGState(context);
 	CGContextClipToRect(context, rect);  /* Stay within rect bounds */
-	CGRect layerRect = rect; /* correctly display layers larger than rect */
+	/* display layers larger than the rect correctly */
+	CGRect layerRect = rect;
 	layerRect.size.width = currentSize.width / scale;
 	layerRect.size.height = currentSize.height / scale;
 	CGContextDrawLayerInRect(context, layerRect, atmc->sandbox);
+	CGContextRestoreGState(context);
       }
   };
 
-  /* Note: we must use synchronous processing because blocks will likely
-     need access to deeply nested stack variables, like glyph_string */
 #if DRAWING_USE_GCD
   if (global_focus_drawing_queue && global_focus_view_frame == f &&
       !dispatch_get_specific(kDrawingQueueKey)) /* no deadlocks! */
     {
-      dispatch_sync(global_focus_drawing_queue, ^{
-	  CGContextRef context = mac_begin_cg_clip(f, gc, rect);
-	  if(context)
-	    atomic_work(context);
-	  mac_end_cg_clip(f);
+      main_context = FRAME_CG_CONTEXT (f);
+      GC gc_copy = mac_duplicate_gc (gc);
+      dispatch_async(global_focus_drawing_queue, ^{
+	  CGContextSaveGState (main_context);
+	  mac_clip_context_to_gc_rects (main_context, gc_copy);
+	  atomic_work (main_context, gc_copy);
+	  CGContextRestoreGState (main_context);
+	  mac_free_gc (gc_copy);
       });
       global_focus_view_modified_p = true;
     }
   else
 #endif
-    { /* Fallback for no GCD or unfocused frame */
-      CGContextRef context = mac_begin_cg_clip(f, gc, rect);
-      if (context)
-	atomic_work(context);
-      mac_end_cg_clip(f);
+    { /* Synchronous fallback for no GCD or unfocused frame */
+      main_context = mac_begin_cg_clip (f, gc, rect);
+      if (main_context)
+	atomic_work (main_context, gc);
+      mac_end_cg_clip (f);
     }
 }
 

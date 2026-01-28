@@ -1872,6 +1872,34 @@ mac_draw_glyph_string_box (struct glyph_string *s)
 }
 
 
+/* Copy the glyph_string on the heap */
+
+static struct glyph_string *
+mac_persist_glyph_string (struct glyph_string *s)
+{
+  struct glyph_string *clone = malloc (sizeof (struct glyph_string));
+  if (!clone) return NULL;
+
+  *clone = *s; 
+
+  if (clone->img && clone->img->cg_image)
+    CGImageRetain (clone->img->cg_image);
+
+  /* char2b is rarely used in async drawing; if needed, clone s->char2b
+     here.  */
+
+  return clone;
+}
+
+static void
+mac_free_persisted_glyph_string (struct glyph_string *clone)
+{
+  if (clone->img && clone->img->cg_image)
+    CGImageRelease (clone->img->cg_image);
+  
+  free (clone);
+}
+
 /* Draw foreground of image glyph string S.  */
 
 static void
@@ -2062,8 +2090,8 @@ mac_draw_image_glyph_string (struct glyph_string *s)
 {
   CGRect atomic_rect = CGRectMake (s->x, s->y, s->background_width, s->height);
 
-  /* We need atomic drawing to prevent bg-flickering */
-  MAC_BEGIN_DRAW_TO_FRAME_ATOMIC (s->f, s->gc, atomic_rect, context);
+  /* We use atomic drawing to prevent background flickering */
+  MAC_BEGIN_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING (s, atomic_rect, context);
   {
     int box_line_hwidth = max (s->face->box_vertical_line_width, 0);
     int box_line_vwidth = max (s->face->box_horizontal_line_width, 0);
@@ -2110,13 +2138,13 @@ mac_draw_image_glyph_string (struct glyph_string *s)
     /* Draw the foreground.  */
     mac_draw_image_foreground (s);
 
-    /* If we need a relief around the image, draw it.  */
+    /* If we need a relief around the image, draw it. */
     if (s->img->relief
 	|| s->hl == DRAW_IMAGE_RAISED
 	|| s->hl == DRAW_IMAGE_SUNKEN)
       mac_draw_image_relief (s);
   }
-  MAC_END_DRAW_TO_FRAME_ATOMIC(s->f);
+  MAC_END_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING (s->f);
 }
 
 
