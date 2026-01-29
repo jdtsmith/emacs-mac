@@ -7750,20 +7750,22 @@ unset_global_focus_view_frame (void)
 
 /* Synchronous drawing */
 
-static void
-mac_clip_context_to_gc_rects(CGContextRef context, GC gc)
+static inline CFIndex
+mac_clip_context_to_gc_rects(CGContextRef context, GC gc, const CGRect **clip_rects)
 {
-  const CGRect *clip_rects = NULL;
   CFIndex n_clip_rects = 0;
-
+  if (clip_rects)
+    *clip_rects = NULL;
+  
   if (gc->clip_rects_data)
     {
-      clip_rects = (const CGRect *) CFDataGetBytePtr (gc->clip_rects_data);
+      *clip_rects = (const CGRect *) CFDataGetBytePtr (gc->clip_rects_data);
       n_clip_rects = CFDataGetLength (gc->clip_rects_data) / sizeof (CGRect);
     }
 
   if (n_clip_rects > 0)
-    CGContextClipToRects (context, clip_rects, n_clip_rects);
+    CGContextClipToRects (context, *clip_rects, n_clip_rects);
+  return n_clip_rects;
 }
 
 #if DRAWING_USE_GCD
@@ -7773,8 +7775,9 @@ CGContextRef
 mac_begin_cg_clip (struct frame *f, GC gc, CGRect invalid_rect)
 {
   CGContextRef context;
+  bool atomic_p = mac_frame_atomic_draw_p (f);
 
-  if (mac_frame_atomic_draw_p (f))
+  if (atomic_p)
     {
       context = FRAME_ATOMIC_DRAW_CG_CONTEXT (f);
     }
@@ -7794,12 +7797,13 @@ mac_begin_cg_clip (struct frame *f, GC gc, CGRect invalid_rect)
     }
   
   CGContextSaveGState (context);
-  mac_clip_context_to_gc_rects(context, gc);
+  const CGRect *clip_rects;
+  CFIndex n_clip_rects = mac_clip_context_to_gc_rects(context, gc, &clip_rects);
   
-  if (FRAME_MAC_DOUBLE_BUFFERED_P (f) && !mac_frame_atomic_draw_p (f))
+  if (FRAME_MAC_DOUBLE_BUFFERED_P (f) && !atomic_p)
     {
       EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-
+      
       [frameController invalidateEmacsViewBackingRect:invalid_rect
 					    clipRects:clip_rects
 						count:n_clip_rects
@@ -7862,7 +7866,9 @@ mac_draw_to_frame (struct frame *f, GC gc, CGRect invalid_rect,
 
       dispatch_async (global_focus_drawing_queue, ^{
 	  CGContextSaveGState (context);
-	  mac_clip_context_to_gc_rects (context, gc);
+	  const CGRect *clip_rects;
+	  CFIndex n_clip_rects = mac_clip_context_to_gc_rects(context, gc, &clip_rects);
+	  
 	  if (FRAME_MAC_DOUBLE_BUFFERED_P (f))
 	    {
 	      EmacsFrameController *frameController = FRAME_CONTROLLER (f);
