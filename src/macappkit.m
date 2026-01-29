@@ -7964,6 +7964,7 @@ mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
 
     /* Adjust logical coordinates so (x,y) in frame becomes (0,0) in sandbox */
     CGContextTranslateCTM(atmc->cg_context, -rect.origin.x, -rect.origin.y);
+    //CGContextClearRect(atmc->cg_context, rect);
 
     /* Offset pattern phase correctly, e.g. for stipples */
     CGSize pattern_offset = CGSizeMake(-rect.origin.x, -rect.origin.y);
@@ -7983,6 +7984,7 @@ mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
 	CGRect layerRect = rect;
 	layerRect.size.width = currentSize.width / scale;
 	layerRect.size.height = currentSize.height / scale;
+	CGContextSetBlendMode(context, kCGBlendModeCopy);
 	CGContextDrawLayerInRect(context, layerRect, atmc->sandbox);
 	CGContextRestoreGState(context);
       }
