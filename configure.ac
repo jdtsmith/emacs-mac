@@ -678,6 +678,11 @@ AC_ARG_ENABLE(mac-self-contained,
                 [enable self contained build under mac])],
                 EN_MAC_SELF_CONTAINED=$enableval)
 
+AC_ARG_ENABLE(mac-debug-signpost,
+[AS_HELP_STRING([--enable-mac-debug-signpost],
+                [enable signpost debugging events under mac])],
+                EN_MAC_DEBUG_SIGNPOST=$enableval)
+  
 AC_ARG_WITH([gnustep-conf],
 [AS_HELP_STRING([--with-gnustep-conf=FILENAME],
    [name of GNUstep configuration file to use on systems where the command
@@ -3036,6 +3041,10 @@ if test "${HAVE_MACGUI}" = yes; then
      lispdirrel="\${mac_appresdir}/lisp"
      test "$locallisppathset" = no && locallisppath="\${mac_appresdir}/site-lisp"
      INSTALL_ARCH_INDEP_EXTRA=
+  fi
+
+  if test "${EN_MAC_DEBUG_SIGNPOST}" = yes; then
+     AC_DEFINE(MAC_DEBUG_SIGNPOST, 1, [Enable mac signpost debugging])
   fi
 
   MAC_OBJ="mac.o macterm.o macfns.o macmenu.o macselect.o"

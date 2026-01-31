@@ -23,6 +23,11 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "frame.h"
 #include "../lwlib/lwlib-widget.h"
 
+#ifdef MAC_DEBUG_SIGNPOST
+#include <os/log.h>
+#include <os/signpost.h>
+#endif
+
 #define RGB_TO_ULONG(r, g, b) (((r) << 16) | ((g) << 8) | (b))
 #define ARGB_TO_ULONG(a, r, g, b) (((a) << 24) | ((r) << 16) | ((g) << 8) | (b))
 
@@ -312,6 +317,10 @@ struct mac_output
   /* Data representing the array of NativeRectangle's that will be
      inverted on drawRect: invocation.  */
   CFDataRef flash_rectangles_data;
+
+#ifdef MAC_DEBUG_SIGNPOST
+  os_signpost_id_t frame_update_spid;
+#endif
 };
 
 /* Return the X output data for frame F.  */
@@ -353,6 +362,10 @@ struct mac_output
 
 /* This gives the mac_display_info structure for the display F is on.  */
 #define FRAME_DISPLAY_INFO(f) ((void) (f), (&one_mac_display_info))
+
+#ifdef MAC_DEBUG_SIGNPOST
+#define FRAME_SIGNPOST_ID(f) ((f)->output_data.mac->frame_update_spid)
+#endif
 
 /* Mac-specific scroll bar stuff.  */
 
@@ -770,42 +783,76 @@ extern CFTypeRef mac_sound_create (Lisp_Object, Lisp_Object);
 extern void mac_sound_play (CFTypeRef, Lisp_Object, Lisp_Object);
 extern void mac_within_gui (void (^block) (void));
 
+/* Signpost debugging */
+#if defined(MAC_DEBUG_SIGNPOST) && defined(DRAWING_USE_GCD)
+extern os_log_t _mac_sp_log_poi;
+extern os_log_t _mac_sp_log_drawing_queue;
+#define MAC_SIGNPOST_WRAP_BEGIN(label, format, ...)			\
+  os_signpost_id_t _spid = 0;						\
+  do {									\
+    if (_mac_sp_log_drawing_queue && os_signpost_enabled(_mac_sp_log_drawing_queue)) { \
+      _spid = os_signpost_id_generate(_mac_sp_log_drawing_queue);		\
+      os_signpost_interval_begin(_mac_sp_log_drawing_queue, _spid, "DrawTask", \
+				 "Task:%{public}s | Caller:%{public}s " format, \
+				 label, __FUNCTION__, ##__VA_ARGS__);	\
+    }									\
+  } while (0)
+#define MAC_SIGNPOST_RECT_WRAP_BEGIN(label, rect)			\
+  MAC_SIGNPOST_WRAP_BEGIN(label, "| W:%d H:%d", (int)(rect).size.width, (int)(rect).size.height)
+#define MAC_SIGNPOST_WRAP_END()						\
+  do {									\
+    if (_mac_sp_log_drawing_queue) {					\
+      os_signpost_interval_end(_mac_sp_log_drawing_queue, _spid, "DrawTask"); \
+    }									\
+  } while (0)
+#else /* !(DEBUG_SIGNPOST && USE_GCD) */
+#define MAC_SIGNPOST_WRAP_BEGIN(...)
+#define MAC_SIGNPOST_RECT_WRAP_BEGIN(...)
+#define MAC_SIGNPOST_WRAP_END()
+#endif
+
+/* Drawing Macros */
+
 #if DRAWING_USE_GCD
-#define MAC_BEGIN_DRAW_TO_FRAME(f, gc_draw, rect, context)			\
-  mac_draw_to_frame (f, gc_draw, rect, ^(CGContextRef context, GC gc) {
+#define MAC_BEGIN_DRAW_TO_FRAME(f, gc_draw, rect, context)		\
+  mac_draw_to_frame (f, gc_draw, rect, ^(CGContextRef context, GC gc) {	\
+    MAC_SIGNPOST_RECT_WRAP_BEGIN("Single", rect)
 #define MAC_END_DRAW_TO_FRAME(f)		\
+    MAC_SIGNPOST_WRAP_END();			\
   })
-#else
+#else /* !DRAWING_USE_GCD */
 #define MAC_BEGIN_DRAW_TO_FRAME(f, gc, rect, context)		\
   do {CGContextRef context = mac_begin_cg_clip (f, gc, rect)
 #define MAC_END_DRAW_TO_FRAME(f)		\
   mac_end_cg_clip (f);} while (0)
 #endif
 
-#define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC(f, gc_draw, rect, context)			\
-  mac_draw_to_frame_atomic (f, gc_draw, rect, ^(CGContextRef context, GC gc) {
-#define MAC_END_DRAW_TO_FRAME_ATOMIC(f)		\
+#define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC(f, gc_draw, rect, context)	\
+  mac_draw_to_frame_atomic (f, gc_draw, rect, ^(CGContextRef context, GC gc) { \
+    MAC_SIGNPOST_RECT_WRAP_BEGIN("Atomic", rect)
+#define MAC_END_DRAW_TO_FRAME_ATOMIC(f)	\
+    MAC_SIGNPOST_WRAP_END();		\
   })
 
 #if DRAWING_USE_GCD
 #define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(s_arg, rect, context) \
-  struct glyph_string *s_atomic = mac_persist_glyph_string(s_arg);     \
-  struct frame *f_atomic = s_arg->f;					\
-  GC gc_atomic = s_arg->gc;						\
-  mac_draw_to_frame_atomic (f_atomic, gc_atomic, rect, ^(CGContextRef context, GC gc) { \
-      struct glyph_string *s = s_atomic; /* alias s inside block */	\
-      s->gc = gc
+  struct glyph_string *s_atomic = mac_persist_glyph_string(s_arg);	\
+  mac_draw_to_frame_atomic (s_atomic->f, s_atomic->gc, rect, ^(CGContextRef context, GC gc) { \
+    MAC_SIGNPOST_RECT_WRAP_BEGIN("AtomicGS", rect);			\
+    struct glyph_string *s = s_atomic;					\
+    s->gc = gc
 #define MAC_END_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(f)	       \
-      mac_free_persisted_glyph_string(s_atomic);		       \
+    MAC_SIGNPOST_WRAP_END();				       \
+    mac_free_persisted_glyph_string(s_atomic);			       \
   })
-#else
+#else /* !DRAWING_USE_GCD */
 #define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(s_arg, rect, context) \
-  mac_draw_to_frame_atomic (s_arg->f, s_arg->gc, rect, ^(CGContextRef context, GC gc) { \
-      struct glyph_string *s = s_arg
+  struct glyph_string *s_atomic = (s_arg);				\
+  mac_draw_to_frame_atomic (s_atomic->f, s_atomic->gc, rect, ^(CGContextRef context, GC gc) { \
+    struct glyph_string *s = s_atomic
 #define MAC_END_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(f)                   \
   })
 #endif
-
 
 #define CG_CONTEXT_FILL_RECT_WITH_GC_BACKGROUND(f, context, rect, gc,	\
 						respect_alpha_background) \

@@ -53,6 +53,22 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 #define CF_ESCAPING_BRIDGE(X)		((CFTypeRef) (X))
 #endif
 
+
+#ifdef MAC_DEBUG_SIGNPOST
+os_log_t _mac_sp_log_poi;
+/* Run automatically on binary load */
+__attribute__((constructor))
+static void _mac_init_pois(void) {
+    _mac_sp_log_poi = os_log_create("org.gnu.Emacs", OS_LOG_CATEGORY_POINTS_OF_INTEREST);
+}
+os_log_t _mac_sp_log_drawing_queue;
+/* Run automatically on binary load */
+__attribute__((constructor))
+static void _mac_init_signposts(void) {
+    _mac_sp_log_drawing_queue = os_log_create("org.gnu.Emacs", OS_LOG_CATEGORY_DYNAMIC_TRACING);
+}
+#endif
+
 /************************************************************************
 			       General
  ************************************************************************/
@@ -5362,7 +5378,14 @@ void
 mac_update_frame_begin (struct frame *f)
 {
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-
+#ifdef MAC_DEBUG_SIGNPOST
+  FRAME_SIGNPOST_ID (f) = os_signpost_id_generate(_mac_sp_log_poi);
+  os_signpost_interval_begin (_mac_sp_log_poi, FRAME_SIGNPOST_ID (f),
+			      "FrameUpdate", "%{public}s",
+			      (STRINGP ((f)->name)
+			       ? SSDATA ((f)->name)
+			       : "Unnamed Frame"));
+#endif
   mac_within_gui (^{
       [frameController lockFocusOnEmacsView];
       set_global_focus_view_frame (f);
@@ -5378,6 +5401,10 @@ mac_update_frame_end (struct frame *f)
       unset_global_focus_view_frame ();
       [frameController unlockFocusOnEmacsView];
     });
+
+#ifdef MAC_DEBUG_SIGNPOST
+  os_signpost_interval_end(_mac_sp_log_poi, FRAME_SIGNPOST_ID (f), "FrameUpdate");
+#endif
 }
 
 /* Create a new Mac window for the frame F and store its delegate in
@@ -7707,7 +7734,22 @@ mac_draw_queue_sync (void)
   if (global_focus_drawing_queue &&
       /* Avoid deadlock if already on the drawing queue */
       !dispatch_get_specific(kDrawingQueueKey))
+    {
+#ifdef MAC_DEBUG_SIGNPOST
+      os_signpost_id_t _spid = 0;
+      if (global_focus_view_frame)
+	{
+	  _spid = FRAME_SIGNPOST_ID (global_focus_view_frame);
+	  os_signpost_interval_begin (_mac_sp_log_poi, _spid,
+				      "FrameQueueDrain");
+	}
+#endif
       dispatch_sync (global_focus_drawing_queue, ^{});
+#ifdef MAC_DEBUG_SIGNPOST
+      if (_spid)
+	os_signpost_interval_end(_mac_sp_log_poi, _spid, "FrameQueueDrain");
+#endif
+    }
 #endif
 }
 
