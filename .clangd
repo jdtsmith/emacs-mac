@@ -1,5 +1,5 @@
 ---
 If:
-    PathMatch: "src/*.c"
+    PathMatch: "*.[ch]"
 CompileFlags:
-    Add: [-Wno-unused-macros, -include=config.h]
+    Add: [-Wno-unused-macros, -include=src/config.h]
