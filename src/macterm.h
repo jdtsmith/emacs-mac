@@ -699,7 +699,7 @@ extern void mac_draw_to_frame (struct frame *, GC, CGRect,
 			       void (^) (CGContextRef, GC));
 #else
 extern CGContextRef mac_begin_cg_clip (struct frame *, GC, CGRect);
-extern void mac_end_cg_clip (struct frame *);
+extern void mac_end_cg_clip (CGContextRef, struct frame *);
 #endif
 extern void mac_draw_to_frame_atomic(struct frame *, GC, CGRect,
 				     void (^) (CGContextRef, GC));
@@ -824,7 +824,7 @@ extern os_log_t _mac_sp_log_drawing_queue;
 #define MAC_BEGIN_DRAW_TO_FRAME(f, gc, rect, context)		\
   do {CGContextRef context = mac_begin_cg_clip (f, gc, rect)
 #define MAC_END_DRAW_TO_FRAME(f)		\
-  mac_end_cg_clip (f);} while (0)
+  mac_end_cg_clip (context, f);} while (0)
 #endif
 
 #define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC(f, gc_draw, rect, context)	\

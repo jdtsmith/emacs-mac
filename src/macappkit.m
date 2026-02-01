@@ -7859,12 +7859,9 @@ mac_begin_cg_clip (struct frame *f, GC gc, CGRect invalid_rect)
 static
 #endif
 void
-mac_end_cg_clip (struct frame *f)
+mac_end_cg_clip (CGContextRef context, struct frame *f)
 {
   bool atomic_p = mac_frame_atomic_draw_p (f);
-  CGContextRef context = atomic_p ?
-    FRAME_ATOMIC_DRAW_CG_CONTEXT (f) :
-    FRAME_CG_CONTEXT (f);
 
   CGContextRestoreGState (context);
 
@@ -7899,7 +7896,7 @@ mac_draw_to_frame (struct frame *f, GC gc, CGRect invalid_rect,
     {  /* Process synchronously (including inside atomic draw) */
       context = mac_begin_cg_clip (f, gc, invalid_rect);  
       block (context, gc);
-      mac_end_cg_clip (f);
+      mac_end_cg_clip (context, f);
     }
   else
     {
@@ -8053,7 +8050,7 @@ mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
       main_context = mac_begin_cg_clip (f, gc, rect);
       if (main_context)
 	atomic_work (main_context, gc);
-      mac_end_cg_clip (f);
+      mac_end_cg_clip (main_context, f);
     }
 }
 
