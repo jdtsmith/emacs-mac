@@ -558,7 +558,7 @@ create_apple_event_from_lisp (Lisp_Object apple_event, AppleEvent *result)
 
 static pascal OSErr
 mac_coerce_file_name_ptr (DescType type_code, const void *data_ptr,
-			  Size data_size, DescType to_type, long handler_refcon,
+			  Size data_size, DescType to_type, void *handler_refcon,
 			  AEDesc *result)
 {
   OSErr err;
@@ -642,7 +642,7 @@ mac_coerce_file_name_ptr (DescType type_code, const void *data_ptr,
 
 static pascal OSErr
 mac_coerce_file_name_desc (const AEDesc *from_desc, DescType to_type,
-			   long handler_refcon, AEDesc *result)
+			   void *handler_refcon, AEDesc *result)
 {
   OSErr err = noErr;
   DescType from_type = from_desc->descriptorType;
@@ -686,11 +686,11 @@ init_coercion_handler (void)
     }
 
   err = AEInstallCoercionHandler (TYPE_FILE_NAME, typeWildCard,
-				  (AECoercionHandlerUPP)
+				  (AECoercionHandlerUPP)(void *)
 				  coerce_file_name_ptrUPP, 0, false, false);
   if (err == noErr)
     err = AEInstallCoercionHandler (typeWildCard, TYPE_FILE_NAME,
-				    (AECoercionHandlerUPP)
+				    (AECoercionHandlerUPP)(void *)
 				    coerce_file_name_ptrUPP, 0, false, false);
   if (err == noErr)
     err = AEInstallCoercionHandler (TYPE_FILE_NAME, typeWildCard,
