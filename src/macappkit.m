@@ -7802,27 +7802,19 @@ static
 CGContextRef
 mac_begin_cg_clip (struct frame *f, GC gc, CGRect invalid_rect)
 {
-  CGContextRef context;
   bool atomic_p = mac_frame_atomic_draw_p (f);
 
-  if (atomic_p)
+  if (global_focus_view_frame != f)
     {
-      context = FRAME_ATOMIC_DRAW_CG_CONTEXT (f);
+      EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+      
+      mac_within_gui (^{
+	  [frameController lockFocusOnEmacsView];
+	  FRAME_CG_CONTEXT (f) = [[NSGraphicsContext currentContext] CGContext];
+	});
     }
-  else
-    {
-      if (global_focus_view_frame != f)
-	{
-	  EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-	  
-	  mac_within_gui (^{
-	      [frameController lockFocusOnEmacsView];
-	      FRAME_CG_CONTEXT (f) = [[NSGraphicsContext currentContext] CGContext];
-	    });
-	}
 
-      context = FRAME_CG_CONTEXT (f);
-    }
+  CGContextRef context = atomic_p ? FRAME_ATOMIC_DRAW_CG_CONTEXT (f) : FRAME_CG_CONTEXT (f);
   
   CGContextSaveGState (context);
   const CGRect *clip_rects;
@@ -7850,9 +7842,6 @@ mac_end_cg_clip (CGContextRef context, struct frame *f)
   bool atomic_p = mac_frame_atomic_draw_p (f);
 
   CGContextRestoreGState (context);
-
-  if (atomic_p)
-    return;
   
   if (global_focus_view_frame != f)
     {
@@ -7861,7 +7850,7 @@ mac_end_cg_clip (CGContextRef context, struct frame *f)
       mac_within_gui (^{
 	  [frameController unlockFocusOnEmacsView];
 	  FRAME_CG_CONTEXT (f) = NULL;
-	  if (FRAME_MAC_DOUBLE_BUFFERED_P (f))
+	  if (FRAME_MAC_DOUBLE_BUFFERED_P (f) && !atomic_p)
 	    [frameController setEmacsViewNeedsDisplay:YES];
 	});
     }
