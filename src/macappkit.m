@@ -61,12 +61,14 @@ __attribute__((constructor))
 static void _mac_init_pois(void) {
     _mac_sp_log_poi = os_log_create("org.gnu.Emacs", OS_LOG_CATEGORY_POINTS_OF_INTEREST);
 }
+#ifdef DRAWING_USE_GCD
 os_log_t _mac_sp_log_drawing_queue;
 /* Run automatically on binary load */
 __attribute__((constructor))
 static void _mac_init_signposts(void) {
     _mac_sp_log_drawing_queue = os_log_create("org.gnu.Emacs", OS_LOG_CATEGORY_DYNAMIC_TRACING);
 }
+#endif
 #endif
 
 /************************************************************************
@@ -2462,6 +2464,9 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   emacsView.layerContentsPlacement = NSViewLayerContentsPlacementTopLeft;
 #ifdef HAVE_XWIDGETS
   FRAME_MAC_VIEW (f) = (__bridge void *) emacsView;
+#endif
+#ifdef MAC_DEBUG_SIGNPOST
+  FRAME_SIGNPOST_ID (f) = os_signpost_id_generate(_mac_sp_log_poi);
 #endif
 }
 
@@ -5378,14 +5383,7 @@ void
 mac_update_frame_begin (struct frame *f)
 {
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-#ifdef MAC_DEBUG_SIGNPOST
-  FRAME_SIGNPOST_ID (f) = os_signpost_id_generate(_mac_sp_log_poi);
-  os_signpost_interval_begin (_mac_sp_log_poi, FRAME_SIGNPOST_ID (f),
-			      "FrameUpdate", "%{public}s",
-			      (STRINGP ((f)->name)
-			       ? SSDATA ((f)->name)
-			       : "Unnamed Frame"));
-#endif
+  MAC_SIGNPOST_FRAME_BEGIN(FrameUpdate, f);
   mac_within_gui (^{
       [frameController lockFocusOnEmacsView];
       set_global_focus_view_frame (f);
@@ -5401,10 +5399,7 @@ mac_update_frame_end (struct frame *f)
       unset_global_focus_view_frame ();
       [frameController unlockFocusOnEmacsView];
     });
-
-#ifdef MAC_DEBUG_SIGNPOST
-  os_signpost_interval_end(_mac_sp_log_poi, FRAME_SIGNPOST_ID (f), "FrameUpdate");
-#endif
+  MAC_SIGNPOST_FRAME_END(FrameUpdate, f);
 }
 
 /* Create a new Mac window for the frame F and store its delegate in
@@ -5947,8 +5942,10 @@ mac_iosurface_create (size_t width, size_t height)
 {
   if (copyFromFrontToBackSemaphore)
     {
+      MAC_SIGNPOST_GEN_BEGIN(poi, waitCopyFront2Back, "");
       dispatch_semaphore_wait (copyFromFrontToBackSemaphore,
 			       DISPATCH_TIME_FOREVER);
+      MAC_SIGNPOST_GEN_END(poi, waitCopyFront2Back);
 #if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
       dispatch_release (copyFromFrontToBackSemaphore);
 #endif
@@ -7735,20 +7732,9 @@ mac_draw_queue_sync (void)
       /* Avoid deadlock if already on the drawing queue */
       !dispatch_get_specific(kDrawingQueueKey))
     {
-#ifdef MAC_DEBUG_SIGNPOST
-      os_signpost_id_t _spid = 0;
-      if (global_focus_view_frame)
-	{
-	  _spid = FRAME_SIGNPOST_ID (global_focus_view_frame);
-	  os_signpost_interval_begin (_mac_sp_log_poi, _spid,
-				      "FrameQueueDrain");
-	}
-#endif
+      MAC_SIGNPOST_FRAME_BEGIN(DrainDrawQueue, global_focus_view_frame);
       dispatch_sync (global_focus_drawing_queue, ^{});
-#ifdef MAC_DEBUG_SIGNPOST
-      if (_spid)
-	os_signpost_interval_end(_mac_sp_log_poi, _spid, "FrameQueueDrain");
-#endif
+      MAC_SIGNPOST_FRAME_END(DrainDrawQueue, global_focus_view_frame);
     }
 #endif
 }

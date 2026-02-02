@@ -113,7 +113,7 @@ struct mac_display_info
      mouse-face.  */
   Mouse_HLInfo mouse_highlight;
 
-  /* Default name for all frames on this display.  */
+  /* Default spname for all frames on this display.  */
   char *mac_id_name;
 
   /* The number of fonts opened for this display.  */
@@ -358,7 +358,7 @@ struct mac_output
 #define FRAME_ATOMIC_DRAW(f) \
   ((f)->output_data.mac->atomic_draw)
 #define FRAME_ATOMIC_DRAW_P(f) \
-  ((f)->output_data.mac->atomic_draw.nesting_level > 0)
+  (FRAME_ATOMIC_DRAW(f).nesting_level > 0)
 
 /* This gives the mac_display_info structure for the display F is on.  */
 #define FRAME_DISPLAY_INFO(f) ((void) (f), (&one_mac_display_info))
@@ -784,41 +784,82 @@ extern void mac_sound_play (CFTypeRef, Lisp_Object, Lisp_Object);
 extern void mac_within_gui (void (^block) (void));
 
 /* Signpost debugging */
-#if defined(MAC_DEBUG_SIGNPOST) && defined(DRAWING_USE_GCD)
+#ifdef MAC_DEBUG_SIGNPOST
 extern os_log_t _mac_sp_log_poi;
+/* N.B.: In calls to these macros, SPNAME is always a bare symbol
+   without quotes */
+#define MAC_SIGNPOST_BEGIN(spid, type, spname, format, ...)		\
+  do {									\
+    os_signpost_interval_begin(_mac_sp_log_##type, spid,		\
+			       #spname, format, ##__VA_ARGS__);		\
+  } while (0)
+#define MAC_SIGNPOST_END(spid, type, spname)				\
+  do {									\
+    if (_mac_sp_log_##type) {						\
+      os_signpost_interval_end(_mac_sp_log_##type, spid, #spname);	\
+    }									\
+  } while (0)
+/* Note: any use of BEGIN/END_GEN must be within a single block.
+   Multiple uses within a single block must have different NAMEs. */
+#define MAC_SIGNPOST_GEN_BEGIN(type, spname, ...)			\
+  os_signpost_id_t _spid_ ## spname  = os_signpost_id_generate(_mac_sp_log_##type); \
+  MAC_SIGNPOST_BEGIN(_spid_ ## spname, type, spname, ##__VA_ARGS__)
+#define MAC_SIGNPOST_GEN_END(type, spname)		\
+  MAC_SIGNPOST_END(_spid_ ## spname, type, spname)
+#define MAC_SIGNPOST_POI_BEGIN(spid, spname, format, ...)	\
+  MAC_SIGNPOST_BEGIN(spid, poi, spname, format, ##__VA_ARGS__)
+#define MAC_SIGNPOST_POI_END(spid, spname)	\
+  MAC_SIGNPOST_END(spid, poi, spname)
+#define MAC_SIGNPOST_FRAME_BEGIN(spname, f)				\
+  do {									\
+    if (f)								\
+      { MAC_SIGNPOST_POI_BEGIN(FRAME_SIGNPOST_ID(f), spname,		\
+			       "Frame: %{public}s",			\
+			       (STRINGP((f)->name) ?			\
+				SSDATA((f)->name) : "Unnamed"));	\
+      }									\
+  } while (0)
+#define MAC_SIGNPOST_FRAME_END(spname, f)				\
+  do {									\
+    if (f) { MAC_SIGNPOST_POI_END(FRAME_SIGNPOST_ID(f), spname); }	\
+  } while (0)
+#ifdef DRAWING_USE_GCD
 extern os_log_t _mac_sp_log_drawing_queue;
-#define MAC_SIGNPOST_WRAP_BEGIN(label, format, ...)			\
-  os_signpost_id_t _spid = 0;						\
-  do {									\
-    if (_mac_sp_log_drawing_queue && os_signpost_enabled(_mac_sp_log_drawing_queue)) { \
-      _spid = os_signpost_id_generate(_mac_sp_log_drawing_queue);		\
-      os_signpost_interval_begin(_mac_sp_log_drawing_queue, _spid, "DrawTask", \
-				 "Task:%{public}s | Caller:%{public}s " format, \
-				 label, __FUNCTION__, ##__VA_ARGS__);	\
-    }									\
-  } while (0)
-#define MAC_SIGNPOST_RECT_WRAP_BEGIN(label, rect)			\
-  MAC_SIGNPOST_WRAP_BEGIN(label, "| W:%d H:%d", (int)(rect).size.width, (int)(rect).size.height)
-#define MAC_SIGNPOST_WRAP_END()						\
-  do {									\
-    if (_mac_sp_log_drawing_queue) {					\
-      os_signpost_interval_end(_mac_sp_log_drawing_queue, _spid, "DrawTask"); \
-    }									\
-  } while (0)
-#else /* !(DEBUG_SIGNPOST && USE_GCD) */
-#define MAC_SIGNPOST_WRAP_BEGIN(...)
-#define MAC_SIGNPOST_RECT_WRAP_BEGIN(...)
-#define MAC_SIGNPOST_WRAP_END()
+#define MAC_SIGNPOST_DRAW_BEGIN(task, format, ...)			\
+  MAC_SIGNPOST_GEN_BEGIN(drawing_queue, Draw,				\
+			 "Task:%{public}s | Caller:%{public}s" format,	\
+			 task, __FUNCTION__, ##__VA_ARGS__)
+#define MAC_SIGNPOST_DRAW_END() \
+  MAC_SIGNPOST_GEN_END(drawing_queue, Draw)
+#define MAC_SIGNPOST_DRAW_RECT_BEGIN(task, rect)			\
+  MAC_SIGNPOST_DRAW_BEGIN(task, " | W:%d H:%d",				\
+			  (int)(rect).size.width,			\
+			  (int)(rect).size.height)
+#define MAC_SIGNPOST_DRAW_RECT_END MAC_SIGNPOST_DRAW_END
+#endif
+
+#else /* !DEBUG_SIGNPOST */
+#define MAC_SIGNPOST_BEGIN(...)
+#define MAC_SIGNPOST_END(...)
+#define MAC_SIGNPOST_GEN_BEGIN(...)
+#define MAC_SIGNPOST_GEN_END(...)
+#define MAC_SIGNPOST_POI_BEGIN(...)
+#define MAC_SIGNPOST_POI_END(...)
+#define MAC_SIGNPOST_FRAME_BEGIN(...)
+#define MAC_SIGNPOST_FRAME_END(...)
+#define MAC_SIGNPOST_DRAW_BEGIN(...)
+#define MAC_SIGNPOST_DRAW_END()
+#define MAC_SIGNPOST_DRAW_RECT_BEGIN(...)
+#define MAC_SIGNPOST_DRAW_RECT_END()
 #endif
 
 /* Drawing Macros */
-
 #if DRAWING_USE_GCD
 #define MAC_BEGIN_DRAW_TO_FRAME(f, gc_draw, rect, context)		\
   mac_draw_to_frame (f, gc_draw, rect, ^(CGContextRef context, GC gc) {	\
-    MAC_SIGNPOST_RECT_WRAP_BEGIN("Single", rect)
-#define MAC_END_DRAW_TO_FRAME(f)		\
-    MAC_SIGNPOST_WRAP_END();			\
+    MAC_SIGNPOST_DRAW_RECT_BEGIN("Single", rect)
+#define MAC_END_DRAW_TO_FRAME(f)				\
+    MAC_SIGNPOST_DRAW_RECT_END();				\
   })
 #else /* !DRAWING_USE_GCD */
 #define MAC_BEGIN_DRAW_TO_FRAME(f, gc, rect, context)		\
@@ -829,20 +870,20 @@ extern os_log_t _mac_sp_log_drawing_queue;
 
 #define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC(f, gc_draw, rect, context)	\
   mac_draw_to_frame_atomic (f, gc_draw, rect, ^(CGContextRef context, GC gc) { \
-    MAC_SIGNPOST_RECT_WRAP_BEGIN("Atomic", rect)
-#define MAC_END_DRAW_TO_FRAME_ATOMIC(f)	\
-    MAC_SIGNPOST_WRAP_END();		\
+    MAC_SIGNPOST_DRAW_RECT_BEGIN("Atomic", rect)
+#define MAC_END_DRAW_TO_FRAME_ATOMIC(f)			\
+    MAC_SIGNPOST_DRAW_RECT_END();			\
   })
 
 #if DRAWING_USE_GCD
 #define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(s_arg, rect, context) \
   struct glyph_string *s_atomic = mac_persist_glyph_string(s_arg);	\
   mac_draw_to_frame_atomic (s_atomic->f, s_atomic->gc, rect, ^(CGContextRef context, GC gc) { \
-    MAC_SIGNPOST_RECT_WRAP_BEGIN("AtomicGS", rect);			\
+    MAC_SIGNPOST_DRAW_RECT_BEGIN("Atomic+GS", rect);			\
     struct glyph_string *s = s_atomic;					\
     s->gc = gc
 #define MAC_END_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(f)	       \
-    MAC_SIGNPOST_WRAP_END();				       \
+    MAC_SIGNPOST_DRAW_RECT_END();					       \
     mac_free_persisted_glyph_string(s_atomic);			       \
   })
 #else /* !DRAWING_USE_GCD */
