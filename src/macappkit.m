@@ -7927,7 +7927,6 @@ void
 mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
 			 void (^block) (CGContextRef, GC))
 {
-  CGContextRef main_context;
   void (^atomic_work)(CGContextRef, GC) = ^(CGContextRef context, GC gc) {
     struct atomic_draw *atmc = &FRAME_ATOMIC_DRAW (f);
     bool needs_allocation = false;
@@ -8008,12 +8007,11 @@ mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
   if (global_focus_drawing_queue && global_focus_view_frame == f &&
       !dispatch_get_specific(kDrawingQueueKey)) /* no deadlocks! */
     {
-      main_context = FRAME_CG_CONTEXT (f);
       GC gc_copy = gc ? mac_duplicate_gc (gc) : NULL;
       dispatch_async(global_focus_drawing_queue, ^{
-	  CGContextSaveGState (main_context);
-	  atomic_work (main_context, gc_copy);
-	  CGContextRestoreGState (main_context);
+	  CGContextRef context = mac_begin_cg_clip (f, gc_copy, rect);
+	  atomic_work (context, gc_copy);
+	  mac_end_cg_clip(context, f);
 	  if (gc_copy)
 	    mac_free_gc (gc_copy);
       });
@@ -8022,10 +8020,10 @@ mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
   else
 #endif
     { /* Synchronous fallback for no GCD or unfocused frame */
-      main_context = mac_begin_cg_clip (f, gc, rect);
-      if (main_context)
-	atomic_work (main_context, gc);
-      mac_end_cg_clip (main_context, f);
+      CGContextRef context = mac_begin_cg_clip (f, gc, rect);
+      if (context)
+	atomic_work (context, gc);
+      mac_end_cg_clip (context, f);
     }
 }
 
