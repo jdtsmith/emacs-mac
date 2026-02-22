@@ -16,6 +16,8 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 
+// * Import/includes and general macros
+
 #include <config.h>
 #include "lisp.h"
 #include "blockinput.h"
@@ -71,9 +73,7 @@ static void _mac_init_signposts(void) {
 #endif
 #endif
 
-/************************************************************************
-			       General
- ************************************************************************/
+// * General Emacs Categories 
 
 enum {
   ANY_MOUSE_EVENT_MASK = (NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp
@@ -142,6 +142,9 @@ static bool mac_frame_atomic_draw_p(struct frame *);
 static bool mac_select_allow_lisp_evaluation;
 #endif
 
+
+// ** NSData
+
 @implementation NSData (Emacs)
 
 /* Return a unibyte Lisp string.  */
@@ -153,6 +156,8 @@ static bool mac_select_allow_lisp_evaluation;
 
 @end				// NSData (Emacs)
 
+
+// ** NSString
 @implementation NSString (Emacs)
 
 /* Return a string created from the Lisp string.  May cause GC.  */
@@ -256,6 +261,8 @@ static bool mac_select_allow_lisp_evaluation;
 
 @end				// NSString (Emacs)
 
+// ** NSMutableArray
+
 @implementation NSMutableArray (Emacs)
 
 - (void)enqueue:(id)obj
@@ -282,6 +289,8 @@ static bool mac_select_allow_lisp_evaluation;
 
 @end				// NSMutableArray (Emacs)
 
+// ** NSFont
+
 @implementation NSFont (Emacs)
 
 /* Return an NSFont object for the specified FACE.  */
@@ -295,6 +304,8 @@ static bool mac_select_allow_lisp_evaluation;
 }
 
 @end				// NSFont (Emacs)
+
+// ** NSEvent
 
 @implementation NSEvent (Emacs)
 
@@ -418,6 +429,8 @@ mac_cgevent_set_unicode_string_from_event_ref (CGEventRef cgevent,
 
 @end				// NSEvent (Emacs)
 
+// ** NSAttributedString
+
 @implementation NSAttributedString (Emacs)
 
 /* Return a unibyte Lisp string with text properties, in UTF 16
@@ -457,6 +470,8 @@ mac_cgevent_set_unicode_string_from_event_ref (CGEventRef cgevent,
 
 @end				// NSAttributedString (Emacs)
 
+// ** NSColor
+
 @implementation NSColor (Emacs)
 
 + (NSColor *)colorWithEmacsColorPixel:(unsigned long)pixel
@@ -480,6 +495,8 @@ mac_cgevent_set_unicode_string_from_event_ref (CGEventRef cgevent,
 }
 
 @end				// NSColor (Emacs)
+
+// ** NSImage
 
 @implementation NSImage (Emacs)
 
@@ -505,6 +522,8 @@ mac_cgevent_set_unicode_string_from_event_ref (CGEventRef cgevent,
 }
 
 @end				// NSImage (Emacs)
+
+// ** NSApplication
 
 @implementation NSApplication (Emacs)
 
@@ -555,6 +574,8 @@ mac_within_app (void (^block) (void))
   else
     block ();
 }
+
+// ** NSScreen
 
 @implementation NSScreen (Emacs)
 
@@ -626,6 +647,8 @@ mac_within_app (void (^block) (void))
 
 @end				// NSScreen (Emacs)
 
+// ** NSWindow
+
 /* Default implementation.  Will be overridden in EmacsWindow.  */
 
 @implementation NSWindow (Emacs)
@@ -663,6 +686,8 @@ mac_within_app (void (^block) (void))
 }
 
 @end				// NSWindow (Emacs)
+
+// ** NSCursor
 
 @implementation NSCursor (Emacs)
 
@@ -737,6 +762,8 @@ mac_within_app (void (^block) (void))
 }
 
 @end				// NSCursor (Emacs)
+
+// ** EmacsPosingWindow
 
 @implementation EmacsPosingWindow
 
@@ -1120,11 +1147,7 @@ mac_uti_copy_mime_type (CFStringRef uti)
 #endif
 }
 
-
-/************************************************************************
-			     Application
- ************************************************************************/
-
+// * Application
 #define FRAME_CONTROLLER(f) ((__bridge EmacsFrameController *)	\
 			     FRAME_MAC_WINDOW (f))
 #define FRAME_MAC_WINDOW_OBJECT(f) ([FRAME_CONTROLLER(f) emacsWindow])
@@ -1150,6 +1173,8 @@ static EventRef mac_peek_next_event (void);
 
 /* True if we are executing handleQueuedNSEventsWithHoldingQuitIn:.  */
 static bool handling_queued_nsevents_p;
+
+// ** EmacsApplication
 
 @implementation EmacsApplication
 
@@ -1197,6 +1222,8 @@ static bool handling_queued_nsevents_p;
 }
 
 @end				// EmacsApplication
+
+// ** EmacsController
 
 @implementation EmacsController
 
@@ -2053,10 +2080,7 @@ mac_application_state (void)
   return result;
 }
 
-
-/************************************************************************
-			       Windows
- ************************************************************************/
+// * Windows
 
 static void set_global_focus_view_frame (struct frame *);
 static void unset_global_focus_view_frame (void);
@@ -2065,6 +2089,8 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 #define DEFAULT_NUM_COLS (80)
 #define RESIZE_CONTROL_WIDTH (15)
 #define RESIZE_CONTROL_HEIGHT (15)
+
+// ** EmacsWindow
 
 @implementation EmacsWindow
 
@@ -2421,6 +2447,8 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 }
 
 @end				// EmacsWindow
+
+// ** EmacsFrameController
 
 @implementation EmacsFrameController
 
@@ -5743,10 +5771,7 @@ mac_frame_restack (struct frame *f1, struct frame *f2, bool above_flag)
   unblock_input ();
 }
 
-
-/************************************************************************
-			   View and Drawing
- ************************************************************************/
+// * View and Drawing
 
 /* Array of Carbon key events that are deferred during the execution
    of AppleScript.  NULL if not executing AppleScript.  */
@@ -5755,6 +5780,8 @@ static CFMutableArrayRef deferred_key_events;
 static int mac_event_to_emacs_modifiers (NSEvent *);
 static bool mac_try_buffer_and_glyph_matrix_access (void);
 static void mac_end_buffer_and_glyph_matrix_access (void);
+
+// ** EmacsBacking
 
 @implementation EmacsBacking
 
@@ -6284,6 +6311,9 @@ mac_texture_create_with_surface (id <MTLDevice> device, IOSurfaceRef surface)
 
 @end				// EmacsBacking
 
+
+// ** EmacsView
+
 /* View for Emacs frame.  */
 
 @implementation EmacsView
@@ -6504,6 +6534,8 @@ static BOOL emacsViewUpdateLayerDisabled;
 }
 
 @end				// EmacsView
+
+// ** EmacsMainView
 
 @implementation EmacsMainView
 
@@ -8053,6 +8085,8 @@ mac_scroll_area (struct frame *f, GC gc, int src_x, int src_y,
   global_focus_view_modified_p = true;
 }
 
+// ** EmacsOverlayView
+
 @implementation EmacsOverlayView
 
 - (void)setHighlighted:(BOOL)flag
@@ -8091,10 +8125,7 @@ mac_scroll_area (struct frame *f, GC gc, int src_x, int src_y,
 
 @end				// EmacsOverlayView
 
-
-/************************************************************************
-				Color
- ************************************************************************/
+// * Color
 
 Lisp_Object
 mac_color_lookup (const char *color_name)
@@ -8182,10 +8213,7 @@ mac_color_list_alist (void)
   return Fnreverse (result);
 }
 
-
-/************************************************************************
-			Multi-monitor support
- ************************************************************************/
+// * Multi-monitor support
 
 #if MAC_OS_X_VERSION_MIN_REQUIRED < 101500
 static NSArrayOf (NSDictionary *) *
@@ -8389,10 +8417,9 @@ mac_display_monitor_attributes_list (struct mac_display_info *dpyinfo)
   return attributes_list;
 }
 
-
-/************************************************************************
-			     Scroll bars
- ************************************************************************/
+// * Scroll bars
+
+// ** NonmodalScroller
 
 @implementation NonmodalScroller
 
@@ -8702,6 +8729,8 @@ static BOOL NonmodalScrollerPagingBehavior;
 
 @end				// NonmodalScroller
 
+// ** EmacsScroller
+
 @implementation EmacsScroller
 
 - (void)viewFrameDidChange:(NSNotification *)notification
@@ -8996,6 +9025,8 @@ static BOOL NonmodalScrollerPagingBehavior;
 
 @end				// EmacsScroller
 
+// ** EmacsMainView
+
 @implementation EmacsMainView (ScrollBar)
 
 static int
@@ -9109,6 +9140,8 @@ scroller_part_to_horizontal_scroll_bar_part (NSScrollerPart part,
 }
 
 @end				// EmacsMainView (ScrollBar)
+
+// ** EmacsFrameController
 
 @implementation EmacsFrameController (ScrollBar)
 
@@ -9279,10 +9312,8 @@ mac_get_default_scroll_bar_height (struct frame *f)
 {
   return mac_get_default_scroll_bar_width (f);
 }
-
-/************************************************************************
-			       Tool-bars
- ************************************************************************/
+
+// * Tool-bars
 
 #define TOOLBAR_IDENTIFIER_FORMAT (@"org.gnu.Emacs.%p.toolbar")
 
@@ -9861,10 +9892,7 @@ free_frame_tool_bar (struct frame *f)
   unblock_input ();
 }
 
-
-/************************************************************************
-			      Font Panel
- ************************************************************************/
+// * Font Panel
 
 @implementation EmacsFontPanel
 
@@ -9928,6 +9956,8 @@ free_frame_tool_bar (struct frame *f)
 
 @end				// EmacsFontPanel
 
+// ** EmacsController (FontPanel)
+
 @implementation EmacsController (FontPanel)
 
 /* Called when the font panel is about to close.  */
@@ -9948,6 +9978,8 @@ free_frame_tool_bar (struct frame *f)
 }
 
 @end				// EmacsController (FontPanel)
+
+// ** EmacsFrameController (FontPanel)
 
 @implementation EmacsFrameController (FontPanel)
 
@@ -10088,10 +10120,7 @@ mac_set_font_info_for_selection (struct frame *f, int face_id, int c, int pos,
   return noErr;
 }
 
-
-/************************************************************************
-			    Event Handling
- ************************************************************************/
+// * Event Handling
 
 extern Boolean _IsSymbolicHotKeyEvent (EventRef, UInt32 *, Boolean *) AVAILABLE_MAC_OS_X_VERSION_10_3_AND_LATER;
 
@@ -10491,10 +10520,7 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
   return count;
 }
 
-
-/************************************************************************
-				Busy cursor
- ************************************************************************/
+// * Busy cursor
 
 @implementation EmacsFrameController (Hourglass)
 
@@ -10604,10 +10630,7 @@ mac_hide_hourglass (struct frame *f)
     }
 }
 
-
-/************************************************************************
-			File selection dialog
- ************************************************************************/
+// * File selection dialog
 
 @implementation EmacsSavePanel
 
@@ -10713,10 +10736,7 @@ mac_file_dialog (Lisp_Object prompt, Lisp_Object dir,
   return unbind_to (count, file);
 }
 
-
-/************************************************************************
-			Font selection dialog
- ************************************************************************/
+// * Font selection dialog
 
 @implementation EmacsFontDialogController
 
@@ -10857,10 +10877,7 @@ mac_font_dialog (struct frame *f)
   return result;
 }
 
-
-/************************************************************************
-				 Menu
- ************************************************************************/
+// * Menu
 
 static void update_services_menu_types (void);
 static void mac_fake_menu_bar_click (EventPriority);
@@ -10872,6 +10889,9 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
    modified key (e.g., three-finger editing gestures in Sidecar)
    rather than that of a physical key stroke.  */
 #define SYNTHETIC_MODIFIED_KEY_MAX_INTERVAL (1 / 600.0)
+
+
+// ** NSMenu (Emacs)
 
 @implementation NSMenu (Emacs)
 
@@ -10984,6 +11004,8 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
 }
 
 @end				// NSMenu (Emacs)
+
+// ** EmacsMenu
 
 @implementation EmacsMenu
 
@@ -11150,6 +11172,8 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
 
 @end				// EmacsMenu
 
+// ** EmacsWeakLispObject
+
 @implementation EmacsWeakLispObject
 
 - (instancetype)initWithLispObject:(Lisp_Object)anObject
@@ -11169,6 +11193,9 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
 }
 
 @end				// EmacsWeakLispObject
+
+
+// ** EmacsController (Menu)
 
 @implementation EmacsController (Menu)
 
@@ -11331,6 +11358,8 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
 }
 
 @end				// EmacsController (Menu)
+
+// ** EmacsFrameController (Menu)
 
 @implementation EmacsFrameController (Menu)
 
@@ -11696,10 +11725,7 @@ create_and_show_popup_menu (struct frame *f, widget_value *first_wv, int x, int 
   return [emacsController getAndClearMenuItemSelection];
 }
 
-
-/************************************************************************
-			     Popup Dialog
- ************************************************************************/
+// * Popup Dialog
 
 @implementation EmacsDialogView
 
@@ -12128,10 +12154,7 @@ create_and_show_dialog (struct frame *f, widget_value *first_wv)
   return result;
 }
 
-
-/************************************************************************
-			       Printing
- ************************************************************************/
+// * Printing
 
 @implementation EmacsPrintProxyView
 
@@ -12406,10 +12429,7 @@ mac_print_frames_dialog (Lisp_Object frames)
   MRC_RELEASE (printProxyView);
 }
 
-
-/************************************************************************
-			  Selection support
- ************************************************************************/
+// * Selection support
 
 /* Get a reference to the selection corresponding to the symbol SYM.
    The reference is set to *SEL, and it becomes NULL if there's no
@@ -12586,10 +12606,7 @@ mac_get_selection_target_list (Selection sel)
   return result;
 }
 
-
-/************************************************************************
-			 Apple event support
- ************************************************************************/
+// * Apple event support
 
 static NSMutableSetOf (NSNumber *) *registered_apple_event_specs;
 
@@ -12681,10 +12698,7 @@ init_apple_event_handler (void)
   atexit (cleanup_all_suspended_apple_events);
 }
 
-
-/************************************************************************
-                      Drag and drop support
- ************************************************************************/
+// * Drag and drop support
 
 static NSMutableArrayOf (NSPasteboardType) *registered_dragged_types;
 
@@ -13130,10 +13144,7 @@ mac_dnd_begin_drag_and_drop (struct frame *f, DragActions actions,
   return mac_dnd_action;
 }
 
-
-/************************************************************************
-			Services menu support
- ************************************************************************/
+// * Services menu support
 
 @implementation EmacsMainView (Services)
 
@@ -13388,10 +13399,7 @@ update_services_menu_types (void)
     });
 }
 
-
-/************************************************************************
-			    Action support
- ************************************************************************/
+// * Action support
 
 static BOOL
 is_action_selector (SEL selector)
@@ -13542,10 +13550,7 @@ mac_send_action (Lisp_Object symbol, bool dry_run_p)
   return result;
 }
 
-
-/************************************************************************
-		 Open Scripting Architecture support
- ************************************************************************/
+// * Open Scripting Architecture support
 
 @implementation EmacsOSAScript
 
@@ -14082,15 +14087,15 @@ mac_osa_script (Lisp_Object code_or_file, Lisp_Object compiled_p_or_language,
   return result;
 }
 
-
-/************************************************************************
-			Document rasterization
- ************************************************************************/
+// * Document rasterization
 
 static NSMutableDictionaryOf (id, NSDictionaryOf (NSString *, id) *)
   *documentRasterizerCache;
 static NSDate *documentRasterizerCacheOldestTimestamp;
 #define DOCUMENT_RASTERIZER_CACHE_DURATION 60.0
+
+
+// ** EmacsPDFDocument
 
 @implementation EmacsPDFDocument
 
@@ -14238,6 +14243,8 @@ static NSDate *documentRasterizerCacheOldestTimestamp;
 }
 
 @end				// EmacsPDFDocument
+
+// ** EmacsSVGDocument
 
 @implementation EmacsSVGDocument
 
@@ -14810,6 +14817,8 @@ static WebView *EmacsSVGDocumentLastWebView;
 
 @end				// EmacsSVGDocument
 
+// ** EmacsDocumentRasterizer
+
 @implementation EmacsDocumentRasterizer
 - (instancetype)initWithAttributedString:(NSAttributedString *)anAttributedString
 		      documentAttributes:(NSDictionaryOf (NSString *, id) *)docAttributes
@@ -15314,10 +15323,7 @@ mac_document_draw_page (CGContextRef c, CGRect rect, EmacsDocumentRef document,
 				       options)];
 }
 
-
-/************************************************************************
-			Accessibility Support
- ************************************************************************/
+// * Accessibility Support
 
 static id ax_get_value (EmacsMainView *);
 static id ax_get_selected_text (EmacsMainView *);
@@ -15485,6 +15491,8 @@ init_accessibility (void)
     NSAccessibilitySelectedTextChangedNotification;
 }
 
+// ** EmacsController (Accessibility)
+
 @implementation EmacsController (Accessibility)
 
 - (void)accessibilityDisplayOptionsDidChange:(NSNotification *)notification
@@ -15508,6 +15516,8 @@ mac_update_accessibility_display_options (void)
 }
 
 @end				// EmacsController (Accessibility)
+
+// ** EmacsMainView (Accessibility)
 
 @implementation EmacsMainView (Accessibility)
 
@@ -15872,6 +15882,8 @@ ax_get_attributed_string_for_range (EmacsMainView *emacsView, id parameter)
 
 @end				// EmacsMainView (Accessibility)
 
+// ** EmacsFrameController (Accessibility)
+
 @implementation EmacsFrameController (Accessibility)
 
 - (void)postAccessibilityNotificationsToEmacsView
@@ -15892,10 +15904,7 @@ mac_update_accessibility_status (struct frame *f)
   [frameController postAccessibilityNotificationsToEmacsView];
 }
 
-
-/************************************************************************
-			      Animation
- ************************************************************************/
+// * Animation
 
 @implementation EmacsFrameController (Animation)
 
@@ -16313,10 +16322,7 @@ mac_start_animation (Lisp_Object frame_or_window, Lisp_Object properties)
     });
 }
 
-
-/************************************************************************
-				Fonts
- ************************************************************************/
+// * Fonts
 
 @implementation NSLayoutManager (Emacs)
 
@@ -16711,10 +16717,7 @@ mac_screen_font_shape (ScreenFontRef screen_font, CFStringRef cf_string,
   return result;
 }
 
-
-/************************************************************************
-				Sound
- ************************************************************************/
+// * Sound
 
 @implementation EmacsController (Sound)
 
@@ -16764,10 +16767,7 @@ mac_sound_play (CFTypeRef mac_sound, Lisp_Object volume, Lisp_Object device)
     mac_run_loop_run_once (kEventDurationForever);
 }
 
-
-/***********************************************************************
-			Thread Synchronization
-***********************************************************************/
+// * Thread Synchronization
 
 /* Binary semaphores for synchronization between GUI and Lisp
    threads.  */
@@ -16990,10 +16990,7 @@ mac_within_lisp_deferred_if_gui_thread (void (^block) (void))
     block ();
 }
 
-
-/***********************************************************************
-			   Select emulation
-***********************************************************************/
+// * Select emulation
 
 /* File descriptors of the socket pair used for breaking pselect calls
    in Lisp threads.  One direction, writing to mac_select_fds[0] and
@@ -17318,10 +17315,8 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
   return r;
 }
 
-
-/***********************************************************************
-			       Startup
-***********************************************************************/
+
+// * Startup
 
 /* Thread ID of the Lisp main thread.  This should be the same as
    `main_thread_id' in sysdep.c.  Note that this is not the thread ID
