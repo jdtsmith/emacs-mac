@@ -1,5 +1,8 @@
 ---
 If:
-    PathMatch: "*.[ch]"
+    PathMatch:
+        - "src/.*\\.[ch]"
+        - ".*\\.m"
 CompileFlags:
-    Add: [-Wno-unused-macros, -include=src/config.h]
+    Add: [-x, objective-c, -fobjc-arc, -include, config.h, -Wno-unused-macros]
+
