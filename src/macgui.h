@@ -97,6 +97,8 @@ typedef struct _XGCValues
   CFArrayRef stipple;
 } XGCValues;
 
+#define MAC_MAX_CLIP_RECTS 4
+
 typedef struct _XGC
 {
   /* Original value.  */
@@ -112,7 +114,8 @@ typedef struct _XGC
 
   /* Data consisting of clipping rectangles used in Quartz 2D drawing.
      The y-coordinate is in the flipped coordinates.  */
-  CFDataRef clip_rects_data;
+  CGRect clip_rects[MAC_MAX_CLIP_RECTS];
+  int num_clip_rects;
 } *GC;
 
 #define GCForeground            (1L<<2)

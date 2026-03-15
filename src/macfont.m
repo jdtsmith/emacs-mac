@@ -102,7 +102,7 @@ enum {FONT_SLANT_SYNTHETIC_ITALIC = 200}; /* FC_SLANT_ITALIC + 100 */
 enum {FONT_WEIGHT_SYNTHETIC_BOLD = 200};  /* FC_WEIGHT_BOLD */
 enum {FONT_SPACING_SYNTHETIC_MONO = FONT_SPACING_MONO};
 
-static const CGAffineTransform synthetic_italic_atfm = {1, 0, 0.25, 1, 0, 0};
+const CGAffineTransform synthetic_italic_atfm = {1, 0, 0.25, 1, 0, 0};
 static const CGFloat synthetic_bold_factor = 0.024;
 
 static Boolean cfnumber_get_font_symbolic_traits_value (CFNumberRef,
@@ -2885,123 +2885,75 @@ macfont_draw (struct glyph_string *s, int from, int to, int x, int y,
   struct frame *f = s->f;
   struct macfont_info *macfont_info = (struct macfont_info *) s->font;
   GC gc = s->gc;
-  CGRect background_rect;
-  CGPoint text_position;
-  CGGlyph *glyphs;
-  CGPoint *positions;
+  int len = to - from;
   CGFloat font_size = CTFontGetSize (macfont_info->macfont);
   bool no_antialias_p =
     (macfont_info->antialias == MACFONT_ANTIALIAS_OFF
      || (macfont_info->antialias == MACFONT_ANTIALIAS_DEFAULT
-	 && font_size <= macfont_antialias_threshold));
-  int len = to - from;
+         && font_size <= macfont_antialias_threshold));
+  bool use_ct = (macfont_info->color_bitmap_p || macfont_info->svg_p);
   bool respect_alpha_background_p = s->hl != DRAW_CURSOR;
 
   block_input ();
-
-  if (with_background)
-    background_rect = CGRectMake (x, y - FONT_BASE (s->font),
-				  s->width, FONT_HEIGHT (s->font));
-  else
-    background_rect = CGRectNull;
-
-  text_position = CGPointMake (x, -y);
-  glyphs = xmalloc (sizeof (CGGlyph) * len);
-  {
-    CGFloat advance_delta = 0;
-    int i;
-    CGFloat total_width = 0;
-
-    positions = xmalloc (sizeof (CGPoint) * len);
-    for (i = 0; i < len; i++)
-      {
-	int width;
-
-	glyphs[i] = s->char2b[from + i];
-	width = (s->padding_p ? 1
-		 : macfont_glyph_extents (s->font, glyphs[i],
-					  NULL, &advance_delta,
-					  no_antialias_p));
-	positions[i].x = total_width + advance_delta;
-	positions[i].y = 0;
-	total_width += width;
-      }
-  }
-
-  /* We assume `macfont_info' is pointing to valid data during the
-     execution of the code between MAC_BEGIN_DRAW_TO_FRAME and
-     MAC_END_DRAW_TO_FRAME in a non-main thread, because the thread
-     executions are synchronized at the calls to
-     unset_global_focus_view_frame found in macappkit.m.  */
-  MAC_BEGIN_DRAW_TO_FRAME (f, gc, CGRectInfinite, context);
-
-  if (!CGRectIsNull (background_rect))
-    CG_CONTEXT_FILL_RECT_WITH_GC_BACKGROUND (f, context, background_rect, gc,
-					     respect_alpha_background_p);
-
-  if (macfont_info->cgfont)
+  mac_arena *arena = mac_ensure_arena (f);
+    
+  CGGlyph *glyphs = mac_arena_data_alloc (arena, sizeof (CGGlyph) * len);
+  CGPoint *positions = mac_arena_data_alloc (arena, sizeof (CGPoint) * len);
+  CGFloat advance_delta = 0;
+  CGFloat total_width = 0;
+  for (size_t i = 0; i < len; i++)
     {
-      CGAffineTransform atfm;
-
-      CGContextScaleCTM (context, 1, -1);
-      CGContextSetFillColorWithColor (context, gc->cg_fore_color);
-      if (macfont_info->synthetic_italic_p)
-	atfm = synthetic_italic_atfm;
-      else
-	atfm = CGAffineTransformIdentity;
-      if (macfont_info->synthetic_bold_p)
-	{
-	  CGFloat bold_factor;
-
-	  CGContextSetTextDrawingMode (context, kCGTextFillStroke);
-	  /* Stroke line width for text drawing is not correctly
-	     scaled on Retina display/HiDPI mode when drawn to screen
-	     (whereas it is correctly scaled when drawn to bitmaps),
-	     and synthetic bold looks thinner on such environments.
-	     Apple says there are no plans to address this issue
-	     (rdar://11644870) currently.  So we add a workaround.  */
-	  if (FRAME_BACKING_SCALE_FACTOR (f) != 1
-	      && !FRAME_SYNTHETIC_BOLD_WORKAROUND_DISABLED_P (f))
-	    bold_factor = synthetic_bold_factor * 2;
-	  else
-	    bold_factor = synthetic_bold_factor;
-	  CGContextSetLineWidth (context, bold_factor * font_size);
-	  CGContextSetStrokeColorWithColor (context, gc->cg_fore_color);
-	}
-      if (no_antialias_p)
-	CGContextSetShouldAntialias (context, false);
-
-      CGContextSetTextMatrix (context, atfm);
-      CGContextSetTextPosition (context, text_position.x, text_position.y);
-
-      if (macfont_info->color_bitmap_p || macfont_info->svg_p)
-	{
-	  if (len > 0)
-	    CTFontDrawGlyphs (macfont_info->macfont, glyphs, positions, len,
-			      context);
-	}
-      else
-	{
-	  CGContextSetFont (context, macfont_info->cgfont);
-	  CGContextSetFontSize (context, font_size);
-	  CGContextShowGlyphsAtPositions (context, glyphs, positions, len);
-	}
+      glyphs[i] = s->char2b[from + i];
+      int width = (s->padding_p ? 1
+		   : macfont_glyph_extents (s->font, glyphs[i],
+					    NULL, &advance_delta,
+					    no_antialias_p));
+      positions[i].x = total_width + advance_delta;
+      positions[i].y = 0;
+      total_width += width;
     }
 
-#if defined (XMALLOC_BLOCK_INPUT_CHECK) && DRAWING_USE_GCD
-  /* Don't use xfree here, because this might be called in a non-main
-     thread.  */
-  free (glyphs);
-  free (positions);
-#else
-  xfree (glyphs);
-  xfree (positions);
-#endif
+  /* Record draw command(s) */
+  mac_record_gc_clip(f, gc);
 
-  MAC_END_DRAW_TO_FRAME (f);
+  if (with_background)
+    {
+      CGRect bg_rect = CGRectMake (x, y - FONT_BASE (s->font),
+                                   s->width, FONT_HEIGHT (s->font));
+      mac_record_erase_bg (f, gc, bg_rect, respect_alpha_background_p);
+    }
+  
+  /* XXX mark full line dirty... maybe over-conservative, but it was
+     CGRectInfinite, and will be clipped with GC rect bounding box */
+  CGRect line_rect = CGRectMake (0, y - FONT_BASE (s->font),
+                                 FRAME_PIXEL_WIDTH (f), FONT_HEIGHT (s->font));
+  MAC_ARENA_CMD (cmd, f, DRAW_GLYPHS, line_rect);
+
+  MAC_ARENA_RETAIN (cmd->glyphs.font_ref,
+		    (use_ct
+		     ? (CFTypeRef) macfont_info->macfont
+		     : (CFTypeRef) macfont_info->cgfont));
+  
+  MAC_ARENA_RETAIN (cmd->glyphs.color, gc->cg_fore_color);
+
+  cmd->glyphs.font_size = font_size;
+  cmd->glyphs.text_position = CGPointMake (x, -y);
+  cmd->glyphs.synthetic_italic_p = macfont_info->synthetic_italic_p;
+  cmd->glyphs.len = len;
+  cmd->glyphs.synthetic_bold_p = macfont_info->synthetic_bold_p;
+  cmd->glyphs.no_antialias_p = no_antialias_p;
+  cmd->glyphs.use_ct_font_p = use_ct;
+  cmd->glyphs.bold_factor =
+    (macfont_info->synthetic_bold_p
+     ? (FRAME_BACKING_SCALE_FACTOR (f) != 1
+        && !FRAME_SYNTHETIC_BOLD_WORKAROUND_DISABLED_P (f)
+        ? synthetic_bold_factor * 2
+        : synthetic_bold_factor)
+     : 0);
+  cmd->glyphs.glyphs = glyphs;
+  cmd->glyphs.positions = positions;
 
   unblock_input ();
-
   return len;
 #else  /* HAVE_NS */
   struct frame * f = s->f;

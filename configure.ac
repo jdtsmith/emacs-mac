@@ -568,7 +568,6 @@ OPTION_DEFAULT_ON([xdbe],[don't use X11 double buffering support])
 AC_ARG_WITH([mac],[AS_HELP_STRING([--with-mac],
 [use GUI on macOS.
 On by default on macOS.])],[],[with_mac=maybe])
-OPTION_DEFAULT_OFF([mac-metal],[use Metal framework in application-side double buffering (experimental)])
 OPTION_DEFAULT_OFF([ns],[use Nextstep (macOS Cocoa or GNUstep) windowing system.])
 OPTION_DEFAULT_OFF([w32], [use native MS Windows GUI in a Cygwin build])
 OPTION_DEFAULT_OFF([pgtk], [use GTK to support window systems other than X])
@@ -3047,7 +3046,7 @@ if test "${HAVE_MACGUI}" = yes; then
      AC_DEFINE(MAC_DEBUG_SIGNPOST, 1, [Enable mac signpost debugging])
   fi
 
-  MAC_OBJ="mac.o macterm.o macfns.o macmenu.o macselect.o"
+  MAC_OBJ="mac.o macterm.o macfns.o macmenu.o macselect.o mac_arena_draw.o"
   MAC_OBJC_OBJ="macappkit.o macfont.o"
 fi
 AC_SUBST(MAC_OBJ)
@@ -7604,10 +7603,6 @@ fail;
      libs_metal=
      if test $emacs_cv_mac_os_x_max_allowed_10_11 = yes; then
        AC_MSG_RESULT(10.11 or later)
-       if test "${with_mac_metal}" != "no"; then
-	 AC_DEFINE(HAVE_MAC_METAL, 1, [Define to 1 if using Metal framework.])
-	 libs_metal="-framework Metal"
-       fi
      else
        AC_MSG_RESULT(before 10.11)
      fi

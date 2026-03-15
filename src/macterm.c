@@ -23,6 +23,7 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include "lisp.h"
 #include "blockinput.h"
+#include "mac_arena_draw.h"
 #include "sysstdio.h"
 
 #include "macterm.h"
@@ -126,28 +127,16 @@ mac_erase_rectangle (struct frame *f, GC gc, int x, int y,
 {
   CGRect rect = CGRectMake (x, y, width, height);
 
-  MAC_BEGIN_DRAW_TO_FRAME (f, gc, rect, context);
-  {
-    CG_CONTEXT_FILL_RECT_WITH_GC_BACKGROUND (f, context, rect, gc,
-					     respect_alpha_background);
-    if (gc->xgcv.fill_style == FillOpaqueStippled && gc->xgcv.stipple)
-      {
-	CGContextClipToRects (context, &rect, 1);
-	CGContextSetFillColorWithColor (context, gc->cg_fore_color);
-	int scale = CFArrayGetCount (gc->xgcv.stipple);
-	if (FRAME_BACKING_SCALE_FACTOR (f) < scale)
-	  scale = FRAME_BACKING_SCALE_FACTOR (f);
-	CGImageRef image_mask =
-	  (CGImageRef) CFArrayGetValueAtIndex (gc->xgcv.stipple, scale - 1);
-	CGRect r = CGRectMake (0, 0,
-			       CGImageGetWidth (image_mask) / (CGFloat) scale,
-			       CGImageGetHeight (image_mask) / (CGFloat) scale);
-	CGContextScaleCTM (context, 1, -1);
-	CGContextSetInterpolationQuality (context, kCGInterpolationNone);
-	CGContextDrawTiledImage (context, r, image_mask);
-      }
-  }
-  MAC_END_DRAW_TO_FRAME (f);
+  mac_ensure_arena (f);
+  mac_record_gc_clip (f, gc);
+  mac_record_erase_bg (f, gc, rect, respect_alpha_background);
+
+  if (gc->xgcv.fill_style == FillOpaqueStippled && gc->xgcv.stipple)
+    {
+      MAC_ARENA_CMD (cmd, f, DRAW_STIPPLE, rect);
+      MAC_ARENA_RETAIN (cmd->stipple.color, gc->cg_fore_color);
+      MAC_ARENA_RETAIN (cmd->stipple.stipple, gc->xgcv.stipple);
+    }
 }
 
 /* Mac version of XClearArea.  */
@@ -180,40 +169,39 @@ mac_draw_cg_image (struct frame *f, GC gc,
 		   int dest_x, int dest_y, int flags)
 {
   CGRect dest_rect = CGRectMake (dest_x, dest_y, width, height);
+  CGRect bounds;
 
-  MAC_BEGIN_DRAW_TO_FRAME (f, gc, dest_rect, context);
-  {
-    CGRect bounds;
+  mac_arena *arena = mac_ensure_arena (f);
+  mac_record_gc_clip (f, gc);
 
-    if (!(flags & MAC_DRAW_CG_IMAGE_2X))
-      bounds = CGRectMake (dest_x - src_x, dest_y - src_y,
-			   CGImageGetWidth (image), CGImageGetHeight (image));
-    else
-      bounds = CGRectMake (dest_x - src_x, dest_y - src_y,
-			   CGImageGetWidth (image) / 2,
-			   CGImageGetHeight (image) / 2);
-    if (!(flags & MAC_DRAW_CG_IMAGE_OVERLAY))
-      CG_CONTEXT_FILL_RECT_WITH_GC_BACKGROUND (f, context, dest_rect, gc, true);
-    CGContextClipToRects (context, &dest_rect, 1);
-    if (transform)
-      {
-	CGContextTranslateCTM (context,
-			       CGRectGetMinX (bounds), CGRectGetMinY (bounds));
-	CGContextConcatCTM (context, *transform);
-	CGContextTranslateCTM (context, 0, CGRectGetHeight (bounds));
-      }
-    else
-      CGContextTranslateCTM (context,
-			     CGRectGetMinX (bounds), CGRectGetMaxY (bounds));
-    CGContextScaleCTM (context, 1, -1);
-    if (CGImageIsMask (image))
-      CGContextSetFillColorWithColor (context, gc->cg_fore_color);
-    if (flags & MAC_DRAW_CG_IMAGE_NO_INTERPOLATION)
-      CGContextSetInterpolationQuality (context, kCGInterpolationNone);
-    bounds.origin = CGPointZero;
-    CGContextDrawImage (context, bounds, image);
-  }
-  MAC_END_DRAW_TO_FRAME (f);
+  if (!(flags & MAC_DRAW_CG_IMAGE_OVERLAY))
+    mac_record_erase_bg (f, gc, dest_rect, true);
+  
+  if (!(flags & MAC_DRAW_CG_IMAGE_2X))
+    bounds = CGRectMake (dest_x - src_x, dest_y - src_y,
+			 CGImageGetWidth (image),
+			 CGImageGetHeight (image));
+  else
+    bounds = CGRectMake (dest_x - src_x, dest_y - src_y,
+			 CGImageGetWidth (image) / 2.,
+			 CGImageGetHeight (image) / 2.);
+
+  MAC_ARENA_CMD (cmd, f, DRAW_IMAGE, dest_rect);
+  MAC_ARENA_RETAIN (cmd->image.image, image);
+
+  if (CGImageIsMask (image))
+    MAC_ARENA_RETAIN (cmd->image.fill_color, gc->cg_fore_color);
+
+  cmd->image.bounds = bounds;
+  cmd->image.no_interpolation_p = !!(flags & MAC_DRAW_CG_IMAGE_NO_INTERPOLATION);
+
+  if (transform)
+    {
+      cmd->image.transform = mac_arena_data_alloc (arena, sizeof (CGAffineTransform));
+      *cmd->image.transform = *transform;
+    }
+  else
+    cmd->image.transform = NULL;
 }
 
 /* Mac replacement for XCreateBitmapFromBitmapData.  */
@@ -254,30 +242,28 @@ mac_create_image_mask_from_bitmap_data (const char *bits, int width, int height)
   return result;
 }
 
-/* Mac replacement for XFillRectangle.  */
+/* Mac ARENA replacement for XFillRectangle.  */
 
 static void
 mac_fill_rectangle (struct frame *f, GC gc, int x, int y, int width, int height)
 {
   CGRect rect = CGRectMake (x, y, width, height);
-
-  MAC_BEGIN_DRAW_TO_FRAME (f, gc, rect, context);
-  CGContextSetFillColorWithColor (context, gc->cg_fore_color);
-  CGContextFillRects (context, &rect, 1);
-  MAC_END_DRAW_TO_FRAME (f);
+  mac_ensure_arena (f);
+  mac_record_gc_clip (f, gc);
+  MAC_ARENA_CMD (cmd, f, FILL_RECT, rect);
+  MAC_ARENA_RETAIN (cmd->fill.color, gc->cg_fore_color);
 }
 
-/* Mac replacement for XDrawRectangle: dest is a window.  */
+/* Mac ARENA replacement for XDrawRectangle: dest is a window.  */
 
 static void
 mac_draw_rectangle (struct frame *f, GC gc, int x, int y, int width, int height)
 {
   CGRect rect = CGRectMake (x, y, width + 1, height + 1);
-
-  MAC_BEGIN_DRAW_TO_FRAME (f, gc, rect, context);
-  CGContextSetStrokeColorWithColor (context, gc->cg_fore_color);
-  CGContextStrokeRect (context, CGRectInset (rect, 0.5f, 0.5f));
-  MAC_END_DRAW_TO_FRAME (f);
+  mac_ensure_arena (f);
+  mac_record_gc_clip (f, gc);
+  MAC_ARENA_CMD (cmd, f, STROKE_RECT, rect);
+  MAC_ARENA_RETAIN (cmd->fill.color, gc->cg_fore_color);
 }
 
 static void
@@ -285,36 +271,24 @@ mac_fill_trapezoid_for_relief (struct frame *f, GC gc, int x, int y,
 			       int width, int height, int top_p)
 {
   CGRect rect = CGRectMake (x, y, width, height);
+  mac_arena *arena = mac_ensure_arena (f);
+  mac_record_gc_clip (f, gc);
+  CGPoint *points = mac_arena_data_alloc(arena, 4 * sizeof(CGPoint));
+  
+  points[0].x = points[1].x = CGRectGetMinX (rect);
+  points[2].x = points[3].x = CGRectGetMaxX (rect);
+  points[0].y = points[3].y = CGRectGetMinY (rect);
+  points[1].y = points[2].y = CGRectGetMaxY (rect);
+  
+  if (top_p)
+    points[2].x -= CGRectGetHeight (rect);
+  else
+    points[0].x += CGRectGetHeight (rect);
 
-  MAC_BEGIN_DRAW_TO_FRAME (f, gc, rect, context);
-  {
-    CGPoint points[4];
-
-    points[0].x = points[1].x = CGRectGetMinX (rect);
-    points[2].x = points[3].x = CGRectGetMaxX (rect);
-    points[0].y = points[3].y = CGRectGetMinY (rect);
-    points[1].y = points[2].y = CGRectGetMaxY (rect);
-
-    if (top_p)
-      points[2].x -= CGRectGetHeight (rect);
-    else
-      points[0].x += CGRectGetHeight (rect);
-
-    CGContextSetFillColorWithColor (context, gc->cg_fore_color);
-    CGContextAddLines (context, points, 4);
-    CGContextFillPath (context);
-  }
-  MAC_END_DRAW_TO_FRAME (f);
+  MAC_ARENA_CMD (cmd, f, FILL_TRAPEZOID, rect);
+  MAC_ARENA_RETAIN (cmd->trapezoid.color, gc->cg_fore_color);
+  cmd->trapezoid.points = points;
 }
-
-enum corners
-  {
-    CORNER_BOTTOM_RIGHT,	/* 0 -> pi/2 */
-    CORNER_BOTTOM_LEFT,		/* pi/2 -> pi */
-    CORNER_TOP_LEFT,		/* pi -> 3pi/2 */
-    CORNER_TOP_RIGHT,		/* 3pi/2 -> 2pi */
-    CORNER_LAST
-  };
 
 static void
 mac_erase_corners_for_relief (struct frame *f, GC gc, int x, int y,
@@ -323,32 +297,16 @@ mac_erase_corners_for_relief (struct frame *f, GC gc, int x, int y,
 {
   CGRect rect = CGRectMake (x, y, width, height);
 
-  MAC_BEGIN_DRAW_TO_FRAME (f, gc, rect, context);
-  {
-    int i;
+  mac_ensure_arena (f);
+  mac_record_gc_clip (f, gc);
 
-    for (i = 0; i < CORNER_LAST; i++)
-      if (corners & (1 << i))
-	{
-	  CGFloat xm, ym, xc, yc;
-
-	  if (i == CORNER_TOP_LEFT || i == CORNER_BOTTOM_LEFT)
-	    xm = CGRectGetMinX (rect) - margin, xc = xm + radius;
-	  else
-	    xm = CGRectGetMaxX (rect) + margin, xc = xm - radius;
-	  if (i == CORNER_TOP_LEFT || i == CORNER_TOP_RIGHT)
-	    ym = CGRectGetMinY (rect) - margin, yc = ym + radius;
-	  else
-	    ym = CGRectGetMaxY (rect) + margin, yc = ym - radius;
-
-	  CGContextMoveToPoint (context, xm, ym);
-	  CGContextAddArc (context, xc, yc, radius,
-			   i * M_PI_2, (i + 1) * M_PI_2, 0);
-	}
-    CGContextClip (context);
-    CG_CONTEXT_FILL_RECT_WITH_GC_BACKGROUND (f, context, rect, gc, true);
-  }
-  MAC_END_DRAW_TO_FRAME (f);
+  MAC_ARENA_CMD (cmd, f, ERASE_CORNERS, rect);
+  bool *clear_p = &cmd->corners.clear_p;
+  cmd->corners.bg_color = mac_bg_color_for_gc (f, gc, true, clear_p);
+  cmd->corners.clear_p = *clear_p;
+  cmd->corners.radius = radius;
+  cmd->corners.margin = margin;
+  cmd->corners.corners = corners;
 }
 
 static void
@@ -357,77 +315,24 @@ mac_draw_horizontal_wave (struct frame *f, GC gc, int x, int y,
 {
   CGRect wave_clip = CGRectMake (x, y, width, height);
 
-  MAC_BEGIN_DRAW_TO_FRAME (f, gc, wave_clip, context);
-  {
-    CGFloat gperiod, gx1, gxmax, gy1, gy2;
+  mac_ensure_arena (f);
+  mac_record_gc_clip (f, gc);
 
-    gperiod = wave_length * 2;
-    gx1 = floor ((CGRectGetMinX (wave_clip) - 1.0f) / gperiod) * gperiod + 0.5f;
-    gxmax = CGRectGetMaxX (wave_clip);
-    gy1 = (CGFloat) y + 0.5f;
-    gy2 = (CGFloat) (y + height) - 0.5f;
-
-    CGContextClipToRect (context, wave_clip);
-    CGContextSetStrokeColorWithColor (context, gc->cg_fore_color);
-    if (FLOATP (Vmac_underwave_thickness))
-      CGContextSetLineWidth(context, XFLOAT_DATA (Vmac_underwave_thickness));
-    CGContextMoveToPoint (context, gx1, gy1);
-    while (gx1 <= gxmax)
-      {
-	CGContextAddLineToPoint (context, gx1 + gperiod * 0.5f, gy2);
-	gx1 += gperiod;
-	CGContextAddLineToPoint (context, gx1, gy1);
-      }
-    CGContextStrokePath (context);
-  }
-  MAC_END_DRAW_TO_FRAME (f);
+  MAC_ARENA_CMD (cmd, f, DRAW_WAVE, wave_clip);
+  MAC_ARENA_RETAIN (cmd->wave.color, gc->cg_fore_color);
+  cmd->wave.wave_length = wave_length;
+  cmd->wave.line_width = (FLOATP (Vmac_underwave_thickness)
+                          ? XFLOAT_DATA (Vmac_underwave_thickness)
+                          : 0);
 }
 
 static void
-mac_invert_rectangle (struct frame *f, int x, int y, int width, int height)
+mac_invert_rectangle (struct frame *f, CGRect rect)
 {
   GC gc = f->output_data.mac->normal_gc;
-  CGRect rect = CGRectMake (x, y, width, height);
-
-  MAC_BEGIN_DRAW_TO_FRAME (f, gc, rect, context);
-  CGContextSetGrayFillColor (context, 1.0f, 1.0f);
-  CGContextSetBlendMode (context, kCGBlendModeDifference);
-  CGContextFillRects (context, &rect, 1);
-  MAC_END_DRAW_TO_FRAME (f);
-}
-
-void
-mac_invert_flash_rectangles (struct frame *f)
-{
-  if (FRAME_FLASH_RECTANGLES_DATA (f))
-    {
-      CFDataRef data = FRAME_FLASH_RECTANGLES_DATA (f);
-      CFIndex i, count = CFDataGetLength (data) / sizeof (NativeRectangle);
-      const NativeRectangle *rectangles =
-	(const NativeRectangle *) CFDataGetBytePtr (data);
-
-      for (i = 0; i < count; i++)
-	mac_invert_rectangle (f, rectangles[i].x, rectangles[i].y,
-			      rectangles[i].width, rectangles[i].height);
-    }
-}
-
-static void
-mac_invert_rectangles_and_flush (struct frame *f, NativeRectangle *rectangles,
-				 int n, bool invert_p)
-{
-  if (invert_p)
-    FRAME_FLASH_RECTANGLES_DATA (f) =
-      CFDataCreateWithBytesNoCopy (NULL, (const UInt8 *) rectangles,
-				   n * sizeof (NativeRectangle),
-				   kCFAllocatorNull);
-  mac_invalidate_rectangles (f, rectangles, n);
-  mac_run_loop_run_once (0);
-  if (FRAME_FLASH_RECTANGLES_DATA (f))
-    {
-      CFRelease (FRAME_FLASH_RECTANGLES_DATA (f));
-      FRAME_FLASH_RECTANGLES_DATA (f) = NULL;
-    }
+  mac_ensure_arena (f);
+  mac_record_gc_clip (f, gc);
+  MAC_ARENA_CMD (cmd, f, INVERT_RECT, rect);
 }
 
 /* Mac replacement for XChangeGC.  */
@@ -467,22 +372,6 @@ mac_create_gc (unsigned long mask, XGCValues *xgcv)
   return gc;
 }
 
-GC
-mac_duplicate_gc (GC gc)
-{
-  GC new = xmalloc (sizeof (*new));
-
-  *new = *gc;
-  CGColorRetain (new->cg_fore_color);
-  CGColorRetain (new->cg_back_color);
-  if (new->clip_rects_data)
-    CFRetain (new->clip_rects_data);
-  if (new->xgcv.stipple)
-    CFRetain (new->xgcv.stipple);
-
-  return new;
-}
-
 /* Used in xfaces.c.  */
 
 void
@@ -490,8 +379,6 @@ mac_free_gc (GC gc)
 {
   CGColorRelease (gc->cg_fore_color);
   CGColorRelease (gc->cg_back_color);
-  if (gc->clip_rects_data)
-    CFRelease (gc->clip_rects_data);
   if (gc->xgcv.stipple)
     CFRelease (gc->xgcv.stipple);
 #if defined (XMALLOC_BLOCK_INPUT_CHECK) && DRAWING_USE_GCD
@@ -580,20 +467,16 @@ static void
 mac_set_clip_rectangles (struct frame *f, GC gc,
 			 NativeRectangle *rectangles, int n)
 {
-  CFIndex length = n * sizeof (CGRect);
-  CGRect *clip_rects = alloca (length);
-  int i;
+  if (n > MAC_MAX_CLIP_RECTS)
+    n = MAC_MAX_CLIP_RECTS;
 
-  for (i = 0; i < n; i++)
+  gc->num_clip_rects = n;
+
+  for (int i = 0; i < n; i++)
     {
       NativeRectangle *rect = rectangles + i;
-
-      clip_rects[i] = CGRectMake (rect->x, rect->y, rect->width, rect->height);
+      gc->clip_rects[i] = CGRectMake (rect->x, rect->y, rect->width, rect->height);
     }
-
-  if (gc->clip_rects_data)
-    CFRelease (gc->clip_rects_data);
-  gc->clip_rects_data = CFDataCreate (NULL, (const UInt8 *) clip_rects, length);
 }
 
 /* Mac replacement for XSetClipMask.  */
@@ -601,11 +484,7 @@ mac_set_clip_rectangles (struct frame *f, GC gc,
 static void
 mac_reset_clip_rectangles (struct frame *f, GC gc)
 {
-  if (gc->clip_rects_data)
-    {
-      CFRelease (gc->clip_rects_data);
-      gc->clip_rects_data = NULL;
-    }
+  gc->num_clip_rects = 0;
 }
 
 /* Mac replacement for XSetFillStyle.  */
@@ -681,7 +560,7 @@ static void
 mac_update_begin (struct frame *f)
 {
   block_input ();
-  mac_update_frame_begin (f);
+  mac_draw_session_begin (f);
   unblock_input ();
 }
 
@@ -797,7 +676,7 @@ mac_update_end (struct frame *f)
   MOUSE_HL_INFO (f)->mouse_face_defer = false;
 
   block_input ();
-  mac_update_frame_end (f);
+  mac_draw_session_end (f);
   XFlush (FRAME_MAC_DISPLAY (f));
   unblock_input ();
 }
@@ -809,7 +688,9 @@ static void
 mac_frame_up_to_date (struct frame *f)
 {
   if (FRAME_MAC_P (f))
-    FRAME_MOUSE_UPDATE (f);
+    {
+      FRAME_MOUSE_UPDATE (f);
+    }
 }
 
 /* Clear under internal border if any. */
@@ -1871,35 +1752,6 @@ mac_draw_glyph_string_box (struct glyph_string *s)
     }
 }
 
-
-/* Copy the glyph_string on the heap */
-
-static struct glyph_string *
-mac_persist_glyph_string (struct glyph_string *s)
-{
-  struct glyph_string *clone = malloc (sizeof (struct glyph_string));
-  if (!clone) return NULL;
-
-  *clone = *s; 
-
-  if (clone->img && clone->img->cg_image)
-    CGImageRetain (clone->img->cg_image);
-
-  /* char2b is rarely used in async drawing; if needed, clone s->char2b
-     here.  */
-
-  return clone;
-}
-
-static void
-mac_free_persisted_glyph_string (struct glyph_string *clone)
-{
-  if (clone->img && clone->img->cg_image)
-    CGImageRelease (clone->img->cg_image);
-  
-  free (clone);
-}
-
 /* Draw foreground of image glyph string S.  */
 
 static void
@@ -2084,68 +1936,61 @@ mac_draw_glyph_string_bg_rect (struct glyph_string *s, int x, int y, int w, int 
 	     |     |       |  the image
 
  */
-
 static void
 mac_draw_image_glyph_string (struct glyph_string *s)
 {
-  CGRect atomic_rect = CGRectMake (s->x, s->y, s->background_width, s->height);
-
-  /* We use atomic drawing to prevent background flickering */
-  MAC_BEGIN_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING (s, atomic_rect, context);
-  {
-    int box_line_hwidth = max (s->face->box_vertical_line_width, 0);
-    int box_line_vwidth = max (s->face->box_horizontal_line_width, 0);
-    int height;
+  int box_line_hwidth = max (s->face->box_vertical_line_width, 0);
+  int box_line_vwidth = max (s->face->box_horizontal_line_width, 0);
+  int height;
       
-    height = s->height;
-    if (s->slice.y == 0)
-      height -= box_line_vwidth;
-    if (s->slice.y + s->slice.height >= s->img->height)
-      height -= box_line_vwidth;
+  height = s->height;
+  if (s->slice.y == 0)
+    height -= box_line_vwidth;
+  if (s->slice.y + s->slice.height >= s->img->height)
+    height -= box_line_vwidth;
 
-    /* Fill background with face under the image, only if row is
-       taller than image or if image has a clip mask */
-    s->stippled_p = s->face->stipple > 0;
-    if (height > s->slice.height
-	|| s->img->hmargin
-	|| s->img->vmargin
-	|| s->img->mask
-	|| s->img->pixmap == 0
-	|| s->width != s->background_width)
-      {
-	if (s->stippled_p)
-	  s->row->stipple_p = true;
+  /* Fill background with face under the image, only if row is
+     taller than image or if image has a clip mask */
+  s->stippled_p = s->face->stipple > 0;
+  if (height > s->slice.height
+      || s->img->hmargin
+      || s->img->vmargin
+      || s->img->mask
+      || s->img->pixmap == 0
+      || s->width != s->background_width)
+    {
+      if (s->stippled_p)
+	s->row->stipple_p = true;
 
-	int x = s->x;
-	int y = s->y;
-	int width = s->background_width;
+      int x = s->x;
+      int y = s->y;
+      int width = s->background_width;
 
-	if (s->first_glyph->left_box_line_p
-	    && s->slice.x == 0)
-	  {
-	    x += box_line_hwidth;
-	    width -= box_line_hwidth;
-	  }
+      if (s->first_glyph->left_box_line_p
+	  && s->slice.x == 0)
+	{
+	  x += box_line_hwidth;
+	  width -= box_line_hwidth;
+	}
 
-	if (s->slice.y == 0)
-	  y += box_line_vwidth;
+      if (s->slice.y == 0)
+	y += box_line_vwidth;
 
-	mac_draw_glyph_string_bg_rect (s, x, y, width, height);
+      mac_draw_glyph_string_bg_rect (s, x, y, width, height);
 
-	s->background_filled_p = true;
-      }
+      s->background_filled_p = true;
+    }
 
-    /* Draw the foreground.  */
-    mac_draw_image_foreground (s);
+  /* Draw the foreground.  */
+  mac_draw_image_foreground (s);
 
-    /* If we need a relief around the image, draw it. */
-    if (s->img->relief
-	|| s->hl == DRAW_IMAGE_RAISED
-	|| s->hl == DRAW_IMAGE_SUNKEN)
-      mac_draw_image_relief (s);
-  }
-  MAC_END_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING (s->f);
+  /* If we need a relief around the image, draw it. */
+  if (s->img->relief
+      || s->hl == DRAW_IMAGE_RAISED
+      || s->hl == DRAW_IMAGE_SUNKEN)
+    mac_draw_image_relief (s);
 }
+
 
 
 /* Draw stretch glyph string S.  */
@@ -2273,7 +2118,6 @@ mac_draw_underwave (struct glyph_string *s, int decoration_width)
   mac_draw_horizontal_wave (s->f, s->gc, s->x, s->ybase - wave_height + 3,
 			    decoration_width, wave_height, wave_length);
 }
-
 
 /* Draw glyph string S.  */
 
@@ -2418,7 +2262,7 @@ mac_draw_glyph_string (struct glyph_string *s)
 	      unsigned long thickness, position;
 	      int y;
 
-              if (s->prev
+	      if (s->prev
 		  && s->prev->face->underline == FACE_UNDERLINE_SINGLE
 		  && (s->prev->face->underline_at_descent_line_p
 		      == s->face->underline_at_descent_line_p)
@@ -2456,7 +2300,7 @@ mac_draw_glyph_string (struct glyph_string *s)
 		    = !(NILP (val) || BASE_EQ (val, Qunbound));
 
 		  /* Get the underline thickness.  Default is 1 pixel.  */
-                  if (font && font->underline_thickness > 0)
+		  if (font && font->underline_thickness > 0)
                     thickness = font->underline_thickness;
 		  else
 		    thickness = 1;
@@ -2478,7 +2322,7 @@ mac_draw_glyph_string (struct glyph_string *s)
 		      if (use_underline_position_properties
                           && font && font->underline_position >= 0)
                         position = font->underline_position;
-                      else if (font)
+		      else if (font)
                         position = (font->descent + 1) / 2;
 		      else
 			position = minimum_offset;
@@ -2623,6 +2467,20 @@ mac_draw_glyph_string (struct glyph_string *s)
     s->row->stipple_p = s->stippled_p;
 }
 
+/* Mac replacement for XCopyArea: used only for scrolling.  */
+
+static void
+mac_scroll_area (struct frame *f, GC gc, int src_x, int src_y,
+		 int width, int height, int dest_x, int dest_y)
+{
+  CGRect dst_rect = CGRectMake (dest_x, dest_y, width, height); 
+  mac_ensure_arena (f);
+  mac_record_gc_clip (f, gc);
+  
+  MAC_ARENA_CMD (cmd, f, SCROLL_RECT, dst_rect); /* dst is dirty, not src */
+  cmd->scroll.delta = CGSizeMake (dest_x - src_x, dest_y - src_y);
+}
+
 /* Shift display to make room for inserted glyphs.   */
 
 static void
@@ -2665,7 +2523,16 @@ mac_clear_frame (struct frame *f)
 }
 
 
-/* Invert the middle quarter of the frame for .15 sec.  */
+static inline void
+mac_flash_rectangles (struct frame *f, CGRect *rects, int nrects)
+{
+  mac_record_gc_clip (f, NULL);
+  for (int i = 0; i < nrects; i++)
+    mac_invert_rectangle(f, rects[i]);
+  mac_flush_arena (f); /* We need flashes immediately, even if drawn outside frame update */
+}
+
+/* Invert the bottom/top lines of the frame for .15 sec.  */
 
 static void
 mac_flash (struct frame *f)
@@ -2679,57 +2546,52 @@ mac_flash (struct frame *f)
   int flash_right = (FRAME_TEXT_COLS_TO_PIXEL_WIDTH (f, FRAME_COLS (f))
 		     - FRAME_INTERNAL_BORDER_WIDTH (f));
   int width = flash_right - flash_left;
-  NativeRectangle rects[2];
+  CGRect rects[2];
   int nrects;
 
   if (height > 3 * FRAME_LINE_HEIGHT (f))
     {
-      /* If window is tall, flash top and bottom line.  */
-      STORE_NATIVE_RECT (rects[0],
-			 flash_left, (FRAME_INTERNAL_BORDER_WIDTH (f)
-				      + FRAME_TOP_MARGIN_HEIGHT (f)),
-			 width, flash_height);
-      rects[1] = rects[0];
-      rects[1].y = height - flash_height - FRAME_INTERNAL_BORDER_WIDTH (f);
+      /* If window is tall enough, flash top and bottom line.  */
+      rects[0] = CGRectMake(flash_left,
+			    FRAME_INTERNAL_BORDER_WIDTH (f)
+			    + FRAME_TOP_MARGIN_HEIGHT(f),
+			    width, flash_height);
+      rects[1] = CGRectMake(flash_left,
+			    height - flash_height
+			    - FRAME_INTERNAL_BORDER_WIDTH(f),
+			    width, flash_height);
       nrects = 2;
     }
   else
     {
       /* If it is short, flash it all.  */
-      STORE_NATIVE_RECT (rects[0],
-			 flash_left, FRAME_INTERNAL_BORDER_WIDTH (f),
-			 width, height - 2 * FRAME_INTERNAL_BORDER_WIDTH (f));
+      rects[0] = CGRectMake(flash_left,
+			    FRAME_INTERNAL_BORDER_WIDTH(f),
+			    width,
+			    height - 2 * FRAME_INTERNAL_BORDER_WIDTH(f));
       nrects = 1;
     }
 
   block_input ();
-  mac_invert_rectangles_and_flush (f, rects, nrects, true);
-  {
-    struct timespec delay = make_timespec (0, 150 * 1000 * 1000);
-    struct timespec wakeup = timespec_add (current_timespec (), delay);
-
-    /* Keep waiting until past the time wakeup or any input gets
-       available.  */
-    while (! detect_input_pending ())
-      {
-	struct timespec current = current_timespec ();
-	struct timespec timeout;
-
-	/* Break if result would not be positive.  */
-	if (timespec_cmp (wakeup, current) <= 0)
-	  break;
-
-	/* How long `select' should wait.  */
-	timeout = make_timespec (0, 10 * 1000 * 1000);
-
-	/* Try to wait that long--but we might wake up sooner.  */
-	pselect (0, NULL, NULL, NULL, &timeout, NULL);
-      }
+  
+  /* Invert ON */
+  mac_flash_rectangles(f, rects, nrects);
+  
+  /* Wait up to 150ms, checking for input */
+  struct timespec delay = make_timespec(0, 150 * 1000 * 1000);
+  struct timespec wakeup = timespec_add(current_timespec(), delay);
+  while (!detect_input_pending()) {
+    struct timespec current = current_timespec();
+    if (timespec_cmp(wakeup, current) <= 0)
+      break;
+    struct timespec timeout = make_timespec(0, 10 * 1000 * 1000);
+    pselect(0, NULL, NULL, NULL, &timeout, NULL);
   }
-  mac_invert_rectangles_and_flush (f, rects, nrects, false);
+
+  /* Invert OFF */
+  mac_flash_rectangles(f, rects, nrects);  
   unblock_input ();
 }
-
 
 
 /* Make audible bell.  */
@@ -4464,6 +4326,8 @@ mac_free_frame_resources (struct frame *f)
   mac_cursor_release (f->output_data.mac->bottom_edge_cursor);
   mac_cursor_release (f->output_data.mac->bottom_left_corner_cursor);
 
+  mac_teardown_arena_system (f);
+  
   xfree (f->output_data.mac);
   f->output_data.mac = NULL;
 
@@ -5786,7 +5650,7 @@ static struct redisplay_interface mac_redisplay_interface =
     mac_after_update_window_line,
     mac_update_window_begin,
     mac_update_window_end,
-    mac_flush,
+    NULL, /* was: mac_flush, but that's a no-op w/ >=v10.14 layer-based drawing */
     gui_clear_window_mouse_face,
     gui_get_glyph_overhangs,
     gui_fix_overlapping_area,
@@ -6268,8 +6132,8 @@ OPTION-TYPE is a symbol specifying the type of startup options:
 
   DEFVAR_BOOL ("mac-drawing-use-gcd", mac_drawing_use_gcd,
     doc: /* Non-nil means graphical drawing uses GCD (Grand Central Dispatch).
-It allows us to perform graphical drawing operations in a non-main
-thread in some situations.  */);
+Performs graphical drawing operations via dispatch to dedicated
+threads.*/);
   mac_drawing_use_gcd = true;
 
   DEFVAR_LISP ("mac-frame-tabbing", Vmac_frame_tabbing,

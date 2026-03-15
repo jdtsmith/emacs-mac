@@ -5254,9 +5254,6 @@ syms_of_macfns (void)
   DEFSYM (Qmono, "mono");
   DEFSYM (Qassq_delete_all, "assq-delete-all");
   DEFSYM (Qbacking_scale_factor, "backing-scale-factor");
-#if HAVE_MAC_METAL
-  DEFSYM (Qmetal_device_name, "metal-device-name");
-#endif
   DEFSYM (Qfont_parameter, "font-parameter");
   DEFSYM (Qpdf, "pdf");
   DEFSYM (Qorientation, "orientation");

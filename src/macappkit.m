@@ -22,6 +22,7 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "lisp.h"
 #include "blockinput.h"
 
+#include "mac_arena_draw.h"
 #include "macterm.h"
 
 #include <sys/socket.h>
@@ -55,7 +56,6 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 #define CF_ESCAPING_BRIDGE(X)		((CFTypeRef) (X))
 #endif
 
-
 #ifdef MAC_DEBUG_SIGNPOST
 os_log_t _mac_sp_log_poi;
 /* Run automatically on binary load */
@@ -63,9 +63,8 @@ __attribute__((constructor))
 static void _mac_init_pois(void) {
     _mac_sp_log_poi = os_log_create("org.gnu.Emacs", OS_LOG_CATEGORY_POINTS_OF_INTEREST);
 }
-#ifdef DRAWING_USE_GCD
+#if DRAWING_USE_GCD
 os_log_t _mac_sp_log_drawing_queue;
-/* Run automatically on binary load */
 __attribute__((constructor))
 static void _mac_init_signposts(void) {
     _mac_sp_log_drawing_queue = os_log_create("org.gnu.Emacs", OS_LOG_CATEGORY_DYNAMIC_TRACING);
@@ -132,10 +131,6 @@ static void mac_within_gui_and_here (void (^) (void),
 static void mac_within_gui_allowing_inner_lisp (void (^) (void));
 static void mac_within_lisp (void (^) (void));
 static void mac_within_lisp_deferred_unless_popup (void (^) (void));
-
-static void mac_draw_queue_sync(void);
-static bool mac_frame_atomic_draw_p(struct frame *);
-
 
 #define MAC_SELECT_ALLOW_LISP_EVALUATION 1
 #if MAC_SELECT_ALLOW_LISP_EVALUATION
@@ -812,7 +807,8 @@ static void (*impOrderOut) (id, SEL, id);
 
 @end				// EmacsPosingWindow
 
-/* Return a pair of a type tag and a Lisp object converted form the
+// ** NS-Font/Appearance Helpers
+/* Return a pair of a type tag and a Lisp object converted from the
    NSValue object OBJ.  If the object is not an NSValue object or not
    created from NSRange, NSPoint, NSSize, or NSRect, then return
    nil.  */
@@ -898,11 +894,7 @@ mac_nsobject_to_lisp (CFTypeRef obj)
 static bool
 has_system_appearance_p (void)
 {
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
   return true;
-#else
-  return !(floor (NSAppKitVersionNumber) <= NSAppKitVersionNumber10_13);
-#endif
 }
 
 static bool
@@ -1165,8 +1157,6 @@ static NSMethodSignature *services_handler_signature (void);
 static void handle_action_invocation (NSInvocation *);
 static void handle_services_invocation (NSInvocation *);
 
-static void mac_flush_1 (struct frame *);
-
 static void mac_update_accessibility_display_options (void);
 
 static EventRef mac_peek_next_event (void);
@@ -1348,25 +1338,6 @@ static bool handling_queued_nsevents_p;
     }
 }
 
-#if HAVE_MAC_METAL
-- (void)applicationDidChangeScreenParameters:(NSNotification *)notification
-{
-  Lisp_Object tail, frame;
-
-  FOR_EACH_FRAME (tail, frame)
-    {
-      struct frame *f = XFRAME (frame);
-
-      if (FRAME_MAC_P (f))
-	{
-	  EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-
-	  [frameController updateEmacsViewMTLObjects];
-	}
-    }
-}
-#endif
-
 - (void)antialiasThresholdDidChange:(NSNotification *)notification
 {
   macfont_update_antialias_threshold ();
@@ -1375,7 +1346,7 @@ static bool handling_queued_nsevents_p;
 - (void)willSleep:(NSNotification *)notification {
   // Do quick pre-sleep work here
   NSLog(@"Entering sleep");
-  mac_draw_queue_sync();
+  mac_flush_open_arenas ();
 }
 
 - (void)updateObservedKeyPaths
@@ -1530,7 +1501,7 @@ static EventRef peek_if_next_event_activates_menu_bar (void);
 
 /* Minimum time interval between successive mac_read_socket calls.  */
 
-#define READ_SOCKET_MIN_INTERVAL (1/60.0)
+#define READ_SOCKET_MIN_INTERVAL (1/100.0)  // was: 1/60.
 
 static BOOL extendReadSocketIntervalOnce;
 
@@ -1540,10 +1511,6 @@ static BOOL extendReadSocketIntervalOnce;
 
   if (MOUSE_TRACKING_SUSPENDED_P () || extendReadSocketIntervalOnce)
     interval *= 6;
-  else if (!(floor (NSAppKitVersionNumber) <= NSAppKitVersionNumber10_10_Max))
-    /* A large interval value affects responsiveness on OS X
-       10.11.  */
-    interval *= .1;
 
   return interval;
 }
@@ -1619,7 +1586,7 @@ static BOOL extendReadSocketIntervalOnce;
     }
 }
 
-/* Handle NSEvents in the queue with holding quit event in *BUFP.
+/* Handle NSEvents in the queue withholding quit event in *BUFP.
    Return the number of stored Emacs events.
 
    We handle them inside the application loop in order to avoid the
@@ -1730,8 +1697,6 @@ emacs_windows_need_display_p (void)
     {
       if (mac_peek_next_event () || emacs_windows_need_display_p ())
 	[NSApp postDummyEvent];
-      else
-	mac_flush_1 (NULL);
     }
 }
 
@@ -2082,8 +2047,8 @@ mac_application_state (void)
 
 // * Windows
 
-static void set_global_focus_view_frame (struct frame *);
-static void unset_global_focus_view_frame (void);
+//static void set_global_focus_view_frame (struct frame *);
+//static void unset_global_focus_view_frame (void);
 static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 
 #define DEFAULT_NUM_COLS (80)
@@ -2560,17 +2525,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 	 live resize transition layer used in full screen transition
 	 looks translucent if we make overlayView a subview of
 	 emacsView.  */
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101400
-      if (emacsView.wantsUpdateLayer)
-#endif
-	[emacsWindow.contentView addSubview:overlayView];
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101400
-      else if (!(floor (NSAppKitVersionNumber) <= NSAppKitVersionNumber10_13))
-	[emacsView addSubview:overlayView];
-      else
-	[emacsWindow.contentView addSubview:overlayView positioned:NSWindowBelow
-				 relativeTo:emacsView];
-#endif
+      [emacsWindow.contentView addSubview:overlayView];
       [self synchronizeOverlayViewFrame];
     }
 }
@@ -2640,11 +2595,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
       contentRect = [contentView frame];
       contentRect.origin = [[contentView superview]
 			     convertPoint:contentRect.origin toView:nil];
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
       contentRect.origin = [oldWindow convertPointToScreen:contentRect.origin];
-#else
-      contentRect.origin = [oldWindow convertRectToScreen:contentRect].origin;
-#endif
     }
 
   window = [[EmacsWindow alloc] initWithContentRect:contentRect
@@ -2700,9 +2651,6 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   [[window contentView] addSubview:emacsView];
   [self updateBackingScaleFactor];
   [self updateEmacsViewIsHiddenOrHasHiddenAncestor];
-#if HAVE_MAC_METAL
-  [self updateEmacsViewMTLObjects];
-#endif
 
   if (oldWindow)
     {
@@ -2756,6 +2704,20 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   [emacsView removeFromSuperview];
   [emacsWindow close];
 }
+
+- (void)ensureBackingSized
+{
+  [emacsView ensureBackingSized];
+}
+
+
+- (CGContextRef)prepareBackingForDrawing
+{
+    if (!emacsView || ![emacsView backing])
+        return NULL;
+    return [[emacsView backing] backingBitmap];
+}
+
 
 - (struct frame *)emacsFrame
 {
@@ -2857,14 +2819,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 		  NSPoint location = [currentEvent locationInWindow];
 
 		  if (eventWindow)
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
 		    location = [eventWindow convertPointToScreen:location];
-#else
-		    location =
-		      [eventWindow
-			convertRectToScreen:(NSMakeRect (location.x, location.y,
-							 0, 0))].origin;
-#endif
 		  screen = [NSScreen screenContainingPoint:location];
 		}
 
@@ -2897,13 +2852,8 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 
 	  parentContentRect = [parentContentView convertRect:parentContentRect
 						      toView:nil];
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
 	  parentContentRect.origin =
 	    [parentWindow convertPointToScreen:parentContentRect.origin];
-#else
-	  parentContentRect.origin =
-	    [parentWindow convertRectToScreen:parentContentRect].origin;
-#endif
 
 	  if (windowManagerState & WM_STATE_FULLSCREEN)
 	    frameRect = parentContentRect;
@@ -3166,81 +3116,34 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   [emacsView displayIfNeeded];
 }
 
-- (void)lockFocusOnEmacsView
+- (void)presentBackingWithDirtyRects:(CGRect *)rects count:(int)count
 {
-  eassert (!FRAME_OBSCURED_P (emacsFrame));
-  [emacsView lockFocusOnBacking];
+    [[emacsView backing] setDirtyRects:rects count:count];
 }
-
-- (void)unlockFocusOnEmacsView
-{
-  [emacsView unlockFocusOnBacking];
-}
-
-- (void)scrollEmacsViewRect:(NSRect)rect by:(NSSize)delta
-{
-  [emacsView scrollBackingRect:rect by:delta];
-}
-
-- (void)invalidateEmacsViewBackingRect:(CGRect)invalidRect
-			     clipRects:(const CGRect *)clipRects
-				 count:(CFIndex)count
-			  forCGContext:(CGContextRef)context
-{
-  [emacsView invalidateBackingRect:invalidRect
-			 clipRects:clipRects count:count forCGContext:context];
-}
-
-#if HAVE_MAC_METAL
-- (void)updateEmacsViewMTLObjects
-{
-  [emacsView updateMTLObjects];
-}
-#endif
 
 - (NSPoint)convertEmacsViewPointToScreen:(NSPoint)point
 {
   point = [emacsView convertPoint:point toView:nil];
 
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
   return [emacsWindow convertPointToScreen:point];
-#else
-  return [emacsWindow
-	   convertRectToScreen:(NSMakeRect (point.x, point.y, 0, 0))].origin;
-#endif
 }
 
 - (NSPoint)convertEmacsViewPointFromScreen:(NSPoint)point
 {
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
   point = [emacsWindow convertPointFromScreen:point];
-#else
-  point = [emacsWindow
-	    convertRectFromScreen:(NSMakeRect (point.x, point.y, 0, 0))].origin;
-#endif
-
   return [emacsView convertPoint:point fromView:nil];
 }
 
 - (NSRect)convertEmacsViewRectToScreen:(NSRect)rect
 {
   rect = [emacsView convertRect:rect toView:nil];
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
   rect.origin = [emacsWindow convertPointToScreen:rect.origin];
-#else
-  rect.origin = [emacsWindow convertRectToScreen:rect].origin;
-#endif
-
   return rect;
 }
 
 - (NSRect)convertEmacsViewRectFromScreen:(NSRect)rect
 {
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
   rect.origin = [emacsWindow convertPointFromScreen:rect.origin];
-#else
-  rect.origin = [emacsWindow convertRectFromScreen:rect].origin;
-#endif
   rect = [emacsView convertRect:rect fromView:nil];
 
   return rect;
@@ -3351,9 +3254,6 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   /* We used to update the presentation options for the key window
      here.  But it makes application switching impossible in Split
      View on macOS 10.14 and later.  */
-#if HAVE_MAC_METAL
-  [self updateEmacsViewMTLObjects];
-#endif
 }
 
 - (void)windowDidChangeBackingProperties:(NSNotification *)notification
@@ -4369,6 +4269,9 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 
 @end				// EmacsFrameController
 
+
+// ** Window manager C functions
+
 /* Window Manager function replacements.  */
 
 void
@@ -5342,93 +5245,104 @@ mac_real_positions (struct frame *f, int *xptr, int *yptr)
   *yptr = bounds.y;
 }
 
-/* Flush display of frame F.  */
-
+/* Flush display of frame F, first marking the frame as in need of
+   display, if it has requested.  Since we pump the NS Event loop
+   ourselves (see mac_select), this is only place requesting display
+   update, which calls updateLayer, occurs. */
 void
 mac_force_flush (struct frame *f)
 {
-  eassert (f && FRAME_MAC_P (f));
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101400
-  if (!FRAME_MAC_DOUBLE_BUFFERED_P (f))
-    {
-      EmacsWindow *window;
-
-      block_input ();
-      window = FRAME_MAC_WINDOW_OBJECT (f);
-      if (window.isVisible)
-	mac_within_gui (^{[window flushWindow];});
-      unblock_input ();
-
-      return;
-    }
-#endif
+  // eassert (f && FRAME_MAC_P (f));
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-  block_input ();
-  mac_within_gui (^{[frameController displayEmacsViewIfNeeded];});
-  unblock_input ();
-}
+  bool present = NO;
 
-static void
-mac_flush_1 (struct frame *f)
-{
-  if (f == NULL)
+  if (FRAME_MAC_NEEDS_PRESENTATION_P (f))
     {
-      Lisp_Object rest, frame;
-      FOR_EACH_FRAME (rest, frame)
-	if (FRAME_MAC_P (XFRAME (frame)))
-	  mac_flush_1 (XFRAME (frame));
+      present = YES;
+      FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
     }
-  else
-    {
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101400
-      if (!FRAME_MAC_DOUBLE_BUFFERED_P (f))
-	{
-	  EmacsWindow *window = FRAME_MAC_WINDOW_OBJECT (f);
-
-	  if (window.isVisible)
-	    [window flushWindow];
-
-	  return;
-	}
-#endif
-#if 0 /* XXX: is this "flush" necessary for layer-backed views?  */
-      EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-
+  
+  block_input ();
+  mac_within_gui (^{
+      if (present)
+	[frameController setEmacsViewNeedsDisplay:YES];
       [frameController displayEmacsViewIfNeeded];
-#endif
-    }
-}
-
-void
-mac_flush (struct frame *f)
-{
-  block_input ();
-  mac_within_gui (^{mac_flush_1 (NULL);});
+    });
   unblock_input ();
 }
 
 void
-mac_update_frame_begin (struct frame *f)
+mac_draw_session_begin (struct frame *f)
 {
-  EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-  MAC_SIGNPOST_FRAME_BEGIN(FrameUpdate, f);
-  mac_within_gui (^{
-      [frameController lockFocusOnEmacsView];
-      set_global_focus_view_frame (f);
-    });
+    struct mac_output *mo = f->output_data.mac;
+    if (mo->active_arena)
+        return;
+#if DRAWING_USE_GCD
+    /* Lazy init of arena system */
+    if (!mo->drawing_queue)
+        mac_init_arena_system (f);
+#endif
+    
+    /* Ensure backing bitmap exists and is correctly sized.
+       Must happen on GUI thread since it touches NSView. */
+    if (FRAME_BACKING_NEEDS_SIZE_CHECK_P (f))
+      {
+	EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+        if (pthread_main_np ())
+	  [frameController ensureBackingSized];
+        else
+          mac_within_gui (^{[frameController ensureBackingSized];});  
+          
+        FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = 0;
+      }
+
+#if DRAWING_USE_GCD
+    /* Acquire an arena.  Blocks only if both arenas are in use. */
+    dispatch_semaphore_wait(mo->arena_sem, DISPATCH_TIME_FOREVER);
+#endif
+
+    mac_arena *arena = &mo->arenas[mo->next_arena];
+    mo->next_arena ^= 1;
+    mac_arena_reset (arena);
+    arena->backing_scale_factor = FRAME_BACKING_SCALE_FACTOR (f);
+    mo->active_arena = arena;
+    mo->current_clip_nrects = -1;
 }
 
 void
-mac_update_frame_end (struct frame *f)
+mac_draw_session_end (struct frame *f)
 {
-  EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+    struct mac_output *mo = f->output_data.mac;
+    mac_arena *arena = mo->active_arena;
 
-  mac_within_gui (^{
-      unset_global_focus_view_frame ();
-      [frameController unlockFocusOnEmacsView];
-    });
-  MAC_SIGNPOST_FRAME_END(FrameUpdate, f);
+    if (!arena)
+        return;  /* No drawing happened */
+
+    mo->active_arena = NULL;
+
+    void (^block)(void)  = ^{
+      /* Get the back bitmap, waiting for any ongoing
+	 front→back dirty rect copies to complete */
+      CGContextRef backing_ctx = mac_get_backing_bitmap(f);
+      if (backing_ctx)
+	{
+	  mac_playback_arena(arena, f, backing_ctx);
+	  mac_present_frame(f, mo->dirty_rects, mo->dirty_rect_count);
+	  mo->dirty_rect_count = 0;  /* reset for next time */
+	}
+#if DRAWING_USE_GCD
+      dispatch_semaphore_signal (mo->arena_sem);
+#endif
+    };
+    
+#if DRAWING_USE_GCD    
+    if (mac_drawing_use_gcd)
+      dispatch_async(mo->drawing_queue, block);
+    else
+#endif
+      block();
 }
+
 
 /* Create a new Mac window for the frame F and store its delegate in
    FRAME_MAC_WINDOW (f).  */
@@ -5453,7 +5367,8 @@ mac_create_frame_window (struct frame *f)
       frameController = [[EmacsFrameController alloc] initWithEmacsFrame:f];
     });
   FRAME_MAC_WINDOW (f) = (void *) CF_ESCAPING_BRIDGE (frameController);
-
+  FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = 1;
+  
   if (f->size_hint_flags & (USPosition | PPosition)
       || FRAME_PARENT_FRAME (f))
     {
@@ -5785,6 +5700,70 @@ static void mac_end_buffer_and_glyph_matrix_access (void);
 
 @implementation EmacsBacking
 
+/* Scroll (self-blit) a rectangle within a bitmap context.
+   DEST is the destination rectangle in logical coordinates.
+   DELTA is the displacement from source to destination.
+   SCALE converts logical to pixel coordinates. */
+void
+mac_scroll_bitmap (CGContextRef ctx, CGRect dest, CGSize delta, CGFloat scale)
+{
+  size_t bytesPerRow = CGBitmapContextGetBytesPerRow (ctx);
+  const size_t bytesPerPixel = sizeof (Pixel_8888);
+  unsigned char *base = CGBitmapContextGetData (ctx);
+
+  /* Deltas can be negative, so they must be signed (ptrdiff_t is 64-bit signed) */
+  ptrdiff_t dx = delta.width * scale;
+  ptrdiff_t dy = delta.height * scale;
+
+  /* Dimensions and starting coordinates cannot be negative, use size_t */
+  size_t width  = CGRectGetWidth (dest) * scale;
+  size_t height = CGRectGetHeight (dest) * scale;
+  
+  /* Compute source coordinates safely */
+  size_t dest_x = CGRectGetMinX (dest) * scale;
+  size_t dest_y = CGRectGetMinY (dest) * scale;
+  size_t src_x = dest_x - dx;
+  size_t src_y = dest_y - dy;
+
+  vImage_Buffer src, dst;
+  src.width  = width;
+  src.height = height;
+  src.rowBytes = bytesPerRow; // vImage rowBytes is implicitly cast to ptrdiff_t
+  
+  /* All unsigned math for the pointer offset */
+  src.data = base + (src_y * bytesPerRow) + (src_x * bytesPerPixel);
+
+  if (dy != 0)
+    {
+      if (dy > 0)
+        {
+          src.data = ((unsigned char *) src.data + ((height - 1) * bytesPerRow));
+          src.rowBytes = -(ptrdiff_t)bytesPerRow;
+        }
+      dst = src;
+      dst.data = ((unsigned char *) dst.data +
+		  (dy * (ptrdiff_t) bytesPerRow) +
+		  (dx * (ptrdiff_t)bytesPerPixel));
+      mac_vimage_copy_8888 (&src, &dst, kvImageDoNotTile);
+    }
+  else if (dx != 0)
+    {
+      /* Horizontal-only scroll (rare in current Emacs) */
+      dst = src;
+      dst.data = ((unsigned char *) dst.data + (dx * (ptrdiff_t)bytesPerPixel));
+      if (labs (dx) >= width)
+        mac_vimage_copy_8888 (&src, &dst, kvImageNoFlags);
+      else
+        {
+          vImage_Buffer buf;
+          mac_vimage_buffer_init_8888 (&buf, height, width);
+          mac_vimage_copy_8888 (&src, &buf, kvImageNoFlags);
+          mac_vimage_copy_8888 (&buf, &dst, kvImageNoFlags);
+          free (buf.data);
+        }
+    }
+}
+
 static vImage_Error
 mac_vimage_buffer_init_8888 (vImage_Buffer *buf, vImagePixelCount height,
 			     vImagePixelCount width)
@@ -5860,15 +5839,14 @@ mac_iosurface_create (size_t width, size_t height)
   frontBitmap = bitmaps[1];
   frontSurface = surfaces[1];
   if (frontSurface)
-    {
       IOSurfaceUnlock (frontSurface, 0, NULL);
-      invalidRectValues = [[NSMutableArray alloc] initWithCapacity:0];
-    }
-#if HAVE_MAC_METAL
-  [self updateMTLObjectsForView:view];
-#endif
-
   return self;
+}
+
+- (CGContextRef)backingBitmap
+{
+    [self waitCopyFromFrontToBack];
+    return backBitmap;
 }
 
 - (void)swapResourcesAndStartCopy
@@ -5883,85 +5861,53 @@ mac_iosurface_create (size_t width, size_t height)
   backSurface = frontSurface;
   frontSurface = surface;
 
-#if HAVE_MAC_METAL
-  id <MTLTexture> texture = backTexture;
-  backTexture = frontTexture;
-  frontTexture = texture;
-#endif
-
-  NSArrayOf (NSValue *) *rectValues = invalidRectValues;
-  invalidRectValues = [[NSMutableArray alloc] initWithCapacity:0];
-
   dispatch_queue_t queue =
     dispatch_get_global_queue (DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
   copyFromFrontToBackSemaphore = dispatch_semaphore_create (0);
 
   dispatch_async (queue, ^{
-#if HAVE_MAC_METAL
-      if (backTexture)
+      IOSurfaceLock (frontSurface, kIOSurfaceLockReadOnly, NULL);
+      IOSurfaceLock (backSurface, 0, NULL);
+    
+      unsigned char *backBase = IOSurfaceGetBaseAddress (backSurface);
+      unsigned char *frontBase = IOSurfaceGetBaseAddress (frontSurface);
+      size_t bytesPerRow = IOSurfaceGetBytesPerRow (backSurface);
+      size_t surfaceWidth = IOSurfaceGetWidth (backSurface); /* Add this back! */
+
+      vImage_Buffer src, dest;
+      src.rowBytes = dest.rowBytes = bytesPerRow;
+
+      for (int i = 0; i < dirtyRectCount; i++)
 	{
-	  id <MTLCommandBuffer> commandBuffer = [mtlCommandQueue commandBuffer];
-	  id <MTLBlitCommandEncoder> blitCommandEncoder =
-	    [commandBuffer blitCommandEncoder];
+	  CGRect rect = dirtyRects[i];
 
-	  for (NSValue *value in rectValues)
+	  size_t x = CGRectGetMinX (rect) * scaleFactor;
+	  size_t y = CGRectGetMinY (rect) * scaleFactor;
+	  size_t offset = y * bytesPerRow + x * sizeof (Pixel_8888);
+
+	  src.width = CGRectGetWidth (rect) * scaleFactor;
+	  src.height = CGRectGetHeight (rect) * scaleFactor;
+
+	  if (surfaceWidth - src.width < surfaceWidth / 16)
 	    {
-	      NSRect rect = value.rectValue;
-	      MTLOrigin origin = MTLOriginMake (NSMinX (rect) * scaleFactor,
-						NSMinY (rect) * scaleFactor, 0);
-	      MTLSize size = MTLSizeMake (NSWidth (rect) * scaleFactor,
-					  NSHeight (rect) * scaleFactor, 1);
-
-	      [blitCommandEncoder copyFromTexture:frontTexture
-				      sourceSlice:0 sourceLevel:0
-				     sourceOrigin:origin sourceSize:size
-					toTexture:backTexture
-				 destinationSlice:0 destinationLevel:0
-				destinationOrigin:origin];
+	      memcpy (backBase + offset, frontBase + offset,
+		      ((src.height - 1) * bytesPerRow
+		       + src.width * sizeof (Pixel_8888)));
 	    }
-	  [blitCommandEncoder endEncoding];
-	  [commandBuffer commit];
-	  [commandBuffer waitUntilCompleted];
-	  IOSurfaceLock (backSurface, 0, NULL);
-	}
-      else
-#endif
-	{
-	  IOSurfaceLock (frontSurface, kIOSurfaceLockReadOnly, NULL);
-	  IOSurfaceLock (backSurface, 0, NULL);
-	  unsigned char *backBase = IOSurfaceGetBaseAddress (backSurface);
-	  unsigned char *frontBase = IOSurfaceGetBaseAddress (frontSurface);
-	  size_t bytesPerRow = IOSurfaceGetBytesPerRow (backSurface);
-	  size_t surfaceWidth = IOSurfaceGetWidth (backSurface);
-	  vImage_Buffer src, dest;
-	  src.rowBytes = dest.rowBytes = bytesPerRow;
-	  for (NSValue *value in rectValues)
+	  else
 	    {
-	      NSRect rect = value.rectValue;
-	      size_t x = NSMinX (rect) * scaleFactor;
-	      size_t y = NSMinY (rect) * scaleFactor;
-	      size_t offset = y * bytesPerRow + x * sizeof (Pixel_8888);
-	      src.width = NSWidth (rect) * scaleFactor;
-	      src.height = NSHeight (rect) * scaleFactor;
-
-	      if (surfaceWidth - src.width < surfaceWidth / 16)
-		memcpy (backBase + offset, frontBase + offset,
-			((src.height - 1) * bytesPerRow
-			 + src.width * sizeof (Pixel_8888)));
-	      else
-		{
-		  src.data = frontBase + offset;
-		  dest.width = src.width;
-		  dest.height = src.height;
-		  dest.data = backBase + offset;
-		  mac_vimage_copy_8888 (&src, &dest, kvImageDoNotTile);
-		}
+	      src.data = frontBase + offset;
+	      dest.width = src.width;
+	      dest.height = src.height;
+	      dest.data = backBase + offset;
+	      mac_vimage_copy_8888 (&src, &dest, kvImageDoNotTile);
 	    }
-	  IOSurfaceUnlock (frontSurface, kIOSurfaceLockReadOnly, NULL);
 	}
-
-      MRC_RELEASE (rectValues);
-      dispatch_semaphore_signal (copyFromFrontToBackSemaphore);
+      
+      IOSurfaceUnlock (backSurface, 0, NULL);
+      IOSurfaceUnlock (frontSurface, kIOSurfaceLockReadOnly, NULL);
+  
+      dispatch_semaphore_signal (copyFromFrontToBackSemaphore);    
     });
 }
 
@@ -5990,12 +5936,6 @@ mac_iosurface_create (size_t width, size_t height)
   if (frontSurface)
     CFRelease (frontSurface);
 #if !USE_ARC
-  [invalidRectValues release];
-#if HAVE_MAC_METAL
-  [backTexture release];
-  [frontTexture release];
-  [mtlCommandQueue release];
-#endif
   [super dealloc];
 #endif
 }
@@ -6011,134 +5951,22 @@ mac_iosurface_create (size_t width, size_t height)
 		     CGBitmapContextGetHeight (backBitmap) / scaleFactor);
 }
 
-- (BOOL)wantsInvalidRectForCGContext:(CGContextRef)context
+/* Set the bounds-clipped dirty rects */
+
+- (void)setDirtyRects:(const CGRect *)rects count:(int)count
 {
-  return invalidRectValues && context == backBitmap;
+  CGRect bounds = CGRectMake(0, 0, self.size.width, self.size.height);
+  size_t d_cnt = 0;
+
+  for (size_t i = 0; i < count; i++)
+    {
+      CGRect rect = CGRectIntersection (rects[i], bounds);
+      if (CGRectIsNull (rect) || CGRectIsEmpty (rect))
+	continue;
+      dirtyRects[d_cnt++] = rect;
+    }
+  dirtyRectCount = d_cnt;
 }
-
-- (void)invalidateRect:(NSRect)rect
-{
-  if (!invalidRectValues)
-    return;
-
-  NSUInteger i, count = invalidRectValues.count;
-  NSRect r, boundsRect = {NSZeroPoint, self.size};
-
-  rect = NSIntersectionRect (rect, boundsRect);
-  if (NSIsEmptyRect (rect))
-    return;
-
-#if 1
-  /* Usually count is not so large, and the simple linear search would
-     be enough.  */
-  for (i = 0; i < count; i++)
-    {
-      r = [invalidRectValues[i] rectValue];
-      if (NSMinY (rect) <= NSMaxY (r))
-	break;
-    }
-  if (i == count || NSMaxY (rect) < NSMinY (r))
-    [invalidRectValues insertObject:[NSValue valueWithRect:rect] atIndex:i];
-  else if (!NSContainsRect (r, rect))
-    {
-      NSUInteger j = i++;
-
-      rect = NSUnionRect (rect, r);
-      for (; i < count; i++)
-	{
-	  r = [invalidRectValues[i] rectValue];
-	  if (NSMaxY (rect) < NSMinY (r))
-	    break;
-	  rect = NSUnionRect (rect, r);
-	}
-      [invalidRectValues replaceObjectAtIndex:j++
-				   withObject:[NSValue valueWithRect:rect]];
-      [invalidRectValues removeObjectsInRange:(NSMakeRange (j, i - j))];
-    }
-#else
-  i = [invalidRectValues
-	indexOfObject:[NSValue
-			valueWithRect:(NSMakeRect (0, NSMinY (rect), 0, 0))]
-	inSortedRange:NSMakeRange (0, count)
-	      options:NSBinarySearchingInsertionIndex
-	usingComparator:^(id obj1, id obj2) {
-      CGFloat y1 = NSMaxY (((NSValue *) obj1).rectValue);
-      CGFloat y2 = NSMaxY (((NSValue *) obj2).rectValue);
-      return (NSComparisonResult) (y1 > y2 ? NSOrderedDescending
-				   : y1 < y2 ? NSOrderedAscending
-				   : NSOrderedSame);
-    }];
-  NSUInteger j;
-  for (j = i; j < count; j++)
-    {
-      r = invalidRectValues[j].rectValue;
-      if (NSMaxY (rect) < NSMinY (r))
-	break;
-      rect = NSUnionRect (rect, r);
-    }
-  if (i == j)
-    [invalidRectValues insertObject:[NSValue valueWithRect:rect] atIndex:i];
-  else
-    {
-      [invalidRectValues replaceObjectAtIndex:i++
-				   withObject:[NSValue valueWithRect:rect]];
-      [invalidRectValues removeObjectsInRange:(NSMakeRange (i, j - i))];
-    }
-#endif
-}
-
-#if HAVE_MAC_METAL
-static id <MTLTexture>
-mac_texture_create_with_surface (id <MTLDevice> device, IOSurfaceRef surface)
-{
-  if (!device || !surface)
-    return nil;
-
-  MTLTextureDescriptor *textureDescriptor =
-    [MTLTextureDescriptor
-      texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-				   width:(IOSurfaceGetWidth (surface))
-				  height:(IOSurfaceGetHeight (surface))
-			       mipmapped:NO];
-
-  return [device newTextureWithDescriptor:textureDescriptor
-				iosurface:surface plane:0];
-}
-
-- (void)updateMTLObjectsForView:(NSView *)view
-{
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101100
-  if (CGDirectDisplayCopyCurrentMetalDevice == NULL)
-    return;
-#endif
-  CGDirectDisplayID displayID =
-    (CGDirectDisplayID) [view.window.screen.deviceDescription[@"NSScreenNumber"]
-			     unsignedIntValue];
-  id <MTLDevice> newDevice = CGDirectDisplayCopyCurrentMetalDevice (displayID);
-
-  if (newDevice != mtlCommandQueue.device)
-    {
-      MRC_RELEASE (backTexture);
-      backTexture = mac_texture_create_with_surface (newDevice, backSurface);
-      MRC_RELEASE (frontTexture);
-      if (backTexture == nil)
-	frontTexture = nil;
-      else
-	{
-	  frontTexture = mac_texture_create_with_surface (newDevice,
-							  frontSurface);
-	  if (frontTexture == nil)
-	    {
-	      MRC_RELEASE (backTexture);
-	      backTexture = nil;
-	    }
-	}
-      MRC_RELEASE (mtlCommandQueue);
-      mtlCommandQueue = newDevice.newCommandQueue;
-    }
-  MRC_RELEASE (newDevice);
-}
-#endif
 
 - (void)setContentsForLayer:(CALayer *)layer
 {
@@ -6154,159 +5982,6 @@ mac_texture_create_with_surface (id <MTLDevice> device, IOSurfaceRef surface)
     layer.contents =
       CFBridgingRelease (CGBitmapContextCreateImage (backBitmap));
   layer.contentsScale = scaleFactor;
-}
-
-- (void)lockFocus
-{
-  lockCount++;
-  [self waitCopyFromFrontToBack];
-
-  [NSGraphicsContext saveGraphicsState];
-  NSGraphicsContext.currentContext =
-    [NSGraphicsContext graphicsContextWithCGContext:backBitmap flipped:NO];
-}
-
-- (void)unlockFocus
-{
-  eassert (lockCount);
-  eassert (backBitmap);
-
-  lockCount--;
-  [NSGraphicsContext restoreGraphicsState];
-}
-
-- (void)scrollRect:(NSRect)rect by:(NSSize)delta
-{
-  NSInteger deltaX, deltaY, srcX, srcY, width, height;
-
-  if ((delta.width == 0 && delta.height == 0) || NSIsEmptyRect (rect))
-    return;
-
-  [self invalidateRect:(NSOffsetRect (rect, delta.width, delta.height))];
-
-  if (scaleFactor != 1.0)
-    {
-      rect.origin.x *= scaleFactor, rect.origin.y *= scaleFactor;
-      rect.size.width *= scaleFactor, rect.size.height *= scaleFactor;
-      delta.width *= scaleFactor, delta.height *= scaleFactor;
-    }
-
-  deltaX = delta.width, deltaY = delta.height;
-  srcX = NSMinX (rect), srcY = NSMinY (rect);
-  width = NSWidth (rect), height = NSHeight (rect);
-
-  eassert (CGBitmapContextGetBitsPerPixel (backBitmap)
-	   == 8 * sizeof (Pixel_8888));
-  NSInteger bytesPerRow = CGBitmapContextGetBytesPerRow (backBitmap);
-  const NSInteger bytesPerPixel = sizeof (Pixel_8888);
-  unsigned char *srcData = CGBitmapContextGetData (backBitmap);
-  vImage_Buffer src, dest;
-
-  src.data = srcData + srcY * bytesPerRow + srcX * bytesPerPixel;
-  src.height = height;
-  src.width = width;
-  src.rowBytes = bytesPerRow;
-  if (deltaY != 0)
-    {
-      if (deltaY > 0)
-	{
-	  src.data = ((unsigned char *) src.data
-		      + (src.height - 1) * bytesPerRow);
-	  src.rowBytes = - bytesPerRow;
-	}
-      dest = src;
-      dest.data = ((unsigned char *) dest.data
-		   + deltaY * bytesPerRow + deltaX * bytesPerPixel);
-      /* As of macOS 10.13, vImageCopyBuffer no longer does
-	 multi-threading even if we give it kvImageNoFlags.  We rather
-	 pass kvImageDoNotTile so it works with overlapping areas on
-	 older versions.  */
-      mac_vimage_copy_8888 (&src, &dest, kvImageDoNotTile);
-    }
-  else /* deltaY == 0, which does not happen on the current version of
-	  Emacs. */
-    {
-      dest = src;
-      dest.data = ((unsigned char *) dest.data
-		   + /* deltaY * bytesPerRow + */ deltaX * bytesPerPixel);
-      if (labs (deltaX) >= src.width)
-	mac_vimage_copy_8888 (&src, &dest, kvImageNoFlags);
-      else if (deltaX == 0)
-	return;
-      else
-	{
-	  vImage_Buffer buf;
-
-	  mac_vimage_buffer_init_8888 (&buf, src.height, src.width);
-	  mac_vimage_copy_8888 (&src, &buf, kvImageNoFlags);
-	  mac_vimage_copy_8888 (&buf, &dest, kvImageNoFlags);
-	  free (buf.data);
-	}
-    }
-}
-
-- (NSData *)imageBuffersDataForRectanglesData:(NSData *)rectanglesData
-{
-  NSInteger i, count = rectanglesData.length / sizeof (NativeRectangle);
-  const NativeRectangle *rectangles = rectanglesData.bytes;
-  NSMutableData *imageBuffersData =
-    [NSMutableData dataWithCapacity:(count * sizeof (vImage_Buffer))];
-  vImage_Buffer *imageBuffers = imageBuffersData.mutableBytes;
-  [self waitCopyFromFrontToBack];
-  unsigned char *srcData = CGBitmapContextGetData (backBitmap);
-  NSInteger scale = scaleFactor;
-  NativeRectangle backing_rectangle = {0, 0,
-    CGBitmapContextGetWidth (backBitmap) / scale,
-    CGBitmapContextGetHeight (backBitmap) / scale};
-  vImage_Buffer src;
-
-  src.rowBytes = CGBitmapContextGetBytesPerRow (backBitmap);
-  for (i = 0; i < count; i++)
-    {
-      vImage_Buffer *dest = imageBuffers + i;
-      NativeRectangle rectangle;
-
-      gui_intersect_rectangles (rectangles + i, &backing_rectangle, &rectangle);
-      mac_vimage_buffer_init_8888 (dest, rectangle.height * scale,
-				   rectangle.width * scale);
-      src.height = dest->height, src.width = dest->width;
-      src.data = srcData + (rectangle.y * src.rowBytes
-			    + rectangle.x * sizeof (Pixel_8888)) * scale;
-      mac_vimage_copy_8888 (&src, dest, kvImageNoFlags);
-    }
-
-  return imageBuffersData;
-}
-
-- (void)restoreImageBuffersData:(NSData *)imageBuffersData
-	      forRectanglesData:(NSData *)rectanglesData
-{
-  NSInteger i, count = rectanglesData.length / sizeof (NativeRectangle);
-  const NativeRectangle *rectangles = rectanglesData.bytes;
-  const vImage_Buffer *imageBuffers = imageBuffersData.bytes;
-  [self waitCopyFromFrontToBack];
-  unsigned char *destData = CGBitmapContextGetData (backBitmap);
-  NSInteger scale = scaleFactor;
-  NativeRectangle backing_rectangle = {0, 0,
-    CGBitmapContextGetWidth (backBitmap) / scale,
-    CGBitmapContextGetHeight (backBitmap) / scale};
-  vImage_Buffer dest;
-
-  dest.rowBytes = CGBitmapContextGetBytesPerRow (backBitmap);
-  for (i = 0; i < count; i++)
-    {
-      const vImage_Buffer *src = imageBuffers + i;
-      NativeRectangle rectangle;
-
-      gui_intersect_rectangles (rectangles + i, &backing_rectangle, &rectangle);
-      dest.height = src->height, dest.width = src->width;
-      dest.data = destData + (rectangle.y * dest.rowBytes
-			      + rectangle.x * sizeof (Pixel_8888)) * scale;
-      mac_vimage_copy_8888 (src, &dest, kvImageNoFlags);
-      free (src->data);
-      [self invalidateRect:(NSMakeRect (rectangle.x, rectangle.y,
-					rectangle.width, rectangle.height))];
-    }
 }
 
 @end				// EmacsBacking
@@ -6357,22 +6032,33 @@ static BOOL emacsViewUpdateLayerDisabled;
   return frameController.emacsFrame;
 }
 
+
+/* Only called when emacsViewUpdateLayerDisabled=true.  Simply displays
+   the most recent backing bitmap into the current NSContext */
 - (void)drawRect:(NSRect)aRect
 {
-  struct frame *f = self.emacsFrame;
-  int x = NSMinX (aRect), y = NSMinY (aRect);
-  int width = NSWidth (aRect), height = NSHeight (aRect);
+  struct frame *f = [self emacsFrame];
+  if (!f) return;
+  struct mac_output *mo = f->output_data.mac;
+  if (!mo) return;
 
-  set_global_focus_view_frame (f);
-  mac_clear_area (f, x, y, width, height);
-  mac_begin_scale_mismatch_detection (f);
-  expose_frame (f, x, y, width, height);
-  mac_clear_under_internal_border (f);
-  if (mac_end_scale_mismatch_detection (f))
-    SET_FRAME_GARBAGED (f);
-  if (!backing)
-    mac_invert_flash_rectangles (f);
-  unset_global_focus_view_frame ();
+#if DRAWING_USE_GCD  
+  if (mo->drawing_queue)
+    dispatch_sync (mo->drawing_queue, ^{}); /* Drain queue */
+#endif
+  
+  EmacsBacking *b = self.backing;
+  if (!b) return;
+
+  CGContextRef dest = [NSGraphicsContext currentContext].CGContext;
+  CGContextRef backBitmap = [b backingBitmap];
+  CGImageRef image = CGBitmapContextCreateImage (backBitmap);
+  if (image)
+    {
+      CGRect bounds = NSRectToCGRect (self.bounds);
+      CGContextDrawImage (dest, bounds, image);
+      CGImageRelease (image);
+    }
 }
 
 - (BOOL)isFlipped
@@ -6385,152 +6071,46 @@ static BOOL emacsViewUpdateLayerDisabled;
   return !self.wantsUpdateLayer;
 }
 
-#if HAVE_MAC_METAL
-- (void)updateMTLObjects
-{
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101400
-  if (!self.wantsUpdateLayer)
-    return;
-#endif
-  [backing updateMTLObjectsForView:self];
-}
-#endif
-
 - (BOOL)wantsUpdateLayer
 {
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101400
-  if (self.layer == nil
-      /* This method may be called when creating the layer tree, where
-	 the view layer is not ready.  */
-      && !FRAME_MAC_DOUBLE_BUFFERED_P (self.emacsFrame))
-    return NO;
-#endif
   return !emacsViewUpdateLayerDisabled;
+}
+
+- (EmacsBacking *)backing
+{
+  return backing;
+}
+
+- (void)ensureBackingSized
+{
+  NSSize size = self.bounds.size;
+
+  if (backing && NSEqualSizes (backing.size, size))
+    return;
+
+  MRC_RELEASE(backing);
+  backing = [[EmacsBacking alloc] initWithView:self];
 }
 
 - (void)updateLayer
 {
-  struct frame *f = self.emacsFrame;
-  NSData *rectanglesData = ((__bridge NSData *)
-			    (FRAME_FLASH_RECTANGLES_DATA (f)));
-  NSData *savedImageBuffersData;
-
-  if (backing.lockCount)
-    return;
-
   if (!backing)
-    {
-      if (mac_try_buffer_and_glyph_matrix_access ())
-	{
-	  [self lockFocusOnBacking];
-	  [self drawRect:self.bounds];
-	  [self unlockFocusOnBacking];
-	  self.needsDisplay = NO;
-	  mac_end_buffer_and_glyph_matrix_access ();
-	}
-      else
 	return;
-    }
-
-  if (rectanglesData)
-    {
-      savedImageBuffersData =
-	[backing imageBuffersDataForRectanglesData:rectanglesData];
-      [self lockFocusOnBacking];
-      set_global_focus_view_frame (f);
-      mac_invert_flash_rectangles (f);
-      unset_global_focus_view_frame ();
-      [self unlockFocusOnBacking];
-      self.needsDisplay = NO;
-    }
-
+  
   [backing setContentsForLayer:self.layer];
-
-  if (rectanglesData)
-    [backing restoreImageBuffersData:savedImageBuffersData
-		   forRectanglesData:rectanglesData];
-}
-
-- (void)lockFocusOnBacking
-{
-  eassert (pthread_main_np ());
-
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101400
-  if (!self.wantsUpdateLayer)
-    {
-      [self lockFocus];
-
-      return;
-    }
-#endif
-  if (backingSizeOutOfSync)
-    {
-      if (backing && !NSEqualSizes (backing.size, self.bounds.size))
-	{
-	  MRC_RELEASE (backing);
-	  backing = nil;
-	}
-      backingSizeOutOfSync = NO;
-    }
-  if (!backing)
-    backing = [[EmacsBacking alloc] initWithView:self];
-  [backing lockFocus];
-}
-
-- (void)unlockFocusOnBacking
-{
-  eassert (pthread_main_np ());
-
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101400
-  if (!self.wantsUpdateLayer)
-    {
-      [self unlockFocus];
-
-      return;
-    }
-#endif
-  [backing unlockFocus];
-}
-
-- (void)scrollBackingRect:(NSRect)rect by:(NSSize)delta
-{
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101400
-  if (!self.wantsUpdateLayer)
-    {
-      [self scrollRect:rect by:delta];
-
-      return;
-    }
-#endif
-  [backing scrollRect:rect by:delta];
-}
-
-- (void)invalidateBackingRect:(CGRect)invalidRect
-		    clipRects:(const CGRect *)clipRects count:(CFIndex)count
-		 forCGContext:(CGContextRef)context
-{
-  if (![backing wantsInvalidRectForCGContext:context])
-    return;
-
-  if (count == 0)
-    [backing invalidateRect:(NSRectFromCGRect (invalidRect))];
-  else
-    for (CFIndex i = 0; i < count; i++)
-      [backing
-	invalidateRect:(NSIntersectionRect (NSRectFromCGRect (invalidRect),
-					    NSRectFromCGRect (clipRects[i])))];
 }
 
 - (void)viewDidChangeBackingProperties
 {
   MRC_RELEASE (backing);
   backing = nil;
+  [self ensureBackingSized];
   self.needsDisplay = YES;
 }
 
 - (void)viewFrameDidChange:(NSNotification *)notification
 {
-  backingSizeOutOfSync = YES;
+  FRAME_BACKING_NEEDS_SIZE_CHECK_P (self.emacsFrame) = true;
 }
 
 @end				// EmacsView
@@ -6660,8 +6240,6 @@ static BOOL emacsViewUpdateLayerDisabled;
       tool_bar_p = true;
     if (tab_bar_p || tool_bar_p)
       {
-	[self lockFocusOnBacking];
-	set_global_focus_view_frame (f);
 	if (tab_bar_p)
 	  {
 	    Lisp_Object tab_bar_arg;
@@ -6685,8 +6263,6 @@ static BOOL emacsViewUpdateLayerDisabled;
 	    else
 	      handle_tool_bar_click (f, x, y, 0, inputEvent.modifiers);
 	  }
-	unset_global_focus_view_frame ();
-	[self unlockFocusOnBacking];
       }
     else
       {
@@ -7624,7 +7200,7 @@ mac_ts_active_input_string_in_echo_area_p (struct frame *f)
 
   [super viewDidEndLiveResize];
   [self synchronizeChildFrameOrigins];
-  backingSizeOutOfSync = YES;
+  FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = true;
   mac_handle_size_change (f, NSWidth (frameRect), NSHeight (frameRect));
   /* Exit from mac_select so as to react to the frame size change,
      especially in a full screen tile on OS X 10.11.  */
@@ -7699,390 +7275,40 @@ mac_ts_active_input_string_in_echo_area_p (struct frame *f)
 
 @end				// EmacsMainView
 
-#define FRAME_CG_CONTEXT(f)	((f)->output_data.mac->cg_context)
-#define FRAME_ATOMIC_DRAW_CG_CONTEXT(f) \
-  ((f)->output_data.mac->atomic_draw.cg_context)
+// ** C drawing shims
 
-/* Emacs frame containing the globally focused NSView.  */
-static struct frame *global_focus_view_frame;
-/* Whether view's core animation layer contents are out of sync with
-   the backing bitmap and need to be updated.  */
-static bool global_focus_view_modified_p;
-/* -[EmacsView drawRect:] might be called during update_frame.  */
-static struct frame *saved_focus_view_frame;
-static CGContextRef saved_focus_view_context;
-static bool saved_focus_view_modified_p;
-#if DRAWING_USE_GCD
-static dispatch_queue_t global_focus_drawing_queue;
-static const void * kDrawingQueueKey = &kDrawingQueueKey;
-#endif
 
-static void
-set_global_focus_view_frame (struct frame *f)
-{
-  saved_focus_view_frame = global_focus_view_frame;
-  if (f != global_focus_view_frame)
-    {
-      if (saved_focus_view_frame)
-	{
-	  saved_focus_view_context = FRAME_CG_CONTEXT (saved_focus_view_frame);
-	  saved_focus_view_modified_p = global_focus_view_modified_p;
-	}
-      global_focus_view_frame = f;
-      global_focus_view_modified_p = false;
-    }
-  FRAME_CG_CONTEXT (f) = [[NSGraphicsContext currentContext] CGContext];
-#if DRAWING_USE_GCD
-  if (mac_drawing_use_gcd)
-    {
-      if (global_focus_drawing_queue == NULL)
-        {
-          global_focus_drawing_queue =
-            dispatch_queue_create ("org.gnu.Emacs.drawing", NULL);
-          dispatch_queue_set_specific(global_focus_drawing_queue, kDrawingQueueKey,
-                                      (void *)kDrawingQueueKey, NULL);
-        }
-    }
-  else
-    {
-      if (global_focus_drawing_queue)
-	{
-#if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
-	  dispatch_release (global_focus_drawing_queue);
-#endif
-	  global_focus_drawing_queue = NULL;
-	}
-    }
-#endif
-}
-
-static void
-mac_draw_queue_sync (void)
-{
-#if DRAWING_USE_GCD
-  if (global_focus_drawing_queue &&
-      /* Avoid deadlock if already on the drawing queue */
-      !dispatch_get_specific(kDrawingQueueKey))
-    {
-      MAC_SIGNPOST_FRAME_BEGIN(DrainDrawQueue, global_focus_view_frame);
-      dispatch_sync (global_focus_drawing_queue, ^{});
-      MAC_SIGNPOST_FRAME_END(DrainDrawQueue, global_focus_view_frame);
-    }
-#endif
-}
-
-static void
-mac_draw_queue_dispatch_async (void (^block) (void))
-{
-#if DRAWING_USE_GCD
-  if (global_focus_drawing_queue)
-    dispatch_async (global_focus_drawing_queue, block);
-  else
-#endif
-    block ();
-}
-
-static void
-unset_global_focus_view_frame (void)
-{
-  mac_draw_queue_sync ();
-
-  if (global_focus_view_frame != saved_focus_view_frame)
-    {
-      FRAME_CG_CONTEXT (global_focus_view_frame) = NULL;
-      if (FRAME_MAC_DOUBLE_BUFFERED_P (global_focus_view_frame)
-	  && global_focus_view_modified_p)
-	{
-	  EmacsFrameController *frameController =
-	    FRAME_CONTROLLER (global_focus_view_frame);
-
-	  [frameController setEmacsViewNeedsDisplay:YES];
-	}
-      global_focus_view_frame = saved_focus_view_frame;
-      if (global_focus_view_frame)
-	{
-	  FRAME_CG_CONTEXT (global_focus_view_frame) = saved_focus_view_context;
-	  global_focus_view_modified_p = saved_focus_view_modified_p;
-	}
-    }
-  saved_focus_view_frame = NULL;
-}
-
-/* Synchronous drawing */
-
-static inline CFIndex
-mac_clip_context_to_gc_rects(CGContextRef context, GC gc, const CGRect **clip_rects)
-{
-  CFIndex n_clip_rects = 0;
-  if (clip_rects)
-    *clip_rects = NULL;
-  
-  if (gc->clip_rects_data)
-    {
-      *clip_rects = (const CGRect *) CFDataGetBytePtr (gc->clip_rects_data);
-      n_clip_rects = CFDataGetLength (gc->clip_rects_data) / sizeof (CGRect);
-    }
-
-  if (n_clip_rects > 0)
-    CGContextClipToRects (context, *clip_rects, n_clip_rects);
-  return n_clip_rects;
-}
-
-#if DRAWING_USE_GCD
-static
-#endif
-CGContextRef
-mac_begin_cg_clip (struct frame *f, GC gc, CGRect invalid_rect)
-{
-  bool atomic_p = mac_frame_atomic_draw_p (f);
-
-  if (global_focus_view_frame != f)
-    {
-      EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-      
-      mac_within_gui (^{
-	  [frameController lockFocusOnEmacsView];
-	  FRAME_CG_CONTEXT (f) = [[NSGraphicsContext currentContext] CGContext];
-	});
-    }
-
-  CGContextRef context = atomic_p ? FRAME_ATOMIC_DRAW_CG_CONTEXT (f) : FRAME_CG_CONTEXT (f);
-  
-  CGContextSaveGState (context);
-  const CGRect *clip_rects;
-  CFIndex n_clip_rects = mac_clip_context_to_gc_rects(context, gc, &clip_rects);
-  
-  if (FRAME_MAC_DOUBLE_BUFFERED_P (f) && !atomic_p)
-    {
-      EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-      
-      [frameController invalidateEmacsViewBackingRect:invalid_rect
-					    clipRects:clip_rects
-						count:n_clip_rects
-					 forCGContext:context];
-    }
-
-  return context;
-}
-
-#if DRAWING_USE_GCD
-static
-#endif
+/* Present the frame and its dirty rects for display soon */
 void
-mac_end_cg_clip (CGContextRef context, struct frame *f)
+mac_present_frame (struct frame *f, CGRect *rects, int count)
 {
-  bool atomic_p = mac_frame_atomic_draw_p (f);
+  FRAME_MAC_NEEDS_PRESENTATION_P (f) = true;
+  mac_wakeup_lisp ();  /* Lisp will check the NEEDS_PRESENTATION_P flag */
 
-  CGContextRestoreGState (context);
-  
-  if (global_focus_view_frame != f)
-    {
-      EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-
-      mac_within_gui (^{
-	  [frameController unlockFocusOnEmacsView];
-	  FRAME_CG_CONTEXT (f) = NULL;
-	  if (FRAME_MAC_DOUBLE_BUFFERED_P (f) && !atomic_p)
-	    [frameController setEmacsViewNeedsDisplay:YES];
-	});
-    }
-  else
-    global_focus_view_modified_p = true;
-}
-
-/* Async drawing via the GCD queue */
-#if DRAWING_USE_GCD
-void
-mac_draw_to_frame (struct frame *f, GC gc, CGRect invalid_rect,
-		   void (^block) (CGContextRef, GC))
-{
-  CGContextRef context;
-  if (mac_frame_atomic_draw_p (f) ||
-      global_focus_view_frame != f ||
-      global_focus_drawing_queue == NULL)
-    {  /* Process synchronously (including inside atomic draw) */
-      context = mac_begin_cg_clip (f, gc, invalid_rect);  
-      block (context, gc);
-      mac_end_cg_clip (context, f);
-    }
-  else
-    {
-      context = FRAME_CG_CONTEXT (f);
-      gc = mac_duplicate_gc (gc);
-
-      dispatch_async (global_focus_drawing_queue, ^{
-	  CGContextSaveGState (context);
-	  const CGRect *clip_rects;
-	  CFIndex n_clip_rects = mac_clip_context_to_gc_rects(context, gc, &clip_rects);
-	  
-	  if (FRAME_MAC_DOUBLE_BUFFERED_P (f))
-	    {
-	      EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-
-	      [frameController invalidateEmacsViewBackingRect:invalid_rect
-						    clipRects:clip_rects
-							count:n_clip_rects
-						 forCGContext:context];
-	    }
-	  block (context, gc);
-	  CGContextRestoreGState (context);
-	  mac_free_gc (gc);
-	});
-
-      global_focus_view_modified_p = true;
-    }
-}
-#endif
-
-/* Atomic drawing (sync and/or async)
-
-  Composites multiple drawing actions into one atomic group which will
-  complete prior to backing invalidation.  Useful for preventing
-  flashing/flickering e.g. during pixel scrolling, for draw tasks all
-  targeting a single rectangular area of the frame.  While active, this
-  intercepts calls within BLOCK to `mac_draw_to_frame', and redirects
-  all drawing commands to a context associated with a CGLayer.  See
-  mac_draw_image_glyph_string for example usage.  Runs async if GCD is
-  enabled. */
-static bool
-mac_frame_atomic_draw_p(struct frame *f)
-{
-#if DRAWING_USE_GCD  
-  if (global_focus_drawing_queue &&
-      !dispatch_get_specific(kDrawingQueueKey))
-    return false;  /* Async atomic drawing happens ONLY on the drawing queue */
-#endif
-  return f->output_data.mac->atomic_draw.nesting_level > 0;
-}
-
-void
-mac_draw_to_frame_atomic(struct frame *f, GC gc, CGRect rect,
-			 void (^block) (CGContextRef, GC))
-{
-  void (^atomic_work)(CGContextRef, GC) = ^(CGContextRef context, GC gc) {
-    struct atomic_draw *atmc = &FRAME_ATOMIC_DRAW (f);
-    bool needs_allocation = false;
-    CGSize currentSize;
-    unsigned scale = FRAME_BACKING_SCALE_FACTOR (f);
-
-    if (atmc->sandbox)
-      {
-	if (atmc->nesting_level == 0) /* reallocate layer only at topmost level */
-	  {
-	    currentSize = CGLayerGetSize(atmc->sandbox);   /* layer size in pixels! */
-	    if (currentSize.width < rect.size.width * scale ||
-		currentSize.height < rect.size.height * scale)
-	      {
-		CGLayerRelease(atmc->sandbox);
-		currentSize.width  = fmaxf(currentSize.width,
-					   ceilf(rect.size.width  * scale * 1.2f));
-		currentSize.height = fmaxf(currentSize.height,
-					   ceilf(rect.size.height * scale * 1.2f));
-		needs_allocation = true;
-	      }
-	    if (atmc->backing_scale_factor != scale) /* Display changed? */
-	      {
-		currentSize.width = ceilf(currentSize.width * scale / atmc->backing_scale_factor);
-		currentSize.height = ceilf(currentSize.height * scale / atmc->backing_scale_factor);
-		needs_allocation = true;
-	      }
-	  }
-      }
-    else  /* Initialize atomic sandbox */
-      {
-	currentSize = rect.size;
-	currentSize.width *= scale;
-	currentSize.height *= scale;
-	needs_allocation = true;
-      }
-    
-    if (needs_allocation)
-      {
-	atmc->sandbox = CGLayerCreateWithContext(context, currentSize, NULL);
-	atmc->cg_context = CGLayerGetContext(atmc->sandbox);
-	atmc->backing_scale_factor = scale;
-	if (scale > 1)
-	  CGContextScaleCTM(atmc->cg_context, scale, scale);  /* for Retina */
-      }
-
-    CGContextSaveGState(atmc->cg_context);
-
-    /* Adjust logical coordinates so (x,y) in frame becomes (0,0) in sandbox */
-    CGContextTranslateCTM(atmc->cg_context, -rect.origin.x, -rect.origin.y);
-    //CGContextClearRect(atmc->cg_context, rect);
-
-    /* Offset pattern phase correctly, e.g. for stipples */
-    CGSize pattern_offset = CGSizeMake(-rect.origin.x, -rect.origin.y);
-    CGContextSetPatternPhase(atmc->cg_context, pattern_offset);
-
-    atmc->nesting_level++;
-    block(atmc->cg_context, gc);
-    atmc->nesting_level--;
-
-    CGContextRestoreGState(atmc->cg_context);
-
-    if (atmc->nesting_level == 0) /* Composite Display */
-      {
-	CGContextSaveGState(context);
-	CGContextClipToRect(context, rect);  /* Stay within rect bounds */
-	/* handle display layers larger than the rect correctly */
-	CGRect layerRect = rect;
-	layerRect.size.width = currentSize.width / scale;
-	layerRect.size.height = currentSize.height / scale;
-	CGContextSetBlendMode(context, kCGBlendModeCopy);
-	CGContextDrawLayerInRect(context, layerRect, atmc->sandbox);
-	CGContextRestoreGState(context);
-      }
-  };
-
-#if DRAWING_USE_GCD
-  if (global_focus_drawing_queue && global_focus_view_frame == f &&
-      !dispatch_get_specific(kDrawingQueueKey)) /* no deadlocks! */
-    {
-      GC gc_copy = gc ? mac_duplicate_gc (gc) : NULL;
-      dispatch_async(global_focus_drawing_queue, ^{
-	  CGContextRef context = mac_begin_cg_clip (f, gc_copy, rect);
-	  atomic_work (context, gc_copy);
-	  mac_end_cg_clip(context, f);
-	  if (gc_copy)
-	    mac_free_gc (gc_copy);
-      });
-      global_focus_view_modified_p = true;
-    }
-  else
-#endif
-    { /* Synchronous fallback for no GCD or unfocused frame */
-      CGContextRef context = mac_begin_cg_clip (f, gc, rect);
-      if (context)
-	atomic_work (context, gc);
-      mac_end_cg_clip (context, f);
-    }
-}
-
-/* Mac replacement for XCopyArea: used only for scrolling.  */
-
-void
-mac_scroll_area (struct frame *f, GC gc, int src_x, int src_y,
-		 int width, int height, int dest_x, int dest_y)
-{
-  eassert (global_focus_view_frame);
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-  NSRect rect = NSMakeRect (src_x, src_y, width, height);
-  NSSize offset = NSMakeSize (dest_x - src_x, dest_y - src_y);
+  [frameController presentBackingWithDirtyRects:rects count:count];
+}
 
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101400
-  if (!FRAME_MAC_DOUBLE_BUFFERED_P (f))
-    {
-      mac_draw_queue_sync ();
-      mac_within_gui (^{[frameController scrollEmacsViewRect:rect by:offset];});
+CGContextRef
+mac_get_backing_bitmap (struct frame *f)
+{
+    EmacsFrameController *frameController = FRAME_CONTROLLER(f);
+    return [frameController prepareBackingForDrawing];
+}
 
-      return;
-    }
-#endif
-  mac_draw_queue_dispatch_async (^{
-      [frameController scrollEmacsViewRect:rect by:offset];
-    });
-  global_focus_view_modified_p = true;
+void
+mac_setup_drawing_context (CGContextRef ctx)
+{
+    NSGraphicsContext *nsContext =
+        [NSGraphicsContext graphicsContextWithCGContext:ctx flipped:YES];
+    [NSGraphicsContext saveGraphicsState];
+    [NSGraphicsContext setCurrentContext:nsContext];
+}
+
+void
+mac_teardown_drawing_context (void)
+{
+    [NSGraphicsContext restoreGraphicsState];
 }
 
 // ** EmacsOverlayView
@@ -8339,20 +7565,6 @@ mac_display_monitor_attributes_list (struct mac_display_info *dpyinfo)
       displayID =
 	((CGDirectDisplayID)
 	 [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue]);
-#if HAVE_MAC_METAL
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101100
-      if (CGDirectDisplayCopyCurrentMetalDevice != NULL)
-#endif
-	{
-	  id <MTLDevice> device =
-	    CGDirectDisplayCopyCurrentMetalDevice (displayID);
-
-	  attributes = Fcons (Fcons (Qmetal_device_name,
-				     device ? device.name.lispString : Qnil),
-			      attributes);
-	  MRC_RELEASE (device);
-	}
-#endif
 
 #if MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
 #if MAC_OS_X_VERSION_MIN_REQUIRED < 101500
@@ -9141,7 +8353,7 @@ scroller_part_to_horizontal_scroll_bar_part (NSScrollerPart part,
 
 @end				// EmacsMainView (ScrollBar)
 
-// ** EmacsFrameController
+// ** EmacsFrameController (Scrollbar)
 
 @implementation EmacsFrameController (ScrollBar)
 
@@ -10169,7 +9381,6 @@ static void update_dragged_types (void);
 	 frame.  */
       [self clearMouseFace:hlinfo];
       hlinfo->mouse_face_mouse_frame = 0;
-      mac_flush_1 (f);
     }
 
   [emacsController cancelHelpEchoForEmacsFrame:f];
@@ -10237,14 +9448,9 @@ static void update_dragged_types (void);
 
 - (BOOL)clearMouseFace:(Mouse_HLInfo *)hlinfo
 {
-  struct frame *f = emacsFrame;
   BOOL result;
 
-  [emacsView lockFocusOnBacking];
-  set_global_focus_view_frame (f);
   result = clear_mouse_face (hlinfo);
-  unset_global_focus_view_frame ();
-  [emacsView unlockFocusOnBacking];
 
   return result;
 }
@@ -10254,11 +9460,7 @@ static void update_dragged_types (void);
   struct frame *f = emacsFrame;
 
   f->mouse_moved = true;
-  [emacsView lockFocusOnBacking];
-  set_global_focus_view_frame (f);
   note_mouse_highlight (f, x, y);
-  unset_global_focus_view_frame ();
-  [emacsView unlockFocusOnBacking];
 }
 
 @end				// EmacsFrameController (EventHandling)
@@ -10411,17 +9613,14 @@ peek_if_next_event_activates_menu_bar (void)
   return NULL;
 }
 
-/* Emacs calls this whenever it wants to read an input event from the
-   user. */
+/* Emacs calls this read socket hook whenever it needs to read an input
+   event, after mac_select returns. */
 
 int
 mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 {
   int count;
   struct mac_display_info *dpyinfo = &one_mac_display_info;
-#if __clang_major__ < 3
-  NSAutoreleasePool *pool;
-#endif
   static NSDate *lastCallDate;
   static NSTimer *timer;
   NSTimeInterval timeInterval, minimumInterval;
@@ -10453,8 +9652,6 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
     }
   else
     {
-      Lisp_Object tail, frame;
-
       MRC_RELEASE (lastCallDate);
       lastCallDate = [[NSDate alloc] init];
       [timer invalidate];
@@ -10475,7 +9672,6 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	  dpyinfo->saved_menu_event = NULL;
 	}
 
-      mac_draw_queue_sync ();
       handling_queued_nsevents_p = true;
       count = [emacsController handleQueuedNSEventsWithHoldingQuitIn:hold_quit];
       handling_queued_nsevents_p = false;
@@ -10496,23 +9692,27 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	  mac_screen_config_changed = 0;
 	}
 
-      FOR_EACH_FRAME (tail, frame)
-	{
-	  struct frame *f = XFRAME (frame);
+    }
 
-	  if (FRAME_MAC_P (f))
-	    {
-	      mac_force_flush (f);
-	      /* Check which frames are still visible.  We do this
-		 here because there doesn't seem to be any direct
-		 notification that the visibility of a window has
-		 changed (at least, not in all cases.  Or are there
-		 any counterparts of kEventWindowShown/Hidden?).  */
-	      mac_handle_visibility_change (f);
-	    }
+  /* We now do this _outside_ the rate limiter to immediately display
+     any available frames.  Visibility handling has moved to a
+     notification. */
+  Lisp_Object tail, frame;
+  FOR_EACH_FRAME (tail, frame)
+    {
+      struct frame *f = XFRAME (frame);
+      
+      if (FRAME_MAC_P (f))
+	{
+	  /* Close any out-of-band drawing sessions triggered by events
+	     which opened a draw arena */
+	  mac_flush_arena (f);
+	  /* Flush any just-finished frame */
+	  mac_force_flush (f);
 	}
     }
 
+  
   END_AUTORELEASE_POOL;
 
   unblock_input ();
@@ -12905,12 +12105,7 @@ sourceOperationMaskForDraggingContext:(NSDraggingContext)context
       mac_dnd_return_frame_object = f;
 
       NSPoint location =
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
 	[window convertPointFromScreen:screenPoint];
-#else
-	[window convertRectFromScreen:(NSMakeRect (screenPoint.x, screenPoint.y,
-						   0, 0))].origin;
-#endif
       NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
 					location:location
 				   modifierFlags:0 timestamp:0
@@ -14206,9 +13401,13 @@ static NSDate *documentRasterizerCacheOldestTimestamp;
   CGFloat width, height;
 
   if (rotation == 0 || rotation == 180)
-    width = ceil (NSWidth (bounds)), height = ceil (NSHeight (bounds));
+    {
+      width = ceil (NSWidth (bounds)), height = ceil (NSHeight (bounds));
+    }
   else
-    width = ceil (NSHeight (bounds)), height = ceil (NSWidth (bounds));
+    {
+      width = ceil (NSHeight (bounds)), height = ceil (NSWidth (bounds));
+    }
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmisleading-indentation"
@@ -16530,8 +15729,9 @@ mac_screen_font_shape (ScreenFontRef screen_font, CFStringRef cf_string,
 
       glyphIndex = 0;
       while ([layoutManager notShownAttributeForGlyphAtIndex:glyphIndex])
-	glyphIndex++;
-
+	{
+	  glyphIndex++;
+	}
       /* For now we assume the direction is not changed within the
 	 string.  */
 #if MAC_OS_X_VERSION_MAX_ALLOWED >= 101100
@@ -17072,31 +16272,18 @@ mac_handle_alarm_signal (void)
     write_one_byte_to_fd (mac_select_fds[1]);
 }
 
+void
+mac_wakeup_lisp (void)
+{
+  write_one_byte_to_fd (mac_select_fds[0]);
+}
+
 /* Restrict/unrestrict buffer and glyph matrix access from the GUI
    thread to the case that no Lisp thread is running.  */
 
 static void
 mac_set_buffer_and_glyph_matrix_access_restricted (bool flag)
 {
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101400
-  /* Temporarily disable autodisplay if the Lisp thread may switch to
-     another one and some drawing may happen there.  */
-  Lisp_Object tail, frame;
-
-  FOR_EACH_FRAME (tail, frame)
-    {
-      struct frame *f = XFRAME (frame);
-
-      if (FRAME_MAC_P (f)
-	  && !FRAME_MAC_DOUBLE_BUFFERED_P (f))
-	{
-	  EmacsWindow *window = FRAME_MAC_WINDOW_OBJECT (f);
-
-	  [window setAutodisplay:!flag];
-	}
-    }
-#endif
-
   mac_buffer_and_glyph_matrix_access_restricted_p = flag;
 }
 
@@ -17238,7 +16425,7 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 				     || detect_input_pending ()
 				     || emacs_windows_need_display_p ()))
 		    {
-		      write_one_byte_to_fd (mac_select_fds[0]);
+		      mac_wakeup_lisp();
 		      written_p = true;
 		    }
 		  if ((mac_select_next_command & MAC_SELECT_COMMAND_SUSPEND)
@@ -17314,7 +16501,6 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 
   return r;
 }
-
 
 // * Startup
 

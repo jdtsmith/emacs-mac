@@ -5529,6 +5529,7 @@ extern void mac_release_autorelease_pool (void *);
 /* Defined in macappkit.m */
 extern bool mac_gui_thread_p (void);
 extern void mac_handle_alarm_signal (void);
+extern void mac_wakeup_lisp (void);
 extern void mac_within_lisp_deferred_if_gui_thread (void (^) (void));
 
 /* Defined in emacs.c */

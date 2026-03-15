@@ -19,8 +19,10 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 
 /* Originally contributed by Andrew Choi (akochoi@mac.com) for Emacs 21.  */
 
+#include "config.h"
 #include "macgui.h"
 #include "frame.h"
+#include "mac_arena_draw.h"
 #include "../lwlib/lwlib-widget.h"
 
 #ifdef MAC_DEBUG_SIGNPOST
@@ -265,6 +267,9 @@ struct mac_output
      frame.  */
   bool_bf synthetic_bold_workaround_disabled_p : 1;
 
+  /* Whether the backing size may have changed */
+  bool_bf backing_needs_size_check : 1;
+  
   /* Backing scale factor (1 or 2), used for rendering images.  */
   unsigned backing_scale_factor : 2;
 
@@ -288,6 +293,9 @@ struct mac_output
   /* Width of the internal border.  */
   int internal_border_width;
 
+  /* Whether the frame needs presentation for window display */
+  bool_bf needs_presentation : 1;
+
   /* Relief GCs, colors etc.  */
   struct relief
   {
@@ -302,24 +310,28 @@ struct mac_output
   /* Hints for the size and the position of a window.  */
   XSizeHints *size_hints;
 
-  /* Quartz 2D graphics context.  */
-  CGContextRef cg_context;
+  /* Double-buffering draw arenas and associated state */
+  mac_arena arenas[2];
+  int next_arena;         /* The index of the arena to draw into next */
+  mac_arena *active_arena;
+#if DRAWING_USE_GCD
+  dispatch_semaphore_t arena_sem; /* Shared semaphore with count of 2 */
+  dispatch_queue_t drawing_queue;
+#endif
 
-  /* Context and layer for atomic drawing (multiple draws with a single invalidation) */
-  struct atomic_draw
-  {
-    CGContextRef cg_context;
-    CGLayerRef sandbox;
-    int nesting_level; /* 0 = idle, >0 = inside atomic block */
-    unsigned backing_scale_factor;
-  } atomic_draw;
+  /* Array of dirty rectangles (in the view coordinate system) covering
+     the area where the back bitmap has been modified from the front
+     bitmap during the most recent draw cycle.  These rects are
+     coalesced as they are accumualted. */
+  CGRect dirty_rects[MAC_N_DIRTY_RECTS];
+  int dirty_rect_count;
+
+  /* For tracking the state of the current GC clip rects */
+  int current_clip_nrects;
+  CGRect *current_clip_rects;
   
-  /* Data representing the array of NativeRectangle's that will be
-     inverted on drawRect: invocation.  */
-  CFDataRef flash_rectangles_data;
-
 #ifdef MAC_DEBUG_SIGNPOST
-  os_signpost_id_t frame_update_spid;
+  os_signpost_id_t frame_spid;
 #endif
 };
 
@@ -345,26 +357,25 @@ struct mac_output
 #define FRAME_INTERNAL_TOOL_BAR_P(f) ((f)->output_data.mac->internal_tool_bar_p)
 #define FRAME_BACKGROUND_ALPHA_ENABLED_P(f) \
   ((f)->output_data.mac->background_alpha_enabled_p)
-#define FRAME_SYNTHETIC_BOLD_WORKAROUND_DISABLED_P(f) \
+#define FRAME_BACKING_NEEDS_SIZE_CHECK_P(f) \
+  ((f)->output_data.mac->backing_needs_size_check)
+#define FRAME_SYNTHETIC_BOLD_WORKAROUND_DISABLED_P(f)		\
   ((f)->output_data.mac->synthetic_bold_workaround_disabled_p)
+
 #define FRAME_BACKING_SCALE_FACTOR(f)		\
   ((f)->output_data.mac->backing_scale_factor)
 #define FRAME_SCALE_MISMATCH_STATE(f) \
   ((f)->output_data.mac->scale_mismatch_state)
-#define FRAME_FLASH_RECTANGLES_DATA(f) \
-  ((f)->output_data.mac->flash_rectangles_data)
 #define FRAME_MAC_DOUBLE_BUFFERED_P(f) \
   ((f)->output_data.mac->double_buffered_p)
-#define FRAME_ATOMIC_DRAW(f) \
-  ((f)->output_data.mac->atomic_draw)
-#define FRAME_ATOMIC_DRAW_P(f) \
-  (FRAME_ATOMIC_DRAW(f).nesting_level > 0)
+#define FRAME_MAC_NEEDS_PRESENTATION_P(f)		\
+  ((f)->output_data.mac->needs_presentation)
 
 /* This gives the mac_display_info structure for the display F is on.  */
 #define FRAME_DISPLAY_INFO(f) ((void) (f), (&one_mac_display_info))
 
 #ifdef MAC_DEBUG_SIGNPOST
-#define FRAME_SIGNPOST_ID(f) ((f)->output_data.mac->frame_update_spid)
+#define FRAME_SIGNPOST_ID(f) ((f)->output_data.mac->frame_spid)
 #endif
 
 /* Mac-specific scroll bar stuff.  */
@@ -511,9 +522,6 @@ extern CGImageRef mac_create_image_mask_from_bitmap_data (const char *,
 							  int, int);
 extern void mac_invert_flash_rectangles (struct frame *);
 extern GC mac_create_gc (unsigned long, XGCValues *);
-#if DRAWING_USE_GCD
-extern GC mac_duplicate_gc (GC);
-#endif
 extern void mac_free_gc (GC);
 extern void mac_set_foreground (GC, unsigned long);
 extern void mac_set_background (GC, unsigned long);
@@ -686,24 +694,19 @@ extern CGPoint mac_get_frame_mouse (struct frame *);
 extern struct frame *mac_get_frame_at_mouse (bool);
 extern void mac_convert_frame_point_to_global (struct frame *, int *, int *);
 extern void mac_set_frame_window_background (struct frame *, unsigned long);
-extern void mac_update_frame_begin (struct frame *);
-extern void mac_update_frame_end (struct frame *);
+extern void mac_draw_session_begin (struct frame *);
+extern void mac_draw_session_end (struct frame *);
 extern void mac_cursor_to (int, int, int, int);
 extern void mac_force_flush (struct frame *);
-extern void mac_flush (struct frame *);
 extern void mac_create_frame_window (struct frame *);
 extern void mac_dispose_frame_window (struct frame *);
 extern void mac_change_frame_window_wm_state (struct frame *, WMState, WMState);
-#if DRAWING_USE_GCD
-extern void mac_draw_to_frame (struct frame *, GC, CGRect,
-			       void (^) (CGContextRef, GC));
-#else
 extern CGContextRef mac_begin_cg_clip (struct frame *, GC, CGRect);
 extern void mac_end_cg_clip (CGContextRef, struct frame *);
-#endif
-extern void mac_draw_to_frame_atomic(struct frame *, GC, CGRect,
-				     void (^) (CGContextRef, GC));
-extern void mac_scroll_area (struct frame *, GC, int, int, int, int, int, int);
+extern void mac_present_frame(struct frame *, CGRect *, int);
+extern CGContextRef mac_get_backing_bitmap(struct frame *);
+extern void mac_setup_drawing_context (CGContextRef);
+extern void mac_teardown_drawing_context(void);
 extern Lisp_Object mac_color_lookup (const char *);
 extern Lisp_Object mac_color_list_alist (void);
 extern Lisp_Object mac_display_monitor_attributes_list (struct mac_display_info *);
@@ -760,6 +763,7 @@ extern void mac_update_frame_window_style (struct frame *);
 extern void mac_update_frame_window_parent (struct frame *);
 extern Lisp_Object mac_frame_list_z_order (struct frame *);
 extern void mac_frame_restack (struct frame *, struct frame *, bool);
+extern void mac_scroll_bitmap (CGContextRef, CGRect, CGSize, CGFloat);
 extern bool mac_send_action (Lisp_Object, bool);
 extern Lisp_Object mac_osa_language_list (bool);
 extern Lisp_Object mac_osa_compile (Lisp_Object, Lisp_Object, bool,
@@ -799,10 +803,10 @@ extern os_log_t _mac_sp_log_poi;
       os_signpost_interval_end(_mac_sp_log_##type, spid, #spname);	\
     }									\
   } while (0)
-/* Note: any use of BEGIN/END_GEN must be within a single block.
+/* Note: any use of GEN_BEGIN/END must be _within a single block_.
    Multiple uses within a single block must have different NAMEs. */
 #define MAC_SIGNPOST_GEN_BEGIN(type, spname, ...)			\
-  os_signpost_id_t _spid_ ## spname  = os_signpost_id_generate(_mac_sp_log_##type); \
+  os_signpost_id_t _spid_ ## spname = os_signpost_id_generate(_mac_sp_log_##type); \
   MAC_SIGNPOST_BEGIN(_spid_ ## spname, type, spname, ##__VA_ARGS__)
 #define MAC_SIGNPOST_GEN_END(type, spname)		\
   MAC_SIGNPOST_END(_spid_ ## spname, type, spname)
@@ -823,7 +827,7 @@ extern os_log_t _mac_sp_log_poi;
   do {									\
     if (f) { MAC_SIGNPOST_POI_END(FRAME_SIGNPOST_ID(f), spname); }	\
   } while (0)
-#ifdef DRAWING_USE_GCD
+#if DRAWING_USE_GCD
 extern os_log_t _mac_sp_log_drawing_queue;
 #define MAC_SIGNPOST_DRAW_BEGIN(task, format, ...)			\
   MAC_SIGNPOST_GEN_BEGIN(drawing_queue, Draw,				\
@@ -837,7 +841,6 @@ extern os_log_t _mac_sp_log_drawing_queue;
 			  (int)(rect).size.height)
 #define MAC_SIGNPOST_DRAW_RECT_END MAC_SIGNPOST_DRAW_END
 #endif
-
 #else /* !DEBUG_SIGNPOST */
 #define MAC_SIGNPOST_BEGIN(...)
 #define MAC_SIGNPOST_END(...)
@@ -853,84 +856,14 @@ extern os_log_t _mac_sp_log_drawing_queue;
 #define MAC_SIGNPOST_DRAW_RECT_END()
 #endif
 
-/* Drawing Macros */
-#if DRAWING_USE_GCD
-#define MAC_BEGIN_DRAW_TO_FRAME(f, gc_draw, rect, context)		\
-  mac_draw_to_frame (f, gc_draw, rect, ^(CGContextRef context, GC gc) {	\
-    MAC_SIGNPOST_DRAW_RECT_BEGIN("Single", rect)
-#define MAC_END_DRAW_TO_FRAME(f)				\
-    MAC_SIGNPOST_DRAW_RECT_END();				\
-  })
-#else /* !DRAWING_USE_GCD */
-#define MAC_BEGIN_DRAW_TO_FRAME(f, gc, rect, context)		\
-  do {CGContextRef context = mac_begin_cg_clip (f, gc, rect)
-#define MAC_END_DRAW_TO_FRAME(f)		\
-  mac_end_cg_clip (context, f);} while (0)
-#endif
-
-#define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC(f, gc_draw, rect, context)	\
-  mac_draw_to_frame_atomic (f, gc_draw, rect, ^(CGContextRef context, GC gc) { \
-    MAC_SIGNPOST_DRAW_RECT_BEGIN("Atomic", rect)
-#define MAC_END_DRAW_TO_FRAME_ATOMIC(f)			\
-    MAC_SIGNPOST_DRAW_RECT_END();			\
-  })
-
-#if DRAWING_USE_GCD
-#define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(s_arg, rect, context) \
-  struct glyph_string *s_atomic = mac_persist_glyph_string(s_arg);	\
-  mac_draw_to_frame_atomic (s_atomic->f, s_atomic->gc, rect, ^(CGContextRef context, GC gc) { \
-    MAC_SIGNPOST_DRAW_RECT_BEGIN("Atomic+GS", rect);			\
-    struct glyph_string *s = s_atomic;					\
-    s->gc = gc
-#define MAC_END_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(f)	       \
-    MAC_SIGNPOST_DRAW_RECT_END();					       \
-    mac_free_persisted_glyph_string(s_atomic);			       \
-  })
-#else /* !DRAWING_USE_GCD */
-#define MAC_BEGIN_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(s_arg, rect, context) \
-  struct glyph_string *s_atomic = (s_arg);				\
-  mac_draw_to_frame_atomic (s_atomic->f, s_atomic->gc, rect, ^(CGContextRef context, GC gc) { \
-    struct glyph_string *s = s_atomic
-#define MAC_END_DRAW_TO_FRAME_ATOMIC_WITH_GLYPH_STRING(f)                   \
-  })
-#endif
-
-#define CG_CONTEXT_FILL_RECT_WITH_GC_BACKGROUND(f, context, rect, gc,	\
-						respect_alpha_background) \
-  do {									\
-    bool clear_p = false, change_alpha_p = false;			\
-    CGFloat alpha = 0;							\
-    if ((gc)->xgcv.background_transparency == 0				\
-	&& (!(respect_alpha_background) || (f)->alpha_background == 1.0)) \
-      ;									\
-    else if (FRAME_BACKGROUND_ALPHA_ENABLED_P (f)			\
-	     && !mac_accessibility_display_options.reduce_transparency_p) \
-      {									\
-	clear_p = true;							\
-	if ((respect_alpha_background) && (f)->alpha_background != 1.0)	\
-	  {								\
-	    change_alpha_p = true;					\
-	    alpha = ((255 - (gc)->xgcv.background_transparency) / 255.0f \
-		     * (f)->alpha_background);				\
-	  }								\
-	}								\
-    else								\
-      {									\
-	change_alpha_p = true;						\
-	alpha = 1.0f;							\
-      }									\
-    if (clear_p) CGContextClearRect (context, rect);			\
-    if (!change_alpha_p)						\
-      CGContextSetFillColorWithColor (context, (gc)->cg_back_color);	\
-    else								\
-      {									\
-	CGColorRef color =						\
-	  CGColorCreateCopyWithAlpha ((gc)->cg_back_color, alpha);	\
-	CGContextSetFillColorWithColor (context, color);		\
-	CGColorRelease (color);						\
-      }									\
-    CGContextFillRects (context, &(rect), 1);				\
-  } while (0)
+enum mac_draw_corners
+  {
+    CORNER_BOTTOM_RIGHT,	/* 0 -> pi/2 */
+    CORNER_BOTTOM_LEFT,		/* pi/2 -> pi */
+    CORNER_TOP_LEFT,		/* pi -> 3pi/2 */
+    CORNER_TOP_RIGHT,		/* 3pi/2 -> 2pi */
+    CORNER_LAST
+  };
 
 /* Defined in macfont.m */
 extern void macfont_update_antialias_threshold (void);

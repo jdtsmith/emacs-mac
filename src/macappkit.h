@@ -23,9 +23,6 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 #import <QuartzCore/QuartzCore.h>
 #import <IOKit/graphics/IOGraphicsLib.h>
 #import <OSAKit/OSAKit.h>
-#if HAVE_MAC_METAL
-#import <Metal/Metal.h>
-#endif
 #if HAVE_UNIFORM_TYPE_IDENTIFIERS
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #endif
@@ -743,16 +740,6 @@ typedef NSInteger NSGlyphProperty;
 - (BOOL)emacsViewIsHiddenOrHasHiddenAncestor;
 - (void)updateEmacsViewIsHiddenOrHasHiddenAncestor;
 - (void)displayEmacsViewIfNeeded;
-- (void)lockFocusOnEmacsView;
-- (void)unlockFocusOnEmacsView;
-- (void)scrollEmacsViewRect:(NSRect)aRect by:(NSSize)offset;
-- (void)invalidateEmacsViewBackingRect:(CGRect)invalidRect
-			     clipRects:(const CGRect *)clipRects
-				 count:(CFIndex)count
-			  forCGContext:(CGContextRef)context;
-#if HAVE_MAC_METAL
-- (void)updateEmacsViewMTLObjects;
-#endif
 - (NSPoint)convertEmacsViewPointToScreen:(NSPoint)point;
 - (NSPoint)convertEmacsViewPointFromScreen:(NSPoint)point;
 - (NSRect)convertEmacsViewRectToScreen:(NSRect)rect;
@@ -771,9 +758,8 @@ typedef NSInteger NSGlyphProperty;
 - (void)updateWindowStyle;
 @end
 
-
 /* Class for application-side double buffering.  */
-
+#include "mac_arena_draw.h"
 @interface EmacsBacking : NSObject
 {
   /* Backing bitmaps used in application-side double buffering.  If
@@ -793,44 +779,22 @@ typedef NSInteger NSGlyphProperty;
      from CALayer contents to backing bitmap after swapping.  */
   dispatch_semaphore_t copyFromFrontToBackSemaphore;
 
-#if HAVE_MAC_METAL
-  /* GPU-accessible image data for backing bitmap and CALayer
-     contents.  Both should be nil if backSurface is NULL, and both
-     should be non-nil otherwise.  */
-  id <MTLTexture> backTexture, frontTexture;
-
-  /* Command queue of the optimal GPU device for the display in which
-     the view appears, or nil if the GPU does not support Metal.  */
-  id <MTLCommandQueue> mtlCommandQueue;
-#endif
-
   CGFloat scaleFactor;
 
   /* Array of rectangles (in the view coordinate system) covering the
-     area where backBitmap has been modified from frontBitmap, or nil
-     if frontSurface is NULL.  NSMaxY (invalidRectValues[i].rectValue)
-     should be less than NSMinY (invalidRectValues[i + 1].rectValue)
-     for any i < invalidRectValues.count - 1.  */
-  NSMutableArrayOf (NSValue *) *invalidRectValues;
-
+     area where backBitmap has been modified from frontBitmap. */
+  CGRect dirtyRects[MAC_N_DIRTY_RECTS];
+  int dirtyRectCount;
+  
   /* Lock count for backing bitmap.  */
   char lockCount;
 }
 - (instancetype)initWithView:(NSView *)view;
 - (char)lockCount;
 - (NSSize)size;
-- (BOOL)wantsInvalidRectForCGContext:(CGContextRef)context;
-- (void)invalidateRect:(NSRect)rect;
-#if HAVE_MAC_METAL
-- (void)updateMTLObjectsForView:(NSView *)view;
-#endif
+- (void)setDirtyRects:(const CGRect *)rects count:(int)count;
+- (CGContextRef)backingBitmap;
 - (void)setContentsForLayer:(CALayer *)layer;
-- (void)lockFocus;
-- (void)unlockFocus;
-- (void)scrollRect:(NSRect)rect by:(NSSize)delta;
-- (NSData *)imageBuffersDataForRectanglesData:(NSData *)rectanglesData;
-- (void)restoreImageBuffersData:(NSData *)imageBuffersData
-	      forRectanglesData:(NSData *)rectanglesData;
 @end
 
 /* Class for Emacs view that handles drawing events only.  It is used
@@ -841,21 +805,11 @@ typedef NSInteger NSGlyphProperty;
 {
   /* Backing resources for applicaion-side double buffering.  */
   EmacsBacking *backing;
-
-  /* Whether the backing size is out of sync with the view size.  */
-  BOOL backingSizeOutOfSync;
 }
 - (struct frame *)emacsFrame;
 + (void)globallyDisableUpdateLayer:(BOOL)flag;
-- (void)lockFocusOnBacking;
-- (void)unlockFocusOnBacking;
-- (void)scrollBackingRect:(NSRect)rect by:(NSSize)delta;
-- (void)invalidateBackingRect:(CGRect)invalidRect
-		    clipRects:(const CGRect *)clipRects count:(CFIndex)count
-		 forCGContext:(CGContextRef)context;
-#if HAVE_MAC_METAL
-- (void)updateMTLObjects;
-#endif
+- (EmacsBacking *)backing;
+- (void)ensureBackingSized;
 @end
 
 /* Class for Emacs view that also handles input events.  Used by
