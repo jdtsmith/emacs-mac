@@ -421,53 +421,56 @@ mac_data_provider_release_data (void *info, const void *data, size_t size)
   xfree ((void *)data);
 }
 
+
 static CGImageRef
 mac_create_cg_image_from_image (struct frame *f, struct image *img)
 {
   Emacs_Pix_Container pimg = img->pixmap;
-  CGDataProviderRef provider;
-  CGImageRef result;
-
-  if (img->mask)
-    {
-      int x, y;
-
-      for (y = 0; y < pimg->height; y++)
-	for (x = 0; x < pimg->width; x++)
-	  {
-	    unsigned long color, alpha;
-	    int dest_alpha, r, g, b;
-
-	    color = GET_PIXEL (pimg, x, y);
-	    alpha = GET_PIXEL (img->mask, x, y);
-	    dest_alpha = 0xff - alpha;
-	    r = RED_FROM_ULONG (color);
-	    r = (r < dest_alpha) ? 0 : r - dest_alpha;
-	    g = GREEN_FROM_ULONG (color);
-	    g = (g < dest_alpha) ? 0 : g - dest_alpha;
-	    b = BLUE_FROM_ULONG (color);
-	    b = (b < dest_alpha) ? 0 : b - dest_alpha;
-	    PUT_PIXEL (pimg, x, y, ARGB_TO_ULONG (alpha, r, g, b));
-	  }
-      xfree (img->mask->data);
-      img->mask->data = NULL;
-    }
+  CGDataProviderRef provider, mask_provider;
+  CGImageRef main_img, mask_img = NULL, result;
+  const CGFloat decodeInverted[] = { 1.0, 0.0 };
+  
   block_input ();
   provider = CGDataProviderCreateWithData (NULL, pimg->data,
 					   pimg->bytes_per_line * pimg->height,
-					   mac_data_provider_release_data);
+					   mac_data_provider_release_data);  
   pimg->data = NULL;
-  result = CGImageCreate (pimg->width, pimg->height, 8, 32,
-			  pimg->bytes_per_line, mac_cg_color_space_rgb,
-			  ((img->mask ? kCGImageAlphaPremultipliedFirst
-			    : kCGImageAlphaNoneSkipFirst)
-			   | kCGBitmapByteOrder32Host),
-			  provider, NULL, 0, kCGRenderingIntentDefault);
-  CGDataProviderRelease (provider);
-  unblock_input ();
 
+  main_img = CGImageCreate (pimg->width, pimg->height, 
+			    8, pimg->bits_per_pixel, /* Dynamic bit depth */
+			    pimg->bytes_per_line, mac_cg_color_space_rgb,
+			    kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Host,
+			    provider, NULL, 0, kCGRenderingIntentDefault);
+  CGDataProviderRelease (provider);
+
+  if (img->mask)
+    {
+      mask_provider = CGDataProviderCreateWithData (NULL, img->mask->data,
+						    img->mask->bytes_per_line
+						    * img->mask->height,
+						    mac_data_provider_release_data);
+      img->mask->data = NULL;
+
+      int bpp = img->mask->bits_per_pixel;
+      mask_img = CGImageMaskCreate (img->mask->width, img->mask->height,
+				    (bpp == 32) ? 8 : bpp, bpp,
+				    img->mask->bytes_per_line, mask_provider,
+				    decodeInverted, false);
+
+      result = CGImageCreateWithMask (main_img, mask_img);
+      CGImageRelease (main_img);
+      CGImageRelease (mask_img);
+      CGDataProviderRelease (mask_provider);
+    }
+  else
+    {
+      result = main_img;
+    }
+
+  unblock_input ();
   return result;
 }
+
 #endif /* HAVE_MACGUI */
 
 #ifdef HAVE_NS
