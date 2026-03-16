@@ -2564,6 +2564,12 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   NSWindowStyleMask windowStyle;
   EmacsWindow *window;
 
+  [[NSNotificationCenter defaultCenter]
+    addObserver:self
+       selector:@selector(windowDidChangeOcclusionState:)
+	   name:NSWindowDidChangeOcclusionStateNotification
+	 object:emacsWindow];
+
   if (!FRAME_TOOLTIP_P (f))
     {
       if (!self.shouldBeTitled)
@@ -2731,6 +2737,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 
 - (void)dealloc
 {
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
   [overlayView.layer removeObserver:self forKeyPath:@"sublayers"];
   [animationLayer removeObserver:self forKeyPath:@"sublayers"];
   [overlayView.layer removeObserver:self forKeyPath:@"showingBorder"];
@@ -3246,6 +3253,12 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 {
   struct frame *f = emacsFrame;
 
+  mac_handle_visibility_change (f);
+}
+
+- (void)windowDidChangeOcclusionState:(NSNotification *)notification
+{
+  struct frame *f = emacsFrame;
   mac_handle_visibility_change (f);
 }
 
