@@ -169,22 +169,22 @@ You may get some errors about resource fork, etc., or "bundle format unrecognize
 
 ~CoreGraphics~ does not (as yet) support SVG natively (despite the existence of =PrivateFrameworks/CoreSVG.framework=).  Right now, SVG display is fairly convoluted, and works as follows:
 
-- Image-IO (which drives core graphics) is mapped to an ~image-io~ type in emacs-mac.  The ~imagemagick~ type is aliased to it as well, unless imagemagick is explicitly compiled in.  This allows direct image manipulation (scaling, etc.).
-- ~image_io_load~ is used to load either type of svg file.
-- For images of type ~svg~, ~svg_load~ is registered if =RSVG= support is compiled in.
-- There is also a ~native-image~ type, which also just displays via ~image-io~.
+- Image-IO (which drives core graphics) is mapped to an ~image-io~ type in emacs-mac.  The ~imagemagick~ type is aliased to it as well, unless ~imagemagick~ is explicitly compiled in.  This allows direct image manipulation (scaling, etc.).
+- ~image_io_load~ is used to load either type of ~svg~ file (~image-io~ or ~svg~).
+- For images of type ~svg~, the function ~svg_load~ is registered if =RSVG= support is compiled in.
+- There is also a generic ~native-image~ type, which also just displays via ~image-io~.
 - When looking up an image type, if it can use the ~native_api~ and has no library compiled explicitly to support it, it does so.
-- If and when we land in ~image-io~ (e.g. because we don't have =RSVG= and ~svg_load~, or because ~image-mode~ has created an ~:imagemagick~ type image):
-  1. If the object is not directly loadable by Core Graphics (as indicated by its UTI not being on the ~CGImageSourceCopyTypeIdentifiers~ return list, or being an ~svg~ type), it creates an ~EmacsDocumentRef~
-  2. It adds a style sheet (with CSS!), and then calls ~mac_document_create_with_data~ or ~mac_document_create_with_url~.
-  3. The latter two look through the list of "document types":
+- If and when we land in ~image-io~ (e.g. because we don't have =RSVG= and its ~svg_load~, or because ~image-mode~ has created an explicity ~:imagemagick~ type image):
+  1. If the object is not directly loadable by Core Graphics (as indicated by its UTI not being on the ~CGImageSourceCopyTypeIdentifiers~ return list, or being an ~svg~ type), it creates an ~EmacsDocumentRef~.
+  2. It adds a style sheet (with CSS!) to update the foreground color and draw a background rectangle behind it, and then calls ~mac_document_create_with_data~ or ~mac_document_create_with_url~.
+  3. The latter two look through the list of possible "document types":
 
      * ~EmacsPDFDocument.class~
      * ~EmacsSVGDocument.class~
      * ~EmacsDocumentRasterizer.class~
 
-     attempting to create a class of type ~EmacsDocumentRasterizer~ (using either the ~URL~ or ~Data~ of the SVG file), and taking the first one that returns a valid document (running it in the main GUI thread if necessary).
-- Meanwhile, back in ~EmacsSVGDocument~, we see if we have =USE_WK_API= set, and if so, we create a ~WKWebView~ (vs. a plain ~WebView~).
+     attempting to create a class of type ~EmacsDocumentRasterizer~ (using either the ~URL~, aka filename, or ~Data~ of the SVG file), and taking the first one that returns a valid document (running it in the main GUI thread if necessary).
+- Meanwhile, back in ~EmacsSVGDocument~, we check if we have =USE_WK_API= set, and if so, we create a ~WKWebView~ (vs. a plain ~WebView~).
 - In stock emacs-mac, we /do/ have =USE_WK_API= set.  It used to test:
 
   : #if WK_API_ENABLED && MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
@@ -193,7 +193,7 @@ You may get some errors about resource fork, etc., or "bundle format unrecognize
 
   : #if MAC_OS_X_VERSION_MAX_ALLOWED >= 101500 || (WK_API_ENABLED && MAC_OS_X_VERSION_MIN_REQUIRED >= 101300)
 
-  (since ~WK_API_ENABLED~ was removed as a compiler var in MacOS v10.15).
+  (since ~WK_API_ENABLED~ was removed as a compiler variable in MacOS v10.15).
 - With =USE_WK_API=, we set up some fancy webkit webview (cached to avoid constantly recreating).
 - We then create a literal giant string of JavaScript (!), which turns a bunch of CSS and bounding box stuff into a JSON string, via JavaScript!
 - The data is loaded into the WebView, and a JSON object is encoded from the string, simply to ask it for the bounding box, width, and height.
@@ -202,9 +202,8 @@ You may get some errors about resource fork, etc., or "bundle format unrecognize
 To summarize:
 
 1. For file-based images (what you get if you just ~find-file~ on =.svg=), the JS+WKWebView route is used.
-2. For inline svg image (~:type svg~, as created with, e.g. with ~svg-image~), we can display /directly/, if =RSVG= is compiled and available.
-3. If =RSVG= is /not available/, =UTI_SVG= is returned from ~mac_get_uti_from_image_type~, indicating that emacs-mac can display them natively, using the ~image-io~ svg chicanery above.
-
+2. For inline svg image (~:type svg~, as created with, e.g. with ~svg-image~), we can display /directly/, /if/ =RSVG= is compiled and available.
+3. If =RSVG= is /not available/, =UTI_SVG= is returned from ~mac_get_uti_from_image_type~, indicating that emacs-mac should display them natively, using the ~image-io~ webkit-svg chicanery above.
    
 ** Fixing Bug #67604
 
