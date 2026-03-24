@@ -19,6 +19,7 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <config.h>
 #include "lisp.h"
+#include "frame.h"
 #include "macterm.h"
 #include "mac_arena_draw.h"
 
@@ -31,12 +32,19 @@ static void _mac_init_signposts(void) {
 #endif
 
 #if DRAWING_USE_GCD
-/* Called during mac_create_frame_window or mac_update_begin (first time) */
 void
 mac_init_arena_system (struct frame *f)
 {
   struct mac_output *mo = f->output_data.mac;
-  mo->drawing_queue = dispatch_queue_create ("org.gnu.Emacs.drawing", NULL);
+  struct frame *p = FRAME_PARENT_FRAME (f);
+  if (p)
+    { /* Re-use parent's queue */
+      struct mac_output *pmo = p->output_data.mac;
+      if (pmo && pmo->drawing_queue)
+	mo->drawing_queue = pmo->drawing_queue;
+    }
+  if (!mo->drawing_queue)
+    mo->drawing_queue = dispatch_queue_create ("org.gnu.Emacs.drawing", NULL);
   mo->arena_sem = dispatch_semaphore_create (2);
 }
 #endif
@@ -80,6 +88,7 @@ mac_arena_release_draw_cmds (mac_arena_block *block)
 void
 mac_teardown_arena_system (struct frame *f)
 {
+  struct frame *p = FRAME_PARENT_FRAME (f);
   struct mac_output *mo = f->output_data.mac;
 
   if (mo->drawing_queue)
@@ -110,7 +119,8 @@ mac_teardown_arena_system (struct frame *f)
 #endif
 
 #if DRAWING_USE_GCD
-      mo->drawing_queue = NULL;
+      if (!p)
+	mo->drawing_queue = NULL;
       mo->arena_sem = NULL;
 #endif
     }
