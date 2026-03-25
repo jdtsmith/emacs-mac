@@ -5891,7 +5891,8 @@ mac_iosurface_create (size_t width, size_t height)
   frontBitmap = bitmaps[1];
   frontSurface = surfaces[1];
   if (frontSurface)
-      IOSurfaceUnlock (frontSurface, 0, NULL);
+    IOSurfaceUnlock (frontSurface, 0, NULL);
+  [self updateBounds];
   return self;
 }
 
@@ -5995,21 +5996,37 @@ mac_iosurface_create (size_t width, size_t height)
 		     CGBitmapContextGetHeight (backBitmap) / scaleFactor);
 }
 
+- (void)updateBounds
+{
+  backBounds = CGRectMake (0, 0,
+			   CGBitmapContextGetWidth (backBitmap) / scaleFactor,
+			   CGBitmapContextGetHeight (backBitmap) / scaleFactor);
+}
+
 /* Set the bounds-clipped dirty rects */
 
 - (void)setDirtyRects:(const CGRect *)rects count:(int)count
 {
-  CGRect bounds = CGRectMake(0, 0, self.size.width, self.size.height);
   size_t d_cnt = 0;
-
+#ifdef MAC_DEBUG_SIGNPOST
+  MAC_SIGNPOST_GEN_BEGIN (gui, DirtyRect, "COUNT: %d", count);
+  NSSize size = self.size;
+  CGFloat area = size.width * size.height;
+  CGFloat area_frac = 0.0;
+#endif
   for (size_t i = 0; i < count; i++)
     {
-      CGRect rect = CGRectIntersection (rects[i], bounds);
+      CGRect rect = CGRectIntersection (rects[i], backBounds);
       if (CGRectIsNull (rect) || CGRectIsEmpty (rect))
 	continue;
+#ifdef MAC_DEBUG_SIGNPOST
+      area_frac += (rect.size.width * rect.size.height) / area;
+#endif
       dirtyRects[d_cnt++] = rect;
     }
   dirtyRectCount = d_cnt;
+  MAC_SIGNPOST_GEN_END (gui, DirtyRect, "COUNT: %d AREA-FRAC: %0.2f%%",
+			dirtyRectCount, area_frac * 100.);
 }
 
 - (void)setContentsForLayer:(CALayer *)layer

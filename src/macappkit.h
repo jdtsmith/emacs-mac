@@ -792,9 +792,14 @@ typedef NSInteger NSGlyphProperty;
      area where backBitmap has been modified from frontBitmap. */
   CGRect dirtyRects[MAC_N_DIRTY_RECTS];
   int dirtyRectCount;
+
+  /* A rectangle describing the bounds of the current frame's
+     backing. */
+  CGRect backBounds;
 }
 - (instancetype)initWithView:(NSView *)view;
 - (NSSize)size;
+- (void)updateBounds;
 - (void)setDirtyRects:(const CGRect *)rects count:(int)count;
 - (CGContextRef)waitBackingBitmap;
 - (void)setContentsForLayer:(CALayer *)layer;
