@@ -2711,13 +2711,12 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 }
 
 
-- (CGContextRef)prepareBackingForDrawing
+- (CGContextRef)getBackingForDrawing
 {
     if (!emacsView || ![emacsView backing])
-        return NULL;
-    return [[emacsView backing] backingBitmap];
+      return NULL;
+    return [[emacsView backing] waitBackingBitmap];
 }
-
 
 - (struct frame *)emacsFrame
 {
@@ -5371,10 +5370,10 @@ mac_draw_session_end (struct frame *f, int type)
 
     mo->active_arena = NULL;
 
-    void (^block)(void)  = ^{
-      /* Get the back bitmap, waiting for any ongoing
-	 front→back dirty rect copies to complete */
-      CGContextRef backing_ctx = mac_get_backing_bitmap(f);
+    EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+    void (^block) (void) = ^{
+      CGContextRef backing_ctx = mac_wait_backing_bitmap (f);
+
       if (backing_ctx)
 	{
 	  mac_playback_arena (arena, f, backing_ctx);
@@ -5896,10 +5895,10 @@ mac_iosurface_create (size_t width, size_t height)
   return self;
 }
 
-- (CGContextRef)backingBitmap
+- (CGContextRef)waitBackingBitmap
 {
-    [self waitCopyFromFrontToBack];
-    return backBitmap;
+  [self waitCopyFromFrontToBack];
+  return backBitmap;
 }
 
 - (void)swapResourcesAndStartCopy
@@ -5991,11 +5990,6 @@ mac_iosurface_create (size_t width, size_t height)
 #endif
 }
 
-- (char)lockCount
-{
-  return lockCount;
-}
-
 - (NSSize)size
 {
   return NSMakeSize (CGBitmapContextGetWidth (backBitmap) / scaleFactor,
@@ -6021,8 +6015,6 @@ mac_iosurface_create (size_t width, size_t height)
 
 - (void)setContentsForLayer:(CALayer *)layer
 {
-  eassert (lockCount == 0);
-
   [self waitCopyFromFrontToBack];
   if (frontSurface)
     {
@@ -6102,7 +6094,7 @@ static BOOL emacsViewUpdateLayerDisabled;
   if (!b) return;
 
   CGContextRef dest = [NSGraphicsContext currentContext].CGContext;
-  CGContextRef backBitmap = [b backingBitmap];
+  CGContextRef backBitmap = [b waitBackingBitmap];
   CGImageRef image = CGBitmapContextCreateImage (backBitmap);
   if (image)
     {
@@ -7341,10 +7333,10 @@ mac_present_frame (struct frame *f)
 }
 
 CGContextRef
-mac_get_backing_bitmap (struct frame *f)
+mac_wait_backing_bitmap (struct frame *f)
 {
     EmacsFrameController *frameController = FRAME_CONTROLLER(f);
-    return [frameController prepareBackingForDrawing];
+    return [frameController getBackingForDrawing];
 }
 
 void

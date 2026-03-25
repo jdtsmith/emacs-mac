@@ -58,7 +58,7 @@ mac_flush_open_arenas (void)
     {
       struct frame *f = XFRAME (frame);
       mac_flush_arena (f);
-      mac_get_backing_bitmap (f);
+      mac_wait_backing_bitmap (f);
     }
 }
 
