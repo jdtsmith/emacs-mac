@@ -47,7 +47,7 @@ mac_flush_arena (struct frame *f)
 {
   struct mac_output *mo = f->output_data.mac;
   if (mo->active_arena)
-    mac_draw_session_end (f);
+    mac_draw_session_end (f, MAC_SESSION_OUTOFBAND);
 }
 
 void
@@ -198,7 +198,7 @@ mac_arena*
 mac_ensure_arena (struct frame *f)
 {
   if (!f->output_data.mac->active_arena)
-    mac_draw_session_begin (f); /*  can be outside the frame update cycle! */
+    mac_draw_session_begin (f);
   return f->output_data.mac->active_arena;
 }
 

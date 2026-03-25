@@ -5315,8 +5315,14 @@ mac_draw_session_begin (struct frame *f)
     mo->current_clip_nrects = -1;
 }
 
+
+/* End a draw session by waiting for the backing bitmap (for any dirty
+   rect copy to complete), playing back the arena into it, then
+   presenting the frame.  This is done via the GCD queue if possible.
+   Can be called from LISP or GUI threads.  Drawing is locked during
+   operation. */
 void
-mac_draw_session_end (struct frame *f)
+mac_draw_session_end (struct frame *f, int type)
 {
     struct mac_output *mo = f->output_data.mac;
     mac_arena *arena = mo->active_arena;
@@ -5346,7 +5352,8 @@ mac_draw_session_end (struct frame *f)
       dispatch_async(mo->drawing_queue, block);
     else
 #endif
-      block();
+      block ();
+    MAC_SIGNPOST_PTR_END (arena, trace, Session, "TYPE: %d", type);
 }
 
 

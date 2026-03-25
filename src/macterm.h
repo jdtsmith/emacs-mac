@@ -687,7 +687,7 @@ extern struct frame *mac_get_frame_at_mouse (bool);
 extern void mac_convert_frame_point_to_global (struct frame *, int *, int *);
 extern void mac_set_frame_window_background (struct frame *, unsigned long);
 extern void mac_draw_session_begin (struct frame *);
-extern void mac_draw_session_end (struct frame *);
+extern void mac_draw_session_end (struct frame *, int);
 extern void mac_cursor_to (int, int, int, int);
 extern void mac_force_flush (struct frame *);
 extern void mac_create_frame_window (struct frame *);

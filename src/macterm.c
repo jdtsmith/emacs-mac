@@ -676,7 +676,7 @@ mac_update_end (struct frame *f)
   MOUSE_HL_INFO (f)->mouse_face_defer = false;
 
   block_input ();
-  mac_draw_session_end (f);
+  mac_draw_session_end (f, MAC_SESSION_UPDATE);
   XFlush (FRAME_MAC_DISPLAY (f));
   unblock_input ();
 }

@@ -33,6 +33,12 @@ typedef struct mac_arena {
 #define MAC_ARENA_RETAIN(slot, ref)                                     \
   do { if (ref) CFRetain (ref); (slot) = (ref); } while (0)
 
+enum mac_session_type
+{
+  MAC_SESSION_UPDATE,
+  MAC_SESSION_OUTOFBAND,
+};
+
 /* --- DRAW COMMANDS -- */
 enum mac_arena_cmd_type
 {
