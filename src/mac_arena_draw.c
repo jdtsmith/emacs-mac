@@ -23,13 +23,6 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "macterm.h"
 #include "mac_arena_draw.h"
 
-#ifdef MAC_DEBUG_SIGNPOST
-os_log_t _mac_sp_log_drawing_queue;
-__attribute__((constructor))
-static void _mac_init_signposts(void) {
-    _mac_sp_log_drawing_queue = os_log_create("org.gnu.Emacs", OS_LOG_CATEGORY_DYNAMIC_TRACING);
-}
-#endif
 
 #if DRAWING_USE_GCD
 void
@@ -622,6 +615,13 @@ void
 mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
 {
   mac_arena_state state = {0};
+#ifdef MAC_DEBUG_SIGNPOST
+  size_t total = 0;
+  MAC_SIGNPOST_PTR_BEGIN (arena, draw, Playback,
+			  "Arena: %d Frame: %{public}s",
+			  (arena == mo->arenas ? 0 : 1),
+			  SSDATA((f)->name));
+#endif
   mac_setup_drawing_context (context);
 
   for (mac_arena_block *block = arena->first_cmds;
@@ -633,7 +633,8 @@ mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
       for (size_t i = 0; i < count; i++)
 	{
 	  mac_arena_draw_cmd *cmd = &cmds[i];
-
+	  MAC_SIGNPOST_DRAW_CMD_BEGIN (cmd, "");
+	  
 	  if (cmd->type == MAC_ARENA_CMD_SET_CLIP)
 	    {
 	      CGContextResetClip (context); /* GC clips never nest */
@@ -653,11 +654,17 @@ mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
 		  mac_playback_cmd(cmd, arena, context, &state);
 		}
 	    }
+#ifdef MAC_DEBUG_SIGNPOST
+	  MAC_SIGNPOST_DRAW_CMD_END ();
+	  total++;
+#endif
 	}
 	
       if (block == arena->cmds)
 	break;  /* Don't walk past the last active block */
     }
 
-  mac_teardown_drawing_context();
+  mac_teardown_drawing_context ();
+  MAC_SIGNPOST_PTR_END (arena, draw, Playback, "NCMDS: %u NDIRTY: %d",
+			(unsigned) total, mo->dirty_rect_count);
 }

@@ -57,19 +57,15 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 #endif
 
 #ifdef MAC_DEBUG_SIGNPOST
-os_log_t _mac_sp_log_poi;
+os_log_t _mac_sp_log_lisp, _mac_sp_log_gui, _mac_sp_log_draw, _mac_sp_log_trace;
 /* Run automatically on binary load */
 __attribute__((constructor))
-static void _mac_init_pois(void) {
-    _mac_sp_log_poi = os_log_create("org.gnu.Emacs", OS_LOG_CATEGORY_POINTS_OF_INTEREST);
-}
-#if DRAWING_USE_GCD
-os_log_t _mac_sp_log_drawing_queue;
-__attribute__((constructor))
 static void _mac_init_signposts(void) {
-    _mac_sp_log_drawing_queue = os_log_create("org.gnu.Emacs", OS_LOG_CATEGORY_DYNAMIC_TRACING);
+  _mac_sp_log_lisp = os_log_create ("org.gnu.Emacs", "LISP");
+  _mac_sp_log_gui = os_log_create ("org.gnu.Emacs", "GUI");
+  _mac_sp_log_draw = os_log_create ("org.gnu.Emacs", "DRAW");
+  _mac_sp_log_trace = os_log_create ("org.gnu.Emacs",OS_LOG_CATEGORY_DYNAMIC_STACK_TRACING);
 }
-#endif
 #endif
 
 // * General Emacs Categories 
@@ -2457,9 +2453,6 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   emacsView.layerContentsPlacement = NSViewLayerContentsPlacementTopLeft;
 #ifdef HAVE_XWIDGETS
   FRAME_MAC_VIEW (f) = (__bridge void *) emacsView;
-#endif
-#ifdef MAC_DEBUG_SIGNPOST
-  FRAME_SIGNPOST_ID (f) = os_signpost_id_generate(_mac_sp_log_poi);
 #endif
 }
 
@@ -5864,6 +5857,7 @@ mac_iosurface_create (size_t width, size_t height)
 
 - (void)swapResourcesAndStartCopy
 {
+  MAC_SIGNPOST_PTR_BEGIN (frontSurface, gui, SurfSync, "Dest: %p", frontSurface);
   CGContextRef bitmap = backBitmap;
   backBitmap = frontBitmap;
   frontBitmap = bitmap;
@@ -5919,8 +5913,8 @@ mac_iosurface_create (size_t width, size_t height)
       
       IOSurfaceUnlock (backSurface, 0, NULL);
       IOSurfaceUnlock (frontSurface, kIOSurfaceLockReadOnly, NULL);
-  
-      dispatch_semaphore_signal (copyFromFrontToBackSemaphore);    
+      dispatch_semaphore_signal (copyFromFrontToBackSemaphore);
+      MAC_SIGNPOST_PTR_END(backSurface, gui, SurfSync, "Copied: %d", dirtyRectCount);
     });
 }
 
@@ -5928,13 +5922,10 @@ mac_iosurface_create (size_t width, size_t height)
 {
   if (copyFromFrontToBackSemaphore)
     {
-      MAC_SIGNPOST_GEN_BEGIN(poi, waitCopyFront2Back, "");
+      MAC_SIGNPOST_GEN_BEGIN(gui, WaitBacking);
       dispatch_semaphore_wait (copyFromFrontToBackSemaphore,
 			       DISPATCH_TIME_FOREVER);
-      MAC_SIGNPOST_GEN_END(poi, waitCopyFront2Back);
-#if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
-      dispatch_release (copyFromFrontToBackSemaphore);
-#endif
+      MAC_SIGNPOST_GEN_END(gui, WaitBacking);
       copyFromFrontToBackSemaphore = NULL;
     }
 }
@@ -9665,6 +9656,7 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
     }
   else
     {
+      MAC_SIGNPOST_GEN_BEGIN (lisp, Socket);
       MRC_RELEASE (lastCallDate);
       lastCallDate = [[NSDate alloc] init];
       [timer invalidate];
@@ -9723,9 +9715,8 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	  /* Flush any just-finished frame */
 	  mac_force_flush (f);
 	}
-    }
-
-  
+      MAC_SIGNPOST_GEN_END (lisp, Socket, "NEVENTS: %d", count);
+    }  
   END_AUTORELEASE_POOL;
 
   unblock_input ();
@@ -16461,7 +16452,9 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
       completed_p = true;
 #endif
     },
-    ^{
+   ^{ /* LISP */
+      MAC_SIGNPOST_GEN_BEGIN(lisp, Select);
+
 #if MAC_SELECT_ALLOW_LISP_EVALUATION
       if (thread_may_switch_p)
 	{
@@ -16494,12 +16487,13 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 	      dispatch_semaphore_wait (mac_lisp_semaphore,
 				       DISPATCH_TIME_FOREVER);
 	    }
-	  dispatch_semaphore_signal (mac_lisp_semaphore);
+	  dispatch_semaphore_signal (mac_lisp_semaphore); /* Reset for next round */
 	}
 #endif
       if (r > 0 && FD_ISSET (mac_select_fds[1], rfds))
 	/* Pretend that `select' is interrupted by a signal.  */
 	r = -1;
+      MAC_SIGNPOST_GEN_END(lisp, Select);
     });
   turn_on_atimers (true);
   unblock_input ();

@@ -329,10 +329,6 @@ struct mac_output
   /* For tracking the state of the current GC clip rects */
   int current_clip_nrects;
   CGRect *current_clip_rects;
-  
-#ifdef MAC_DEBUG_SIGNPOST
-  os_signpost_id_t frame_spid;
-#endif
 };
 
 /* Return the X output data for frame F.  */
@@ -373,10 +369,6 @@ struct mac_output
 
 /* This gives the mac_display_info structure for the display F is on.  */
 #define FRAME_DISPLAY_INFO(f) ((void) (f), (&one_mac_display_info))
-
-#ifdef MAC_DEBUG_SIGNPOST
-#define FRAME_SIGNPOST_ID(f) ((f)->output_data.mac->frame_spid)
-#endif
 
 /* Mac-specific scroll bar stuff.  */
 
@@ -789,71 +781,54 @@ extern void mac_within_gui (void (^block) (void));
 
 /* Signpost debugging */
 #ifdef MAC_DEBUG_SIGNPOST
-extern os_log_t _mac_sp_log_poi;
-/* N.B.: In calls to these macros, SPNAME is always a bare symbol
-   without quotes */
-#define MAC_SIGNPOST_BEGIN(spid, type, spname, format, ...)		\
-  do {									\
-    os_signpost_interval_begin(_mac_sp_log_##type, spid,		\
-			       #spname, format, ##__VA_ARGS__);		\
-  } while (0)
-#define MAC_SIGNPOST_END(spid, type, spname)				\
-  do {									\
-    if (_mac_sp_log_##type) {						\
-      os_signpost_interval_end(_mac_sp_log_##type, spid, #spname);	\
-    }									\
-  } while (0)
-/* Note: any use of GEN_BEGIN/END must be _within a single block_.
-   Multiple uses within a single block must have different NAMEs. */
-#define MAC_SIGNPOST_GEN_BEGIN(type, spname, ...)			\
-  os_signpost_id_t _spid_ ## spname = os_signpost_id_generate(_mac_sp_log_##type); \
-  MAC_SIGNPOST_BEGIN(_spid_ ## spname, type, spname, ##__VA_ARGS__)
-#define MAC_SIGNPOST_GEN_END(type, spname)		\
-  MAC_SIGNPOST_END(_spid_ ## spname, type, spname)
-#define MAC_SIGNPOST_POI_BEGIN(spid, spname, format, ...)	\
-  MAC_SIGNPOST_BEGIN(spid, poi, spname, format, ##__VA_ARGS__)
-#define MAC_SIGNPOST_POI_END(spid, spname)	\
-  MAC_SIGNPOST_END(spid, poi, spname)
-#define MAC_SIGNPOST_FRAME_BEGIN(spname, f)				\
-  do {									\
-    if (f)								\
-      { MAC_SIGNPOST_POI_BEGIN(FRAME_SIGNPOST_ID(f), spname,		\
-			       "Frame: %{public}s",			\
-			       (STRINGP((f)->name) ?			\
-				SSDATA((f)->name) : "Unnamed"));	\
-      }									\
-  } while (0)
-#define MAC_SIGNPOST_FRAME_END(spname, f)				\
-  do {									\
-    if (f) { MAC_SIGNPOST_POI_END(FRAME_SIGNPOST_ID(f), spname); }	\
-  } while (0)
-#if DRAWING_USE_GCD
-extern os_log_t _mac_sp_log_drawing_queue;
-#define MAC_SIGNPOST_DRAW_BEGIN(task, format, ...)			\
-  MAC_SIGNPOST_GEN_BEGIN(drawing_queue, Draw,				\
-			 "Task:%{public}s | Caller:%{public}s" format,	\
-			 task, __FUNCTION__, ##__VA_ARGS__)
-#define MAC_SIGNPOST_DRAW_END() \
-  MAC_SIGNPOST_GEN_END(drawing_queue, Draw)
-#define MAC_SIGNPOST_DRAW_RECT_BEGIN(task, rect)			\
-  MAC_SIGNPOST_DRAW_BEGIN(task, " | W:%d H:%d",				\
-			  (int)(rect).size.width,			\
-			  (int)(rect).size.height)
-#define MAC_SIGNPOST_DRAW_RECT_END MAC_SIGNPOST_DRAW_END
-#endif
+extern os_log_t _mac_sp_log_lisp, _mac_sp_log_gui, _mac_sp_log_draw, _mac_sp_log_trace;
+
+/* N.B.: In calls to these macros, category CAT is always a bare symbol
+   without quotes (i.e. lisp, gui, or draw) */
+#define MAC_SIGNPOST_BEGIN(spid, cat, spname, ...)			\
+  os_signpost_interval_begin(_mac_sp_log_##cat, (spid), #spname, ##__VA_ARGS__)
+#define MAC_SIGNPOST_END(spid, cat, spname, ...)			\
+  os_signpost_interval_end(_mac_sp_log_##cat, (spid), #spname, ##__VA_ARGS__)
+
+/* Generate and use a temporary local signpost id.  Note: any use of
+   GEN_BEGIN/END must occur _within a single block_.  Multiple uses
+   within a single block must have different SPNAMEs. */
+#define MAC_SIGNPOST_GEN_BEGIN(cat, spname, ...)			\
+  os_signpost_id_t _spid_##spname = os_signpost_id_generate(_mac_sp_log_##cat); \
+  MAC_SIGNPOST_BEGIN(_spid_##spname, cat, spname, ##__VA_ARGS__)
+#define MAC_SIGNPOST_GEN_END(cat, spname, ...)			\
+  MAC_SIGNPOST_END(_spid_##spname, cat, spname, ##__VA_ARGS__)
+
+/* Generate a signpost id using a consistent pointer to log intervals
+   that span blocks or functions */
+#define MAC_SIGNPOST_PTR_BEGIN(ptr, cat, spname, ...)			\
+  MAC_SIGNPOST_BEGIN(os_signpost_id_make_with_pointer(_mac_sp_log_##cat, (ptr)), \
+		     cat, spname, ##__VA_ARGS__)
+#define MAC_SIGNPOST_PTR_END(ptr, cat, spname, ...)				\
+  MAC_SIGNPOST_END(os_signpost_id_make_with_pointer(_mac_sp_log_##cat, (ptr)), \
+		   cat, spname, ##__VA_ARGS__)
+
+/* Use with a mac_arena_draw_cmd CMD */
+# define MAC_SIGNPOST_DRAW_CMD_BEGIN(cmd, format, ...)			\
+  MAC_SIGNPOST_GEN_BEGIN(draw, Draw,					\
+			 "TYPE:%u [%u,%u:%ux%u] " format, (cmd)->type,	\
+			 (unsigned)(cmd)->rect.origin.x,		\
+			 (unsigned)(cmd)->rect.origin.y,		\
+			 (unsigned)(cmd)->rect.size.width,		\
+			 (unsigned)(cmd)->rect.size.height,		\
+			 ##__VA_ARGS__)
+#define MAC_SIGNPOST_DRAW_CMD_END(...)			\
+  MAC_SIGNPOST_GEN_END(draw, Draw, ##__VA_ARGS__)
+
 #else /* !DEBUG_SIGNPOST */
 #define MAC_SIGNPOST_BEGIN(...)
 #define MAC_SIGNPOST_END(...)
 #define MAC_SIGNPOST_GEN_BEGIN(...)
 #define MAC_SIGNPOST_GEN_END(...)
-#define MAC_SIGNPOST_POI_BEGIN(...)
-#define MAC_SIGNPOST_POI_END(...)
-#define MAC_SIGNPOST_FRAME_BEGIN(...)
-#define MAC_SIGNPOST_FRAME_END(...)
-#define MAC_SIGNPOST_DRAW_BEGIN(...)
-#define MAC_SIGNPOST_DRAW_END()
-#define MAC_SIGNPOST_DRAW_RECT_BEGIN(...)
-#define MAC_SIGNPOST_DRAW_RECT_END()
+#define MAC_SIGNPOST_PTR_BEGIN(...)
+#define MAC_SIGNPOST_PTR_END(...)
+#define MAC_SIGNPOST_DRAW_CMD_BEGIN(...)
+#define MAC_SIGNPOST_DRAW_CMD_END(...)
 #endif
 
 enum mac_draw_corners
