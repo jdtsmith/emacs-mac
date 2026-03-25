@@ -4297,6 +4297,10 @@ mac_free_frame_resources (struct frame *f)
   if (f == hlinfo->mouse_face_mouse_frame)
     reset_mouse_highlight (hlinfo);
 
+  mac_flush_arena (f);
+  mac_wait_backing_bitmap (f);
+  mac_teardown_arena_system (f);
+
   if (FRAME_MAC_WINDOW (f))
     mac_dispose_frame_window (f);
 
@@ -4324,8 +4328,6 @@ mac_free_frame_resources (struct frame *f)
   mac_cursor_release (f->output_data.mac->bottom_right_corner_cursor);
   mac_cursor_release (f->output_data.mac->bottom_edge_cursor);
   mac_cursor_release (f->output_data.mac->bottom_left_corner_cursor);
-
-  mac_teardown_arena_system (f);
   
   xfree (f->output_data.mac);
   f->output_data.mac = NULL;
