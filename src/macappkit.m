@@ -1340,8 +1340,6 @@ static bool handling_queued_nsevents_p;
 }
 
 - (void)willSleep:(NSNotification *)notification {
-  // Do quick pre-sleep work here
-  NSLog(@"Entering sleep");
   mac_flush_open_arenas ();
 }
 
@@ -5395,7 +5393,6 @@ mac_draw_session_end (struct frame *f, int type)
     MAC_SIGNPOST_PTR_END (arena, trace, Session, "TYPE: %d", type);
 }
 
-
 /* Create a new Mac window for the frame F and store its delegate in
    FRAME_MAC_WINDOW (f).  */
 
@@ -5931,7 +5928,7 @@ mac_iosurface_create (size_t width, size_t height)
       vImage_Buffer src, dest;
       src.rowBytes = dest.rowBytes = bytesPerRow;
 
-      for (int i = 0; i < dirtyRectCount; i++)
+      for (size_t i = 0; i < dirtyRectCount; i++)
 	{
 	  CGRect rect = dirtyRects[i];
 
@@ -16258,10 +16255,10 @@ mac_within_lisp_deferred_if_gui_thread (void (^block) (void))
 
 /* File descriptors of the socket pair used for breaking pselect calls
    in Lisp threads.  One direction, writing to mac_select_fds[0] and
-   reading from mac_select_fds[1], is for notifying termination of the
-   run loop in the GUI thread.  The other direction, writing to
-   mac_select_fds[1] and reading from mac_select_fds[0] is for
-   notifying delivery of SIGALRM.  */
+   reading from mac_select_fds[1], is for notifying the LISP thread to
+   terminate the run loop in the GUI thread.  The other direction,
+   writing to mac_select_fds[1] and reading from mac_select_fds[0] is
+   for notifying delivery of SIGALRM.  */
 static int mac_select_fds[2];
 
 /* Whether buffer and glyph matrix access from the GUI thread is
@@ -16336,7 +16333,7 @@ mac_handle_alarm_signal (void)
     write_one_byte_to_fd (mac_select_fds[1]);
 }
 
-void
+inline void
 mac_wakeup_lisp (void)
 {
   write_one_byte_to_fd (mac_select_fds[0]);
@@ -16377,8 +16374,10 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
   if (!initialized)
     return thread_select (pselect, nfds, rfds, wfds, efds, timeout, sigmask);
 
+  /* Clear the SIGALRM notification */
   read_all_from_nonblocking_fd (mac_select_fds[0]);
 
+  /* If not responding to GUI events, just do pselect + SIGALRM handling */
   if (inhibit_window_system || noninteractive || nfds <= mac_select_fds[1]
       || rfds == NULL || !FD_ISSET (mac_select_fds[1], rfds))
     {
@@ -16406,8 +16405,8 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
       return r;
     }
 
-  /* Check if some input is already available.  We need to block input
-     because run loop may call back drawRect:.  */
+  /* Quickly check if some input is already available.  We need to block
+     input because run loop may call back drawing.  */
   block_input ();
   mac_within_gui_and_here (^{
       [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
@@ -16422,6 +16421,7 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
       if (wfds) owfds = *wfds;
       if (efds) oefds = *efds;
 
+      /* Remove any stale wake-up notifications */
       read_all_from_nonblocking_fd (mac_select_fds[1]);
 
       FD_CLR (mac_select_fds[1], rfds);
@@ -16453,7 +16453,8 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
   mac_select_allow_lisp_evaluation = !thread_may_switch_p;
   bool __block completed_p = false;
 #endif
-  mac_within_gui_and_here (^{
+  mac_within_gui_and_here (
+   ^{ /* GUI */
       if (thread_may_switch_p)
 	mac_set_buffer_and_glyph_matrix_access_restricted (true);
       while (true)
