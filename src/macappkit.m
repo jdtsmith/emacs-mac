@@ -5957,7 +5957,6 @@ mac_iosurface_create (size_t width, size_t height)
 	    }
 	}
       
-      IOSurfaceUnlock (backSurface, 0, NULL);
       IOSurfaceUnlock (frontSurface, kIOSurfaceLockReadOnly, NULL);
       dispatch_semaphore_signal (copyFromFrontToBackSemaphore);
       MAC_SIGNPOST_PTR_END(backSurface, gui, SurfSync, "Copied: %d", dirtyRectCount);
