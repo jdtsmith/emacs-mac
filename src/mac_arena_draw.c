@@ -312,15 +312,16 @@ mac_record_erase_bg (struct frame *f, GC gc, CGRect rect,
 					     &cmd->erase.clear_p);
 }
 
-/* Accumulate/merge a new dirty rect into up to MAC_N_DIRTY_RECTS slots,
+/* Accumulate a new dirty rect into up to MAC_N_DIRTY_RECTS slots,
    merging when it wastes no more than 35% area.  If all slots are
-   filled, force merge with the least wasteful rect. */
+   filled, force merge with the least wasteful rect.  Dirty rects can be
+   accumulated from multiple playbacks, and are reset in
+   mac_force_flush. */
 void
-mac_accumulate_dirty (struct frame *f, CGRect rect)
+mac_accumulate_dirty (struct mac_output *mo, CGRect rect)
 {
   if (CGRectIsEmpty(rect))
     return;
-  struct mac_output *mo = f->output_data.mac;
 
   int best_idx = 0;
   CGFloat min_waste = CGFLOAT_MAX;
@@ -614,11 +615,12 @@ mac_playback_cmd (mac_arena_draw_cmd *cmd, mac_arena *arena,
     }
 }
 
-/* Playback the given arena's drawing commands.  To be called from the
-   GCD Queue only */
+/* Playback all the given ARENA's drawing commands into CONTEXT of frame
+   F.  To be called from the GCD Queue only. */
 void
 mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
 {
+  struct mac_output *mo = f->output_data.mac;
   mac_arena_state state = {0};
 #ifdef MAC_DEBUG_SIGNPOST
   size_t total = 0;
@@ -654,7 +656,7 @@ mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
 	      cmd->rect = CGRectIntersection (cmd->rect, clipBox);
 	      if (!CGRectIsNull (cmd->rect))
 		{
-		  mac_accumulate_dirty (f, cmd->rect);
+		  mac_accumulate_dirty (mo, cmd->rect);
 		  mac_playback_cmd(cmd, arena, context, &state);
 		}
 	    }

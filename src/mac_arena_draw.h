@@ -206,7 +206,7 @@ extern void mac_arena_reset (mac_arena *);
 extern void mac_record_gc_clip (struct frame *, GC);
 extern CGColorRef mac_bg_color_for_gc (struct frame *, GC, bool, bool *);
 extern void mac_record_erase_bg (struct frame *, GC, CGRect, bool);
-extern void mac_accumulate_dirty (struct frame *, CGRect);
+extern void mac_accumulate_dirty (struct mac_output *, CGRect);
 extern bool mac_begin_draw_session (struct frame *);
 extern void mac_end_draw_session (struct frame *, bool);
 extern void mac_playback_arena (mac_arena *, struct frame *, CGContextRef);
