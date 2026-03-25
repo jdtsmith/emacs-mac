@@ -1590,12 +1590,7 @@ macfont_get_glyph_for_character (struct font *font, UTF32Char c)
           cache->glyph.nrows = nrows;
 
           if (group)
-            {
               dispatch_group_wait (group, DISPATCH_TIME_FOREVER);
-#if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
-              dispatch_release (group);
-#endif
-            }
         }
 
       return cache->glyph.matrix[nkeys_or_perm - ROW_PERM_OFFSET][c % 256];
@@ -3592,9 +3587,6 @@ mac_font_get_glyphs_for_variants (CFDataRef uvs_table, UTF32Char c,
   while (i < count)
     glyphs[i++] = kCGFontIndexInvalid;
   dispatch_group_wait (group, DISPATCH_TIME_FOREVER);
-#if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
-  dispatch_release (group);
-#endif
 }
 
 static int

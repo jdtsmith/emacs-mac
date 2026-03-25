@@ -111,11 +111,6 @@ mac_teardown_arena_system (struct frame *f)
             }
         }
 
-#if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
-      dispatch_release (mo->drawing_queue);
-      dispatch_release (mo->arena_sem);
-#endif
-
 #if DRAWING_USE_GCD
       if (!p)
 	mo->drawing_queue = NULL;
