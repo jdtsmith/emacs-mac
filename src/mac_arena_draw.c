@@ -65,7 +65,7 @@ mac_flush_open_arenas (void)
 static void
 mac_arena_release_draw_cmds (mac_arena_block *block)
 {
-  mac_arena_draw_cmd *cmds = MAC_ARENA_CMDS (block);
+  mac_arena_draw_cmd *cmds = MAC_ARENA_BLOCK_CMDS (block);
   size_t count = block->used / sizeof(mac_arena_draw_cmd);
 
   for (size_t i = 0; i < count; i++)
@@ -93,16 +93,21 @@ mac_teardown_arena_system (struct frame *f)
       for (int i = 0; i < 2; i++)
         {
           mac_arena *arena = &mo->arenas[i];
-          mac_arena_block *block;
+          mac_arena_block *block = arena->first_cmds;
 
-          for (block = arena->first_cmds; block; block = block->next)
-            {
+          while (block)
+	    {
+	      mac_arena_block *next = block->next;
               mac_arena_release_draw_cmds (block);
-              xfree (block);
-            }
-          for (block = arena->first_data; block; block = block->next)
+	      xfree (block);
+	      block = next;
+	    }
+	  block = arena->first_data;
+          while (block)
             {
-              xfree (block);
+	      mac_arena_block *next = block->next;
+	      xfree (block);
+	      block = next;
             }
         }
 
@@ -623,11 +628,10 @@ mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
 			  SSDATA((f)->name));
 #endif
   mac_setup_drawing_context (context);
-
   for (mac_arena_block *block = arena->first_cmds;
        block; block = block->next)
     {
-      mac_arena_draw_cmd *cmds = MAC_ARENA_CMDS (block);
+      mac_arena_draw_cmd *cmds = MAC_ARENA_BLOCK_CMDS (block);
       size_t count = block->used / sizeof(mac_arena_draw_cmd);
 	
       for (size_t i = 0; i < count; i++)

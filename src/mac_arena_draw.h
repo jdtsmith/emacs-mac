@@ -189,9 +189,13 @@ typedef struct mac_arena_draw_cmd {
   cmd->type = MAC_ARENA_CMD_##cmd_type;					\
   cmd->rect = (invalid_rect);
 
-#define MAC_ARENA_CMDS(block) (mac_arena_draw_cmd *) (block)->stash;
+#define MAC_ARENA_BLOCK_CMDS(block) (mac_arena_draw_cmd *) (block)->stash;
+#define MAC_ARENA_HAS_CMDS_P(arena)				\
+  (((arena)->first_cmds) && ((arena)->first_cmds->used>0))
 
+#if DRAWING_USE_GCD
 extern void mac_init_arena_system (struct frame *);
+#endif
 extern void mac_teardown_arena_system (struct frame *);
 extern void mac_flush_open_arenas (void);
 extern void mac_flush_arena (struct frame *);

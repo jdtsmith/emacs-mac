@@ -365,7 +365,7 @@ struct mac_output
   ((f)->output_data.mac->scale_mismatch_state)
 #define FRAME_MAC_DOUBLE_BUFFERED_P(f) \
   ((f)->output_data.mac->double_buffered_p)
-#define FRAME_MAC_NEEDS_PRESENTATION_P(f)		\
+#define FRAME_MAC_NEEDS_PRESENTATION_P(f) \
   ((f)->output_data.mac->needs_presentation)
 
 /* This gives the mac_display_info structure for the display F is on.  */
