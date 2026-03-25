@@ -726,6 +726,10 @@ typedef NSInteger NSGlyphProperty;
   /* Map from child windows to alpha values that are saved while they
      are made completely transparent temporarily.  */
   NSMapTableOf (NSWindow *, NSNumber *) *savedChildWindowAlphaMap;
+
+  /* To lock the draw buffers during draw or display. */
+  dispatch_semaphore_t drawLock;
+  BOOL drawLocked;
 }
 - (instancetype)initWithEmacsFrame:(struct frame *)emacsFrame;
 - (void)setupEmacsView;
@@ -734,6 +738,9 @@ typedef NSInteger NSGlyphProperty;
 - (struct frame *)emacsFrame;
 - (EmacsWindow *)emacsWindow;
 - (BOOL)acceptsFocus;
+- (BOOL)drawLocked;
+- (void)acquireDrawLock;
+- (void)releaseDrawLock;
 - (WMState)windowManagerState;
 - (void)setWindowManagerState:(WMState)newState;
 - (void)updateBackingScaleFactor;

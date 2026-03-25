@@ -19,6 +19,7 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 
 /* Originally contributed by Andrew Choi (akochoi@mac.com) for Emacs 21.  */
 
+#include <objc/objc.h>
 #include "config.h"
 #include "macgui.h"
 #include "frame.h"
@@ -689,14 +690,14 @@ extern void mac_set_frame_window_background (struct frame *, unsigned long);
 extern void mac_draw_session_begin (struct frame *);
 extern void mac_draw_session_end (struct frame *, int);
 extern void mac_cursor_to (int, int, int, int);
-extern void mac_force_flush (struct frame *);
+extern void mac_force_flush (struct frame *, BOOL);
 extern void mac_create_frame_window (struct frame *);
 extern void mac_dispose_frame_window (struct frame *);
 extern void mac_change_frame_window_wm_state (struct frame *, WMState, WMState);
 extern CGContextRef mac_begin_cg_clip (struct frame *, GC, CGRect);
 extern void mac_end_cg_clip (CGContextRef, struct frame *);
-extern void mac_present_frame(struct frame *, CGRect *, int);
-extern CGContextRef mac_get_backing_bitmap(struct frame *);
+extern void mac_present_frame(struct frame *);
+extern CGContextRef mac_wait_backing_bitmap(struct frame *);
 extern void mac_setup_drawing_context (CGContextRef);
 extern void mac_teardown_drawing_context(void);
 extern Lisp_Object mac_color_lookup (const char *);

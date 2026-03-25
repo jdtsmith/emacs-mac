@@ -2420,6 +2420,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
     return nil;
 
   emacsFrame = f;
+  drawLock = dispatch_semaphore_create(1); /* a mutex lock for drawing */
 
   [self setupEmacsView];
   [self setupWindow];
@@ -2742,6 +2743,23 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   [overlayView release];
   [super dealloc];
 #endif
+}
+
+- (BOOL)drawLocked
+{
+  return drawLocked;
+}
+
+- (void)acquireDrawLock
+{
+  dispatch_semaphore_wait(drawLock, DISPATCH_TIME_FOREVER);
+  drawLocked = YES;
+}
+
+- (void)releaseDrawLock
+{
+  drawLocked = NO;
+  dispatch_semaphore_signal (drawLock);
 }
 
 - (BOOL)acceptsFocus
@@ -5251,28 +5269,43 @@ mac_real_positions (struct frame *f, int *xptr, int *yptr)
   *yptr = bounds.y;
 }
 
-/* Flush display of frame F, first marking the frame as in need of
-   display, if it has requested.  Since we pump the NS Event loop
-   ourselves (see mac_select), this is only place requesting display
-   update, which calls updateLayer, occurs. */
+/* Flush display of frame F, if necessary.  If the frame needs display,
+   present its accumulated dirty rects to the frame's EmacsBacking.
+   Since we pump the NS Event loop ourselves (see mac_select), this is
+   the only place we can request a display update (which leads to an
+   updateLayer call). Called from the LISP thread. If IMMEDIATE_ONLY is
+   YES, only draw if a frame has requested it, and drawing is not
+   locked. Drawing is locked during frame display. */
 void
-mac_force_flush (struct frame *f)
+mac_force_flush (struct frame *f, BOOL immediate_only)
 {
-  // eassert (f && FRAME_MAC_P (f));
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-  bool present = NO;
-
-  if (FRAME_MAC_NEEDS_PRESENTATION_P (f))
-    {
-      present = YES;
-      FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
-    }
+  /* Quickly bail out unless we have a frame that needs to be (and can
+     be) updated NOW. */
+  if (immediate_only &&
+      (!FRAME_MAC_NEEDS_PRESENTATION_P (f) || [frameController drawLocked]))
+    return;
   
   block_input ();
   mac_within_gui (^{
-      if (present)
-	[frameController setEmacsViewNeedsDisplay:YES];
+      MAC_SIGNPOST_GEN_BEGIN (gui, Flush,
+			      "PRESENT: %d FRAME: %{public}s FPTR: %p",
+			      FRAME_MAC_NEEDS_PRESENTATION_P (f),
+			      SSDATA (f->name), f);
+      [frameController acquireDrawLock];
+      if (FRAME_MAC_NEEDS_PRESENTATION_P (f))
+	{
+	  FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
+	  struct mac_output *mo = f->output_data.mac;
+	  [frameController
+	    presentBackingWithDirtyRects:mo->dirty_rects
+				   count:mo->dirty_rect_count];
+	  mo->dirty_rect_count = 0; /* Reset for reuse */
+	  [frameController setEmacsViewNeedsDisplay:YES];
+	}
       [frameController displayEmacsViewIfNeeded];
+      [frameController releaseDrawLock];
+      MAC_SIGNPOST_GEN_END (gui, Flush);
     });
   unblock_input ();
 }
@@ -5282,7 +5315,13 @@ mac_draw_session_begin (struct frame *f)
 {
     struct mac_output *mo = f->output_data.mac;
     if (mo->active_arena)
-        return;
+      return;
+    mac_arena *arena = &mo->arenas[mo->next_arena];
+    MAC_SIGNPOST_PTR_BEGIN (arena, trace, Session,
+			    "ARENA: %d FRAME: %{public}s FPTR: %p",
+			    mo->next_arena, SSDATA (f->name), f);
+
+    MAC_SIGNPOST_GEN_BEGIN (lisp, SessionWait);
 #if DRAWING_USE_GCD
     /* Lazy init of arena system */
     if (!mo->drawing_queue)
@@ -5303,16 +5342,16 @@ mac_draw_session_begin (struct frame *f)
       }
 
 #if DRAWING_USE_GCD
-    /* Acquire an arena.  Blocks only if both arenas are in use. */
+    /* Acquire the arena.  Blocks only if both arenas are in use. */
     dispatch_semaphore_wait(mo->arena_sem, DISPATCH_TIME_FOREVER);
 #endif
 
-    mac_arena *arena = &mo->arenas[mo->next_arena];
     mo->next_arena ^= 1;
     mac_arena_reset (arena);
     arena->backing_scale_factor = FRAME_BACKING_SCALE_FACTOR (f);
     mo->active_arena = arena;
     mo->current_clip_nrects = -1;
+    MAC_SIGNPOST_GEN_END (lisp, SessionWait);
 }
 
 
@@ -5338,15 +5377,16 @@ mac_draw_session_end (struct frame *f, int type)
       CGContextRef backing_ctx = mac_get_backing_bitmap(f);
       if (backing_ctx)
 	{
-	  mac_playback_arena(arena, f, backing_ctx);
-	  mac_present_frame(f, mo->dirty_rects, mo->dirty_rect_count);
-	  mo->dirty_rect_count = 0;  /* reset for next time */
+	  mac_playback_arena (arena, f, backing_ctx);
+	  mac_present_frame (f);
 	}
+      [frameController releaseDrawLock];
 #if DRAWING_USE_GCD
-      dispatch_semaphore_signal (mo->arena_sem);
+      dispatch_semaphore_signal (mo->arena_sem); /* release the arena */
 #endif
     };
-    
+
+    [frameController acquireDrawLock];
 #if DRAWING_USE_GCD    
     if (mac_drawing_use_gcd)
       dispatch_async(mo->drawing_queue, block);
@@ -7288,16 +7328,16 @@ mac_ts_active_input_string_in_echo_area_p (struct frame *f)
 
 // ** C drawing shims
 
-
-/* Present the frame and its dirty rects for display soon */
+/* Present the newly drawn frame for display soon, posting an event to
+   wake up the GUI thread.  Called from the GCD thread. */
 void
-mac_present_frame (struct frame *f, CGRect *rects, int count)
+mac_present_frame (struct frame *f)
 {
-  FRAME_MAC_NEEDS_PRESENTATION_P (f) = true;
-  mac_wakeup_lisp ();  /* Lisp will check the NEEDS_PRESENTATION_P flag */
-
-  EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-  [frameController presentBackingWithDirtyRects:rects count:count];
+  if (!FRAME_MAC_NEEDS_PRESENTATION_P (f))
+    {    
+      FRAME_MAC_NEEDS_PRESENTATION_P (f) = true;
+      [NSApp postDummyEvent];
+    }
 }
 
 CGContextRef
@@ -9624,8 +9664,11 @@ peek_if_next_event_activates_menu_bar (void)
   return NULL;
 }
 
-/* Emacs calls this read socket hook whenever it needs to read an input
-   event, after mac_select returns. */
+/* Emacs calls this read socket hook frequently, whenever it needs to
+   read an input event, e.g. after mac_select returns.  We use this
+   (rate-limited) to process accumulated NSEvents, flush newly finished
+   frames to the display, and close open draw arenas (e.g. from
+   out-of-band drawing like mouse movement). */
 
 int
 mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
@@ -9635,11 +9678,12 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
   static NSDate *lastCallDate;
   static NSTimer *timer;
   NSTimeInterval timeInterval, minimumInterval;
+  Lisp_Object tail, frame;
 
   block_input ();
-
   BEGIN_AUTORELEASE_POOL;
 
+  
   minimumInterval = [emacsController minimumIntervalForReadSocket];
   if (lastCallDate
       && (timeInterval = - [lastCallDate timeIntervalSinceNow],
@@ -9648,7 +9692,7 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
       if (![timer isValid])
 	{
 	  MRC_RELEASE (timer);
-	  timeInterval = minimumInterval - timeInterval;
+	  timeInterval = minimumInterval - timeInterval;  /* reschedule at minInterval */
 	  mac_within_gui (^{
 	      timer =
 		MRC_RETAIN ([NSTimer
@@ -9660,6 +9704,14 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	    });
 	}
       count = 0;
+      FOR_EACH_FRAME (tail, frame)
+	{
+	  struct frame *f = XFRAME (frame);
+	  /* Quickly flush any frames which have requested presentation
+	     and are done drawing. */
+	  if (FRAME_MAC_P (f))
+	    mac_force_flush (f, YES);
+	}
     }
   else
     {
@@ -9704,28 +9756,21 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	  mac_screen_config_changed = 0;
 	}
 
-    }
-
-  /* We now do this _outside_ the rate limiter to immediately display
-     any available frames.  Visibility handling has moved to a
-     notification. */
-  Lisp_Object tail, frame;
-  FOR_EACH_FRAME (tail, frame)
-    {
-      struct frame *f = XFRAME (frame);
-      
-      if (FRAME_MAC_P (f))
+      /* Note that visibility handling has moved to a notification. */
+      FOR_EACH_FRAME (tail, frame)
 	{
-	  /* Close any out-of-band drawing sessions triggered by events
-	     which opened a draw arena */
-	  mac_flush_arena (f);
-	  /* Flush any just-finished frame */
-	  mac_force_flush (f);
+	  struct frame *f = XFRAME (frame);
+	  if (FRAME_MAC_P (f))
+	    {
+	      /* Flush the frame, first waiting for drawing to complete. */
+	      mac_force_flush (f, NO);
+	      /* Flush any out of band open draw sessions (e.g. mouse moves). */
+	      mac_flush_arena (f);
+	    }
 	}
       MAC_SIGNPOST_GEN_END (lisp, Socket, "NEVENTS: %d", count);
     }  
   END_AUTORELEASE_POOL;
-
   unblock_input ();
 
   return count;

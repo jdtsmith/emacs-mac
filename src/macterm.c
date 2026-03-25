@@ -559,9 +559,8 @@ mac_set_frame_alpha (struct frame *f)
 static void
 mac_update_begin (struct frame *f)
 {
-  block_input ();
-  mac_draw_session_begin (f);
-  unblock_input ();
+  /* We do not open a draw session, since sometimes update begin/end
+     arrive without any draw commands being submitted. */
 }
 
 /* Start update of window W.  */
