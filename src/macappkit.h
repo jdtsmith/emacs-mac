@@ -727,9 +727,8 @@ typedef NSInteger NSGlyphProperty;
      are made completely transparent temporarily.  */
   NSMapTableOf (NSWindow *, NSNumber *) *savedChildWindowAlphaMap;
 
-  /* To lock the draw buffers during draw or display. */
-  dispatch_semaphore_t drawLock;
-  BOOL drawLocked;
+  /* For locking the draw bitmaps/surface during draw & display. */
+  os_unfair_lock drawLock;
 }
 - (instancetype)initWithEmacsFrame:(struct frame *)emacsFrame;
 - (void)setupEmacsView;
@@ -738,7 +737,7 @@ typedef NSInteger NSGlyphProperty;
 - (struct frame *)emacsFrame;
 - (EmacsWindow *)emacsWindow;
 - (BOOL)acceptsFocus;
-- (BOOL)drawLocked;
+- (BOOL)tryAcquireDrawLock;
 - (void)acquireDrawLock;
 - (void)releaseDrawLock;
 - (WMState)windowManagerState;

@@ -25,6 +25,7 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "mac_arena_draw.h"
 #include "macterm.h"
 
+#include <os/lock.h>
 #include <sys/socket.h>
 
 #include "character.h"
@@ -2418,7 +2419,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
     return nil;
 
   emacsFrame = f;
-  drawLock = dispatch_semaphore_create(1); /* a mutex lock for drawing */
+  drawLock = OS_UNFAIR_LOCK_INIT;
 
   [self setupEmacsView];
   [self setupWindow];
@@ -2742,21 +2743,31 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 #endif
 }
 
-- (BOOL)drawLocked
+/* Draw locking is used to coordinate the two uses of backing layers:
+
+   1. Arenas full of commands gets drawn into the back  via a GCD
+      serial queue; see `mac_playback_arena'.
+
+   2. Completed backing layers are swapped with the current front layer,
+      then dirty rectangles are copied from the (new) front to (new)
+      back (see `mac_force_flush').
+
+   These two uses must not happen simultaneously, so we protect with a
+   lock.
+ */
+- (BOOL)tryAcquireDrawLock
 {
-  return drawLocked;
+  return os_unfair_lock_trylock(&drawLock);
 }
 
 - (void)acquireDrawLock
 {
-  dispatch_semaphore_wait(drawLock, DISPATCH_TIME_FOREVER);
-  drawLocked = YES;
+  os_unfair_lock_lock(&drawLock);
 }
 
 - (void)releaseDrawLock
 {
-  drawLocked = NO;
-  dispatch_semaphore_signal (drawLock);
+  os_unfair_lock_unlock(&drawLock);
 }
 
 - (BOOL)acceptsFocus
@@ -5277,19 +5288,20 @@ void
 mac_force_flush (struct frame *f, BOOL immediate_only)
 {
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-  /* Quickly bail out unless we have a frame that needs to be (and can
-     be) updated NOW. */
-  if (immediate_only &&
-      (!FRAME_MAC_NEEDS_PRESENTATION_P (f) || [frameController drawLocked]))
-    return;
-  
+  if (immediate_only)
+    { /* Bail out unless we can and should draw _now_ */
+      if (!FRAME_MAC_NEEDS_PRESENTATION_P (f)) return;
+      if (![frameController tryAcquireDrawLock]) return;
+    }
+  else
+    [frameController acquireDrawLock];  /* Wait for any drawing to finish */
+
   block_input ();
   mac_within_gui (^{
       MAC_SIGNPOST_GEN_BEGIN (gui, Flush,
 			      "PRESENT: %d FRAME: %{public}s FPTR: %p",
 			      FRAME_MAC_NEEDS_PRESENTATION_P (f),
 			      SSDATA (f->name), f);
-      [frameController acquireDrawLock];
       if (FRAME_MAC_NEEDS_PRESENTATION_P (f))
 	{
 	  FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
@@ -5301,10 +5313,10 @@ mac_force_flush (struct frame *f, BOOL immediate_only)
 	  [frameController setEmacsViewNeedsDisplay:YES];
 	}
       [frameController displayEmacsViewIfNeeded];
-      [frameController releaseDrawLock];
       MAC_SIGNPOST_GEN_END (gui, Flush);
     });
   unblock_input ();
+  [frameController releaseDrawLock];
 }
 
 void
@@ -5370,6 +5382,8 @@ mac_draw_session_end (struct frame *f, int type)
 
     EmacsFrameController *frameController = FRAME_CONTROLLER (f);
     void (^block) (void) = ^{
+      [frameController acquireDrawLock];
+      CGContextRef backing_ctx = mac_get_backing_bitmap (f);
       if (backing_ctx)
 	{
 	  mac_playback_arena (arena, f, backing_ctx);
@@ -5381,7 +5395,6 @@ mac_draw_session_end (struct frame *f, int type)
 #endif
     };
 
-    [frameController acquireDrawLock];
 #if DRAWING_USE_GCD    
     if (mac_drawing_use_gcd)
       dispatch_async(mo->drawing_queue, block);
