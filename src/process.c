@@ -5826,7 +5826,7 @@ wait_reading_process_output (intmax_t time_limit, int nsecs, int read_kbd,
 
 	  /* Non-macOS HAVE_GLIB builds call thread_select in
 	     xgselect.c.  */
-#if defined HAVE_GLIB && !defined HAVE_NS
+#if defined HAVE_GLIB && !defined HAVE_NS && !defined HAVE_MACGUI
 	  nfds = xg_select (max_desc + 1,
 			    &Available, (check_write ? &Writeok : 0),
 			    NULL, &timeout, NULL);
