@@ -32,7 +32,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "nsterm.h"
 #endif
 
-#if defined HAVE_GLIB && ! defined (HAVE_NS)
+#if defined HAVE_GLIB && ! defined (HAVE_NS) && ! defined (HAVE_MACGUI)
 #include <xgselect.h>
 #else
 #define release_select_lock() do { } while (0)

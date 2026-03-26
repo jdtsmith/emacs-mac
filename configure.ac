@@ -6503,7 +6503,9 @@ LIBS="$OLDLIBS"])
 if test "${emacs_cv_links_glib}" = "yes"; then
   AC_DEFINE([HAVE_GLIB], [1], [Define to 1 if GLib is linked in.])
   if test "$HAVE_NS" = no ; then
-    XGSELOBJ=xgselect.o
+    if test "$HAVE_MACGUI" = no; then
+      XGSELOBJ=xgselect.o
+    fi
   fi
 fi
 AC_SUBST([XGSELOBJ])
