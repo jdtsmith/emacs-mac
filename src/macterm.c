@@ -4298,7 +4298,7 @@ mac_free_frame_resources (struct frame *f)
     reset_mouse_highlight (hlinfo);
 
   mac_flush_arena (f);
-  mac_wait_backing_bitmap (f);
+  mac_get_backing_bitmap (f);
   mac_teardown_arena_system (f);
 
   if (FRAME_MAC_WINDOW (f))

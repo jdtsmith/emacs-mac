@@ -782,10 +782,6 @@ typedef NSInteger NSGlyphProperty;
      NULL in this case.  */
   IOSurfaceRef backSurface, frontSurface;
 
-  /* Semaphore used for synchronizing completion of asynchronous copy
-     from CALayer contents to backing bitmap after swapping.  */
-  dispatch_semaphore_t copyFromFrontToBackSemaphore;
-
   CGFloat scaleFactor;
 
   /* Array of rectangles (in the view coordinate system) covering the
@@ -801,7 +797,7 @@ typedef NSInteger NSGlyphProperty;
 - (NSSize)size;
 - (void)updateBounds;
 - (void)setDirtyRects:(const CGRect *)rects count:(int)count;
-- (CGContextRef)waitBackingBitmap;
+- (CGContextRef)getBackingBitmap;
 - (void)setContentsForLayer:(CALayer *)layer;
 @end
 

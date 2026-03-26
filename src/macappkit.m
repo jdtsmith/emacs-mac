@@ -2713,7 +2713,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 {
     if (!emacsView || ![emacsView backing])
       return NULL;
-    return [[emacsView backing] waitBackingBitmap];
+    return [[emacsView backing] getBackingBitmap];
 }
 
 - (struct frame *)emacsFrame
@@ -5370,8 +5370,6 @@ mac_draw_session_end (struct frame *f, int type)
 
     EmacsFrameController *frameController = FRAME_CONTROLLER (f);
     void (^block) (void) = ^{
-      CGContextRef backing_ctx = mac_wait_backing_bitmap (f);
-
       if (backing_ctx)
 	{
 	  mac_playback_arena (arena, f, backing_ctx);
@@ -5893,9 +5891,8 @@ mac_iosurface_create (size_t width, size_t height)
   return self;
 }
 
-- (CGContextRef)waitBackingBitmap
+- (CGContextRef)getBackingBitmap
 {
-  [self waitCopyFromFrontToBack];
   return backBitmap;
 }
 
@@ -5912,70 +5909,50 @@ mac_iosurface_create (size_t width, size_t height)
   backSurface = frontSurface;
   frontSurface = surface;
 
-  dispatch_queue_t queue =
-    dispatch_get_global_queue (DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
-  copyFromFrontToBackSemaphore = dispatch_semaphore_create (0);
-
-  dispatch_async (queue, ^{
-      IOSurfaceLock (frontSurface, kIOSurfaceLockReadOnly, NULL);
-      IOSurfaceLock (backSurface, 0, NULL);
+  IOSurfaceLock (frontSurface, kIOSurfaceLockReadOnly, NULL);
+  IOSurfaceLock (backSurface, 0, NULL);
     
-      unsigned char *backBase = IOSurfaceGetBaseAddress (backSurface);
-      unsigned char *frontBase = IOSurfaceGetBaseAddress (frontSurface);
-      size_t bytesPerRow = IOSurfaceGetBytesPerRow (backSurface);
-      size_t surfaceWidth = IOSurfaceGetWidth (backSurface); /* Add this back! */
+  unsigned char *backBase = IOSurfaceGetBaseAddress (backSurface);
+  unsigned char *frontBase = IOSurfaceGetBaseAddress (frontSurface);
+  size_t bytesPerRow = IOSurfaceGetBytesPerRow (backSurface);
+  size_t surfaceWidth = IOSurfaceGetWidth (backSurface); /* Add this back! */
 
-      vImage_Buffer src, dest;
-      src.rowBytes = dest.rowBytes = bytesPerRow;
+  vImage_Buffer src, dest;
+  src.rowBytes = dest.rowBytes = bytesPerRow;
 
-      for (size_t i = 0; i < dirtyRectCount; i++)
-	{
-	  CGRect rect = dirtyRects[i];
-
-	  size_t x = CGRectGetMinX (rect) * scaleFactor;
-	  size_t y = CGRectGetMinY (rect) * scaleFactor;
-	  size_t offset = y * bytesPerRow + x * sizeof (Pixel_8888);
-
-	  src.width = CGRectGetWidth (rect) * scaleFactor;
-	  src.height = CGRectGetHeight (rect) * scaleFactor;
-
-	  if (surfaceWidth - src.width < surfaceWidth / 16)
-	    {
-	      memcpy (backBase + offset, frontBase + offset,
-		      ((src.height - 1) * bytesPerRow
-		       + src.width * sizeof (Pixel_8888)));
-	    }
-	  else
-	    {
-	      src.data = frontBase + offset;
-	      dest.width = src.width;
-	      dest.height = src.height;
-	      dest.data = backBase + offset;
-	      mac_vimage_copy_8888 (&src, &dest, kvImageDoNotTile);
-	    }
-	}
-      
-      IOSurfaceUnlock (frontSurface, kIOSurfaceLockReadOnly, NULL);
-      dispatch_semaphore_signal (copyFromFrontToBackSemaphore);
-      MAC_SIGNPOST_PTR_END(backSurface, gui, SurfSync, "Copied: %d", dirtyRectCount);
-    });
-}
-
-- (void)waitCopyFromFrontToBack
-{
-  if (copyFromFrontToBackSemaphore)
+  for (size_t i = 0; i < dirtyRectCount; i++)
     {
-      MAC_SIGNPOST_GEN_BEGIN(gui, WaitBacking);
-      dispatch_semaphore_wait (copyFromFrontToBackSemaphore,
-			       DISPATCH_TIME_FOREVER);
-      MAC_SIGNPOST_GEN_END(gui, WaitBacking);
-      copyFromFrontToBackSemaphore = NULL;
+      CGRect rect = dirtyRects[i];
+
+      size_t x = CGRectGetMinX (rect) * scaleFactor;
+      size_t y = CGRectGetMinY (rect) * scaleFactor;
+      size_t offset = y * bytesPerRow + x * sizeof (Pixel_8888);
+
+      src.width = CGRectGetWidth (rect) * scaleFactor;
+      src.height = CGRectGetHeight (rect) * scaleFactor;
+
+      if (surfaceWidth - src.width < surfaceWidth / 16)
+	{
+	  memcpy (backBase + offset, frontBase + offset,
+		  ((src.height - 1) * bytesPerRow
+		   + src.width * sizeof (Pixel_8888)));
+	}
+      else
+	{
+	  src.data = frontBase + offset;
+	  dest.width = src.width;
+	  dest.height = src.height;
+	  dest.data = backBase + offset;
+	  mac_vimage_copy_8888 (&src, &dest, kvImageDoNotTile);
+	}
     }
+      
+  IOSurfaceUnlock (frontSurface, kIOSurfaceLockReadOnly, NULL);
+  MAC_SIGNPOST_PTR_END(backSurface, gui, SurfSync, "Copied: %d", dirtyRectCount);
 }
 
 - (void)dealloc
 {
-  [self waitCopyFromFrontToBack];
   CGContextRelease (backBitmap);
   CGContextRelease (frontBitmap);
   if (backSurface)
@@ -6028,11 +6005,10 @@ mac_iosurface_create (size_t width, size_t height)
 
 - (void)setContentsForLayer:(CALayer *)layer
 {
-  [self waitCopyFromFrontToBack];
   if (frontSurface)
     {
       [self swapResourcesAndStartCopy];
-      layer.contents = (__bridge id) frontSurface;
+      layer.contents = (__bridge id) frontSurface; /* The new front! */
     }
   else
     layer.contents =
@@ -6107,7 +6083,7 @@ static BOOL emacsViewUpdateLayerDisabled;
   if (!b) return;
 
   CGContextRef dest = [NSGraphicsContext currentContext].CGContext;
-  CGContextRef backBitmap = [b waitBackingBitmap];
+  CGContextRef backBitmap = [b getBackingBitmap];
   CGImageRef image = CGBitmapContextCreateImage (backBitmap);
   if (image)
     {
@@ -7346,7 +7322,7 @@ mac_present_frame (struct frame *f)
 }
 
 CGContextRef
-mac_wait_backing_bitmap (struct frame *f)
+mac_get_backing_bitmap (struct frame *f)
 {
     EmacsFrameController *frameController = FRAME_CONTROLLER(f);
     return [frameController getBackingForDrawing];
