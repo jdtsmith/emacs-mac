@@ -6083,18 +6083,14 @@ static BOOL emacsViewUpdateLayerDisabled;
 - (void)drawRect:(NSRect)aRect
 {
   struct frame *f = [self emacsFrame];
-  if (!f) return;
   struct mac_output *mo = f->output_data.mac;
   if (!mo) return;
 
-#if DRAWING_USE_GCD  
-  if (mo->drawing_queue)
-    dispatch_sync (mo->drawing_queue, ^{}); /* Drain queue */
-#endif
-  
   EmacsBacking *b = self.backing;
   if (!b) return;
 
+  EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+  [frameController acquireDrawLock];
   CGContextRef dest = [NSGraphicsContext currentContext].CGContext;
   CGContextRef backBitmap = [b getBackingBitmap];
   CGImageRef image = CGBitmapContextCreateImage (backBitmap);
