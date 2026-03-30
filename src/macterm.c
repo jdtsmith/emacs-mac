@@ -560,7 +560,8 @@ static void
 mac_update_begin (struct frame *f)
 {
   /* We do not open a draw session, since sometimes update begin/end
-     arrive without any draw commands being submitted. */
+     arrive without any draw commands being submitted. Each draw command
+     opens an arena if necessary, on demand. */
 }
 
 /* Start update of window W.  */

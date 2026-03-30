@@ -17,6 +17,26 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 
+/* arena-draw
+
+Arena-draw is an allocating, multi-arena drawing system for mac.  Its
+primary function is to permit simplification of the `mac' terminal
+(macterm.[ch]), which have become pure command producers.  All drawing
+now occurs here.
+
+Arenas are filled with commands (see `mac_arena_draw_cmd') and
+associated allocated/retained data (e.g. glyphs, rectangles, colors,
+etc.) necessary for drawing operation.  Arenas full of commands can be
+played back in quick succession on the GCD queue, significantly reducing
+GCD scheduling overhead.
+
+The multi-arena design also avoids blocking the LISP thread, which no
+longer must wait for drawing to complete.  Indeed, the LISP thread can
+"work ahead" several frames.  Arena drawing makes it possible to move
+*all* drawing (LISP or GUI-driven) to the background GCD thread.  All
+draw session playback is atomic and cannot be interrupted, eliminating
+flashing and other visual artifacts. */
+
 #include <config.h>
 #include "lisp.h"
 #include "frame.h"
@@ -38,7 +58,7 @@ mac_init_arena_system (struct frame *f)
     }
   if (!mo->drawing_queue)
     mo->drawing_queue = dispatch_queue_create ("org.gnu.Emacs.drawing", NULL);
-  mo->arena_sem = dispatch_semaphore_create (2);
+  mo->arena_sem = dispatch_semaphore_create (MAC_ARENA_COUNT);
 }
 #endif
 
@@ -89,7 +109,7 @@ mac_teardown_arena_system (struct frame *f)
       dispatch_sync (mo->drawing_queue, ^{});
 
       /* Free arena blocks */
-      for (int i = 0; i < 2; i++)
+      for (int i = 0; i < MAC_ARENA_COUNT; i++)
         {
           mac_arena *arena = &mo->arenas[i];
           mac_arena_block *block = arena->first_cmds;

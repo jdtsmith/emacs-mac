@@ -312,7 +312,7 @@ struct mac_output
   XSizeHints *size_hints;
 
   /* Double-buffering draw arenas and associated state */
-  mac_arena arenas[2];
+  mac_arena arenas[MAC_ARENA_COUNT];
   int next_arena;         /* The index of the arena to draw into next */
   mac_arena *active_arena;
 #if DRAWING_USE_GCD

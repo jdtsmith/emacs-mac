@@ -4,6 +4,8 @@
 
 #include "frame.h"
 
+#define MAC_ARENA_COUNT 3   /* Total number of arenas */
+
 /* Bytes to allocate (at minimum) for each arena data block */
 #define MAC_ARENA_DATA_SIZE (1 << 18)
 /* Number of commands to allocate for each arena command block */

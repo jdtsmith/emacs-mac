@@ -1531,7 +1531,7 @@ static BOOL extendReadSocketIntervalOnce;
 		 && (flags & (NSEventModifierFlagControl
 			      | NSEventModifierFlagOption
 			      | NSEventModifierFlagCommand)) == 0))
-	  goto OTHER;
+	  goto OTHER;  /* Give system a chance first with Ctrl-/Cmd- */
 
 	mac_cgevent_to_input_event (cgevent, &inev);
 	if (inev.kind != NO_EVENT)
@@ -5164,11 +5164,11 @@ mac_draw_session_begin (struct frame *f)
       }
 
 #if DRAWING_USE_GCD
-    /* Acquire the arena.  Blocks only if both arenas are in use. */
+    /* Acquire the arena.  Blocks only if all arenas are in use. */
     dispatch_semaphore_wait(mo->arena_sem, DISPATCH_TIME_FOREVER);
 #endif
 
-    mo->next_arena ^= 1;
+    mo->next_arena = (mo->next_arena + 1) % MAC_ARENA_COUNT;
     mac_arena_reset (arena);
     arena->backing_scale_factor = FRAME_BACKING_SCALE_FACTOR (f);
     mo->active_arena = arena;
