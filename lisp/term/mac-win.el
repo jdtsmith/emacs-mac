@@ -876,23 +876,17 @@ for the key symbol `apple-event' so it can be inspected later."
 
 (defun mac-ae-reopen-application (_event)
   "Show some frame in response to the Apple event EVENT.
-The frame to be shown is chosen from visible or iconified frames
-if possible.  If there's no such frame, a new frame is created."
+The frame to be shown is chosen from visible, hidden, or iconified
+frames.  If there's no live frame, a new frame is created."
   (interactive "e")
-  ;; OS X 10.10 sometimes makes hidden frames visible after the call
-  ;; to this function.
-  (let ((count 6))
-    (while (and (> count 0)
-		(plist-get (mac-application-state) :hidden-p))
-      (sit-for 0.017)
-      (setq count (1- count))))
-  (unless (frame-visible-p (selected-frame))
-    (let ((frame (or (car (visible-frame-list))
-		     (car (filtered-frame-list 'frame-visible-p)))))
-      (if frame
-	  (select-frame frame)
-	(switch-to-buffer-other-frame "*scratch*"))))
-  (select-frame-set-input-focus (selected-frame)))
+  (let* ((all-frames (frame-list))
+         (target (or (seq-some (lambda (f) (eq (frame-visible-p f) t)) all-frames)
+                     (seq-some (lambda (f) (eq (frame-visible-p f) nil)) all-frames)
+                     (seq-some (lambda (f) (eq (frame-visible-p f) 'icon)) all-frames))))
+    (if (null) target
+      (switch-to-buffer-other-frame "*scratch*")
+      (make-frame-visible target)
+      (select-frame-set-input-focus target))))
 
 (defun mac-ae-open-documents (event)
   "Open the documents specified by the Apple event EVENT."
