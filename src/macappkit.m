@@ -2698,12 +2698,37 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   [emacsView ensureBackingSized];
 }
 
-
 - (CGContextRef)getBackingForDrawing
 {
     if (!emacsView || ![emacsView backing])
       return NULL;
     return [[emacsView backing] getBackingBitmap];
+}
+
+/* If the frame needs display, present its accumulated dirty rects to
+   EmacsBacking.  Since we pump the NS Event loop ourselves (see
+   mac_select), this is the only place we can request a display update
+   (which leads to an updateLayer call).  See also mac_force_flush.
+ */
+
+- (void)presentIfReady
+{
+    struct frame *f = emacsFrame;
+    if (!f || !FRAME_LIVE_P (f) || !FRAME_MAC_NEEDS_PRESENTATION_P (f))
+        return;
+    if (![self tryAcquireDrawLock])
+        return;  /* another dispatch will come */
+    MAC_SIGNPOST_GEN_BEGIN (gui, Present, "FRAME: %{public}s FPTR: %p",
+			    SSDATA (f->name), f);
+    FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
+    struct mac_output *mo = f->output_data.mac;
+    [self presentBackingWithDirtyRects:mo->dirty_rects
+                                 count:mo->dirty_rect_count];
+    mo->dirty_rect_count = 0; /* Reset for reuse */
+    [self releaseDrawLock];
+    [emacsView setNeedsDisplay:YES];
+    [emacsView displayIfNeeded];
+    MAC_SIGNPOST_GEN_END (gui, Present);
 }
 
 - (struct frame *)emacsFrame
@@ -5088,49 +5113,38 @@ mac_real_positions (struct frame *f, int *xptr, int *yptr)
   *yptr = bounds.y;
 }
 
-/* Flush display of frame F, if necessary.  If the frame needs display,
-   present its accumulated dirty rects to the frame's EmacsBacking.
-   Since we pump the NS Event loop ourselves (see mac_select), this is
-   the only place we can request a display update (which leads to an
-   updateLayer call). Called from the LISP thread. If IMMEDIATE_ONLY is
-   YES, only draw if a frame has requested it, and drawing is not
-   locked. Drawing is locked during frame display. */
+/* Flush display of frame F, if necessary.  Called from the LISP
+   thread. If IMMEDIATE_ONLY is YES, only present if a frame has
+   requested it, and drawing is not locked.  Drawing is locked during
+   frame display; see mac_draw_session_end. */
+
 void
 mac_force_flush (struct frame *f, BOOL immediate_only)
 {
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
   if (immediate_only)
-    { /* Bail out unless we can and should draw _now_ */
-      if (!FRAME_MAC_NEEDS_PRESENTATION_P (f)) return;
-      if (![frameController tryAcquireDrawLock]) return;
-    }
-  else
     {
-      MAC_SIGNPOST_GEN_BEGIN (draw, AcqDraw, "FLUSH");
-      [frameController acquireDrawLock]; /* Wait for any drawing to finish */
-      MAC_SIGNPOST_GEN_END (draw, AcqDraw);
+      /* Bail out unless we can and should present _now_ */
+      if (!FRAME_MAC_NEEDS_PRESENTATION_P (f)) return;
+      if (![frameController tryAcquireDrawLock])
+        return;
+      [frameController releaseDrawLock];
     }
+
   block_input ();
   mac_within_gui (^{
-      MAC_SIGNPOST_GEN_BEGIN (gui, Flush,
-			      "FRAME: %{public}s FPTR: %p",
-			      SSDATA (f->name), f);
-      if (FRAME_MAC_NEEDS_PRESENTATION_P (f))
-	{
-	  FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
-	  struct mac_output *mo = f->output_data.mac;
-	  [frameController
-	    presentBackingWithDirtyRects:mo->dirty_rects
-				   count:mo->dirty_rect_count];
-	  mo->dirty_rect_count = 0; /* Reset for reuse */
-	  [frameController setEmacsViewNeedsDisplay:YES];
-	}
+      /* Present completed frame (if any). */
+      [frameController presentIfReady];
+      /* Service any system-initiated display requests. */
       [frameController displayEmacsViewIfNeeded];
-      MAC_SIGNPOST_GEN_END (gui, Flush);
     });
   unblock_input ();
-  [frameController releaseDrawLock];
 }
+
+/* Begin a draw session for frame F.  Resizes the backing if needed,
+   then waits for an arena to become available (after initializing the
+   arena system, if needed).  Initializing clipping rects.
+ */
 
 void
 mac_draw_session_begin (struct frame *f)
@@ -5143,13 +5157,12 @@ mac_draw_session_begin (struct frame *f)
 			    "ARENA: %d FRAME: %{public}s FPTR: %p",
 			    mo->next_arena, SSDATA (f->name), f);
 
-    MAC_SIGNPOST_GEN_BEGIN (lisp, SessionWait);
 #if DRAWING_USE_GCD
     /* Lazy init of arena system */
     if (!mo->drawing_queue)
         mac_init_arena_system (f);
 #endif
-    
+
     /* Ensure backing bitmap exists and is correctly sized.
        Must happen on GUI thread since it touches NSView. */
     if (FRAME_BACKING_NEEDS_SIZE_CHECK_P (f))
@@ -5164,8 +5177,10 @@ mac_draw_session_begin (struct frame *f)
       }
 
 #if DRAWING_USE_GCD
+    MAC_SIGNPOST_GEN_BEGIN (lisp, SessionWait);
     /* Acquire the arena.  Blocks only if all arenas are in use. */
     dispatch_semaphore_wait(mo->arena_sem, DISPATCH_TIME_FOREVER);
+    MAC_SIGNPOST_GEN_END (lisp, SessionWait);
 #endif
 
     mac_arena_cycle (f);
@@ -5173,15 +5188,14 @@ mac_draw_session_begin (struct frame *f)
     arena->backing_scale_factor = FRAME_BACKING_SCALE_FACTOR (f);
     mo->active_arena = arena;
     mo->current_clip_nrects = -1;
-    MAC_SIGNPOST_GEN_END (lisp, SessionWait);
 }
-
 
 /* End a draw session by waiting for the backing bitmap (for any dirty
    rect copy to complete), playing back the arena into it, then
    presenting the frame.  This is done via the GCD queue if possible.
    Can be called from LISP or GUI threads.  Drawing is locked during
    operation. */
+
 void
 mac_draw_session_end (struct frame *f, int type)
 {
@@ -5893,9 +5907,11 @@ static BOOL emacsViewUpdateLayerDisabled;
 }
 
 
-/* This is now mostly vestigial code, never called by the Window Server.
-   It is only called when emacsViewUpdateLayerDisabled=true.  Simply
-   displays the most recent backing bitmap into the current NSContext */
+/* This is now mostly vestigial code, never called by the Window
+   Server. It is only called when emacsViewUpdateLayerDisabled=true.
+   Simply displays the most recent backing bitmap into the current
+   NSContext */
+
 - (void)drawRect:(NSRect)aRect
 {
   struct frame *f = [self emacsFrame];
@@ -5945,9 +5961,14 @@ static BOOL emacsViewUpdateLayerDisabled;
 
   if (backing && NSEqualSizes (backing.size, size))
     return;
+  
+  EmacsFrameController *frameController =
+    (EmacsFrameController *) self.window.delegate;
 
+  [frameController acquireDrawLock];
   MRC_RELEASE(backing);
   backing = [[EmacsBacking alloc] initWithView:self];
+  [frameController releaseDrawLock];
 }
 
 - (void)updateLayer
@@ -7135,15 +7156,22 @@ mac_ts_active_input_string_in_echo_area_p (struct frame *f)
 
 // ** C drawing shims
 
-/* Present the newly drawn frame for display soon, posting an event to
-   wake up the GUI thread.  Called from the GCD thread. */
+/* Present the newly drawn frame for display soon, queueing a work
+   block to wake up the GUI thread.  Called from the GCD thread. */
+
 void
 mac_present_frame (struct frame *f)
 {
   if (!FRAME_MAC_NEEDS_PRESENTATION_P (f))
-    {    
+    {
       FRAME_MAC_NEEDS_PRESENTATION_P (f) = true;
-      [NSApp postDummyEvent];
+      EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+      /* We add this (carefully) to the main queue, to wake GUI and
+	 present without needing to coordinate with LISP.  It will run
+	 in mac_select. */
+      dispatch_async (dispatch_get_main_queue (), ^{
+          [frameController presentIfReady];
+        });
     }
 }
 
