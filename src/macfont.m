@@ -2918,8 +2918,9 @@ macfont_draw (struct glyph_string *s, int from, int to, int x, int y,
       mac_record_erase_bg (f, gc, bg_rect, respect_alpha_background_p);
     }
   
-  /* XXX mark full line dirty... maybe over-conservative, but it was
-     CGRectInfinite, and will be clipped with GC rect bounding box */
+  /* (TODO: USE FULL WINDOW LINE!) mark full line dirty... maybe
+     over-conservative, but it was CGRectInfinite, and will be clipped
+     with GC rect bounding box */
   CGRect line_rect = CGRectMake (0, y - FONT_BASE (s->font),
                                  FRAME_PIXEL_WIDTH (f), FONT_HEIGHT (s->font));
   MAC_ARENA_CMD (cmd, f, DRAW_GLYPHS, line_rect);

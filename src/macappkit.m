@@ -2725,9 +2725,9 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
     [self presentBackingWithDirtyRects:mo->dirty_rects
                                  count:mo->dirty_rect_count];
     mo->dirty_rect_count = 0; /* Reset for reuse */
-    [self releaseDrawLock];
     [emacsView setNeedsDisplay:YES];
     [emacsView displayIfNeeded];
+    [self releaseDrawLock];
     MAC_SIGNPOST_GEN_END (gui, Present);
 }
 
@@ -5113,126 +5113,6 @@ mac_real_positions (struct frame *f, int *xptr, int *yptr)
   *yptr = bounds.y;
 }
 
-/* Flush display of frame F, if necessary.  Called from the LISP
-   thread. If IMMEDIATE_ONLY is YES, only present if a frame has
-   requested it, and drawing is not locked.  Drawing is locked during
-   frame display; see mac_draw_session_end. */
-
-void
-mac_force_flush (struct frame *f, BOOL immediate_only)
-{
-  EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-  if (immediate_only)
-    {
-      /* Bail out unless we can and should present _now_ */
-      if (!FRAME_MAC_NEEDS_PRESENTATION_P (f)) return;
-      if (![frameController tryAcquireDrawLock])
-        return;
-      [frameController releaseDrawLock];
-    }
-
-  block_input ();
-  mac_within_gui (^{
-      /* Present completed frame (if any). */
-      [frameController presentIfReady];
-      /* Service any system-initiated display requests. */
-      [frameController displayEmacsViewIfNeeded];
-    });
-  unblock_input ();
-}
-
-/* Begin a draw session for frame F.  Resizes the backing if needed,
-   then waits for an arena to become available (after initializing the
-   arena system, if needed).  Initializing clipping rects.
- */
-
-void
-mac_draw_session_begin (struct frame *f)
-{
-    struct mac_output *mo = f->output_data.mac;
-    if (mo->active_arena)
-      return;
-    mac_arena *arena = &mo->arenas[mo->next_arena];
-    MAC_SIGNPOST_PTR_BEGIN (arena, trace, Session,
-			    "ARENA: %d FRAME: %{public}s FPTR: %p",
-			    mo->next_arena, SSDATA (f->name), f);
-
-#if DRAWING_USE_GCD
-    /* Lazy init of arena system */
-    if (!mo->drawing_queue)
-        mac_init_arena_system (f);
-#endif
-
-    /* Ensure backing bitmap exists and is correctly sized.
-       Must happen on GUI thread since it touches NSView. */
-    if (FRAME_BACKING_NEEDS_SIZE_CHECK_P (f))
-      {
-	EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-        if (pthread_main_np ())
-	  [frameController ensureBackingSized];
-        else
-          mac_within_gui (^{[frameController ensureBackingSized];});  
-          
-        FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = 0;
-      }
-
-#if DRAWING_USE_GCD
-    MAC_SIGNPOST_GEN_BEGIN (lisp, SessionWait);
-    /* Acquire the arena.  Blocks only if all arenas are in use. */
-    dispatch_semaphore_wait(mo->arena_sem, DISPATCH_TIME_FOREVER);
-    MAC_SIGNPOST_GEN_END (lisp, SessionWait);
-#endif
-
-    mac_arena_cycle (f);
-    mac_arena_reset (arena);
-    arena->backing_scale_factor = FRAME_BACKING_SCALE_FACTOR (f);
-    mo->active_arena = arena;
-    mo->current_clip_nrects = -1;
-}
-
-/* End a draw session by waiting for the backing bitmap (for any dirty
-   rect copy to complete), playing back the arena into it, then
-   presenting the frame.  This is done via the GCD queue if possible.
-   Can be called from LISP or GUI threads.  Drawing is locked during
-   operation. */
-
-void
-mac_draw_session_end (struct frame *f, int type)
-{
-    struct mac_output *mo = f->output_data.mac;
-    mac_arena *arena = mo->active_arena;
-
-    if (!arena)
-        return;  /* No drawing happened */
-
-    mo->active_arena = NULL;
-
-    EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-    void (^block) (void) = ^{
-      MAC_SIGNPOST_GEN_BEGIN (draw, AcqDraw, "PLAYBACK");
-      [frameController acquireDrawLock];
-      MAC_SIGNPOST_GEN_END (draw, AcqDraw);
-      CGContextRef backing_ctx = mac_get_backing_bitmap (f);
-      if (backing_ctx)
-	{
-	  mac_playback_arena (arena, f, backing_ctx);
-	  mac_present_frame (f);
-	}
-      [frameController releaseDrawLock];
-#if DRAWING_USE_GCD
-      dispatch_semaphore_signal (mo->arena_sem); /* release the arena */
-#endif
-    };
-
-#if DRAWING_USE_GCD    
-    if (mac_drawing_use_gcd)
-      dispatch_async(mo->drawing_queue, block);
-    else
-#endif
-      block ();
-    MAC_SIGNPOST_PTR_END (arena, trace, Session, "TYPE: %d", type);
-}
-
 /* Create a new Mac window for the frame F and store its delegate in
    FRAME_MAC_WINDOW (f).  */
 
@@ -7155,6 +7035,128 @@ mac_ts_active_input_string_in_echo_area_p (struct frame *f)
 @end				// EmacsMainView
 
 // ** C drawing shims
+
+/* Flush display of frame F, if necessary.  Called from the LISP
+   thread. If IMMEDIATE_ONLY is YES, only present if a frame has
+   requested it, and drawing is not locked.  Drawing is locked during
+   frame display; see mac_draw_session_end. Note that most draw
+   presentation now occurs via mac_present_frame.  This serves as a
+   backup for system-level drawing. */
+
+void
+mac_force_flush (struct frame *f, BOOL immediate_only)
+{
+  EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+  if (immediate_only)
+    {
+      /* Bail out unless we can and should present _now_ */
+      if (!FRAME_MAC_NEEDS_PRESENTATION_P (f)) return;
+      if (![frameController tryAcquireDrawLock])
+        return;
+      [frameController releaseDrawLock];
+    }
+
+  block_input ();
+  mac_within_gui (^{
+      /* Present completed frame (if any). */
+      [frameController presentIfReady];
+      /* Service any system-initiated display requests. */
+      [frameController displayEmacsViewIfNeeded];
+    });
+  unblock_input ();
+}
+
+/* Begin a draw session for frame F.  Resizes the backing if needed,
+   then waits for an arena to become available (after initializing the
+   arena system, if needed).  Initializing clipping rects.
+ */
+
+void
+mac_draw_session_begin (struct frame *f)
+{
+    struct mac_output *mo = f->output_data.mac;
+    if (mo->active_arena)
+      return;
+    mac_arena *arena = &mo->arenas[mo->next_arena];
+    MAC_SIGNPOST_PTR_BEGIN (arena, trace, Session,
+			    "ARENA: %d FRAME: %{public}s FPTR: %p",
+			    mo->next_arena, SSDATA (f->name), f);
+
+#if DRAWING_USE_GCD
+    /* Lazy init of arena system */
+    if (!mo->drawing_queue)
+        mac_init_arena_system (f);
+#endif
+
+    /* Ensure backing bitmap exists and is correctly sized.
+       Must happen on GUI thread since it touches NSView. */
+    if (FRAME_BACKING_NEEDS_SIZE_CHECK_P (f))
+      {
+	EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+        if (pthread_main_np ())
+	  [frameController ensureBackingSized];
+        else
+          mac_within_gui (^{[frameController ensureBackingSized];});  
+          
+        FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = 0;
+      }
+
+#if DRAWING_USE_GCD
+    MAC_SIGNPOST_GEN_BEGIN (lisp, SessionWait);
+    /* Acquire the arena.  Blocks only if all arenas are in use. */
+    dispatch_semaphore_wait(mo->arena_sem, DISPATCH_TIME_FOREVER);
+    MAC_SIGNPOST_GEN_END (lisp, SessionWait);
+#endif
+
+    mac_arena_cycle (f);
+    mac_arena_reset (arena);
+    arena->backing_scale_factor = FRAME_BACKING_SCALE_FACTOR (f);
+    mo->active_arena = arena;
+    mo->current_clip_nrects = -1;
+}
+
+/* End a draw session by waiting for the backing bitmap (for any dirty
+   rect copy to complete), playing back the arena into it, then
+   presenting the frame.  This is done via the GCD queue if possible.
+   Can be called from LISP or GUI threads.  Drawing is locked during
+   operation. */
+
+void
+mac_draw_session_end (struct frame *f, int type)
+{
+    struct mac_output *mo = f->output_data.mac;
+    mac_arena *arena = mo->active_arena;
+
+    if (!arena)
+        return;  /* No drawing happened */
+
+    mo->active_arena = NULL;
+
+    EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+    void (^block) (void) = ^{
+      MAC_SIGNPOST_GEN_BEGIN (draw, AcqDraw, "PLAYBACK");
+      [frameController acquireDrawLock];
+      MAC_SIGNPOST_GEN_END (draw, AcqDraw);
+      CGContextRef backing_ctx = mac_get_backing_bitmap (f);
+      if (backing_ctx)
+	{
+	  mac_playback_arena (arena, f, backing_ctx);
+	  mac_present_frame (f);
+	}
+      [frameController releaseDrawLock];
+#if DRAWING_USE_GCD
+      dispatch_semaphore_signal (mo->arena_sem); /* release the arena */
+#endif
+    };
+
+#if DRAWING_USE_GCD    
+    if (mac_drawing_use_gcd)
+      dispatch_async(mo->drawing_queue, block);
+    else
+#endif
+      block ();
+    MAC_SIGNPOST_PTR_END (arena, trace, Session, "TYPE: %d", type);
+}
 
 /* Present the newly drawn frame for display soon, queueing a work
    block to wake up the GUI thread.  Called from the GCD thread. */
