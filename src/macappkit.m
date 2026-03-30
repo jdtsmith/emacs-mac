@@ -6082,8 +6082,9 @@ static BOOL emacsViewUpdateLayerDisabled;
 }
 
 
-/* Only called when emacsViewUpdateLayerDisabled=true.  Simply displays
-   the most recent backing bitmap into the current NSContext */
+/* This is now mostly vestigial code, never called by the Window Server.
+   It is only called when emacsViewUpdateLayerDisabled=true.  Simply
+   displays the most recent backing bitmap into the current NSContext */
 - (void)drawRect:(NSRect)aRect
 {
   struct frame *f = [self emacsFrame];
@@ -6104,6 +6105,7 @@ static BOOL emacsViewUpdateLayerDisabled;
       CGContextDrawImage (dest, bounds, image);
       CGImageRelease (image);
     }
+  [frameController releaseDrawLock];
 }
 
 - (BOOL)isFlipped
