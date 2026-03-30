@@ -43,6 +43,7 @@ flashing and other visual artifacts. */
 #include "macterm.h"
 #include "mac_arena_draw.h"
 
+/* ** Arena lifecycle */
 
 #if DRAWING_USE_GCD
 void
@@ -51,7 +52,7 @@ mac_init_arena_system (struct frame *f)
   struct mac_output *mo = f->output_data.mac;
   struct frame *p = FRAME_PARENT_FRAME (f);
   if (p)
-    { /* Re-use parent's queue */
+    { /* Re-use parent's drawing queue */
       struct mac_output *pmo = p->output_data.mac;
       if (pmo && pmo->drawing_queue)
 	mo->drawing_queue = pmo->drawing_queue;
@@ -61,6 +62,14 @@ mac_init_arena_system (struct frame *f)
   mo->arena_sem = dispatch_semaphore_create (MAC_ARENA_COUNT);
 }
 #endif
+
+/* Cycle to the frame's next arena */
+inline void
+mac_arena_cycle (struct frame *f)
+{
+  struct mac_output *mo = f->output_data.mac;
+  mo->next_arena = (mo->next_arena + 1) % MAC_ARENA_COUNT;
+}
 
 void
 mac_flush_arena (struct frame *f)
@@ -204,15 +213,15 @@ mac_arena_data_alloc  (mac_arena *arena, size_t size)
   return ptr;
 }
 
-
 mac_arena_draw_cmd *
 mac_arena_cmd_alloc (mac_arena *arena)
 {
-  mac_arena_draw_cmd *cmd
-    = mac_arena_alloc (arena, MAC_ARENA_CMD_ALLOC_TYPE, 1);
+  mac_arena_draw_cmd *cmd;
+  cmd = mac_arena_alloc (arena, MAC_ARENA_CMD_ALLOC_TYPE, 1);
   return cmd;
 }
 
+/* Ensure an arena is open, and return it. */
 mac_arena*
 mac_ensure_arena (struct frame *f)
 {
@@ -221,6 +230,7 @@ mac_ensure_arena (struct frame *f)
   return f->output_data.mac->active_arena;
 }
 
+/* Reset arena for re-use */
 void
 mac_arena_reset (mac_arena *arena) {
   mac_arena_block *this;
@@ -240,6 +250,9 @@ mac_arena_reset (mac_arena *arena) {
     }
   arena->data = arena->first_data;
 }
+
+
+/* ** Arena drawing playback */
 
 /* Record a new CLIP_RECT command (if needed).  If GC is NULL, or there
    are 0 clip_rects, record a RESET_CLIP command. */

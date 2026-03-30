@@ -198,8 +198,9 @@ typedef struct mac_arena_draw_cmd {
 extern void mac_init_arena_system (struct frame *);
 #endif
 extern void mac_teardown_arena_system (struct frame *);
-extern void mac_flush_open_arenas (void);
+extern void mac_arena_cycle (struct frame *);
 extern void mac_flush_arena (struct frame *);
+extern void mac_flush_open_arenas (void);
 extern void * mac_arena_data_alloc (mac_arena *, size_t);
 extern mac_arena_draw_cmd * mac_arena_cmd_alloc (mac_arena *);
 extern mac_arena* mac_ensure_arena (struct frame *);

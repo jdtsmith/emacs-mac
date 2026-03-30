@@ -5168,7 +5168,7 @@ mac_draw_session_begin (struct frame *f)
     dispatch_semaphore_wait(mo->arena_sem, DISPATCH_TIME_FOREVER);
 #endif
 
-    mo->next_arena = (mo->next_arena + 1) % MAC_ARENA_COUNT;
+    mac_arena_cycle (f);
     mac_arena_reset (arena);
     arena->backing_scale_factor = FRAME_BACKING_SCALE_FACTOR (f);
     mo->active_arena = arena;
