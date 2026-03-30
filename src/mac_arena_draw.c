@@ -617,10 +617,10 @@ mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
   struct mac_output *mo = f->output_data.mac;
   mac_arena_state state = {0};
 #ifdef MAC_DEBUG_SIGNPOST
-  size_t total = 0;
+  size_t total_cmds = 0;
   MAC_SIGNPOST_PTR_BEGIN (arena, draw, Playback,
-			  "Arena: %d Frame: %{public}s",
-			  (arena == mo->arenas ? 0 : 1),
+			  "Arena: %u Frame: %{public}s",
+			  (unsigned) (arena - mo->arenas),
 			  SSDATA((f)->name));
 #endif
   mac_setup_drawing_context (context);
@@ -656,7 +656,7 @@ mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
 	    }
 #ifdef MAC_DEBUG_SIGNPOST
 	  MAC_SIGNPOST_DRAW_CMD_END ();
-	  total++;
+	  total_cmds++;
 #endif
 	}
 	
@@ -665,6 +665,20 @@ mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
     }
 
   mac_teardown_drawing_context ();
-  MAC_SIGNPOST_PTR_END (arena, draw, Playback, "NCMDS: %u NDIRTY: %d",
-			(unsigned) total, mo->dirty_rect_count);
+#ifdef MAC_DEBUG_SIGNPOST
+  size_t data_allocated = 0;
+  mac_arena_block *this;
+  for (this = arena->first_data; this; this = this->next)
+    {
+      data_allocated += this->used;
+      if (this == arena->data) break;
+    }
+
+  MAC_SIGNPOST_PTR_END (arena, draw, Playback,
+			"NCMDS: %u (%.2f blocks) NDIRTY: %d DATA: %.1f blocks",
+			(unsigned) total_cmds,
+			(float) (total_cmds) / MAC_ARENA_CMDS_PER_BLOCK,
+			mo->dirty_rect_count,
+			(float) data_allocated / MAC_ARENA_DATA_SIZE);
+#endif
 }

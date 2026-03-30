@@ -5294,13 +5294,15 @@ mac_force_flush (struct frame *f, BOOL immediate_only)
       if (![frameController tryAcquireDrawLock]) return;
     }
   else
-    [frameController acquireDrawLock];  /* Wait for any drawing to finish */
-
+    {
+      MAC_SIGNPOST_GEN_BEGIN (draw, AcqDraw, "FLUSH");
+      [frameController acquireDrawLock]; /* Wait for any drawing to finish */
+      MAC_SIGNPOST_GEN_END (draw, AcqDraw);
+    }
   block_input ();
   mac_within_gui (^{
       MAC_SIGNPOST_GEN_BEGIN (gui, Flush,
-			      "PRESENT: %d FRAME: %{public}s FPTR: %p",
-			      FRAME_MAC_NEEDS_PRESENTATION_P (f),
+			      "FRAME: %{public}s FPTR: %p",
 			      SSDATA (f->name), f);
       if (FRAME_MAC_NEEDS_PRESENTATION_P (f))
 	{
@@ -5382,7 +5384,9 @@ mac_draw_session_end (struct frame *f, int type)
 
     EmacsFrameController *frameController = FRAME_CONTROLLER (f);
     void (^block) (void) = ^{
+      MAC_SIGNPOST_GEN_BEGIN (draw, AcqDraw, "PLAYBACK");
       [frameController acquireDrawLock];
+      MAC_SIGNPOST_GEN_END (draw, AcqDraw);
       CGContextRef backing_ctx = mac_get_backing_bitmap (f);
       if (backing_ctx)
 	{
@@ -6012,8 +6016,8 @@ mac_iosurface_create (size_t width, size_t height)
       dirtyRects[d_cnt++] = rect;
     }
   dirtyRectCount = d_cnt;
-  MAC_SIGNPOST_GEN_END (gui, DirtyRect, "COUNT: %d AREA-FRAC: %0.2f%%",
-			dirtyRectCount, area_frac * 100.);
+  MAC_SIGNPOST_GEN_END (gui, DirtyRect, "COUNT: %d" " AREA-FRAC: %.2f%%",
+			dirtyRectCount, (float) area_frac * 100.);
 }
 
 - (void)setContentsForLayer:(CALayer *)layer
