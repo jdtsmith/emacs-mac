@@ -28,31 +28,6 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 #endif
 #define Z (current_buffer->text->z)
 
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101300
-typedef double NSAppKitVersion;
-#ifndef NSAppKitVersionNumber10_10_Max
-static const NSAppKitVersion NSAppKitVersionNumber10_10_Max = 1349;
-#endif
-#ifndef NSAppKitVersionNumber10_11
-static const NSAppKitVersion NSAppKitVersionNumber10_11 = 1404;
-#endif
-#ifndef NSAppKitVersionNumber10_12
-static const NSAppKitVersion NSAppKitVersionNumber10_12 = 1504;
-#endif
-#endif
-#ifndef __MAC_10_14
-static const NSAppKitVersion NSAppKitVersionNumber10_13 = 1561;
-#endif
-#ifndef __MAC_10_15
-static const NSAppKitVersion NSAppKitVersionNumber10_14 = 1671;
-#endif
-#ifndef __MAC_11_0
-static const NSAppKitVersion NSAppKitVersionNumber10_15 = 1894;
-#endif
-#ifndef __MAC_12_0
-static const NSAppKitVersion NSAppKitVersionNumber11_0 = 2022;
-#endif
-
 #if MAC_OS_X_VERSION_MAX_ALLOWED >= 101500 || (WK_API_ENABLED && MAC_OS_X_VERSION_MIN_REQUIRED >= 101300)
 #define USE_WK_API 1
 #endif

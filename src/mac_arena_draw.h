@@ -16,7 +16,6 @@ typedef struct mac_arena_block {
   unsigned char stash[]; // Flexible storage
 } mac_arena_block;
 
-
 typedef struct mac_arena {
   mac_arena_block *cmds, *first_cmds; /* current, linked-list of command blocks */
   mac_arena_block *data, *first_data; /* current, linked-list of data blocks */

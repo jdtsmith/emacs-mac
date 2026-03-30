@@ -614,18 +614,7 @@ mac_within_app (void (^block) (void))
 
 - (BOOL)containsDock
 {
-  /* On macOS 10.13, screen's visibleFrame occupies full frame when
-     the Dock is hidden.  */
-  if (!(floor (NSAppKitVersionNumber) <= NSAppKitVersionNumber10_12))
-    return YES;
-  else
-    {
-      NSRect frame = [self frame], visibleFrame = [self visibleFrame];
-
-      return (NSMinY (frame) != NSMinY (visibleFrame)
-	      || NSMinX (frame) != NSMinX (visibleFrame)
-	      || NSMaxX (frame) != NSMaxX (visibleFrame));
-    }
+  return YES;
 }
 
 - (BOOL)canShowMenuBar
@@ -3437,10 +3426,6 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   return windowFrame;
 }
 
-/* On macOS 10.12 and earlier, cacheDisplayInRect:toBitmapImageRep: is
-   buggy for flipped views unless the given rect is of full height.
-   Use only for full height rectangles on such versions.  */
-
 - (NSBitmapImageRep *)bitmapImageRepInEmacsViewRect:(NSRect)rect
 {
   struct frame *f = emacsFrame;
@@ -3449,10 +3434,6 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   bool saved_synthetic_bold_workaround_disabled_p =
     FRAME_SYNTHETIC_BOLD_WORKAROUND_DISABLED_P (f);
   bool saved_background_alpha_enabled_p = FRAME_BACKGROUND_ALPHA_ENABLED_P (f);
-
-  eassert (!(floor (NSAppKitVersionNumber) <= NSAppKitVersionNumber10_12)
-	   || (NSMinY (rect) == NSMinY ([emacsView bounds])
-	       && NSHeight (rect) == NSHeight ([emacsView bounds])));
 
   FRAME_SYNTHETIC_BOLD_WORKAROUND_DISABLED_P (f) = true;
   FRAME_BACKGROUND_ALPHA_ENABLED_P (f) = false;
@@ -3974,16 +3955,6 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 	[weakSelf setShouldLiveResizeTriggerTransition:YES];
     }];
 
-  if (!(floor (NSAppKitVersionNumber) <= NSAppKitVersionNumber10_10_Max))
-    {
-      [emacsWindow suspendConstrainingToScreen:NO];
-      [self addFullScreenTransitionCompletionHandler:^(EmacsWindow *window,
-						       BOOL success) {
-	  if (!success)
-	    [window suspendConstrainingToScreen:YES];
-	}];
-    }
-
   for (NSWindow *childWindow in self.emacsWindow.childWindows)
     if ([childWindow isKindOfClass:EmacsWindow.class])
       [(EmacsWindow *)childWindow suspendConstrainingToScreen:YES];
@@ -4019,196 +3990,36 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 
 - (NSArrayOf (NSWindow *) *)customWindowsToEnterFullScreenForWindow:(NSWindow *)window
 {
-  /* Custom transition animation is disabled on OS X 10.11 because (1)
-     it doesn't look as intended and (2) C-x 5 2 on a full screen
-     frame causes crash due to assertion failure in
-     -[NSToolbarFullScreenWindowManager getToolbarLayout]:
-     getToolbarLayout called with a nil content view.  */
-  if (floor (NSAppKitVersionNumber) <= NSAppKitVersionNumber10_10_Max)
-    return @[window];
-  else
-    {
-      EmacsFrameController * __unsafe_unretained weakSelf = self;
-      CALayer *layer =
-	[self liveResizeTransitionLayerWithDefaultBackground:YES];
-
-      [CATransaction setDisableActions:YES];
-      [[overlayView layer] addSublayer:layer];
-      [CATransaction commit];
-      [self setVibrantScrollersHidden:YES];
-      [self addFullScreenTransitionCompletionHandler:^(EmacsWindow *window,
-						       BOOL success) {
-	  if (!success)
-	    [layer removeFromSuperlayer];
-	  else
-	    [NSAnimationContext
-	      runAnimationGroup:^(NSAnimationContext *context) {
-		[context setDuration:(10 / 60.0)];
-		layer.opacity = 0;
-	      } completionHandler:^{
-		[layer removeFromSuperlayer];
-		[weakSelf setVibrantScrollersHidden:NO];
-	      }];
-	}];
-
-      return nil;
-    }
-}
-
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101100
-- (void)window:(NSWindow *)window
-  startCustomAnimationToEnterFullScreenWithDuration:(NSTimeInterval)duration
-{
-  CGFloat previousAlphaValue = [window alphaValue];
-  NSAutoresizingMaskOptions previousAutoresizingMask = [emacsView
-							 autoresizingMask];
-  NSRect srcRect = [window frame], destRect;
-  NSView *contentView = [window contentView];
-  CALayer *layer;
-  CGFloat titleBarHeight;
-
-  layer = [self liveResizeTransitionLayerWithDefaultBackground:NO];
-
-  titleBarHeight = NSHeight (srcRect) - NSMaxY ([contentView frame]);
-
-  destRect = [self preprocessWindowManagerStateChange:fullScreenTargetState];
-
-  NSDisableScreenUpdates ();
-
-  [window setStyleMask:([window styleMask] | NSWindowStyleMaskFullScreen)];
-
-  destRect = [self postprocessWindowManagerStateChange:destRect];
-  /* The line below used to be [window setFrame:destRect display:NO],
-     but this does not set content view's frame correctly on OS X
-     10.10.  */
-  [contentView setFrameSize:destRect.size];
-
-  [emacsView setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin)];
-  [(EmacsWindow *)window suspendConstrainingToScreen:YES];
-  /* We no longer set NSWindowStyleMaskFullScreen until the transition
-     animation completes because OS X 10.10 places such a window at
-     the center of screen and also makes calls to
-     -window:willUseFullScreenContentSize: or
-     -windowWillUseStandardFrame:defaultFrame:.  For the same reason,
-     we shorten the given animation duration below a bit so as to
-     avoid adding NSWindowStyleMaskFullScreen before the completion of
-     the transition animation.  */
-  [window setStyleMask:([window styleMask] & ~NSWindowStyleMaskFullScreen)];
-  [window setFrame:srcRect display:NO];
+  EmacsFrameController * __unsafe_unretained weakSelf = self;
+  CALayer *layer =
+    [self liveResizeTransitionLayerWithDefaultBackground:YES];
 
   [CATransaction setDisableActions:YES];
   [[overlayView layer] addSublayer:layer];
   [CATransaction commit];
   [self setVibrantScrollersHidden:YES];
-  [window display];
-
-  [window setAlphaValue:1];
-
-  NSEnableScreenUpdates ();
-
-  [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
-      NSRect destRectWithTitleBar =
-	NSMakeRect (NSMinX (destRect), NSMinY (destRect),
-		    NSWidth (destRect), NSHeight (destRect) + titleBarHeight);
-
-      [context setDuration:(duration * .9)];
-      [context
-	setTimingFunction:[CAMediaTimingFunction
-			    functionWithName:kCAMediaTimingFunctionDefault]];
-      [[window animator] setFrame:destRectWithTitleBar display:YES];
-      layer.beginTime = [layer convertTime:(CACurrentMediaTime ())
-				 fromLayer:nil] + duration * .9 * (1 - 1.0 / 5);
-      layer.speed = 5;
-      layer.fillMode = kCAFillModeBackwards;
-      layer.opacity = 0;
-    } completionHandler:^{
-      [layer removeFromSuperlayer];
-      [self setVibrantScrollersHidden:NO];
-      [window setAlphaValue:previousAlphaValue];
-      [(EmacsWindow *)window suspendConstrainingToScreen:NO];
-      [window setStyleMask:([window styleMask] | NSWindowStyleMaskFullScreen)];
-      [window setFrame:destRect display:NO];
-      [emacsView setAutoresizingMask:previousAutoresizingMask];
-      /* Mac OS X 10.7 needs this.  */
-      [emacsView setFrame:[[emacsView superview] bounds]];
-      /* OS X 10.9 - 10.10 need this.  */
-      [(EmacsMainView *)emacsView synchronizeChildFrameOrigins];
+  [self addFullScreenTransitionCompletionHandler:^(EmacsWindow *window,
+						   BOOL success) {
+      if (!success)
+	[layer removeFromSuperlayer];
+      else
+	[NSAnimationContext
+	      runAnimationGroup:^(NSAnimationContext *context) {
+	    [context setDuration:(10 / 60.0)];
+	    layer.opacity = 0;
+	  } completionHandler:^{
+	    [layer removeFromSuperlayer];
+	    [weakSelf setVibrantScrollersHidden:NO];
+	  }];
     }];
+
+  return nil;
 }
-#endif
 
 - (NSArrayOf (NSWindow *) *)customWindowsToExitFullScreenForWindow:(NSWindow *)window
 {
   return [self customWindowsToEnterFullScreenForWindow:window];
 }
-
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 101100
-- (void)window:(NSWindow *)window
-  startCustomAnimationToExitFullScreenWithDuration:(NSTimeInterval)duration
-{
-  CGFloat previousAlphaValue = [window alphaValue];
-  NSWindowLevel previousWindowLevel = [window level];
-  NSAutoresizingMaskOptions previousAutoresizingMask = [emacsView
-							 autoresizingMask];
-  NSRect srcRect = [window frame], destRect;
-  NSView *contentView = [window contentView];
-  CALayer *layer;
-  CGFloat titleBarHeight;
-
-  layer = [self liveResizeTransitionLayerWithDefaultBackground:NO];
-
-  destRect = [self preprocessWindowManagerStateChange:fullScreenTargetState];
-
-  NSDisableScreenUpdates ();
-
-  [window setStyleMask:([window styleMask] & ~NSWindowStyleMaskFullScreen)];
-
-  destRect = [self postprocessWindowManagerStateChange:destRect];
-  [window setFrame:destRect display:NO];
-
-  titleBarHeight = NSHeight (destRect) - NSMaxY ([contentView frame]);
-
-  [emacsView setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin)];
-  srcRect.size.height += titleBarHeight;
-  [(EmacsWindow *)window suspendConstrainingToScreen:YES];
-  [window setFrame:srcRect display:NO];
-
-  [CATransaction setDisableActions:YES];
-  [[overlayView layer] addSublayer:layer];
-  [CATransaction commit];
-  [self setVibrantScrollersHidden:YES];
-  [window display];
-
-  [window setAlphaValue:1];
-  [window setLevel:(NSMainMenuWindowLevel + 1)];
-
-  NSEnableScreenUpdates ();
-
-  [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
-      [context setDuration:duration];
-      [context
-	setTimingFunction:[CAMediaTimingFunction
-			    functionWithName:kCAMediaTimingFunctionDefault]];
-      [[window animator] setFrame:destRect display:YES];
-      layer.beginTime = [layer convertTime:(CACurrentMediaTime ())
-				 fromLayer:nil] + duration * (1 - 1.0 / 5);
-      layer.speed = 5;
-      layer.fillMode = kCAFillModeBackwards;
-      layer.opacity = 0;
-    } completionHandler:^{
-      [layer removeFromSuperlayer];
-      [self setVibrantScrollersHidden:NO];
-      [window setAlphaValue:previousAlphaValue];
-      [window setLevel:previousWindowLevel];
-      [(EmacsWindow *)window suspendConstrainingToScreen:NO];
-      [emacsView setAutoresizingMask:previousAutoresizingMask];
-      /* Mac OS X 10.7 needs this.  */
-      [emacsView setFrame:[[emacsView superview] bounds]];
-      /* OS X 10.9 - 10.10 need this.  */
-      [(EmacsMainView *)emacsView synchronizeChildFrameOrigins];
-    }];
-}
-#endif
 
 - (BOOL)isWindowFrontmost
 {
@@ -15179,19 +14990,7 @@ mac_update_accessibility_status (struct frame *f)
   layer.masksToBounds = YES;
   contentLayer.frame = CGRectMake (0, 0, NSWidth (rectInLayer),
 				   NSHeight (rectInLayer));
-  if (!(floor (NSAppKitVersionNumber) <= NSAppKitVersionNumber10_12))
-    bitmap = [self bitmapImageRepInEmacsViewRect:rect];
-  else
-    {
-      NSRect fullHeightRect = [emacsView bounds];
-
-      fullHeightRect.origin.x = NSMinX (rect);
-      fullHeightRect.size.width = NSWidth (rect);
-      bitmap = [self bitmapImageRepInEmacsViewRect:fullHeightRect];
-      contentLayer.contentsRect =
-	CGRectMake (0, NSMinY (rectInLayer) / NSHeight (fullHeightRect),
-		    1, NSHeight (rectInLayer) / NSHeight (fullHeightRect));
-    }
+  bitmap = [self bitmapImageRepInEmacsViewRect:rect];
   contentLayer.contents = (id) [bitmap CGImage];
   [layer addSublayer:contentLayer];
 
