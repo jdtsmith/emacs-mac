@@ -4136,6 +4136,25 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   savedChildWindowAlphaMap = nil;
 }
 
+- (void)flashRect:(NSRect)rect
+{
+  CALayer *flashLayer = [CALayer layer];
+  flashLayer.frame = rect;
+  flashLayer.backgroundColor = [[NSColor whiteColor] CGColor];
+  flashLayer.compositingFilter = @"differenceBlendMode";
+  flashLayer.opacity = 1.0;
+  [emacsView.layer addSublayer:flashLayer];
+  
+  /* Force immediate composite */
+  [CATransaction flush];
+  
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_MSEC),
+		 dispatch_get_main_queue(), ^{
+		   [flashLayer removeFromSuperlayer];
+		   [CATransaction flush];
+		 });
+}
+
 @end				// EmacsFrameController
 
 
@@ -7202,6 +7221,14 @@ void
 mac_teardown_drawing_context (void)
 {
     [NSGraphicsContext restoreGraphicsState];
+}
+
+void
+mac_flash_rects (struct frame *f, CGRect *rects, int nrects)
+{
+  EmacsFrameController *frameController = FRAME_CONTROLLER(f);
+  for (int i = 0; i < nrects; i++)
+    [frameController flashRect:NSRectFromCGRect(rects[i])];
 }
 
 // ** EmacsOverlayView

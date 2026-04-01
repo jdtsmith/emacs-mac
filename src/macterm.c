@@ -326,14 +326,14 @@ mac_draw_horizontal_wave (struct frame *f, GC gc, int x, int y,
                           : 0);
 }
 
-static void
-mac_invert_rectangle (struct frame *f, CGRect rect)
-{
-  GC gc = f->output_data.mac->normal_gc;
-  mac_ensure_arena (f);
-  mac_record_gc_clip (f, gc);
-  MAC_ARENA_CMD (cmd, f, INVERT_RECT, rect);
-}
+/* static void */
+/* mac_invert_rectangle (struct frame *f, CGRect rect) */
+/* { */
+/*   GC gc = f->output_data.mac->normal_gc; */
+/*   mac_ensure_arena (f); */
+/*   mac_record_gc_clip (f, gc); */
+/*   MAC_ARENA_CMD (cmd, f, INVERT_RECT, rect); */
+/* } */
 
 /* Mac replacement for XChangeGC.  */
 
@@ -2523,15 +2523,6 @@ mac_clear_frame (struct frame *f)
 }
 
 
-static inline void
-mac_flash_rectangles (struct frame *f, CGRect *rects, int nrects)
-{
-  mac_record_gc_clip (f, NULL);
-  for (int i = 0; i < nrects; i++)
-    mac_invert_rectangle(f, rects[i]);
-  mac_flush_arena (f); /* We need flashes immediately, even if drawn outside frame update */
-}
-
 /* Invert the bottom/top lines of the frame for .15 sec.  */
 
 static void
@@ -2572,25 +2563,7 @@ mac_flash (struct frame *f)
       nrects = 1;
     }
 
-  block_input ();
-  
-  /* Invert ON */
-  mac_flash_rectangles(f, rects, nrects);
-  
-  /* Wait up to 150ms, checking for input */
-  struct timespec delay = make_timespec(0, 150 * 1000 * 1000);
-  struct timespec wakeup = timespec_add(current_timespec(), delay);
-  while (!detect_input_pending()) {
-    struct timespec current = current_timespec();
-    if (timespec_cmp(wakeup, current) <= 0)
-      break;
-    struct timespec timeout = make_timespec(0, 10 * 1000 * 1000);
-    pselect(0, NULL, NULL, NULL, &timeout, NULL);
-  }
-
-  /* Invert OFF */
-  mac_flash_rectangles(f, rects, nrects);  
-  unblock_input ();
+  mac_flash_rects(f, rects, nrects);  
 }
 
 
