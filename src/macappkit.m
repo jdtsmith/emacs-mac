@@ -127,6 +127,7 @@ static void mac_within_gui_and_here (void (^) (void),
                                      void (CF_NOESCAPE ^) (void));
 static void mac_within_gui_allowing_inner_lisp (void (^) (void));
 static void mac_within_lisp (void (^) (void));
+static void mac_within_lisp_deferred (void (^) (void));
 static void mac_within_lisp_deferred_unless_popup (void (^) (void));
 
 #define MAC_SELECT_ALLOW_LISP_EVALUATION 1
@@ -5864,7 +5865,11 @@ static BOOL emacsViewUpdateLayerDisabled;
   MRC_RELEASE (backing);
   backing = nil;
   [self ensureBackingSized];
-  self.needsDisplay = YES;
+  mac_within_lisp_deferred (^{
+      struct frame *f = [self emacsFrame];
+      if (f && FRAME_LIVE_P (f))
+        SET_FRAME_GARBAGED (f);
+    });
 }
 
 - (void)viewFrameDidChange:(NSNotification *)notification
