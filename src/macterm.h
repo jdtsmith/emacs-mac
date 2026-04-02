@@ -274,10 +274,6 @@ struct mac_output
   /* Backing scale factor (1 or 2), used for rendering images.  */
   unsigned backing_scale_factor : 2;
 
-  /* State for image vs. backing scaling factor mismatch
-     detection.  */
-  unsigned scale_mismatch_state : 2;
-
   /* This variable records the gravity value of the window position if
      the window has an external tool bar when it is created.  The
      position of the window is adjusted using this information when
@@ -361,8 +357,6 @@ struct mac_output
 
 #define FRAME_BACKING_SCALE_FACTOR(f)		\
   ((f)->output_data.mac->backing_scale_factor)
-#define FRAME_SCALE_MISMATCH_STATE(f) \
-  ((f)->output_data.mac->scale_mismatch_state)
 #define FRAME_MAC_DOUBLE_BUFFERED_P(f) \
   ((f)->output_data.mac->double_buffered_p)
 #define FRAME_MAC_NEEDS_PRESENTATION_P(f) \
@@ -508,8 +502,6 @@ extern void mac_set_sticky (struct frame *, Lisp_Object, Lisp_Object);
 extern void mac_set_skip_taskbar (struct frame *, Lisp_Object, Lisp_Object);
 extern void mac_set_z_group (struct frame *, Lisp_Object, Lisp_Object);
 extern void mac_clear_under_internal_border (struct frame *);
-extern void mac_begin_scale_mismatch_detection (struct frame *);
-extern bool mac_end_scale_mismatch_detection (struct frame *);
 extern void mac_clear_area (struct frame *, int, int, int, int);
 extern CGImageRef mac_create_image_mask_from_bitmap_data (const char *,
 							  int, int);

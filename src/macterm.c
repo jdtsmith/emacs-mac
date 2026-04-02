@@ -101,24 +101,6 @@ init_cg_color (void)
   }
 }
 
-void
-mac_begin_scale_mismatch_detection (struct frame *f)
-{
-  FRAME_SCALE_MISMATCH_STATE (f) = FRAME_BACKING_SCALE_FACTOR (f);
-}
-
-static void
-mac_detect_scale_mismatch (struct frame *f, int target_backing_scale)
-{
-  FRAME_SCALE_MISMATCH_STATE (f) |= target_backing_scale;
-}
-
-bool
-mac_end_scale_mismatch_detection (struct frame *f)
-{
-  return FRAME_SCALE_MISMATCH_STATE (f) == (1|2);
-}
-
 /* X display function emulation */
 
 static void
@@ -1780,7 +1762,6 @@ mac_draw_image_foreground (struct glyph_string *s)
 
       mac_set_glyph_string_clipping (s);
 
-      mac_detect_scale_mismatch (s->f, s->img->target_backing_scale);
       if (s->img->target_backing_scale == 2)
 	flags |= MAC_DRAW_CG_IMAGE_2X;
       if (!s->img->smoothing)
