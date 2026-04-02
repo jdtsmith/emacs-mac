@@ -4021,7 +4021,12 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 - (void)windowDidExitFullScreen:(NSNotification *)notification
 {
   [self handleFullScreenTransitionCompletionForWindow:emacsWindow success:YES];
-  [emacsController updatePresentationOptions];
+  /* Perform this on the next runloop to avoid invalidating the screen
+     during fullscreen teardown, which on multi-display setup can cause
+     the window to "jump" from its restored position. */
+  dispatch_async(dispatch_get_main_queue(), ^{
+      [emacsController updatePresentationOptions];
+    });
 }
 
 - (void)windowDidFailToExitFullScreen:(NSWindow *)window
