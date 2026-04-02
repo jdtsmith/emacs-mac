@@ -5806,11 +5806,11 @@ static BOOL emacsViewUpdateLayerDisabled;
   return frameController.emacsFrame;
 }
 
-
 /* This is now mostly vestigial code, never called by the Window
-   Server. It is only called when emacsViewUpdateLayerDisabled=true.
-   Simply displays the most recent backing bitmap into the current
-   NSContext */
+   Server. It is only called when emacsViewUpdateLayerDisabled=true, or
+   by AppKit during things like maximizing.  Simply displays the most
+   recent backing bitmap into the current NSContext (after flipping
+   coordinates). */
 
 - (void)drawRect:(NSRect)aRect
 {
@@ -5829,7 +5829,14 @@ static BOOL emacsViewUpdateLayerDisabled;
   if (image)
     {
       CGRect bounds = NSRectToCGRect (self.bounds);
-      CGContextDrawImage (dest, bounds, image);
+      /* The backing bitmap uses flipped coordinates (y=0 at top).
+	 CGContextDrawImage uses CG coordinates (y=0 at bottom).
+	 Flip the context to match. */
+      CGContextSaveGState(dest);
+      CGContextTranslateCTM(dest, 0, bounds.size.height);
+      CGContextScaleCTM(dest, 1, -1);
+      CGContextDrawImage(dest, bounds, image);
+      CGContextRestoreGState(dest);
       CGImageRelease (image);
     }
   [frameController releaseDrawLock];
