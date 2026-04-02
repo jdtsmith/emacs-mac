@@ -3479,7 +3479,15 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 
 - (NSBitmapImageRep *)bitmapImageRep
 {
-  return [self bitmapImageRepInEmacsViewRect:[emacsView bounds]];
+  [self acquireDrawLock];
+  CGContextRef backing = [self getBackingForDrawing];
+  CGImageRef cgImage = CGBitmapContextCreateImage(backing);
+  [self releaseDrawLock];
+
+  if (!cgImage) return nil;
+  NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithCGImage:cgImage];
+  CGImageRelease(cgImage);
+  return rep;  
 }
 
 - (void)storeModifyFrameParametersEvent:(Lisp_Object)alist

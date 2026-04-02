@@ -784,7 +784,7 @@ typedef NSInteger NSGlyphProperty;
 
 @interface EmacsView : NSView
 {
-  /* Backing resources for applicaion-side double buffering.  */
+  /* Backing resources for application-side double buffering.  */
   EmacsBacking *backing;
 }
 - (struct frame *)emacsFrame;
