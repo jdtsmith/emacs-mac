@@ -4146,23 +4146,24 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 
 - (void)flashRect:(NSRect)rect
 {
-  CALayer *flashLayer = [CALayer layer];
-  flashLayer.frame = rect;
-  flashLayer.backgroundColor = [[NSColor whiteColor] CGColor];
-  flashLayer.compositingFilter = @"differenceBlendMode";
-  flashLayer.opacity = 1.0;
-  [emacsView.layer addSublayer:flashLayer];
+  dispatch_async(dispatch_get_main_queue(), ^{
+      CALayer *flashLayer = [CALayer layer];
+      flashLayer.frame = rect;
+      flashLayer.backgroundColor = [[NSColor whiteColor] CGColor];
+      flashLayer.compositingFilter = @"differenceBlendMode";
+      flashLayer.opacity = 1.0;
+      [emacsView.layer addSublayer:flashLayer];
   
-  /* Force immediate composite */
-  [CATransaction flush];
+      /* Force immediate composite */
+      [CATransaction flush];
   
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_MSEC),
-		 dispatch_get_main_queue(), ^{
-		   [flashLayer removeFromSuperlayer];
-		   [CATransaction flush];
-		 });
+      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_MSEC),
+		     dispatch_get_main_queue(), ^{
+		       [flashLayer removeFromSuperlayer];
+		       [CATransaction flush];
+		     });
+    });
 }
-
 @end				// EmacsFrameController
 
 
