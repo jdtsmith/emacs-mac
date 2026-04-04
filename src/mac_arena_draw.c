@@ -42,8 +42,13 @@ flashing and other visual artifacts. */
 #include "frame.h"
 #include "macterm.h"
 #include "mac_arena_draw.h"
+#include <stddef.h>
 
 /* ** Arena lifecycle */
+
+#ifdef MAC_DEBUG_SIGNPOST
+static size_t arena_highwater_mark = 0;
+#endif
 
 #if DRAWING_USE_GCD
 void
@@ -706,12 +711,15 @@ mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
       data_allocated += this->used;
       if (this == arena->data) break;
     }
+  if (data_allocated > arena_highwater_mark)
+    arena_highwater_mark = data_allocated;
 
   MAC_SIGNPOST_PTR_END (arena, draw, Playback,
-			"NCMDS: %u (%.2f blocks) NDIRTY: %d DATA: %.1f blocks",
+			"NCMDS: %u (%.2f blocks) NDIRTY: %d DATA: %.1f blocks (%.1f max)",
 			(unsigned) total_cmds,
 			(float) (total_cmds) / MAC_ARENA_CMDS_PER_BLOCK,
 			mo->dirty_rect_count,
-			(float) data_allocated / MAC_ARENA_DATA_SIZE);
+			(float) data_allocated / MAC_ARENA_DATA_SIZE,
+			(float) arena_highwater_mark / MAC_ARENA_DATA_SIZE);
 #endif
 }
