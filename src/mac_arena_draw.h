@@ -4,12 +4,12 @@
 
 #include "frame.h"
 
-#define MAC_ARENA_COUNT 3   /* Total number of arenas */
+#define MAC_ARENA_COUNT 4   /* Total number of arenas */
 
 /* Bytes to allocate (at minimum) for each arena data block */
-#define MAC_ARENA_DATA_SIZE (1 << 18)
+#define MAC_ARENA_DATA_SIZE (1 << 17)
 /* Number of commands to allocate for each arena command block */
-#define MAC_ARENA_CMDS_PER_BLOCK (1 << 9)
+#define MAC_ARENA_CMDS_PER_BLOCK (1 << 10)
 
 typedef struct mac_arena_block {
   struct mac_arena_block *next; // Next block (if any)
