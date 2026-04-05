@@ -328,7 +328,7 @@ struct mac_output
   CGRect *current_clip_rects;
 };
 
-/* Return the X output data for frame F.  */
+/* Return the X (mac) output data for frame F.  */
 #define FRAME_OUTPUT_DATA(f) ((f)->output_data.mac)
 
 /* Return the Mac window used for displaying data in frame F.  */

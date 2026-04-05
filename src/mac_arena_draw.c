@@ -54,11 +54,11 @@ static size_t arena_highwater_mark = 0;
 void
 mac_init_arena_system (struct frame *f)
 {
-  struct mac_output *mo = f->output_data.mac;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   struct frame *p = FRAME_PARENT_FRAME (f);
   if (p)
     { /* Re-use parent's drawing queue */
-      struct mac_output *pmo = p->output_data.mac;
+      struct mac_output *pmo = FRAME_OUTPUT_DATA (p);
       if (pmo && pmo->drawing_queue)
 	mo->drawing_queue = pmo->drawing_queue;
     }
@@ -72,14 +72,14 @@ mac_init_arena_system (struct frame *f)
 inline void
 mac_arena_cycle (struct frame *f)
 {
-  struct mac_output *mo = f->output_data.mac;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   mo->next_arena = (mo->next_arena + 1) % MAC_ARENA_COUNT;
 }
 
 void
 mac_flush_arena (struct frame *f)
 {
-  struct mac_output *mo = f->output_data.mac;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   if (mo->active_arena)
     mac_draw_session_end (f, MAC_SESSION_OUTOFBAND);
 }
@@ -114,8 +114,8 @@ mac_arena_release_draw_cmds (mac_arena_block *block)
 void
 mac_teardown_arena_system (struct frame *f)
 {
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   struct frame *p = FRAME_PARENT_FRAME (f);
-  struct mac_output *mo = f->output_data.mac;
 
   if (mo->drawing_queue)
     {
@@ -230,9 +230,9 @@ mac_arena_cmd_alloc (mac_arena *arena)
 mac_arena*
 mac_ensure_arena (struct frame *f)
 {
-  if (!f->output_data.mac->active_arena)
+  if (!FRAME_OUTPUT_DATA (f)->active_arena)
     mac_draw_session_begin (f);
-  return f->output_data.mac->active_arena;
+  return FRAME_OUTPUT_DATA (f)->active_arena;
 }
 
 /* Reset arena for re-use */
@@ -264,7 +264,7 @@ mac_arena_reset (mac_arena *arena) {
 void
 mac_record_gc_clip (struct frame *f, GC gc) {
   {
-    struct mac_output *mo = f->output_data.mac;
+    struct mac_output *mo = FRAME_OUTPUT_DATA (f);
 
     if (gc && gc->num_clip_rects == mo->current_clip_nrects)
       {
@@ -652,7 +652,7 @@ mac_playback_cmd (mac_arena_draw_cmd *cmd, mac_arena *arena,
 void
 mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
 {
-  struct mac_output *mo = f->output_data.mac;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   mac_arena_state state = {0};
 #ifdef MAC_DEBUG_SIGNPOST
   size_t total_cmds = 0;

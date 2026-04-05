@@ -2724,7 +2724,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
     MAC_SIGNPOST_GEN_BEGIN (gui, Present, "FRAME: %{public}s FPTR: %p",
 			    SSDATA (f->name), f);
     FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
-    struct mac_output *mo = f->output_data.mac;
+    struct mac_output *mo = FRAME_OUTPUT_DATA (f);
     [self presentBackingWithDirtyRects:mo->dirty_rects
                                  count:mo->dirty_rect_count];
     mo->dirty_rect_count = 0; /* Reset for reuse */
