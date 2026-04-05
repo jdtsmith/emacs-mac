@@ -682,7 +682,7 @@ extern void mac_set_frame_window_background (struct frame *, unsigned long);
 extern void mac_draw_session_begin (struct frame *);
 extern void mac_draw_session_end (struct frame *, int);
 extern void mac_cursor_to (int, int, int, int);
-extern void mac_force_flush (struct frame *, BOOL);
+extern void mac_force_flush (struct frame *);
 extern void mac_create_frame_window (struct frame *);
 extern void mac_dispose_frame_window (struct frame *);
 extern void mac_change_frame_window_wm_state (struct frame *, WMState, WMState);

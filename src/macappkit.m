@@ -1487,7 +1487,7 @@ static EventRef peek_if_next_event_activates_menu_bar (void);
 
 /* Minimum time interval between successive mac_read_socket calls.  */
 
-#define READ_SOCKET_MIN_INTERVAL (1/100.0)  // was: 1/60.
+#define READ_SOCKET_MIN_INTERVAL (1/60.0)
 
 static BOOL extendReadSocketIntervalOnce;
 
@@ -2710,8 +2710,9 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 
 /* If the frame needs display, present its accumulated dirty rects to
    EmacsBacking.  Since we pump the NS Event loop ourselves (see
-   mac_select), this is the only place we can request a display update
-   (which leads to an updateLayer call).  See also mac_force_flush.
+   mac_select), this is one of the only places we can request a display
+   update from the display server (which leads to an `updateLayer'
+   call).  See also mac_force_flush.
  */
 
 - (void)presentIfReady
@@ -2720,7 +2721,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
     if (!f || !FRAME_LIVE_P (f) || !FRAME_MAC_NEEDS_PRESENTATION_P (f))
         return;
     if (![self tryAcquireDrawLock])
-        return;  /* another dispatch will come */
+        return;  /* drawing busy, another dispatch will come */
     MAC_SIGNPOST_GEN_BEGIN (gui, Present, "FRAME: %{public}s FPTR: %p",
 			    SSDATA (f->name), f);
     FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
@@ -7091,14 +7092,8 @@ mac_ts_active_input_string_in_echo_area_p (struct frame *f)
 
 @end				// EmacsMainView
 
-// ** C drawing shims
+// ** C drawing primitives
 
-/* Flush display of frame F, if necessary.  Called from the LISP
-   thread. If IMMEDIATE_ONLY is YES, only present if a frame has
-   requested it, and drawing is not locked.  Drawing is locked during
-   frame display; see mac_draw_session_end. Note that most draw
-   presentation now occurs via mac_present_frame.  This serves as a
-   backup for system-level drawing. */
 /* Atomic flag to signal that drawing has been requested (on any frame)
    for processing during mac_gui_loop */
 static _Atomic BOOL _mac_needs_presentation = false;
@@ -7126,25 +7121,11 @@ mac_present_all_ready_frames (void)
 /* Flush display of frame F, if necessary.  */
 
 void
-mac_force_flush (struct frame *f, BOOL immediate_only)
+mac_force_flush (struct frame *f)
 {
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-  if (immediate_only)
-    {
-      /* Bail out unless we can and should present _now_ */
-      if (!FRAME_MAC_NEEDS_PRESENTATION_P (f)) return;
-      if (![frameController tryAcquireDrawLock])
-        return;
-      [frameController releaseDrawLock];
-    }
-
   block_input ();
-  mac_within_gui (^{
-      /* Present completed frame (if any). */
-      [frameController presentIfReady];
-      /* Service any system-initiated display requests. */
-      [frameController displayEmacsViewIfNeeded];
-    });
+  mac_within_gui (^{[frameController displayEmacsViewIfNeeded];});
   unblock_input ();
 }
 
@@ -7252,23 +7233,18 @@ mac_draw_session_end (struct frame *f, int type)
     MAC_SIGNPOST_PTR_END (arena, trace, Session, "TYPE: %d", type);
 }
 
-/* Present the newly drawn frame for display soon, queueing a work
-   block to wake up the GUI thread.  Called from the GCD thread. */
+static void mac_dispatch_gui_present (void);
+
+/* Mark frame F as in need of presentation. */
 
 void
 mac_present_frame (struct frame *f)
 {
-  if (!FRAME_MAC_NEEDS_PRESENTATION_P (f))
-    {
-      FRAME_MAC_NEEDS_PRESENTATION_P (f) = true;
-      EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-      /* We add this (carefully) to the main queue, to wake GUI and
-	 present without needing to coordinate with LISP.  It will run
-	 in mac_select. */
-      dispatch_async (dispatch_get_main_queue (), ^{
-          [frameController presentIfReady];
-        });
-    }
+  FRAME_MAC_NEEDS_PRESENTATION_P (f) = true;
+  /* Atomic signal for mac_gui_loop */
+  MAC_SET_NEEDS_PRESENTATION ();
+  /* Mach signal for MDEL (run loop running) */
+  mac_dispatch_gui_present ();
 }
 
 CGContextRef
@@ -9604,10 +9580,11 @@ peek_if_next_event_activates_menu_bar (void)
 }
 
 /* Emacs calls this read socket hook frequently, whenever it needs to
-   read an input event, e.g. after mac_select returns.  We use this
-   (rate-limited) to process accumulated NSEvents, flush newly finished
-   frames to the display, and close open draw arenas (e.g. from
-   out-of-band drawing like mouse movement). */
+   read an input event, e.g. after mac_select returns, and periodically
+   while LISP is sleeping/busy.  We use this (with a rate-limite) to
+   process accumulated NSEvents, flush any newly finished but as yet not
+   presented frames to the display, and close open draw arenas
+   (e.g. from out-of-band drawing like mouse movement). */
 
 int
 mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
@@ -9643,14 +9620,6 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	    });
 	}
       count = 0;
-      FOR_EACH_FRAME (tail, frame)
-	{
-	  struct frame *f = XFRAME (frame);
-	  /* Quickly flush any frames which have requested presentation
-	     and are done drawing. */
-	  if (FRAME_MAC_P (f))
-	    mac_force_flush (f, YES);
-	}
     }
   else
     {
@@ -9701,9 +9670,9 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	  struct frame *f = XFRAME (frame);
 	  if (FRAME_MAC_P (f))
 	    {
-	      /* Flush the frame, first waiting for drawing to complete. */
-	      mac_force_flush (f, NO);
-	      /* Flush any out of band open draw sessions (e.g. mouse moves). */
+	      /* Flush the frame to display (if needed). */
+	      mac_force_flush (f);
+	      /* Flush any "out-of-band" open draw sessions (e.g. mouse moves). */
 	      mac_flush_arena (f);
 	    }
 	}
@@ -15964,17 +15933,27 @@ static NSMutableArray *mac_gui_queue, *mac_lisp_queue;
    call to mac_within_gui_and_here.  */
 static NSMutableArray *mac_deferred_lisp_queue;
 
-/* Dispatch source to break the run loop in the GUI thread for the
-   select emulation.  */
+/* Dispatch source to break the run loop in the GUI thread for select
+   emulation.  */
 static dispatch_source_t mac_select_dispatch_source;
 
 /* Command to execute in the GUI thread after the run loop is
-   broken.  */
+   broken. */
 static enum
 {
-  MAC_SELECT_COMMAND_TERMINATE	= 1 << 0,
-  MAC_SELECT_COMMAND_SUSPEND	= 1 << 1
-} mac_select_next_command;
+  MAC_COMMAND_TERMINATE	= 1 << 0,
+  MAC_COMMAND_SUSPEND	= 1 << 1,
+  MAC_COMMAND_PRESENT	= 1 << 2,
+} mac_next_command;
+
+
+/* Helper to dispatch PRESENT to the GUI */
+
+static inline void
+mac_dispatch_gui_present (void)
+{
+  dispatch_source_merge_data (mac_select_dispatch_source, MAC_COMMAND_PRESENT);
+}
 
 static void
 mac_init_thread_synchronization (void)
@@ -15988,7 +15967,7 @@ mac_init_thread_synchronization (void)
   mac_lisp_queue = [[NSMutableArray alloc] initWithCapacity:1];
   mac_deferred_lisp_queue = [[NSMutableArray alloc] initWithCapacity:0];
 
-  mac_select_next_command = MAC_SELECT_COMMAND_TERMINATE;
+  mac_next_command = MAC_COMMAND_TERMINATE;
   mac_select_dispatch_source =
     dispatch_source_create (DISPATCH_SOURCE_TYPE_DATA_OR, 0, 0,
 			    dispatch_get_main_queue ());
@@ -15998,7 +15977,7 @@ mac_init_thread_synchronization (void)
       exit (1);
     }
   dispatch_source_set_event_handler (mac_select_dispatch_source, ^{
-      mac_select_next_command |=
+      mac_next_command |=
 	dispatch_source_get_data (mac_select_dispatch_source);
     });
   dispatch_resume (mac_select_dispatch_source);
@@ -16006,9 +15985,10 @@ mac_init_thread_synchronization (void)
   END_AUTORELEASE_POOL;
 }
 
-/* Keep synchronously executing blocks in `mac_gui_queue', which has
-   been set by `mac_within_gui_and_here', in the GUI thread until the
-   dequeued block is nil.  */
+/* When signaled, synchronously execute task blocks from `mac_gui_queue'
+   in the GUI thread until the dequeued block is nil.  Blocks have been
+   queued by `mac_within_gui_and_here'.  Also monitor for presentation
+   requests and present any frames which have become ready. */
 
 static void
 mac_gui_loop (void)
@@ -16019,7 +15999,17 @@ mac_gui_loop (void)
   do
     {
       BEGIN_AUTORELEASE_POOL;
-      dispatch_semaphore_wait (mac_gui_semaphore, DISPATCH_TIME_FOREVER);
+      long timed_out;
+      do
+	{
+	  if (MAC_NEEDS_PRESENTATION ())
+            mac_present_all_ready_frames ();
+	  dispatch_time_t time = dispatch_time (DISPATCH_TIME_NOW,
+						8 * NSEC_PER_MSEC);
+          timed_out = dispatch_semaphore_wait (mac_gui_semaphore, time);
+	}
+      while (timed_out);
+
       block = [mac_gui_queue dequeue];
       if (block)
 	block ();
@@ -16028,6 +16018,9 @@ mac_gui_loop (void)
     }
   while (block);
 }
+
+/* Process a single task from the GUI queue, coordinating with the LISP
+   thread.  Should be called from the GUI thread. */
 
 static void
 mac_gui_loop_once (void)
@@ -16057,8 +16050,8 @@ mac_within_gui (void (^block) (void))
 
 /* Ask execution of BLOCK_GUI to the GUI thread.  The calling thread
    must not be the GUI thread.  If BLOCK_HERE is non-nil, then it is
-   also executed in the calling Lisp thread simultaneously.  Control
-   returns when the both executions has finished.  */
+   also executed in the calling Lisp thread, simultaneously.  Control
+   returns when the both executions have finished.  */
 
 static void
 mac_within_gui_and_here (void (^block_gui) (void),
@@ -16068,8 +16061,7 @@ mac_within_gui_and_here (void (^block_gui) (void),
   eassert (mac_gui_queue.count <= 1);
 
   [mac_gui_queue enqueue:block_gui];
-  dispatch_source_merge_data (mac_select_dispatch_source,
-			      MAC_SELECT_COMMAND_SUSPEND);
+  dispatch_source_merge_data (mac_select_dispatch_source, MAC_COMMAND_SUSPEND);
   dispatch_semaphore_signal (mac_gui_semaphore);
   if (block_here)
     block_here ();
@@ -16091,10 +16083,10 @@ mac_within_gui_and_here (void (^block_gui) (void),
     }
 }
 
-/* Ask execution of BLOCK to the GUI thread synchronously with
-   allowing block executions in the calling Lisp thread via
-   `mac_within_lisp' from the BLOCK_GUI context.  The calling thread
-   must not be the GUI thread.  */
+/* Ask execution of BLOCK to the GUI thread synchronously, allowing
+   block executions in the calling Lisp thread via `mac_within_lisp' to
+   be used in the BLOCK_GUI context.  The calling thread must not be the
+   GUI thread.  */
 
 static void
 mac_within_gui_allowing_inner_lisp (void (^block) (void))
@@ -16255,7 +16247,7 @@ mac_handle_alarm_signal (void)
     write_one_byte_to_fd (mac_select_fds[1]);
 }
 
-inline void
+static inline void
 mac_wakeup_lisp (void)
 {
   write_one_byte_to_fd (mac_select_fds[0]);
@@ -16285,6 +16277,26 @@ mac_end_buffer_and_glyph_matrix_access (void)
   if (mac_buffer_and_glyph_matrix_access_restricted_p)
     thread_release_global_lock ();
 }
+
+
+/* A replacement for thread_select(pselect,...) (see
+   wait_reading_process_output).  This works by running the GUI and LISP
+   threads in parallel to process events and do related work.  GUI runs
+   the event loop; LISP runs pselect.  They communicate with each other
+   using:
+
+     GUI -> LISP: GUI writes to the mac_select_fds socket pselect is
+                  monitoring.
+
+     LISP -> GUI: LISP sends Mach messages which interrupt the NS event
+                  loop.
+
+   While running, they can enqueue blocks of work for each other.  Once
+   events arrive (either view the mac run loop or pselect), they notify
+   the other to exit in synchrony.
+
+   We call this the Main Divided Event Loop (MDEL).
+*/
 
 int
 mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
@@ -16329,6 +16341,7 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 
   /* Quickly check if some input is already available.  We need to block
      input because run loop may call back drawing.  */
+
   block_input ();
   mac_within_gui_and_here (^{
       [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
@@ -16381,49 +16394,40 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 	mac_set_buffer_and_glyph_matrix_access_restricted (true);
       while (true)
 	{
-	  mac_select_next_command = 0;
-	  /* On macOS 10.12, the application sometimes becomes
-	     unresponsive to Dock icon clicks (though it reacts to
-	     Command-Tab) if we directly run a run loop and the
-	     application windows are covered by other applications for
-	     a while.  */
+	  mac_next_command = 0;  /* Mach message commands */
+	  /* The application can becomes unresponsive to Dock icon
+	     clicks (though it reacts to Command-Tab) if we directly run
+	     a run loop and the application windows are covered by other
+	     applications for a while.  */
 	  mac_within_app (^{
 	      NSRunLoop *currentRunLoop = [NSRunLoop currentRunLoop];
 	      NSDate *limit = [NSDate distantFuture];
 	      bool written_p = false;
-
-	      /* On Mac OS X 10.7, delayed visible toolbar item
-		 validation (see the documentation of -[NSToolbar
-		 validateVisibleItems]) is treated as if it were an
-		 input source firing rather than a timer function (as
-		 in Mac OS X 10.6).  So it makes -[NSRunLoop
-		 runMode:beforeDate:] return despite no available
-		 input to process.  In such cases, we want to call
-		 -[NSRunLoop runMode:beforeDate:] again so as to avoid
-		 wasting CPU time caused by vacuous reactivation of
-		 delayed visible toolbar item validation via window
-		 update events issued in the application event
-		 loop.  */
 	      do
 		{
 		  [currentRunLoop runMode:NSDefaultRunLoopMode
 			       beforeDate:limit];
-		  if (!written_p && (mac_peek_next_event () != NULL
-				     || detect_input_pending ()
-				     || emacs_windows_need_display_p ()))
+		  if (!written_p && (mac_peek_next_event () != NULL ||
+				     detect_input_pending ()))
 		    {
 		      mac_wakeup_lisp();
 		      written_p = true;
 		    }
-		  if ((mac_select_next_command & MAC_SELECT_COMMAND_SUSPEND)
+		  if (mac_next_command & MAC_COMMAND_PRESENT)
+		    {
+		      mac_next_command &= ~MAC_COMMAND_PRESENT;
+		      MAC_NEEDS_PRESENTATION ();  /* Clear atomic flag */
+		      mac_present_all_ready_frames ();
+		    }
+		  if ((mac_next_command & MAC_COMMAND_SUSPEND)
 		      && mac_gui_queue.count == 0)
 		    /* Bogus suspend command: would be a residual from
 		       the previous round.  */
-		    mac_select_next_command &= ~MAC_SELECT_COMMAND_SUSPEND;
+		    mac_next_command &= ~MAC_COMMAND_SUSPEND;
 		}
-	      while (!mac_select_next_command);
+	      while (!mac_next_command);
 	    });
-	  if (mac_select_next_command & MAC_SELECT_COMMAND_TERMINATE)
+	  if (mac_next_command & MAC_COMMAND_TERMINATE)
 	    break;
 	  else
 	    mac_gui_loop_once ();
@@ -16432,7 +16436,7 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 	mac_set_buffer_and_glyph_matrix_access_restricted (false);
 #if MAC_SELECT_ALLOW_LISP_EVALUATION
       mac_select_allow_lisp_evaluation = false;
-      completed_p = true;
+      completed_p = true;  /* Tell LISP block processor loop to break */
 #endif
     },
    ^{ /* LISP */
@@ -16444,7 +16448,7 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 #endif
 	  r = thread_select (pselect, nfds, rfds, wfds, efds, timeout, sigmask);
 	  dispatch_source_merge_data (mac_select_dispatch_source,
-				      MAC_SELECT_COMMAND_TERMINATE);
+				      MAC_COMMAND_TERMINATE);
 #if MAC_SELECT_ALLOW_LISP_EVALUATION
 	}
       else
@@ -16455,7 +16459,7 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 	  dispatch_async (queue, ^{
 	      r = pselect (nfds, rfds, wfds, efds, timeout, sigmask);
 	      dispatch_source_merge_data (mac_select_dispatch_source,
-					  MAC_SELECT_COMMAND_TERMINATE);
+					  MAC_COMMAND_TERMINATE);
 	    });
 	  dispatch_semaphore_wait (mac_lisp_semaphore, DISPATCH_TIME_FOREVER);
 	  while (!completed_p)
@@ -16470,7 +16474,7 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 	      dispatch_semaphore_wait (mac_lisp_semaphore,
 				       DISPATCH_TIME_FOREVER);
 	    }
-	  dispatch_semaphore_signal (mac_lisp_semaphore); /* Reset for next round */
+	  dispatch_semaphore_signal (mac_lisp_semaphore);
 	}
 #endif
       if (r > 0 && FD_ISSET (mac_select_fds[1], rfds))
