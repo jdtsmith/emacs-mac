@@ -27,6 +27,7 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <os/lock.h>
 #include <sys/socket.h>
+#include <stdatomic.h>
 
 #include "character.h"
 #include "frame.h"
@@ -2410,6 +2411,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 
   emacsFrame = f;
   drawLock = OS_UNFAIR_LOCK_INIT;
+  arenaLock = OS_UNFAIR_LOCK_INIT;
 
   [self setupEmacsView];
   [self setupWindow];
@@ -2783,6 +2785,21 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 - (void)releaseDrawLock
 {
   os_unfair_lock_unlock(&drawLock);
+}
+
+/* Arena locks are used to avoid two threads accidentally attempting to
+   acquire the same arena at the same time, which could lead to arena
+   leakage (unbalanced semaphore calls).  Both LISP and GUI can acquire
+   drawing arenas, although GUI does so rarely. */
+
+- (void)acquireArenaLock
+{
+  os_unfair_lock_lock(&arenaLock);
+}
+
+- (void)releaseArenaLock
+{
+  os_unfair_lock_unlock(&arenaLock);
 }
 
 - (BOOL)acceptsFocus
@@ -7082,6 +7099,31 @@ mac_ts_active_input_string_in_echo_area_p (struct frame *f)
    frame display; see mac_draw_session_end. Note that most draw
    presentation now occurs via mac_present_frame.  This serves as a
    backup for system-level drawing. */
+/* Atomic flag to signal that drawing has been requested (on any frame)
+   for processing during mac_gui_loop */
+static _Atomic BOOL _mac_needs_presentation = false;
+#define MAC_NEEDS_PRESENTATION()			\
+  (atomic_exchange (&_mac_needs_presentation, false))
+#define MAC_SET_NEEDS_PRESENTATION()		\
+  atomic_store (&_mac_needs_presentation, true)
+
+
+/* Present any frame which is ready for display.  Should be called from
+   the GUI thread. */
+
+static void
+mac_present_all_ready_frames (void)
+{
+  Lisp_Object tail, frame;
+  FOR_EACH_FRAME(tail, frame)
+    {
+      struct frame *f = XFRAME(frame);
+      if (FRAME_MAC_P(f))
+	[FRAME_CONTROLLER(f) presentIfReady];
+    }
+}
+
+/* Flush display of frame F, if necessary.  */
 
 void
 mac_force_flush (struct frame *f, BOOL immediate_only)
@@ -7106,53 +7148,65 @@ mac_force_flush (struct frame *f, BOOL immediate_only)
   unblock_input ();
 }
 
-/* Begin a draw session for frame F.  Resizes the backing if needed,
-   then waits for an arena to become available (after initializing the
-   arena system, if needed).  Initializing clipping rects.
+/* Begin a draw session for frame F.  May be called by LISP or GUI
+   threads (locks arena acquisition for thread safety).  Resizes the
+   backing if needed, then waits for an arena to become available (after
+   initializing the arena system, if needed).  Also reset the arena's
+   clipping rects.
  */
 
 void
 mac_draw_session_begin (struct frame *f)
 {
-    struct mac_output *mo = f->output_data.mac;
-    if (mo->active_arena)
+
+  struct mac_output *mo = f->output_data.mac;
+  EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+  [frameController acquireArenaLock];
+
+  if (mo->active_arena)
+    {
+      [frameController releaseArenaLock];
       return;
-    mac_arena *arena = &mo->arenas[mo->next_arena];
-    MAC_SIGNPOST_PTR_BEGIN (arena, trace, Session,
-			    "ARENA: %d FRAME: %{public}s FPTR: %p",
-			    mo->next_arena, SSDATA (f->name), f);
+    }
 
+  MAC_SIGNPOST_PTR_BEGIN (mo->arenas + mo->next_arena, trace, Session,
+			  "ARENA: %d FRAME: %{public}s FPTR: %p",
+			  mo->next_arena, SSDATA (f->name), f);
 #if DRAWING_USE_GCD
-    /* Lazy init of arena system */
-    if (!mo->drawing_queue)
-        mac_init_arena_system (f);
+  /* Lazy init of arena system */
+  if (!mo->drawing_queue)
+    mac_init_arena_system (f);
 #endif
 
-    /* Ensure backing bitmap exists and is correctly sized.
-       Must happen on GUI thread since it touches NSView. */
-    if (FRAME_BACKING_NEEDS_SIZE_CHECK_P (f))
-      {
-	EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-        if (pthread_main_np ())
-	  [frameController ensureBackingSized];
-        else
-          mac_within_gui (^{[frameController ensureBackingSized];});  
+  /* Ensure backing bitmap exists and is correctly sized.
+     Must happen on GUI thread since it touches NSView. */
+  if (FRAME_BACKING_NEEDS_SIZE_CHECK_P (f))
+    {
+      if (pthread_main_np ())
+	[frameController ensureBackingSized];
+      else
+	mac_within_gui (^{[frameController ensureBackingSized];});
           
-        FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = 0;
-      }
+      FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = 0;
+    }
 
 #if DRAWING_USE_GCD
-    MAC_SIGNPOST_GEN_BEGIN (lisp, SessionWait);
-    /* Acquire the arena.  Blocks only if all arenas are in use. */
-    dispatch_semaphore_wait(mo->arena_sem, DISPATCH_TIME_FOREVER);
-    MAC_SIGNPOST_GEN_END (lisp, SessionWait);
+  MAC_SIGNPOST_GEN_BEGIN (lisp, SessionWait);
+  /* Acquire the arena.  Blocks only if all arenas are in use. */
+  dispatch_semaphore_wait(mo->arena_sem, DISPATCH_TIME_FOREVER);
+  MAC_SIGNPOST_GEN_END (lisp, SessionWait, "Acquired Arena: %d",
+			mo->next_arena);
 #endif
-
-    mac_arena_cycle (f);
-    mac_arena_reset (arena);
-    arena->backing_scale_factor = FRAME_BACKING_SCALE_FACTOR (f);
-    mo->active_arena = arena;
-    mo->current_clip_nrects = -1;
+  mac_arena *arena = &mo->arenas[mo->next_arena];
+  if (mo->active_arena != arena) /* Double checking */
+    {
+      mac_arena_cycle (f);
+      mac_arena_reset (arena);
+      arena->backing_scale_factor = FRAME_BACKING_SCALE_FACTOR (f);
+      mo->active_arena = arena;
+      mo->current_clip_nrects = -1;
+    }
+  [frameController releaseArenaLock];
 }
 
 /* End a draw session by waiting for the backing bitmap (for any dirty

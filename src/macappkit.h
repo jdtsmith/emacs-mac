@@ -704,6 +704,10 @@ typedef NSInteger NSGlyphProperty;
 
   /* For locking the draw bitmaps/surface during draw & display. */
   os_unfair_lock drawLock;
+
+  /* Lock for arena acquisition (since both LISP and GUI can acquire an
+     arena) */
+  os_unfair_lock arenaLock;
 }
 - (instancetype)initWithEmacsFrame:(struct frame *)emacsFrame;
 - (void)setupEmacsView;
@@ -718,6 +722,8 @@ typedef NSInteger NSGlyphProperty;
 - (BOOL)tryAcquireDrawLock;
 - (void)acquireDrawLock;
 - (void)releaseDrawLock;
+- (void)acquireArenaLock;
+- (void)releaseArenaLock;
 - (WMState)windowManagerState;
 - (void)setWindowManagerState:(WMState)newState;
 - (void)updateBackingScaleFactor;
