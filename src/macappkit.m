@@ -2709,10 +2709,10 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 }
 
 /* If the frame needs display, present its accumulated dirty rects to
-   EmacsBacking.  Since we pump the NS Event loop ourselves (see
-   mac_select), this is one of the only places we can request a display
-   update from the display server (which leads to an `updateLayer'
-   call).  See also mac_force_flush.
+   EmacsBacking and display.  Since we pump the NS Event loop ourselves
+   (see mac_select), this is one of the only places we can request a
+   display update from the display server (which leads to an
+   `updateLayer' call).  See also mac_force_flush.
  */
 
 - (void)presentIfReady

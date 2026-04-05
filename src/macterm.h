@@ -777,6 +777,9 @@ extern void mac_within_gui (void (^block) (void));
 #ifdef MAC_DEBUG_SIGNPOST
 extern os_log_t _mac_sp_log_lisp, _mac_sp_log_gui, _mac_sp_log_draw, _mac_sp_log_trace;
 
+#define MAC_SIGNPOST_EVENT(cat, spname, ...) \
+  os_signpost_event_emit(_mac_sp_log_##cat, OS_SIGNPOST_ID_EXCLUSIVE, #spname, ##__VA_ARGS__)
+
 /* N.B.: In calls to these macros, category CAT is always a bare symbol
    without quotes (i.e. lisp, gui, or draw) */
 #define MAC_SIGNPOST_BEGIN(spid, cat, spname, ...)			\
@@ -815,6 +818,7 @@ extern os_log_t _mac_sp_log_lisp, _mac_sp_log_gui, _mac_sp_log_draw, _mac_sp_log
   MAC_SIGNPOST_GEN_END(draw, Draw, ##__VA_ARGS__)
 
 #else /* !DEBUG_SIGNPOST */
+#define MAC_SIGNPOST_EVENT(...)
 #define MAC_SIGNPOST_BEGIN(...)
 #define MAC_SIGNPOST_END(...)
 #define MAC_SIGNPOST_GEN_BEGIN(...)
