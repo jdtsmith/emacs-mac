@@ -44,7 +44,7 @@ Briefly:
 ### Install build tools
 
 ```bash
-brew install pkgconf texinfo
+brew install autoconf pkgconf texinfo
 ```
 
 ### Install (optional) libraries
