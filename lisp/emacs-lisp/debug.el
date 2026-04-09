@@ -195,8 +195,7 @@ the debugger will not be entered."
                ;; backtrace to stdout.  This happens for example while
                ;; handling an error in code from early-init.el with
                ;; --debug-init.
-               (and (eq t (framep (selected-frame)))
-                    (equal "initial_terminal" (terminal-name)))))
+               (frame-initial-p)))
           ;; Don't let `inhibit-message' get in our way (especially important if
           ;; `non-interactive-frame' evaluated to a non-nil value.
           (inhibit-message nil)
@@ -560,9 +559,7 @@ The environment used is the one when entering the activation frame at point."
                     (condition-case err
                         (backtrace-eval exp nframe base)
                       (error (setq errored
-                                   (format "%s: %s"
-                                           (get (car err) 'error-message)
-			                   (car (cdr err)))))))))
+                                   (error-message-string err)))))))
         (if errored
             (progn
               (message "Error: %s" errored)

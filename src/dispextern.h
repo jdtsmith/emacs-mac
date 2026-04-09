@@ -969,6 +969,9 @@ struct glyph_row
      in last row when checking if row is fully visible.  */
   int extra_line_spacing;
 
+  /* Part of extra_line_spacing that should go above the line.  */
+  int extra_line_spacing_above;
+
   /* First position in this row.  This is the text position, including
      overlay position information etc, where the display of this row
      started, and can thus be less than the position of the first
@@ -2781,6 +2784,10 @@ struct it
      window systems only.)  */
   int extra_line_spacing;
 
+  /* Default amount of additional space in pixels above lines (for
+     window systems only).  */
+  int extra_line_spacing_above;
+
   /* Max extra line spacing added in this row.  */
   int max_extra_line_spacing;
 
@@ -3254,7 +3261,7 @@ struct image
   int face_font_height;
   int face_font_width;
 
-  /* True if this image has a `transparent' background -- that is, is
+  /* True if this image has a `transparent' background -- that is, it
      uses an image mask.  The accessor macro for this is
      `IMAGE_BACKGROUND_TRANSPARENT'.  */
   bool_bf background_transparent : 1;
@@ -3600,7 +3607,8 @@ extern ptrdiff_t compute_display_string_pos (struct text_pos *,
 					     struct bidi_string_data *,
 					     struct window *, bool, int *);
 extern ptrdiff_t compute_display_string_end (ptrdiff_t,
-					     struct bidi_string_data *);
+					     struct bidi_string_data *,
+					     struct window *);
 extern void produce_stretch_glyph (struct it *);
 extern int merge_glyphless_glyph_face (struct it *);
 extern void forget_escape_and_glyphless_faces (void);

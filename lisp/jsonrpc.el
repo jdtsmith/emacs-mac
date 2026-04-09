@@ -4,7 +4,7 @@
 
 ;; Author: João Távora <joaotavora@gmail.com>
 ;; Keywords: processes, languages, extensions
-;; Version: 1.0.27
+;; Version: 1.0.28
 ;; Package-Requires: ((emacs "25.2"))
 
 ;; This is a GNU ELPA :core package.  Avoid functionality that is not
@@ -488,7 +488,8 @@ to the original request (normal or error) are ignored."
               ,@(when (plist-member args :timeout) `(:timeout  ,timeout)))))
           (cond (cancel-on-input
                  (unwind-protect
-                     (let ((inhibit-quit t)) (while (sit-for 30)))
+                     (let ((inhibit-quit t) (inhibit-redisplay t))
+                       (while (sit-for 30 t)))
                    (setq canceled t))
                  (when (functionp cancel-on-input)
                    (funcall cancel-on-input (car id-and-timer)))

@@ -459,11 +459,12 @@ Returned values:
 		"ffap-machine-p" nil host (or service "discard")))
 	      t)
 	  (error
-	   (let ((mesg (car (cdr error))))
+	   (let ((mesg (error-slot-value error 1)))
 	     (cond
 	      ;; v18:
 	      ((string-match "\\(^Unknown host\\|Name or service not known$\\)"
-			     mesg) nil)
+		             mesg)
+	       nil)
 	      ((string-match "not responding$" mesg) mesg)
 	      ;; v19:
               ;; (file-error "Connection failed" "permission denied"
@@ -473,12 +474,13 @@ Returned values:
               ;; (file-error "Connection failed" "address already in use"
 	      ;;	     "ftp.uu.net" "ffap-machine-p")
 	      ((equal mesg "connection failed")
-	       (if (string= (downcase (nth 2 error)) "permission denied")
+               (if (string-equal-ignore-case (error-slot-value error 2)
+                                             "permission denied")
 		   nil			; host does not exist
 		 ;; Other errors mean the host exists:
-		 (nth 2 error)))
+		 (error-slot-value error 2)))
 	      ;; Could be "Unknown service":
-	      (t (signal (car error) (cdr error))))))))))))
+	      (t (signal error)))))))))))
 
 
 ;;; Possibly Remote Resources:
@@ -1605,7 +1607,7 @@ which may actually result in an URL rather than a filename."
       (otherwise
        (apply operation args)))))
 
-(defun ffap-read-file-or-url (prompt guess)
+(defun ffap-read-file-or-url (prompt guess &optional read-dir)
   "Read file or URL from minibuffer, with PROMPT and initial GUESS."
   (let ((elem (cons ffap-url-regexp #'ffap--url-file-handler)))
     (unwind-protect
@@ -1621,9 +1623,14 @@ which may actually result in an URL rather than a filename."
               (setq guess default-directory))
             (unless (ffap-file-remote-p guess)
               (setq guess (abbreviate-file-name (expand-file-name guess))))
-            (read-file-name prompt
-                            (file-name-directory guess) nil nil
-                            (file-name-nondirectory guess))))
+            (funcall
+             ;; Copied from `dired-read-dir-and-switches'.
+	     (if (and read-dir (next-read-file-uses-dialog-p))
+	         #'read-directory-name
+	       #'read-file-name)
+	     prompt
+             (file-name-directory guess) nil nil
+             (file-name-nondirectory guess))))
       ;; Remove the special handler manually.  We used to just let-bind
       ;; file-name-handler-alist to preserve its value, but that caused
       ;; other modifications to be lost (e.g. when Tramp gets loaded
@@ -2156,7 +2163,8 @@ If `dired-at-point-require-prefix' is set, the prefix meaning is reversed."
 		    ((file-regular-p guess)
 		     (file-name-directory guess))
 		    (guess))))
-	 (and guess (ffap-highlight))))
+	 (and guess (ffap-highlight)))
+       'read-dir)
     (ffap-highlight t)))
 
 ;;; ffap-dired-other-*, ffap-list-directory commands:

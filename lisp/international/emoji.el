@@ -155,22 +155,26 @@ and also consults the `emoji-alternate-names' alist."
 
 ;;;###autoload
 (defun emoji-list ()
-  "List emojis and allow selecting and inserting one of them.
+  "List Emoji and allow selecting and inserting one of them.
+If you are displaying Emoji on a text-only terminal, and some
+of them look incorrect, or there are display artifacts when
+scrolling the display, turn off `auto-composition-mode'.
+
 Select the emoji by typing \\<emoji-list-mode-map>\\[emoji-list-select] on its picture.
-The glyph will be inserted into the buffer that was current
+The selected glyph will be inserted into the buffer that was current
 when the command was invoked."
   (interactive)
   (let ((buf (current-buffer)))
     (emoji--init)
     (switch-to-buffer (get-buffer-create "*Emoji*"))
-    (setq-local emoji--insert-buffer buf)
     ;; Don't regenerate the buffer if it already exists -- this will
     ;; leave point where it was the last time it was used.
     (when (zerop (buffer-size))
       (let ((inhibit-read-only t))
         (emoji-list-mode)
         (emoji--list-generate nil (cons nil emoji--labels))
-        (goto-char (point-min))))))
+        (goto-char (point-min))))
+    (setq-local emoji--insert-buffer buf)))
 
 ;;;###autoload
 (defun emoji-describe (glyph &optional interactive)

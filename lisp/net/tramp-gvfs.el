@@ -1006,7 +1006,7 @@ The global value will always be nil; it is bound where needed.")
   "Called when a D-Bus error message arrives, see `dbus-event-error-functions'."
   (when tramp-gvfs-dbus-event-vector
     (tramp-message tramp-gvfs-dbus-event-vector 6 "%S" event)
-    (tramp-error tramp-gvfs-dbus-event-vector 'file-error (cadr err))))
+    (tramp-error tramp-gvfs-dbus-event-vector 'remote-file-error (cadr err))))
 
 (add-hook 'dbus-event-error-functions #'tramp-gvfs-dbus-event-error)
 (add-hook 'tramp-gvfs-unload-hook
@@ -1479,19 +1479,7 @@ If FILE-SYSTEM is non-nil, return file system attributes."
 (defun tramp-gvfs-handle-file-name-all-completions (filename directory)
   "Like `file-name-all-completions' for Tramp files."
   (tramp-skeleton-file-name-all-completions filename directory
-    (unless (string-search "/" filename)
-      (all-completions
-       filename
-       (with-parsed-tramp-file-name (expand-file-name directory) nil
-	 (with-tramp-file-property v localname "file-name-all-completions"
-           (let (result)
-             ;; Get a list of directories and files.
-	     (dolist (item
-		      (tramp-gvfs-get-directory-attributes directory)
-		      result)
-	       (if (string-equal (cdr (assoc "type" item)) "directory")
-		   (push (file-name-as-directory (car item)) result)
-		 (push (car item) result))))))))))
+    (mapcar #'car (tramp-gvfs-get-directory-attributes directory))))
 
 (defun tramp-gvfs-handle-file-notify-add-watch (file-name flags _callback)
   "Like `file-notify-add-watch' for Tramp files."
@@ -1545,11 +1533,13 @@ If FILE-SYSTEM is non-nil, return file system attributes."
     (when rest-string
       (tramp-message proc 10 "Previous string:\n%s" rest-string))
     (tramp-message proc 6 "%S\n%s" proc string)
-    (setq string (concat rest-string string)
-          ;; Fix action names.
-          string (string-replace "attributes changed" "attribute-changed" string)
-          string (string-replace "changes done" "changes-done-hint" string)
-          string (string-replace "renamed to" "moved" string))
+    (setq string
+	  (thread-last
+	    (concat rest-string string)
+	    ;; Fix action names.
+	    (string-replace "attributes changed" "attribute-changed")
+	    (string-replace "changes done" "changes-done-hint")
+	    (string-replace "renamed to" "moved")))
     ;; https://bugs.launchpad.net/bugs/1742946
     (when
 	(string-match-p
@@ -2234,7 +2224,7 @@ connection if a previous connection has died for some reason."
 		   method)
 	       tramp-gvfs-mounttypes)
 	(tramp-error
-	 vec 'file-error "Method `%s' not supported by GVFS" method)))
+	 vec 'remote-file-error "Method `%s' not supported by GVFS" method)))
 
     ;; For password handling, we need a process bound to the
     ;; connection buffer.  Therefore, we create a dummy process.
@@ -2332,10 +2322,10 @@ connection if a previous connection has died for some reason."
 		vec 'tramp-connection-timeout tramp-connection-timeout)
 	       (if (tramp-string-empty-or-nil-p user-domain)
 		   (tramp-error
-		    vec 'file-error
+		    vec 'remote-file-error
 		    "Timeout reached mounting %s using %s" host-port method)
 		 (tramp-error
-		  vec 'file-error
+		  vec 'remote-file-error
 		  "Timeout reached mounting %s@%s using %s"
 		  user-domain host-port method)))
 	    (while (not (tramp-get-file-property vec "/" "fuse-mountpoint"))
@@ -2345,7 +2335,7 @@ connection if a previous connection has died for some reason."
 	  ;; is marked with the fuse-mountpoint "/".  We shall react.
 	  (when (string-equal
 		 (tramp-get-file-property vec "/" "fuse-mountpoint" "") "/")
-	    (tramp-error vec 'file-error "FUSE mount denied"))
+	    (tramp-error vec 'remote-file-error "FUSE mount denied"))
 
 	  ;; Save the password.
 	  (ignore-errors

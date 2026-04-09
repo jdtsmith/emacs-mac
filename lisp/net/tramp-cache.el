@@ -161,6 +161,20 @@ If KEY is `tramp-cache-undefined', don't create anything, and return nil."
 ;; would fail.
 (function-put #'tramp-get-hash-table 'tramp-suppress-trace t)
 
+(defsubst tramp-suppress-remote-file-name-inhibit-cache ()
+  "Weaken `remote-file-name-inhibit-cache'.
+This is meant to be let-bound for code over many cache operations, like
+in large directories."
+  ;; If `remote-file-name-inhibit-cache' is already `nil', keep it.
+  (cond
+   (;; A timestamp.  Keep it.
+    (consp remote-file-name-inhibit-cache) remote-file-name-inhibit-cache)
+   (;; A number of seconds.  Set a timestamp with the difference.
+    (numberp remote-file-name-inhibit-cache)
+    (time-subtract nil remote-file-name-inhibit-cache))
+   (;; Cache is disabled.  Set a timestamp from now on.
+    t (current-time))))
+
 ;;;###tramp-autoload
 (defun tramp-get-file-property (key file property &optional default)
   "Get the PROPERTY of FILE from the cache context of KEY.
@@ -202,11 +216,6 @@ Return DEFAULT if not set."
 	  (set var (1+ val))))
       value)))
 
-(add-hook 'tramp-cache-unload-hook
-	  (lambda ()
-	    (dolist (var (all-completions "tramp-cache-get-count-" obarray))
-	      (unintern var obarray))))
-
 ;;;###tramp-autoload
 (defun tramp-set-file-property (key file property value)
   "Set the PROPERTY of FILE to VALUE, in the cache context of KEY.
@@ -229,8 +238,9 @@ Return VALUE."
 
 (add-hook 'tramp-cache-unload-hook
 	  (lambda ()
-	    (dolist (var (all-completions "tramp-cache-set-count-" obarray))
-	      (unintern var obarray))))
+	    (dolist (var (apropos-internal
+			  (rx bos "tramp-cache-" (| "get" "set") "-count-")))
+	      (unintern var nil))))
 
 ;;;###tramp-autoload
 (defun tramp-file-property-p (key file property)

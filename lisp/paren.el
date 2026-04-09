@@ -103,7 +103,10 @@ If set to the symbol `child-frame', the context is shown in a
 child frame at the top-left of the window.  You might want to
 customize the `child-frame-border' face (especially the
 background color) to give the child frame a distinguished border.
-On non-graphical frames, the context is shown in the echo area."
+On non-graphical frames, the context is shown in the echo area.
+
+Note that `blink-matching-paren-highlight-offscreen' can have an
+influence on the fontification of the opening offscreen paren."
   :type '(choice (const :tag "Off" nil)
                  (const :tag "In echo area" t)
                  (const :tag "In overlay" overlay)
@@ -431,9 +434,10 @@ It is the default value of `show-paren-data-function'."
   (overlay-put show-paren--context-overlay 'priority
                show-paren-priority)
   (overlay-put show-paren--context-overlay
-               'face `(:box
-                       ( :line-width (1 . -1)
-                         :color ,(face-attribute 'shadow :foreground))))
+               'face `( :inherit default
+                        :box
+                        ( :line-width (1 . -1)
+                          :color ,(face-attribute 'shadow :foreground))))
   (add-hook 'post-command-hook #'show-paren--delete-context-overlay
             nil 'local))
 

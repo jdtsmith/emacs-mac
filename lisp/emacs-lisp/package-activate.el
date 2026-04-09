@@ -30,6 +30,8 @@
 ;; activate packages at startup, as well as other functions that are
 ;; useful without having to load the entirety of package.el.
 
+;; Note that the contents of this file are preloaded!
+
 ;;; Code:
 
 (eval-when-compile (require 'cl-lib))
@@ -61,10 +63,9 @@ If VERSION is nil, the package is not made available (it is \"disabled\")."
 
 (defvar package--default-summary "No description available.")
 
-(define-inline package-vc-p (pkg-desc)
+(defun package-vc-p (pkg-desc)
   "Return non-nil if PKG-DESC is a VC package."
-  (inline-letevals (pkg-desc)
-    (inline-quote (eq (package-desc-kind ,pkg-desc) 'vc))))
+  (eq (package-desc-kind pkg-desc) 'vc))
 
 (cl-defstruct (package-desc
                ;; Rename the default constructor from `make-package-desc'.
@@ -329,8 +330,6 @@ PKG-DESC is a `package-desc' object."
    (format "%s-autoloads" (package-desc-name pkg-desc))
    (package-desc-dir pkg-desc)))
 
-(declare-function info-initialize "info" ())
-
 (defvar package--quickstart-pkgs t
   "If set to a list, we're computing the set of pkgs to activate.")
 
@@ -338,10 +337,12 @@ PKG-DESC is a `package-desc' object."
   "Add info node located in PKG-DIR."
   (when (file-exists-p (expand-file-name "dir" pkg-dir))
     ;; FIXME: not the friendliest, but simple.
-    (require 'info)
-    (defvar Info-directory-list)
-    (info-initialize)
-    (add-to-list 'Info-directory-list pkg-dir)))
+    (defvar Info-default-directory-list)
+    (add-to-list
+     (if (boundp 'Info-directory-list)
+         'Info-directory-list
+       'Info-default-directory-list)
+     pkg-dir)))
 
 (defun package-activate-1 (pkg-desc &optional reload deps)
   "Activate package given by PKG-DESC, even if it was already active.
@@ -533,6 +534,160 @@ the `Version:' header."
         (when (file-readable-p mainfile)
           (require 'lisp-mnt)
           (lm-package-version mainfile)))))))
+
+
+;;;; Package suggestions system
+
+;; Note that only the definitions necessary to recognise package
+;; suggestions are defined here.  The user interface to select and act
+;; on package suggestions is to be found in package.el.
+
+(defcustom package-autosuggest-style 'mode-line
+  "Style of showing suggestions of `package-autosuggest-mode'.
+If the value is `mode-line' (default), Emacs indicates the availability
+of suggested packages as a button on the mode line.  The value `always'
+means prompt the user in the minibuffer every time a suggestion is available.
+The value `message' means display an echo-area message about the existence
+of a package and how to install it.
+
+This variable has effect only if `package-autosuggest-mode' is turned on.
+
+If you wish to be shown a suggestion of each package only once every
+session, consider customizing the `package-autosuggest-once' user option."
+  :type '(choice (const :tag "Indicate in mode line" mode-line)
+                 (const :tag "Prompt in minibuffer" always)
+                 (const :tag "Show echo-area message" message))
+  :group 'package
+  :version "31.1")
+
+(defcustom package-autosuggest-once nil
+  "Non-nil means show automatic suggestion for each package only once.
+If this variable is non-nil, Emacs will show an automatic suggestion
+to install a certain package only once per session, and will not repeat
+the suggestion to install the same package until you restart Emacs.
+The default value is nil, which means show the suggestions as many times
+as the criteria for suggesting it are fulfilled.
+
+This variable has effect only if `package-autosuggest-mode' is turned on."
+  :type 'boolean
+  :group 'package
+  :version "31.1")
+
+(defvar package--autosuggest-database 'unset
+  "A list of package suggestions.
+Each entry in the list is of a form suitable to for
+`package--suggestion-applies-p', which see.  The special value `unset'
+is used to indicate that `package--autosuggest-find-candidates' should
+load the database into memory.")
+
+(defvar package--autosuggest-suggested '()
+  "List of packages that have already been suggested.
+Suggestions found in this list will not count as suggestions (e.g. if
+`package-autosuggest-style' is set to `mode-line', a suggestion found in
+here will inhibit `package-autosuggest-mode' from displaying a hint in
+the mode line).")
+
+(defun package--suggestion-applies-p (sug)
+  "Check if a suggestion SUG is applicable to the current buffer.
+Each suggestion has the form (PACKAGE TYPE DATA [MAJOR-MODE]), where
+PACKAGE is a symbol denoting the package and major-mode to which the
+suggestion applies, TYPE is one of `auto-mode-alist', `magic-mode-alist'
+or `interpreter-mode-alist', indicating the type of check to be made,
+and DATA is the value to check against TYPE in the intuitive way (e.g.,
+for `auto-mode-alist' DATA is a regular expression matching a file name
+for which PACKAGE should be suggested).  If the package name and the
+major mode name differ, then an optional fourth element MAJOR-MODE can
+be used to indicate what command to invoke to enable the package."
+  (pcase sug
+    ((or (guard (not (eq major-mode 'fundamental-mode)))
+         (guard (and package-autosuggest-once
+                     (not (memq (car sug) package--autosuggest-suggested))))
+         `(,(pred package-installed-p) . ,_))
+     nil)
+    (`(,_ auto-mode-alist ,ext . ,_)
+     (and (buffer-file-name) (string-match-p ext (buffer-file-name)) t))
+    (`(,_ magic-mode-alist ,mag . ,_)
+     (without-restriction
+       (save-excursion
+         (goto-char (point-min))
+         (looking-at-p mag))))
+    (`(,_ interpreter-mode-alist ,intr . ,_)
+     (without-restriction
+       (save-excursion
+         (goto-char (point-min))
+         (and (looking-at auto-mode-interpreter-regexp)
+              (string-match-p
+               (concat "\\`" (file-name-nondirectory (match-string 2)) "\\'")
+               intr)))))))
+
+(defun package--autosuggest-find-candidates ()
+  "Return a list of suggestions that might be interesting for the current buffer.
+The elements of the returned list will have the form described
+in `package--suggestion-applies-p'."
+    (and (eq major-mode 'fundamental-mode)
+         (let ((suggetions '()))
+           (when (eq package--autosuggest-database 'unset)
+             (setq package--autosuggest-database
+                   (with-temp-buffer
+                     (insert-file-contents
+                      (expand-file-name "package-autosuggest.eld"
+                                        data-directory))
+                     (read (current-buffer)))))
+           (dolist (sug package--autosuggest-database)
+             (when (package--suggestion-applies-p sug)
+               (push sug suggetions)))
+           suggetions)))
+
+(declare-function package-autosuggest "package" (&optional candidates))
+
+(defun package--autosuggest-after-change-mode ()
+  "Display package suggestions for the current buffer.
+This function is intended for addition to `after-change-major-mode-hook'."
+  (when-let* ((avail (package--autosuggest-find-candidates)))
+    (pcase-exhaustive package-autosuggest-style
+      ('mode-line
+       (setq mode-name
+             (append
+              (ensure-list mode-name)
+              `((:propertize
+                 "[Upgrade?]"
+                 face mode-line-emphasis
+                 mouse-face mode-line-highlight
+                 help-echo "Click to see packages we suggest to improve editing in this buffer."
+                 keymap ,(let ((map (make-sparse-keymap)))
+                           (define-key map
+                                       [mode-line down-mouse-1]
+                                       #'package-autosuggest)
+                           map)))))
+       (force-mode-line-update t))
+      ('always
+       (package-autosuggest avail))
+      ('message
+       (message
+        (substitute-command-keys
+         (format "Found suggested packages: %s.  Install using  \\[package-autosuggest]"
+                 (mapconcat #'symbol-name
+                            (delete-dups (mapcar #'car avail))
+                            ", "))))
+       (dolist (rec avail)
+         (add-to-list 'package--autosuggest-suggested (car rec)))))))
+
+;;;###autoload
+(define-minor-mode package-autosuggest-mode
+  "Enable automatic suggestions for installing add-on packages.
+When this minor mode is turned on, Emacs will suggest installing
+add-on packages from ELPA whenever it determines that the buffer's
+contents and editing could benefit from a better major mode.
+
+See the variable `package-autosuggest-style' for controlling the style
+of showing these suggestions.
+Customize the variable `package-autosuggest-once' to control repetitive
+suggestions."
+  :global t :group 'package
+  ;; :initialize #'custom-initialize-delay
+  (funcall (if package-autosuggest-mode #'add-hook #'remove-hook)
+           'after-change-major-mode-hook
+           #'package--autosuggest-after-change-mode))
 
 (provide 'package-activate)
 ;;; package-activate.el ends here

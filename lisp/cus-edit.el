@@ -280,6 +280,10 @@
   "Fitting Emacs with its environment."
   :group 'emacs)
 
+(defgroup system-interface nil
+  "Interaction with the host system."
+  :group 'environment)
+
 (defgroup hardware nil
   "Support for interfacing with miscellaneous hardware."
   :group 'environment)
@@ -439,6 +443,8 @@
   "DEL"     #'scroll-down-command
   "C-c C-c" #'Custom-set
   "C-x C-s" #'Custom-save
+  "C-c C-k" #'Custom-reset-standard
+  "C-c C-i" #'Custom-goto-first-choice
   "q"       #'Custom-buffer-done
   "u"       #'Custom-goto-parent
   "n"       #'widget-forward
@@ -867,6 +873,21 @@ setting was merely edited before, this sets it then saves it."
       (dolist (widget edited-widgets)
         (widget-apply widget :custom-state-set-and-redraw)))))
 
+(defun Custom-goto-first-choice ()
+  "Move point to the first choice button in a menu.
+If no such button can be found, move to the first menu item."
+  (interactive)
+  (catch 'done
+    (dolist (ov (sort (overlays-in (point-min) (point-max))
+		      :key #'overlay-start))
+      (let ((button (overlay-get ov 'button)))
+        (when (eq (plist-get (cdr button) :action)
+		  'custom-toggle-hide-variable)
+	  (goto-char (overlay-start ov))
+          (when (plist-get (cdr button) :value)
+            (widget-forward 1))
+	  (throw 'done t))))))
+
 (defun custom-reset (_widget &optional event)
   "Select item from reset menu."
   (let* ((completion-ignore-case t)
@@ -1070,7 +1091,7 @@ even if it doesn't match the type.)
 \(fn [VARIABLE VALUE]...)"
   (declare (debug setq))
   (unless (evenp (length pairs))
-    (error "PAIRS must have an even number of variable/value members"))
+    (signal 'wrong-number-of-arguments (list 'setopt (length pairs))))
   (let ((expr nil))
     (while pairs
       (unless (symbolp (car pairs))
@@ -1086,10 +1107,52 @@ even if it doesn't match the type.)
   ;; Check that the type is correct.
   (when-let* ((type (get variable 'custom-type)))
     (unless (widget-apply (widget-convert type) :match value)
-      (warn "Value `%S' for variable `%s' does not match its type \"%s\""
-            value variable type)))
+      (warn "Value does not match %S's type `%S': %S" variable type value)))
   (put variable 'custom-check-value (list value))
   (funcall (or (get variable 'custom-set) #'set-default) variable value))
+
+;;;###autoload
+(defmacro setopt-local (&rest pairs)
+  "Set buffer local VARIABLE/VALUE pairs, and return the final VALUE.
+This is like `setq-local', but is meant for user options instead of
+plain variables.  This means that `setopt-local' will execute any
+`custom-set' form associated with VARIABLE.  Unlike `setopt',
+`setopt-local' does not affect a user option's global value.
+
+Note that `setopt-local' will emit a warning if the type of a VALUE does
+not match the type of the corresponding VARIABLE as declared by
+`defcustom'.  (VARIABLE will be assigned the value even if it doesn't
+match the type.)
+
+Signal an error if a `custom-set' form does not support the
+`buffer-local' argument.
+
+\(fn [VARIABLE VALUE]...)"
+  (declare (debug setq))
+  (unless (evenp (length pairs))
+    (signal 'wrong-number-of-arguments (list 'setopt-local (length pairs))))
+  (let ((expr nil))
+    (while pairs
+      (unless (symbolp (car pairs))
+        (error "Attempting to set a non-symbol: %s" (car pairs)))
+      (push `(setopt--set-local ',(car pairs) ,(cadr pairs))
+            expr)
+      (setq pairs (cddr pairs)))
+    (macroexp-progn (nreverse expr))))
+
+;;;###autoload
+(defun setopt--set-local (variable value)
+  (custom-load-symbol variable)
+  ;; Check that the type is correct.
+  (when-let* ((type (get variable 'custom-type)))
+    (unless (widget-apply (widget-convert type) :match value)
+      (warn "Value does not match %S's type `%S': %S" variable type value)))
+  (condition-case _
+      (funcall (or (get variable 'custom-set)
+                   (lambda (x v &optional _) (set-local x v)))
+               variable value 'buffer-local)
+    (wrong-number-of-arguments
+     (error "The setter of %S does not support setopt-local" variable))))
 
 ;;;###autoload
 (defun customize-save-variable (variable value &optional comment)

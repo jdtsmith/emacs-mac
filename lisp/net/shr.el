@@ -1535,13 +1535,15 @@ ones, in case fg and bg are nil."
     ;; Ignore attributes that start with a colon because they are
     ;; private elements.
     (unless (= (aref (format "%s" (car attr)) 0) ?:)
-      (insert (format " %s=\"%s\"" (car attr) (cdr attr)))))
+      (insert (format " %s=\"%s\""
+                      (car attr)
+                      (url-insert-entities-in-string (cdr attr))))))
   (insert ">")
   (let (url)
     (dolist (elem (dom-children dom))
       (cond
        ((stringp elem)
-	(insert elem))
+	(insert (url-insert-entities-in-string elem)))
        ((eq (dom-tag elem) 'comment)
 	)
        ((or (not (eq (dom-tag elem) 'image))
@@ -2731,7 +2733,7 @@ flags that control whether to collect or render objects."
 			(aref widths width-column)
 		      (* 10 shr-table-separator-pixel-width)))
 	      (when (setq colspan (dom-attr column 'colspan))
-		(setq colspan (min (string-to-number colspan)
+		(setq colspan (min (truncate (string-to-number colspan))
 				   ;; The colspan may be wrong, so
 				   ;; truncate it to the length of the
 				   ;; remaining columns.

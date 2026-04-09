@@ -292,6 +292,7 @@ a list of frames to update."
                   (and (eq auto-resize-tab-bars 'grow-only)
                        (> (frame-parameter frame 'tab-bar-lines) 1))
                   ;; Don't enable tab-bar in daemon's initial frame.
+                  ;; Use `frame-initial-p'?
                   (and (daemonp) (eq frame terminal-frame)))
         (set-frame-parameter frame 'tab-bar-lines
                              (tab-bar--tab-bar-lines-for-frame frame)))))
@@ -3137,10 +3138,7 @@ files will be visited."
   (interactive
    (find-file-read-args "Find file read-only in other tab: "
                         (confirm-nonexistent-file-or-buffer)))
-  (find-file--read-only (lambda (filename wildcards)
-                          (window-buffer
-                           (find-file-other-tab filename wildcards)))
-                        filename wildcards))
+  (find-file--read-only #'find-file-other-tab filename wildcards))
 
 (defun other-tab-prefix ()
   "Display the buffer of the next command in a new tab.

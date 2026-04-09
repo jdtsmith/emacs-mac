@@ -859,7 +859,7 @@ zero if WINDOW was created after that.  */)
 }
 
 DEFUN ("window-total-height", Fwindow_total_height, Swindow_total_height, 0, 2, 0,
-       doc: /* Return the height of window WINDOW in lines.
+       doc: /* Return the height of window WINDOW in canonical lines.
 WINDOW must be a valid window and defaults to the selected one.
 
 The return value includes the heights of WINDOW's mode and header line
@@ -867,17 +867,17 @@ and its bottom divider, if any.  If WINDOW is an internal window, the
 total height is the height of the screen areas spanned by its children.
 
 If WINDOW's pixel height is not an integral multiple of its frame's
-character height, the number of lines occupied by WINDOW is rounded
-internally.  This is done in a way such that, if WINDOW is a parent
-window, the sum of the total heights of all its children internally
-equals the total height of WINDOW.
+canonical character height, the number of lines occupied by WINDOW is
+rounded internally.  This is done in a way such that, if WINDOW is a
+parent window, the sum of the total heights of all its children
+internally equals the total height of WINDOW.
 
 If the optional argument ROUND is `ceiling', return the smallest integer
-larger than WINDOW's pixel height divided by the character height of
-WINDOW's frame.  ROUND `floor' means to return the largest integer
-smaller than WINDOW's pixel height divided by the character height of
-WINDOW's frame.  Any other value of ROUND means to return the internal
-total height of WINDOW.  */)
+larger than WINDOW's pixel height divided by the canonical character
+height of WINDOW's frame.  ROUND `floor' means to return the largest
+integer smaller than WINDOW's pixel height divided by the canonical
+character height of WINDOW's frame.  Any other value of ROUND means to
+return the internal total height of WINDOW.  */)
   (Lisp_Object window, Lisp_Object round)
 {
   struct window *w = decode_valid_window (window);
@@ -895,7 +895,7 @@ total height of WINDOW.  */)
 }
 
 DEFUN ("window-total-width", Fwindow_total_width, Swindow_total_width, 0, 2, 0,
-       doc: /* Return the total width of window WINDOW in columns.
+       doc: /* Return the total width of window WINDOW in canonical columns.
 WINDOW must be a valid window and defaults to the selected one.
 
 The return value includes the widths of WINDOW's fringes, margins,
@@ -904,17 +904,17 @@ window, the total width is the width of the screen areas spanned by its
 children.
 
 If WINDOW's pixel width is not an integral multiple of its frame's
-character width, the number of lines occupied by WINDOW is rounded
-internally.  This is done in a way such that, if WINDOW is a parent
-window, the sum of the total widths of all its children internally
-equals the total width of WINDOW.
+canonical character width, the number of lines occupied by WINDOW is
+rounded internally.  This is done in a way such that, if WINDOW is a
+parent window, the sum of the total widths of all its children
+internally equals the total width of WINDOW.
 
 If the optional argument ROUND is `ceiling', return the smallest integer
-larger than WINDOW's pixel width divided by the character width of
-WINDOW's frame.  ROUND `floor' means to return the largest integer
-smaller than WINDOW's pixel width divided by the character width of
-WINDOW's frame.  Any other value of ROUND means to return the internal
-total width of WINDOW.  */)
+larger than WINDOW's pixel width divided by the canonical character
+width of WINDOW's frame.  ROUND `floor' means to return the largest
+integer smaller than WINDOW's pixel width divided by the canonical
+character width of WINDOW's frame.  Any other value of ROUND means to
+return the internal total width of WINDOW.  */)
   (Lisp_Object window, Lisp_Object round)
 {
   struct window *w = decode_valid_window (window);
@@ -1145,8 +1145,8 @@ marginal areas, or scroll bars.
 
 The optional argument PIXELWISE defines the units to use for the
 width.  If nil, return the largest integer smaller than WINDOW's pixel
-width in units of the character width of WINDOW's frame.  If PIXELWISE
-is `remap' and the default face is remapped (see
+width in units of the canonical character width of WINDOW's frame.
+If PIXELWISE is `remap' and the default face is remapped (see
 `face-remapping-alist'), use the remapped face to determine the
 character width.  For any other non-nil value, return the width in
 pixels.
@@ -1170,8 +1170,8 @@ horizontal divider.
 
 The optional argument PIXELWISE defines the units to use for the
 height.  If nil, return the largest integer smaller than WINDOW's
-pixel height in units of the character height of WINDOW's frame.  If
-PIXELWISE is `remap' and the default face is remapped (see
+pixel height in units of the canonical character height of WINDOW's
+frame.  If PIXELWISE is `remap' and the default face is remapped (see
 `face-remapping-alist'), use the remapped face to determine the
 character height.  For any other non-nil value, return the height in
 pixels.  */)
@@ -5894,11 +5894,11 @@ resize_mini_window_apply (struct window *w, int delta)
  * line of text.
  */
 void
-grow_mini_window (struct window *w, int delta)
+grow_mini_window (struct window *w, int delta, int unit)
 {
   struct frame *f = XFRAME (w->frame);
   int old_height = window_body_height (w, WINDOW_BODY_IN_PIXELS);
-  int min_height = FRAME_LINE_HEIGHT (f);
+  int min_height = unit;
 
   eassert (MINI_WINDOW_P (w));
 
@@ -5926,7 +5926,7 @@ grow_mini_window (struct window *w, int delta)
 	resize_mini_window_apply (w, -XFIXNUM (grow));
     }
   FRAME_WINDOWS_FROZEN (f)
-    = window_body_height (w, WINDOW_BODY_IN_PIXELS) > FRAME_LINE_HEIGHT (f);
+    = window_body_height (w, WINDOW_BODY_IN_PIXELS) > unit;
 }
 
 /**
@@ -5936,11 +5936,10 @@ grow_mini_window (struct window *w, int delta)
  * line of text.
  */
 void
-shrink_mini_window (struct window *w)
+shrink_mini_window (struct window *w, int unit)
 {
   struct frame *f = XFRAME (w->frame);
-  int delta = (window_body_height (w, WINDOW_BODY_IN_PIXELS)
-	       - FRAME_LINE_HEIGHT (f));
+  int delta = (window_body_height (w, WINDOW_BODY_IN_PIXELS) - unit);
 
   eassert (MINI_WINDOW_P (w));
 
@@ -5959,10 +5958,10 @@ shrink_mini_window (struct window *w)
   else if (delta < 0)
     /* delta can be less than zero after adding horizontal scroll
        bar.  */
-    grow_mini_window (w, -delta);
+    grow_mini_window (w, -delta, unit);
 
   FRAME_WINDOWS_FROZEN (f)
-    = window_body_height (w, WINDOW_BODY_IN_PIXELS) > FRAME_LINE_HEIGHT (f);
+    = window_body_height (w, WINDOW_BODY_IN_PIXELS) > unit;
 }
 
 DEFUN ("resize-mini-window-internal", Fresize_mini_window_internal,
@@ -9441,10 +9440,10 @@ for displaying the new window from the window to split.  Deleting and
 resizing a window preferably resizes one adjacent window only.
 
 If this variable is t, splitting a window tries to get the space
-proportionally from all windows in the same combination.  This also
-allows splitting a window that is otherwise too small or of fixed size.
-Resizing and deleting a window proportionally resize all windows in the
-same combination.
+proportionally from all windows in the same combination.  This means
+that one can also split a window that is otherwise too small or of fixed
+size.  Resizing and deleting a window then proportionally resizes all
+windows in the same combination.
 
 Other values are reserved for future use.
 

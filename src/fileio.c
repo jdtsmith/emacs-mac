@@ -286,8 +286,7 @@ void
 report_file_errno (char const *string, Lisp_Object name, int errorno)
 {
   Lisp_Object data = get_file_errno_data (string, name, errorno);
-
-  xsignal (Fcar (data), Fcdr (data));
+  xsignal (data, Qnil);
 }
 
 /* Signal a file-access failure that set errno.  STRING describes the
@@ -774,6 +773,9 @@ create an empty directory.  The file name should end in SUFFIX.
 Do not expand PREFIX; a non-absolute PREFIX is relative to the Emacs
 working directory.  If TEXT is a string, insert it into the newly
 created file.
+
+On Posix systems, the file/directory is created with access mode bits
+that limit access to the current user.
 
 Signal an error if the file could not be created.
 
@@ -4520,7 +4522,7 @@ by calling `format-decode', which see.  */)
       /* Find the end position, which is end_offset if given,
 	 the file's end otherwise.  */
 
-      off_t endpos;
+      off_t endpos UNINIT;
       if (!giveup_match_end)
 	{
 	  endpos = end_offset;

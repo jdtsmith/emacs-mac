@@ -269,7 +269,7 @@ arguments to pass to the OPERATION."
       (setq ret
 	    (apply
 	     #'tramp-call-process
-	     v (tramp-get-method-parameter v 'tramp-login-program)
+	     v (tramp-expand-args v 'tramp-login-program)
 	     nil outbuf display
 	     (tramp-expand-args
 	      v 'tramp-login-args nil
@@ -359,7 +359,7 @@ connection if a previous connection has died for some reason."
 		 vec 'tramp-mount-args nil
 		 ?p (or (tramp-file-name-port vec) ""))))))
       (tramp-error
-       vec 'file-error "Error mounting %s" (tramp-fuse-mount-spec vec)))
+       vec 'remote-file-error "Error mounting %s" (tramp-fuse-mount-spec vec)))
 
     ;; Mark it as connected.
     (add-to-list 'tramp-fuse-mount-points (tramp-file-name-unify vec))

@@ -213,7 +213,7 @@ frame_inhibit_resize (struct frame *f, bool horizontal, Lisp_Object parameter)
 		      && !NILP (fullscreen) && !EQ (fullscreen, Qfullheight))
 		  || (!horizontal
 		      && !NILP (fullscreen) && !EQ (fullscreen, Qfullwidth))
-		  || FRAME_TERMCAP_P (f) || FRAME_MSDOS_P (f))));
+		  || is_tty_frame (f))));
 }
 
 
@@ -351,8 +351,6 @@ If FRAME is nil, use the selected frame.
 Return nil if the id has not been set.  */)
   (Lisp_Object frame)
 {
-  if (NILP (frame))
-    frame = selected_frame;
   struct frame *f = decode_live_frame (frame);
   if (f->id == 0)
     return Qnil;
@@ -565,7 +563,7 @@ frame_windows_min_size (Lisp_Object frame, Lisp_Object horizontal,
 
   /* Don't allow too small height of text-mode frames, or else cm.c
      might abort in cmcheckmagic.  */
-  if ((FRAME_TERMCAP_P (f) || FRAME_MSDOS_P (f)) && NILP (horizontal))
+  if (is_tty_frame (f) && NILP (horizontal))
     {
       int min_height = (FRAME_MENU_BAR_LINES (f) + FRAME_TAB_BAR_LINES (f)
 			+ FRAME_WANTS_MODELINE_P (f)
@@ -1579,7 +1577,7 @@ make_terminal_frame (struct terminal *terminal, Lisp_Object parent,
   f->output_data.tty->display_info = &the_only_display_info;
   if (!inhibit_window_system
       && (!FRAMEP (selected_frame) || !FRAME_LIVE_P (XFRAME (selected_frame))
-	  || XFRAME (selected_frame)->output_method == output_msdos_raw))
+	  || FRAME_MSDOS_P (XFRAME (selected_frame))))
     f->output_method = output_msdos_raw;
   else
     f->output_method = output_termcap;
@@ -1769,13 +1767,12 @@ affects all frames on the same terminal device.  */)
   struct frame *sf = SELECTED_FRAME ();
 
 #ifdef MSDOS
-  if (sf->output_method != output_msdos_raw
-      && sf->output_method != output_termcap)
+  if (!is_tty_frame (sf))
     emacs_abort ();
 #else /* not MSDOS */
 
-#if defined WINDOWSNT || defined HAVE_MACGUI /* This should work now! */
-  if (sf->output_method != output_termcap
+#ifdef defined WINDOWSNT || defined HAVE_MACGUI /* This should work now! */
+  if (!FRAME_TERMCAP_P (sf)
 #ifdef HAVE_MACGUI
       && sf->output_method != output_initial
 #endif
@@ -1996,7 +1993,7 @@ do_switch_frame (Lisp_Object frame, int track, int for_deletion, Lisp_Object nor
   if (!for_deletion && FRAME_HAS_MINIBUF_P (sf))
     resize_mini_window (XWINDOW (FRAME_MINIBUF_WINDOW (sf)), 1);
 
-  if (FRAME_TERMCAP_P (f) || FRAME_MSDOS_P (f))
+  if (is_tty_frame (f))
     {
       struct tty_display_info *tty = FRAME_TTY (f);
       Lisp_Object top_frame = tty->top_frame;
@@ -2614,7 +2611,7 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
   struct frame *f = decode_any_frame (frame);
   struct frame *sf;
   struct kboard *kb;
-  Lisp_Object frames, frame1;
+  Lisp_Object frames, frame1 UNINIT;
   int is_tooltip_frame;
   bool nochild = !FRAME_PARENT_FRAME (f);
   Lisp_Object minibuffer_child_frame = Qnil;
@@ -2759,57 +2756,81 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
 	do_switch_frame (mru_rooted_frame (f), 0, 1, Qnil);
       else
 	{
-	  Lisp_Object tail;
-	  eassume (CONSP (Vframe_list));
+	  frame1 = Qnil;
 
-	  /* Look for another visible frame on the same terminal.
-	     Do not call next_frame here because it may loop forever.
-	     See https://debbugs.gnu.org/cgi/bugreport.cgi?bug=15025.  */
-	  FOR_EACH_FRAME (tail, frame1)
+	  if (after_delete_frame_select_mru_frame
+	      && !EQ (force, Qnoelisp))
 	    {
-	      struct frame *f1 = XFRAME (frame1);
+	      /* Find the most recently used visible frame among all
+		 frames on the same terminal as FRAME, excluding FRAME
+		 which we are about to delete.  */
+	      frame1 = safe_calln (Qget_mru_frame, Qvisible, Qnil, frame);
+	      if (!NILP (frame1))
+		{
+		  struct frame *f1 = XFRAME (frame1);
 
-	      if (!EQ (frame, frame1)
-		  && !FRAME_TOOLTIP_P (f1)
-		  && FRAME_TERMINAL (f) == FRAME_TERMINAL (f1)
-		  && FRAME_VISIBLE_P (f1))
-		break;
+		  if (FRAME_TOOLTIP_P (f1)
+		      || FRAME_TERMINAL (f) != FRAME_TERMINAL (f1)
+		      || !FRAME_VISIBLE_P (f1)
+		      || EQ (frame1, frame))
+		    frame1 = Qnil;
+		}
 	    }
 
-	  /* If there is none, find *some* other frame.  */
-	  if (NILP (frame1) || EQ (frame1, frame))
+	  if (NILP (frame1))
 	    {
+	      Lisp_Object tail;
+	      eassume (CONSP (Vframe_list));
+
+	      /* Look for another visible frame on the same terminal.
+		 Do not call next_frame here because it may loop forever.
+		 See https://debbugs.gnu.org/cgi/bugreport.cgi?bug=15025.  */
 	      FOR_EACH_FRAME (tail, frame1)
 		{
 		  struct frame *f1 = XFRAME (frame1);
 
 		  if (!EQ (frame, frame1)
-		      && FRAME_LIVE_P (f1)
-		      && !FRAME_TOOLTIP_P (f1))
-		    {
-		      if (FRAME_TERMCAP_P (f1) || FRAME_MSDOS_P (f1))
-			{
-			  Lisp_Object top_frame = FRAME_TTY (f1)->top_frame;
+		      && !FRAME_TOOLTIP_P (f1)
+		      && FRAME_TERMINAL (f) == FRAME_TERMINAL (f1)
+		      && FRAME_VISIBLE_P (f1))
+		    break;
+		}
 
-			  if (!EQ (top_frame, frame))
-			    frame1 = top_frame;
+	      /* If there is none, find *some* other frame.  */
+	      if (NILP (frame1) || EQ (frame1, frame))
+		{
+		  FOR_EACH_FRAME (tail, frame1)
+		    {
+		      struct frame *f1 = XFRAME (frame1);
+
+		      if (!EQ (frame, frame1)
+			  && FRAME_LIVE_P (f1)
+			  && !FRAME_TOOLTIP_P (f1))
+			{
+			  if (is_tty_frame (f1))
+			    {
+			      Lisp_Object top_frame = FRAME_TTY (f1)->top_frame;
+
+			      if (!EQ (top_frame, frame))
+				frame1 = top_frame;
+			    }
+			  break;
 			}
-		      break;
 		    }
 		}
-	    }
 #ifdef NS_IMPL_COCOA
-	  else
-	    {
-	      /* Under NS, there is no system mechanism for choosing a new
-		 window to get focus -- it is left to application code.
-		 So the portion of THIS application interfacing with NS
-		 needs to make the frame we switch to the key window.  */
-	      struct frame *f1 = XFRAME (frame1);
-	      if (FRAME_NS_P (f1))
-		ns_make_frame_key_window (f1);
-	    }
+	      else
+		{
+		  /* Under NS, there is no system mechanism for choosing a new
+		     window to get focus -- it is left to application code.
+		     So the portion of THIS application interfacing with NS
+		     needs to make the frame we switch to the key window.  */
+		  struct frame *f1 = XFRAME (frame1);
+		  if (FRAME_NS_P (f1))
+		    ns_make_frame_key_window (f1);
+		}
 #endif
+	    }
 
 	  do_switch_frame (frame1, 0, 1, Qnil);
 	  sf = SELECTED_FRAME ();
@@ -2902,6 +2923,15 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
      promise that the terminal of the frame must be valid until we
      have called the window-system-dependent frame destruction
      routine.  */
+  /* Remember if this was a GUI child frame, so we can
+     process pending window system events after destruction.  */
+  bool was_gui_child_frame = FRAME_WINDOW_P (f) && FRAME_PARENT_FRAME (f);
+#ifdef HAVE_X_WINDOWS
+  /* Save the X display before the frame is destroyed, so we can
+     sync with the X server afterwards.  */
+  Display *child_frame_display = (was_gui_child_frame && FRAME_X_P (f)
+				  ? FRAME_X_DISPLAY (f) : NULL);
+#endif
   {
     struct terminal *terminal;
     block_input ();
@@ -2910,6 +2940,24 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
     terminal = FRAME_TERMINAL (f);
     f->terminal = 0;             /* Now the frame is dead.  */
     unblock_input ();
+
+    /* When a GUI child frame is deleted, the window system may
+       generate events that affect the parent frame (e.g.
+       ConfigureNotify, Expose, etc.).  We need to sync with the
+       X server to ensure all events from the frame destruction
+       have been received, then process them to ensure subsequent
+       operations like `recenter' see up-to-date window state.
+       (Bug#76186)  */
+#ifdef HAVE_X_WINDOWS
+    if (child_frame_display)
+      {
+	block_input ();
+	XSync (child_frame_display, False);
+	unblock_input ();
+      }
+#endif
+    if (was_gui_child_frame)
+      swallow_events (false);
 
     /* Clear markers and overlays set by F on behalf of an input
        method.  */
@@ -5478,17 +5526,59 @@ void
 gui_set_line_spacing (struct frame *f, Lisp_Object new_value, Lisp_Object old_value)
 {
   if (NILP (new_value))
-    f->extra_line_spacing = 0;
+    {
+      f->extra_line_spacing = 0;
+      f->extra_line_spacing_above = 0;
+    }
   else if (RANGED_FIXNUMP (0, new_value, INT_MAX))
-    f->extra_line_spacing = XFIXNAT (new_value);
+    {
+      f->extra_line_spacing = XFIXNAT (new_value);
+      f->extra_line_spacing_above = 0;
+    }
   else if (FLOATP (new_value))
     {
-      int new_spacing = XFLOAT_DATA (new_value) * FRAME_LINE_HEIGHT (f) + 0.5;
+      int new_spacing = XFLOAT_DATA (new_value) * FRAME_LINE_HEIGHT (f);
 
-      if (new_spacing >= 0)
+      if (new_spacing >= 0) {
 	f->extra_line_spacing = new_spacing;
+        f->extra_line_spacing_above = 0;
+      }
       else
 	signal_error ("Invalid line-spacing", new_value);
+    }
+  else if (CONSP (new_value))
+    {
+      Lisp_Object above = XCAR (new_value);
+      Lisp_Object below = XCDR (new_value);
+
+      /* Integer pair case.  */
+      if (RANGED_FIXNUMP (0, above, INT_MAX)
+	  && RANGED_FIXNUMP (0, below, INT_MAX))
+	{
+	  f->extra_line_spacing = XFIXNAT (above) + XFIXNAT (below);
+	  f->extra_line_spacing_above = XFIXNAT (above);
+	}
+
+      /* Float pair case.  */
+      else if (FLOATP (XCAR (new_value))
+	       && FLOATP (XCDR (new_value)))
+	{
+	  int new_spacing = (XFLOAT_DATA (above) + XFLOAT_DATA (below)) * FRAME_LINE_HEIGHT (f);
+	  int spacing_above = XFLOAT_DATA (above) * FRAME_LINE_HEIGHT (f);
+	  if(new_spacing >= 0 && spacing_above >= 0)
+	    {
+	      f->extra_line_spacing = new_spacing;
+	      f->extra_line_spacing_above = spacing_above;
+	    }
+	  else
+	    signal_error ("Invalid line-spacing", new_value);
+	}
+
+      /* Unmatched pair case.  */
+      else
+	{
+	  signal_error ("Invalid line-spacing", new_value);
+	}
     }
   else
     signal_error ("Invalid line-spacing", new_value);
@@ -7143,6 +7233,7 @@ syms_of_frame (void)
   DEFSYM (Qframe_monitor_attributes, "frame-monitor-attributes");
   DEFSYM (Qwindow__pixel_to_total, "window--pixel-to-total");
   DEFSYM (Qmake_initial_minibuffer_frame, "make-initial-minibuffer-frame");
+  DEFSYM (Qget_mru_frame, "get-mru-frame");
   DEFSYM (Qexplicit_name, "explicit-name");
   DEFSYM (Qheight, "height");
   DEFSYM (Qicon, "icon");
@@ -7717,6 +7808,13 @@ The default is \\+`inhibit' in NS builds and nil everywhere else.  */);
 #else
   alter_fullscreen_frames = Qnil;
 #endif
+
+  DEFVAR_BOOL ("after-delete-frame-select-mru-frame",
+	       after_delete_frame_select_mru_frame,
+	       doc: /* Non-nil means `delete-frame' selects most recently used frame.
+If this is nil, `delete-frame' will select the oldest visible frame on
+the same terminal.  */);
+  after_delete_frame_select_mru_frame = true;
 
   defsubr (&Sframe_id);
   defsubr (&Sframep);

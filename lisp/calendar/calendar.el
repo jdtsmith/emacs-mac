@@ -440,6 +440,10 @@ pre-existing calendar windows."
   :version "23.1")
 
 
+(defvar calendar-total-months 3
+  "Number of months displayed in the calendar.
+It is made buffer-local automatically in calendar-mode buffers.")
+
 (defvar calendar-month-digit-width nil
   "Width of the region with numbers in each month in the calendar.")
 
@@ -447,14 +451,17 @@ pre-existing calendar windows."
   "Full width of each month in the calendar.")
 
 (defvar calendar-right-margin nil
-  "Right margin of the calendar.")
+  "Right margin of the calendar.
+It is made buffer-local automatically in calendar-mode buffers.")
 
 (defvar calendar-month-edges nil
   "Alist of month edge columns.
 Each element has the form (N LEFT FIRST LAST RIGHT), where
 LEFT is the leftmost column associated with month segment N,
 FIRST and LAST are the first and last columns with day digits in,
-and LAST is the rightmost column.")
+and RIGHT is the rightmost column.
+
+It is made buffer-local automatically in calendar-mode buffers.")
 
 (defvar calendar-mark-holidays nil
   "Variable version of the user option `calendar-mark-holidays-flag'.")
@@ -492,10 +499,12 @@ rightmost column."
         calendar-month-width (+ (* 7 calendar-column-width)
                                 calendar-intermonth-spacing)
         calendar-right-margin (+ calendar-left-margin
-                                   (* 3 (* 7 calendar-column-width))
-                                   (* 2 calendar-intermonth-spacing))
+                                 (* calendar-total-months
+                                    (* 7 calendar-column-width))
+                                 (* (1- calendar-total-months)
+                                    calendar-intermonth-spacing))
         calendar-month-edges nil)
-  (dotimes (i 3)
+  (dotimes (i calendar-total-months)
     (push (cons i (calendar-month-edges i)) calendar-month-edges))
   (setq calendar-month-edges (reverse calendar-month-edges)))
 
@@ -871,7 +880,15 @@ current word of the diary entry, so in no case can the pattern match more than
 a portion of the first word of the diary entry.
 
 For examples of three common styles, see `diary-american-date-forms',
-`diary-european-date-forms', and `diary-iso-date-forms'."
+`diary-european-date-forms', and `diary-iso-date-forms'.
+
+If you customize this variable, you should also customize the variable
+`diary-date-insertion-form' to contain a pseudo-pattern which produces
+dates that match one of the forms in this variable. (If
+`diary-date-insertion-form' does not correspond to one of the patterns
+in this variable, then the diary will not recognize such dates,
+including those inserted into the diary from the calendar with
+`diary-insert-entry'.)"
   :type '(repeat (choice (cons :tag "Backup"
                                :value (backup . nil)
                                (const backup)
@@ -893,6 +910,50 @@ For examples of three common styles, see `diary-american-date-forms',
            ;; to pick up any newly recognized entries.
            (and (diary-live-p)
                 (diary))))
+  :group 'diary)
+
+(defconst diary-american-date-insertion-form '(month "/" day "/" year)
+  "Pseudo-pattern for American dates in `diary-date-insertion-form'")
+
+(defconst diary-european-date-insertion-form '(day "/" month "/" year)
+  "Pseudo-pattern for European dates in `diary-date-insertion-form'")
+
+(defconst diary-iso-date-insertion-form '(year "/" month "/" day)
+  "Pseudo-pattern for ISO dates in `diary-date-insertion-form'")
+
+(defcustom diary-date-insertion-form
+  (cond ((eq calendar-date-style 'iso) diary-iso-date-insertion-form)
+        ((eq calendar-date-style 'european) diary-european-date-insertion-form)
+        (t diary-american-date-insertion-form))
+  "Pseudo-pattern describing how to format a date for a new diary entry.
+
+A pseudo-pattern is a list of expressions that can include the symbols
+`month', `day', and `year' (all numbers in string form), and `monthname'
+and `dayname' (both alphabetic strings).  For example, a typical American
+form would be
+
+       (month \"/\" day \"/\" (substring year -2))
+
+whereas
+
+       ((format \"%9s, %9s %2s, %4s\" dayname monthname day year))
+
+would give the usual American style in fixed-length fields.
+
+This pattern will be used by `calendar-date-string' (which see) to
+format dates when inserting them with `diary-insert-entry', or when
+importing them from other formats into the diary.
+
+If you customize this variable, you should also customize the variable
+`diary-date-forms' to include a pseudo-pattern which matches dates
+produced by this pattern.  (If there is no corresponding pattern in
+`diary-date-forms', then the diary will not recognize such dates,
+including those inserted into the diary from the calendar with
+`diary-insert-entry'.)"
+  :version "31.1"
+  :type 'sexp
+  :risky t
+  :set-after '(calendar-date-style)
   :group 'diary)
 
 ;; Next three are provided to aid in setting calendar-date-display-form.
@@ -1028,7 +1089,9 @@ The valid styles are described in the documentation of `calendar-date-style'."
         calendar-month-header
         (symbol-value (intern-soft (format "calendar-%s-month-header" style)))
         diary-date-forms
-        (symbol-value (intern-soft (format "diary-%s-date-forms" style))))
+        (symbol-value (intern-soft (format "diary-%s-date-forms" style)))
+        diary-date-insertion-form
+        (symbol-value (intern-soft (format "diary-%s-date-insertion-form" style))))
   (calendar-redraw))
 
 (defcustom diary-show-holidays-flag t
@@ -1098,7 +1161,7 @@ Otherwise, use symbolic time zones like \"CET\"."
 (defconst calendar-first-date-row 3
   "First row in the calendar with actual dates.")
 
-(defconst calendar-buffer "*Calendar*"
+(defvar calendar-buffer "*Calendar*"
   "Name of the buffer used for the calendar.")
 
 (defun calendar-get-buffer ()
@@ -1297,6 +1360,16 @@ return negative results."
               (/ offset-years 400)
               (calendar-day-number '(12 31 -1))))))) ; days in year 1 BC
 
+;; This function is the inverse of `calendar-day-number':
+(defun calendar-date-from-day-of-year (year dayno)
+  "Return the date of the DAYNO-th day in YEAR.
+DAYNO must be an integer between -366 and 366."
+  (calendar-gregorian-from-absolute
+   (+ (if (< dayno 0)
+          (+ 1 dayno (if (calendar-leap-year-p year) 366 365))
+        dayno)
+      (calendar-absolute-from-gregorian (list 12 31 (1- year))))))
+
 ;;;###autoload
 (defun calendar (&optional arg)
   "Display a three-month Gregorian calendar.
@@ -1469,7 +1542,7 @@ Optional integers MON and YR are used instead of today's date."
         displayed-year year)
   (erase-buffer)
   (calendar-increment-month month year -1)
-  (dotimes (i 3)
+  (dotimes (i calendar-total-months)
     (calendar-generate-month month year
                              (+ calendar-left-margin
                                 (* calendar-month-width i)))
@@ -1598,143 +1671,143 @@ Otherwise, use the selected window of EVENT's frame."
                  mark-defun mark-whole-buffer mark-page
                  downcase-region upcase-region kill-region
                  copy-region-as-kill capitalize-region write-region))
-      (define-key map (vector 'remap c) 'calendar-not-implemented))
-    (define-key map "<"     'calendar-scroll-right)
-    (define-key map "\C-x<" 'calendar-scroll-right)
-    (define-key map [S-wheel-up] 'calendar-scroll-right)
-    (define-key map [prior] 'calendar-scroll-right-three-months)
-    (define-key map "\ev"   'calendar-scroll-right-three-months)
-    (define-key map [wheel-up] 'calendar-scroll-right-three-months)
-    (define-key map [M-wheel-up] 'calendar-backward-year)
-    (define-key map ">"     'calendar-scroll-left)
-    (define-key map "\C-x>" 'calendar-scroll-left)
-    (define-key map [S-wheel-down] 'calendar-scroll-left)
-    (define-key map [next]  'calendar-scroll-left-three-months)
-    (define-key map "\C-v"  'calendar-scroll-left-three-months)
-    (define-key map [wheel-down] 'calendar-scroll-left-three-months)
-    (define-key map [M-wheel-down] 'calendar-forward-year)
-    (define-key map "\C-l"  'calendar-recenter)
-    (define-key map "\C-b"  'calendar-backward-day)
-    (define-key map "\C-p"  'calendar-backward-week)
-    (define-key map "\e{"   'calendar-backward-month)
-    (define-key map "{"   'calendar-backward-month)
-    (define-key map "\C-x[" 'calendar-backward-year)
-    (define-key map "[" 'calendar-backward-year)
-    (define-key map "\C-f"  'calendar-forward-day)
-    (define-key map "\C-n"  'calendar-forward-week)
-    (define-key map [left]  'calendar-backward-day)
-    (define-key map [up]    'calendar-backward-week)
-    (define-key map [right] 'calendar-forward-day)
-    (define-key map [down]  'calendar-forward-week)
-    (define-key map "\e}"   'calendar-forward-month)
-    (define-key map "}"   'calendar-forward-month)
-    (define-key map "\C-x]" 'calendar-forward-year)
-    (define-key map "]" 'calendar-forward-year)
-    (define-key map "\C-a"  'calendar-beginning-of-week)
-    (define-key map "\C-e"  'calendar-end-of-week)
-    (define-key map "\ea"   'calendar-beginning-of-month)
-    (define-key map "\ee"   'calendar-end-of-month)
-    (define-key map "\e<"   'calendar-beginning-of-year)
-    (define-key map "\e>"   'calendar-end-of-year)
-    (define-key map "\C-@"  'calendar-set-mark)
+      (define-key map (vector 'remap c) #'calendar-not-implemented))
+    (define-key map "<"     #'calendar-scroll-right)
+    (define-key map "\C-x<" #'calendar-scroll-right)
+    (define-key map [S-wheel-up] #'calendar-scroll-right)
+    (define-key map [prior] #'calendar-scroll-calendar-right)
+    (define-key map "\ev"   #'calendar-scroll-calendar-right)
+    (define-key map [wheel-up] #'calendar-scroll-calendar-right)
+    (define-key map [M-wheel-up] #'calendar-backward-year)
+    (define-key map ">"     #'calendar-scroll-left)
+    (define-key map "\C-x>" #'calendar-scroll-left)
+    (define-key map [S-wheel-down] #'calendar-scroll-left)
+    (define-key map [next]  #'calendar-scroll-calendar-left)
+    (define-key map "\C-v"  #'calendar-scroll-calendar-left)
+    (define-key map [wheel-down] #'calendar-scroll-calendar-left)
+    (define-key map [M-wheel-down] #'calendar-forward-year)
+    (define-key map "\C-l"  #'calendar-recenter)
+    (define-key map "\C-b"  #'calendar-backward-day)
+    (define-key map "\C-p"  #'calendar-backward-week)
+    (define-key map "\e{"   #'calendar-backward-month)
+    (define-key map "{"   #'calendar-backward-month)
+    (define-key map "\C-x[" #'calendar-backward-year)
+    (define-key map "[" #'calendar-backward-year)
+    (define-key map "\C-f"  #'calendar-forward-day)
+    (define-key map "\C-n"  #'calendar-forward-week)
+    (define-key map [left]  #'calendar-backward-day)
+    (define-key map [up]    #'calendar-backward-week)
+    (define-key map [right] #'calendar-forward-day)
+    (define-key map [down]  #'calendar-forward-week)
+    (define-key map "\e}"   #'calendar-forward-month)
+    (define-key map "}"   #'calendar-forward-month)
+    (define-key map "\C-x]" #'calendar-forward-year)
+    (define-key map "]" #'calendar-forward-year)
+    (define-key map "\C-a"  #'calendar-beginning-of-week)
+    (define-key map "\C-e"  #'calendar-end-of-week)
+    (define-key map "\ea"   #'calendar-beginning-of-month)
+    (define-key map "\ee"   #'calendar-end-of-month)
+    (define-key map "\e<"   #'calendar-beginning-of-year)
+    (define-key map "\e>"   #'calendar-end-of-year)
+    (define-key map "\C-@"  #'calendar-set-mark)
     ;; Many people are used to typing C-SPC and getting C-@.
-    (define-key map [?\C-\s] 'calendar-set-mark)
-    (define-key map "\C-x\C-x" 'calendar-exchange-point-and-mark)
-    (define-key map "\e=" 'calendar-count-days-region)
-    (define-key map "gd"  'calendar-goto-date)
-    (define-key map "gD"  'calendar-goto-day-of-year)
-    (define-key map "gj"  'calendar-julian-goto-date)
-    (define-key map "ga"  'calendar-astro-goto-day-number)
-    (define-key map "gh"  'calendar-hebrew-goto-date)
-    (define-key map "gi"  'calendar-islamic-goto-date)
-    (define-key map "gb"  'calendar-bahai-goto-date)
-    (define-key map "gC"  'calendar-chinese-goto-date)
-    (define-key map "gk"  'calendar-coptic-goto-date)
-    (define-key map "ge"  'calendar-ethiopic-goto-date)
-    (define-key map "gp"  'calendar-persian-goto-date)
-    (define-key map "gc"  'calendar-iso-goto-date)
-    (define-key map "gw"  'calendar-iso-goto-week)
-    (define-key map "gf"  'calendar-french-goto-date)
-    (define-key map "gml"  'calendar-mayan-goto-long-count-date)
-    (define-key map "gmpc" 'calendar-mayan-previous-round-date)
-    (define-key map "gmnc" 'calendar-mayan-next-round-date)
-    (define-key map "gmph" 'calendar-mayan-previous-haab-date)
-    (define-key map "gmnh" 'calendar-mayan-next-haab-date)
-    (define-key map "gmpt" 'calendar-mayan-previous-tzolkin-date)
-    (define-key map "gmnt" 'calendar-mayan-next-tzolkin-date)
-    (define-key map "Aa"   'appt-add)
+    (define-key map [?\C-\s] #'calendar-set-mark)
+    (define-key map "\C-x\C-x" #'calendar-exchange-point-and-mark)
+    (define-key map "\e=" #'calendar-count-days-region)
+    (define-key map "gd"  #'calendar-goto-date)
+    (define-key map "gD"  #'calendar-goto-day-of-year)
+    (define-key map "gj"  #'calendar-julian-goto-date)
+    (define-key map "ga"  #'calendar-astro-goto-day-number)
+    (define-key map "gh"  #'calendar-hebrew-goto-date)
+    (define-key map "gi"  #'calendar-islamic-goto-date)
+    (define-key map "gb"  #'calendar-bahai-goto-date)
+    (define-key map "gC"  #'calendar-chinese-goto-date)
+    (define-key map "gk"  #'calendar-coptic-goto-date)
+    (define-key map "ge"  #'calendar-ethiopic-goto-date)
+    (define-key map "gp"  #'calendar-persian-goto-date)
+    (define-key map "gc"  #'calendar-iso-goto-date)
+    (define-key map "gw"  #'calendar-iso-goto-week)
+    (define-key map "gf"  #'calendar-french-goto-date)
+    (define-key map "gml"  #'calendar-mayan-goto-long-count-date)
+    (define-key map "gmpc" #'calendar-mayan-previous-round-date)
+    (define-key map "gmnc" #'calendar-mayan-next-round-date)
+    (define-key map "gmph" #'calendar-mayan-previous-haab-date)
+    (define-key map "gmnh" #'calendar-mayan-next-haab-date)
+    (define-key map "gmpt" #'calendar-mayan-previous-tzolkin-date)
+    (define-key map "gmnt" #'calendar-mayan-next-tzolkin-date)
+    (define-key map "Aa"   #'appt-add)
     (define-key map "Ad"   'appt-delete)
-    (define-key map "S"   'calendar-sunrise-sunset)
-    (define-key map "M"   'calendar-lunar-phases)
-    (define-key map " "   'scroll-other-window)
-    (define-key map [?\S-\ ] 'scroll-other-window-down)
-    (define-key map "\d"  'scroll-other-window-down)
-    (define-key map "\C-c\C-l" 'calendar-redraw)
-    (define-key map "."   'calendar-goto-today)
-    (define-key map "o"   'calendar-other-month)
-    (define-key map "q"   'calendar-exit)
-    (define-key map "a"   'calendar-list-holidays)
-    (define-key map "h"   'calendar-cursor-holidays)
-    (define-key map "x"   'calendar-mark-holidays)
-    (define-key map "u"   'calendar-unmark)
-    (define-key map "m"   'diary-mark-entries)
-    (define-key map "d"   'diary-view-entries)
-    (define-key map "D"   'diary-view-other-diary-entries)
-    (define-key map "s"   'diary-show-all-entries)
-    (define-key map "pd"  'calendar-print-day-of-year)
-    (define-key map "pC"  'calendar-chinese-print-date)
-    (define-key map "pk"  'calendar-coptic-print-date)
-    (define-key map "pe"  'calendar-ethiopic-print-date)
-    (define-key map "pp"  'calendar-persian-print-date)
-    (define-key map "pc"  'calendar-iso-print-date)
-    (define-key map "pj"  'calendar-julian-print-date)
-    (define-key map "pa"  'calendar-astro-print-day-number)
-    (define-key map "ph"  'calendar-hebrew-print-date)
-    (define-key map "pi"  'calendar-islamic-print-date)
-    (define-key map "pb"  'calendar-bahai-print-date)
-    (define-key map "pf"  'calendar-french-print-date)
-    (define-key map "pm"  'calendar-mayan-print-date)
-    (define-key map "po"  'calendar-print-other-dates)
-    (define-key map "id"  'diary-insert-entry)
-    (define-key map "iw"  'diary-insert-weekly-entry)
-    (define-key map "im"  'diary-insert-monthly-entry)
-    (define-key map "iy"  'diary-insert-yearly-entry)
-    (define-key map "ia"  'diary-insert-anniversary-entry)
-    (define-key map "ib"  'diary-insert-block-entry)
-    (define-key map "ic"  'diary-insert-cyclic-entry)
-    (define-key map "ihd" 'diary-hebrew-insert-entry)
-    (define-key map "ihm" 'diary-hebrew-insert-monthly-entry)
-    (define-key map "ihy" 'diary-hebrew-insert-yearly-entry)
-    (define-key map "iid" 'diary-islamic-insert-entry)
-    (define-key map "iim" 'diary-islamic-insert-monthly-entry)
-    (define-key map "iiy" 'diary-islamic-insert-yearly-entry)
-    (define-key map "iBd" 'diary-bahai-insert-entry)
-    (define-key map "iBm" 'diary-bahai-insert-monthly-entry)
-    (define-key map "iBy" 'diary-bahai-insert-yearly-entry)
-    (define-key map "iCd" 'diary-chinese-insert-entry)
-    (define-key map "iCm" 'diary-chinese-insert-monthly-entry)
-    (define-key map "iCy" 'diary-chinese-insert-yearly-entry)
-    (define-key map "iCa" 'diary-chinese-insert-anniversary-entry)
-    (define-key map "?"   'calendar-goto-info-node)
-    (define-key map "Hm" 'cal-html-cursor-month)
-    (define-key map "Hy" 'cal-html-cursor-year)
-    (define-key map "tm" 'cal-tex-cursor-month)
-    (define-key map "tM" 'cal-tex-cursor-month-landscape)
-    (define-key map "td" 'cal-tex-cursor-day)
-    (define-key map "tw1" 'cal-tex-cursor-week)
-    (define-key map "tw2" 'cal-tex-cursor-week2)
-    (define-key map "tw3" 'cal-tex-cursor-week-iso) ; FIXME twi ?
-    (define-key map "tw4" 'cal-tex-cursor-week-monday) ; twm ?
-    (define-key map "twW" 'cal-tex-cursor-week2-summary)
-    (define-key map "tfd" 'cal-tex-cursor-filofax-daily)
-    (define-key map "tfw" 'cal-tex-cursor-filofax-2week)
-    (define-key map "tfW" 'cal-tex-cursor-filofax-week)
-    (define-key map "tfy" 'cal-tex-cursor-filofax-year)
-    (define-key map "ty" 'cal-tex-cursor-year)
-    (define-key map "tY" 'cal-tex-cursor-year-landscape)
+    (define-key map "S"   #'calendar-sunrise-sunset)
+    (define-key map "M"   #'calendar-lunar-phases)
+    (define-key map " "   #'scroll-other-window)
+    (define-key map [?\S-\ ] #'scroll-other-window-down)
+    (define-key map "\d"  #'scroll-other-window-down)
+    (define-key map "\C-c\C-l" #'calendar-redraw)
+    (define-key map "."   #'calendar-goto-today)
+    (define-key map "o"   #'calendar-other-month)
+    (define-key map "q"   #'calendar-exit)
+    (define-key map "a"   #'calendar-list-holidays)
+    (define-key map "h"   #'calendar-cursor-holidays)
+    (define-key map "x"   #'calendar-mark-holidays)
+    (define-key map "u"   #'calendar-unmark)
+    (define-key map "m"   #'diary-mark-entries)
+    (define-key map "d"   #'diary-view-entries)
+    (define-key map "D"   #'diary-view-other-diary-entries)
+    (define-key map "s"   #'diary-show-all-entries)
+    (define-key map "pd"  #'calendar-print-day-of-year)
+    (define-key map "pC"  #'calendar-chinese-print-date)
+    (define-key map "pk"  #'calendar-coptic-print-date)
+    (define-key map "pe"  #'calendar-ethiopic-print-date)
+    (define-key map "pp"  #'calendar-persian-print-date)
+    (define-key map "pc"  #'calendar-iso-print-date)
+    (define-key map "pj"  #'calendar-julian-print-date)
+    (define-key map "pa"  #'calendar-astro-print-day-number)
+    (define-key map "ph"  #'calendar-hebrew-print-date)
+    (define-key map "pi"  #'calendar-islamic-print-date)
+    (define-key map "pb"  #'calendar-bahai-print-date)
+    (define-key map "pf"  #'calendar-french-print-date)
+    (define-key map "pm"  #'calendar-mayan-print-date)
+    (define-key map "po"  #'calendar-print-other-dates)
+    (define-key map "id"  #'diary-insert-entry)
+    (define-key map "iw"  #'diary-insert-weekly-entry)
+    (define-key map "im"  #'diary-insert-monthly-entry)
+    (define-key map "iy"  #'diary-insert-yearly-entry)
+    (define-key map "ia"  #'diary-insert-anniversary-entry)
+    (define-key map "ib"  #'diary-insert-block-entry)
+    (define-key map "ic"  #'diary-insert-cyclic-entry)
+    (define-key map "ihd" #'diary-hebrew-insert-entry)
+    (define-key map "ihm" #'diary-hebrew-insert-monthly-entry)
+    (define-key map "ihy" #'diary-hebrew-insert-yearly-entry)
+    (define-key map "iid" #'diary-islamic-insert-entry)
+    (define-key map "iim" #'diary-islamic-insert-monthly-entry)
+    (define-key map "iiy" #'diary-islamic-insert-yearly-entry)
+    (define-key map "iBd" #'diary-bahai-insert-entry)
+    (define-key map "iBm" #'diary-bahai-insert-monthly-entry)
+    (define-key map "iBy" #'diary-bahai-insert-yearly-entry)
+    (define-key map "iCd" #'diary-chinese-insert-entry)
+    (define-key map "iCm" #'diary-chinese-insert-monthly-entry)
+    (define-key map "iCy" #'diary-chinese-insert-yearly-entry)
+    (define-key map "iCa" #'diary-chinese-insert-anniversary-entry)
+    (define-key map "?"   #'calendar-goto-info-node)
+    (define-key map "Hm" #'cal-html-cursor-month)
+    (define-key map "Hy" #'cal-html-cursor-year)
+    (define-key map "tm" #'cal-tex-cursor-month)
+    (define-key map "tM" #'cal-tex-cursor-month-landscape)
+    (define-key map "td" #'cal-tex-cursor-day)
+    (define-key map "tw1" #'cal-tex-cursor-week)
+    (define-key map "tw2" #'cal-tex-cursor-week2)
+    (define-key map "tw3" #'cal-tex-cursor-week-iso) ; FIXME twi ?
+    (define-key map "tw4" #'cal-tex-cursor-week-monday) ; twm ?
+    (define-key map "twW" #'cal-tex-cursor-week2-summary)
+    (define-key map "tfd" #'cal-tex-cursor-filofax-daily)
+    (define-key map "tfw" #'cal-tex-cursor-filofax-2week)
+    (define-key map "tfW" #'cal-tex-cursor-filofax-week)
+    (define-key map "tfy" #'cal-tex-cursor-filofax-year)
+    (define-key map "ty" #'cal-tex-cursor-year)
+    (define-key map "tY" #'cal-tex-cursor-year-landscape)
 
-    (define-key map [menu-bar edit] 'undefined)
-    (define-key map [menu-bar search] 'undefined)
+    (define-key map [menu-bar edit] #'undefined)
+    (define-key map [menu-bar search] #'undefined)
 
     (easy-menu-define nil map nil cal-menu-sunmoon-menu)
     (easy-menu-define nil map nil cal-menu-diary-menu)
@@ -1842,6 +1915,9 @@ For a complete description, see the info node `Calendar/Diary'.
         buffer-undo-list t
         indent-tabs-mode nil)
   (setq-local scroll-margin 0) ; bug#10379
+  (make-local-variable 'calendar-total-months)
+  (make-local-variable 'calendar-right-margin)
+  (make-local-variable 'calendar-month-edges)
   (calendar-update-mode-line)
   (make-local-variable 'calendar-mark-ring)
   (make-local-variable 'displayed-month) ; month in middle of window
@@ -1983,7 +2059,8 @@ use instead of point."
            (integerp (posn-point event))
            (goto-char (posn-point event)))
       (let* ((segment (calendar-column-to-segment))
-             (month (% (+ displayed-month (1- segment)) 12)))
+             (month-index (+ displayed-month (1- segment)))
+             (month (% month-index 12)))
         ;; Call with point on either of the two digits in a 2-digit date,
         ;; or on or before the digit of a 1-digit date.
         (if (not (and (looking-at "[ 0-9]?[0-9][^0-9]")
@@ -1999,8 +2076,8 @@ use instead of point."
                  (buffer-substring (1+ (point))
                                    (+ 1 calendar-day-digit-width (point))))
                 (cond
-                 ((and (= 12 month) (zerop segment)) (1- displayed-year))
-                 ((and (= 1 month) (= segment 2)) (1+ displayed-year))
+                 ((< month-index 1) (1- displayed-year))
+                 ((> month-index 12) (1+ displayed-year))
                  (t displayed-year))))))))
 
 ;; The following version of calendar-gregorian-from-absolute is preferred for
@@ -2463,12 +2540,115 @@ interpreted as BC; -1 being 1 BC, and so on."
 (defun calendar-date-is-visible-p (date)
   "Return non-nil if DATE is valid and is visible in the calendar window."
   (and (calendar-date-is-valid-p date)
-       (< (abs (calendar-interval
-                displayed-month displayed-year
-                (calendar-extract-month date) (calendar-extract-year date)))
-          2)))
+       (< -2 (calendar-interval
+              displayed-month displayed-year
+              (calendar-extract-month date) (calendar-extract-year date))
+          (1- calendar-total-months))))
 
-;; FIXME can this be generalized for holiday-chinese?
+(defun calendar-get-month-range ()
+  "Return a list (M1 Y1 M2 Y2) as the range of current calendar."
+  (let* ((y1 displayed-year)
+         (y2 displayed-year)
+         (m1 (1- displayed-month))
+         (m2 (% (+ (1- m1) calendar-total-months) 12)))
+    (if (= m2 0) (setq m2 12))
+    (cond
+     ((> m1 1)
+      (when (< m2 m1) (setq y2 (1+ y1))))
+     ((= m1 0)
+      (setq m1 12 y1 (1- y1))))
+    (list m1 y1 m2 y2)))
+
+(defun calendar-get-date-range (&optional full)
+  "Return a pair of dates corresponding to the range of current calendar.
+The day in the date is 1 by default.  If optional argument FULL is
+non-nil, the day in the end date is the last day."
+  (pcase-let ((`(,m1 ,y1 ,m2 ,y2) (calendar-get-month-range)))
+    (cons
+     (list m1 1 y1)
+     (list m2 (if full (calendar-last-day-of-month m2 y2) 1) y2))))
+
+(defun calendar--month-overlap-p (m1 m2 mon n)
+  "Return non-nil if [M1, M2] intersects [MON, MON+N]."
+  (if (zerop n)
+      (<= m1 mon m2)
+    (setq n (+ mon n))
+    (if (<= n 12)
+        (<= (max m1 mon) (min m2 n))
+      (or
+       (<= (max m1 1) (min m2 (- n 12)))
+       (<= (max m1 mon) (min m2 12))))))
+
+(defun calendar-month-visible-p (month &optional n)
+  "Return non-nil if MONTH and next N months are visible in the calendar.
+Since the calendar shows at most 12 months, each month, if visible, is
+associated with only one year.  If the optional argument N is omitted or
+0, the return value is the year associated with MONTH.  Otherwise, the
+return value is a list of visible years between MONTH and MONTH+N."
+  (or n (setq n 0))
+  (pcase-let ((`(,m1 ,y1 ,m2 ,y2) (calendar-get-month-range))
+              (r nil))
+    (if (= y1 y2)
+        (if (calendar--month-overlap-p m1 m2 month n) (push y1 r))
+      (progn
+        (if (calendar--month-overlap-p 1  m2 month n) (push y2 r))
+        (if (calendar--month-overlap-p m1 12 month n) (push y1 r))))
+    (if (zerop n) (car r) r)))
+
+(defun calendar-nongregorian-date-visible-p (month day toabs fromabs &optional N)
+  "Return non-nil if MONTH, DAY is visible in the calendar window.
+MONTH and DAY are in some non-Gregorian calendar system.  The functions
+TOABS and FROMABS convert that system to and from absolute,
+respectively.  The optional argument N is an integer indicating the
+first local month in the non-Gregorian local year and defaults to 1.
+Returns a list of corresponding Gregorian dates."
+  (let* ((range (calendar-get-date-range t))
+         (start-date (calendar-absolute-from-gregorian (car range)))
+         (end-date (calendar-absolute-from-gregorian (cdr range)))
+         ;; Local date of first/last date in calendar window.
+         (local-start (funcall fromabs start-date))
+         (local-end (funcall fromabs end-date))
+         ;; Local year/month of first/last dates.
+         (y1 (calendar-extract-year local-start))
+         (y2 (calendar-extract-year local-end))
+         (m1 (calendar-extract-month local-start))
+         (m2 (calendar-extract-month local-end))
+         (N (or N 1))
+         dates)
+    (cond
+     ;; The local calendar:
+     ;;    Year    : y1 ............. y1 y2 ............. y2
+     ;; Month (N=1): 1 ... ..... ... END 1 ... ..... ... END
+     ;; Month (N>1): N ... END 1 ... N-1 N ... END 1 ... N-1
+     ((= y1 y2)
+      (when (or (<= m1 month m2)
+                ;; N > 1
+                (and (> m1 m2)
+                     (or (>= month m1)
+                         (<= month m2))))
+        (push (list month day y1) dates)))
+     ((< y1 y2)
+      ;; In a large calendar range (e.g. 12 months), the same local
+      ;; month may appear twice and there may be three local years.
+      ;; Cf holiday-chinese.
+      (dotimes (i (- y2 y1 1))
+        (push (list month day (+ y1 i 1)) dates))
+      (if (>= m1 N)
+          (progn
+            (when (or (>= month m1) (< month N))
+              (push (list month day y1) dates))
+            (when (<= month m2)
+              (push (list month day y2) dates)))
+        ;; m1 < N
+        (when (and (<= m1 month) (< month N))
+          (push (list month day y1) dates))
+        (when (or (>= month N) (<= month m2))
+          (push (list month day y2) dates)))))
+    (seq-filter 'calendar-date-is-visible-p
+                (mapcar (lambda (d) (calendar-gregorian-from-absolute
+                                (funcall toabs d)))
+                        dates))))
+
 (defun calendar-nongregorian-visible-p (month day toabs fromabs switch)
   "Return non-nil if MONTH, DAY is visible in the calendar window.
 MONTH and DAY are in some non-Gregorian calendar system.  The
@@ -2478,6 +2658,7 @@ argument (a local month number).  It applies when the local year
 changes across the calendar window, and returns non-nil if the
 specified month should be associated with the higher year.
 Returns the corresponding Gregorian date."
+  (declare (obsolete calendar-nongregorian-date-visible-p "31.1"))
   ;; We need to choose the local year associated with month and day
   ;; that might make them visible.
   (let* ((m1 displayed-month)

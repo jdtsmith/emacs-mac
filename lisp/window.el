@@ -1010,6 +1010,14 @@ and may be called only if no window on SIDE exists yet."
                   (cons `(dedicated . ,(or display-buffer-mark-dedicated 'side))
                         alist))))
     (when window
+      ;; Protect the sibling (the main-window group) from recombination.
+      ;; Without this, deleting a side window can flatten the group into
+      ;; the root, causing subsequent side windows on other sides to be
+      ;; placed incorrectly (Bug#80665).
+      (when-let* ((sibling (or (window-prev-sibling window)
+                               (window-next-sibling window)))
+                  ((window-child sibling)))
+        (set-window-combination-limit sibling t))
       ;; Initialize `window-side' parameter of new window to SIDE and
       ;; make that parameter persistent.
       (set-window-parameter window 'window-side side)
@@ -2850,9 +2858,15 @@ as small) as possible, but don't signal an error."
     (let* ((frame (window-frame window))
 	   (root (frame-root-window frame))
 	   (height (window-pixel-height window))
-           (min-height (+ (frame-char-height frame)
-                          (- (window-pixel-height window)
-                             (window-body-height window t))))
+           ;; Take line-spacing into account if the line-spacing is
+           ;; configured as a cons cell with above > 0 to prevent
+           ;; mini-window jiggling.
+           (ls (or (buffer-local-value 'line-spacing (window-buffer window))
+		   (frame-parameter frame 'line-spacing)))
+           (min-height (+ (if (and (consp ls) (> (car ls) 0))
+                              (window-default-line-height window)
+                            (frame-char-height frame))
+                          (- height (window-body-height window t))))
            (max-delta (- (window-pixel-height root)
 	                 (window-min-size root nil nil t))))
       ;; Don't make mini window too small.
@@ -5568,7 +5582,7 @@ anything else."
 
       (setq kill-from-mode
 	    (or (eq quit-window-kill-buffer t)
-		(and (listp quit-window-kill-buffer)
+                (and (consp quit-window-kill-buffer)
 		     (derived-mode-p quit-window-kill-buffer)))))
 
     (quit-restore-window
@@ -7442,9 +7456,10 @@ supposed to split that window and return the new window.  If the
 window can (or shall) not be split, it is supposed to return nil.
 The default is to call the function `split-window-sensibly' which
 tries to split the window in a way which seems most suitable.
-You can customize the options `split-height-threshold' and/or
-`split-width-threshold' in order to have `split-window-sensibly'
-prefer either vertical or horizontal splitting.
+You can customize the options `split-window-preferred-direction',
+`split-height-threshold' and/or `split-width-threshold' in order
+to have `split-window-sensibly' prefer either vertical or
+horizontal splitting.
 
 If you set this to any other function, bear in mind that the
 `display-buffer' routines may call this function two times.  The
@@ -7476,14 +7491,14 @@ value of this variable."
   :version "23.1"
   :group 'windows)
 
-(defcustom split-width-threshold 160
+(defcustom split-width-threshold 150
   "Minimum width for splitting windows sensibly.
 If this is an integer, `split-window-sensibly' may split a window
 horizontally only if it has at least this many columns.  If this
 is nil, `split-window-sensibly' is not allowed to split a window
 horizontally."
   :type '(choice (const nil) (integer :tag "columns"))
-  :version "23.1"
+  :version "31.1"
   :group 'windows)
 
 (defun window-splittable-p (window &optional horizontal)
@@ -7578,6 +7593,17 @@ strategy."
     (with-selected-window window
       (split-window-right))))
 
+(defun window--frame-landscape-p (&optional frame)
+  "Non-nil if FRAME is wider than it is tall.
+This means actually wider on the screen, not wider character-wise.
+On text frames, use the heuristic that characters are roughtly twice as
+tall as they are wide."
+  (if (display-graphic-p frame)
+      (> (frame-pixel-width frame) (frame-pixel-height frame))
+    ;; On a terminal, displayed characters are usually roughly twice as
+    ;; tall as they are wide.
+    (> (frame-width frame) (* 2 (frame-height frame)))))
+
 (defun split-window-sensibly (&optional window)
   "Split WINDOW in a way suitable for `display-buffer'.
 The variable `split-window-preferred-direction' prescribes an order of
@@ -7618,7 +7644,7 @@ split."
     (or (if (or
              (eql split-window-preferred-direction 'horizontal)
              (and (eql split-window-preferred-direction 'longest)
-                  (> (frame-width) (frame-height))))
+                  (window--frame-landscape-p (window-frame window))))
             (or (window--try-horizontal-split window)
                 (window--try-vertical-split window))
           (or (window--try-vertical-split window)
@@ -9906,8 +9932,8 @@ face on WINDOW's frame."
 	 (buffer (window-buffer window))
 	 (space-height
 	  (or (and (display-graphic-p frame)
-		   (or (buffer-local-value 'line-spacing buffer)
-		       (frame-parameter frame 'line-spacing)))
+		   (total-line-spacing (or (buffer-local-value 'line-spacing buffer)
+		                           (frame-parameter frame 'line-spacing))))
 	      0)))
     (+ font-height
        (if (floatp space-height)

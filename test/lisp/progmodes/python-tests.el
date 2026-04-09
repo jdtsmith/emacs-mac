@@ -5126,6 +5126,48 @@ def foo():
 
 ;;; PDB Track integration
 
+(defun python-tests--pdb-1 ()
+  (insert "f1()")
+  (comint-send-input)
+  (python-shell-accept-process-output (python-shell-get-process))
+  (insert "ste")
+  (completion-at-point)
+  (beginning-of-line)
+  (should (string= "step"
+                   (buffer-substring-no-properties
+                    (point) (pos-eol))))
+  (comint-send-input)
+  (python-shell-accept-process-output (python-shell-get-process))
+  (should (python-ffap-module-path "abc")))
+
+(ert-deftest python-shell-pdb-1 ()
+  "Check if completion and ffap works in Pdb."
+  (ert-with-temp-directory dir
+    (let ((inhibit-message t)
+          (python-pdbtrack-activate nil)
+          (default-directory dir))
+      (write-region "def f1():
+    import pdb; pdb.set_trace()
+    x = 1
+    y = 2
+    return x+y" nil "test1.py")
+      (python-tests-with-temp-buffer-with-shell-interpreter
+       nil
+       "import abc
+from test1 import f1"
+       (python-shell-send-buffer)
+       (python-shell-accept-process-output (python-shell-get-process))
+       (python-shell-with-shell-buffer
+         (skip-unless python-shell-readline-completer-delims)
+         (python-shell-completion-native-turn-off)
+         (python-tests--pdb-1)
+         (insert "c")
+         (comint-send-input)
+         (python-shell-accept-process-output (python-shell-get-process))
+         (python-shell-completion-native-turn-on)
+         (when python-shell-completion-native-enable
+           (python-tests--pdb-1)))))))
+
 
 ;;; Symbol completion
 
@@ -7970,6 +8012,7 @@ always located at the beginning of buffer."
     def test():"
 
    (setopt treesit-font-lock-level 4)
+   (font-lock-ensure)
    (dolist (test '("pytest" "mark" "skip"))
      (search-forward test)
      (goto-char (match-beginning 0))
@@ -7980,6 +8023,7 @@ always located at the beginning of buffer."
    "all()"
    ;; enable 'function' feature from 4th level
    (setopt treesit-font-lock-level 4)
+   (font-lock-ensure)
    (should (eq (face-at-point) 'font-lock-builtin-face))))
 
 (ert-deftest python-ts-mode-interpolation-nested-string ()
@@ -8008,6 +8052,7 @@ always located at the beginning of buffer."
    "t = f\"beg {True + var}\""
 
    (setopt treesit-font-lock-level 2)
+   (font-lock-ensure)
    (search-forward "f")
    (goto-char (match-beginning 0))
    (should (not (eq (face-at-point) 'font-lock-string-face)))
@@ -8026,6 +8071,7 @@ always located at the beginning of buffer."
          (setf (nth 2 treesit-font-lock-feature-list)
                (remq 'string-interpolation (nth 2 treesit-font-lock-feature-list)))
          (setopt treesit-font-lock-level 3)
+         (font-lock-ensure)
 
          (search-forward "f")
          (goto-char (match-beginning 0))

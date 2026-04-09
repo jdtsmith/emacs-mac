@@ -475,10 +475,10 @@ typedef EMACS_INT Lisp_Word;
    extending their range from, e.g., -2^28..2^28-1 to -2^29..2^29-1.  */
 #define INTMASK (EMACS_INT_MAX >> (INTTYPEBITS - 1))
 
-/* Idea stolen from GDB.  Pedantic GCC complains about enum bitfields,
-   and xlc and Oracle Studio c99 complain vociferously about them.  */
-#if (defined __STRICT_ANSI__ || defined __IBMC__ \
-     || (defined __SUNPRO_C && __STDC__))
+/* Idea stolen from GDB.  Although all known Emacs targets support enum
+   bitfields, the C standard does not require support, and they cause too
+   many diagnostics on xlc 16.1 and on Oracle Studio 12.6 'cc -Xc'.  */
+#if defined __IBMC__ || (defined __SUNPRO_C && __STDC__)
 #define ENUM_BF(TYPE) unsigned int
 #else
 #define ENUM_BF(TYPE) enum TYPE
@@ -757,7 +757,7 @@ INLINE void
    union of the possible values (struct Lisp_Objfwd, struct
    Lisp_Intfwd, etc.).  The pointer is packaged inside a struct to
    help static checking.  */
-typedef struct { void const *fwdptr; } lispfwd;
+typedef const struct Lisp_Fwd *lispfwd;
 
 /* Interned state of a symbol.  */
 
@@ -2317,7 +2317,7 @@ SYMBOL_BLV (struct Lisp_Symbol *sym)
 INLINE lispfwd
 SYMBOL_FWD (struct Lisp_Symbol *sym)
 {
-  eassume (sym->u.s.redirect == SYMBOL_FORWARDED && sym->u.s.val.fwd.fwdptr);
+  eassume (sym->u.s.redirect == SYMBOL_FORWARDED && sym->u.s.val.fwd);
   return sym->u.s.val.fwd;
 }
 
@@ -2341,10 +2341,10 @@ SET_SYMBOL_BLV (struct Lisp_Symbol *sym, struct Lisp_Buffer_Local_Value *v)
   sym->u.s.val.blv = v;
 }
 INLINE void
-SET_SYMBOL_FWD (struct Lisp_Symbol *sym, void const *v)
+SET_SYMBOL_FWD (struct Lisp_Symbol *sym, lispfwd fwd)
 {
-  eassume (sym->u.s.redirect == SYMBOL_FORWARDED && v);
-  sym->u.s.val.fwd.fwdptr = v;
+  eassume (sym->u.s.redirect == SYMBOL_FORWARDED && fwd);
+  sym->u.s.val.fwd = fwd;
 }
 
 INLINE Lisp_Object
@@ -3053,46 +3053,6 @@ make_uint (uintmax_t n)
   (EXPR_SIGNED (expr) ? make_int (expr) : make_uint (expr))
 
 
-/* Forwarding pointer to an int variable.
-   This is allowed only in the value cell of a symbol,
-   and it means that the symbol's value really lives in the
-   specified int variable.  */
-struct Lisp_Intfwd
-  {
-    enum Lisp_Fwd_Type type;	/* = Lisp_Fwd_Int */
-    intmax_t *intvar;
-  };
-
-/* Boolean forwarding pointer to an int variable.
-   This is like Lisp_Intfwd except that the ostensible
-   "value" of the symbol is t if the bool variable is true,
-   nil if it is false.  */
-struct Lisp_Boolfwd
-  {
-    enum Lisp_Fwd_Type type;	/* = Lisp_Fwd_Bool */
-    bool *boolvar;
-  };
-
-/* Forwarding pointer to a Lisp_Object variable.
-   This is allowed only in the value cell of a symbol,
-   and it means that the symbol's value really lives in the
-   specified variable.  */
-struct Lisp_Objfwd
-  {
-    enum Lisp_Fwd_Type type;	/* = Lisp_Fwd_Obj */
-    Lisp_Object *objvar;
-  };
-
-/* Like Lisp_Objfwd except that value lives in a slot in the
-   current buffer.  Value is byte index of slot within buffer.  */
-struct Lisp_Buffer_Objfwd
-  {
-    enum Lisp_Fwd_Type type;	/* = Lisp_Fwd_Buffer_Obj */
-    int offset;
-    /* One of Qnil, Qintegerp, Qsymbolp, Qstringp, Qfloatp or Qnumberp.  */
-    Lisp_Object predicate;
-  };
-
 /* struct Lisp_Buffer_Local_Value is used in a symbol value cell when
    the symbol has buffer-local bindings.  (Exception:
    some buffer-local variables are built-in, with their values stored
@@ -3136,19 +3096,46 @@ struct Lisp_Buffer_Local_Value
     Lisp_Object valcell;
   };
 
-/* Like Lisp_Objfwd except that value lives in a slot in the
-   current kboard.  */
-struct Lisp_Kboard_Objfwd
+enum Lisp_Fwd_Predicate
+{
+  FWDPRED_Qnil,
+  FWDPRED_Qintegerp,
+  FWDPRED_Qsymbolp,
+  FWDPRED_Qstringp,
+  FWDPRED_Qnumberp,
+  FWDPRED_Qfraction,
+  FWDPRED_Qvertical_scroll_bar,
+  FWDPRED_Qoverwrite_mode,
+};
+
+/* A struct Lisp_Fwd is used to locate a variable.  See Lisp_Fwd_Type
+   for the various types of variables.
+
+   Lisp_Fwd structs are created by macros like DEFVAR_INT, DEFVAR_BOOL etc.
+   and are always kept in static variables.  They are never allocated
+   dynamically. */
+
+struct Lisp_Fwd
+{
+  ENUM_BF (Lisp_Fwd_Type) type : 8;
+  union
   {
-    enum Lisp_Fwd_Type type;	/* = Lisp_Fwd_Kboard_Obj */
-    int offset;
-  };
+    intmax_t *intvar;		/* when type == Lisp_Fwd_Int */
+    bool *boolvar;		/* when type == Lisp_Fwd_Bool */
+    Lisp_Object *objvar;	/* when type == Lisp_Fwd_Obj */
+    struct
+    {
+      uint16_t offset;
+      ENUM_BF (Lisp_Fwd_Predicate) predicate : 8;
+    } buf;			/* when type == Lisp_Fwd_Buffer_Obj */
+    int kbdoffset;		/* when type == Lisp_Fwd_Kboard_Obj */
+  } u;
+};
 
 INLINE enum Lisp_Fwd_Type
 XFWDTYPE (lispfwd a)
 {
-  enum Lisp_Fwd_Type const *p = a.fwdptr;
-  return *p;
+  return a->type;
 }
 
 INLINE bool
@@ -3157,11 +3144,11 @@ BUFFER_OBJFWDP (lispfwd a)
   return XFWDTYPE (a) == Lisp_Fwd_Buffer_Obj;
 }
 
-INLINE struct Lisp_Buffer_Objfwd const *
-XBUFFER_OBJFWD (lispfwd a)
+INLINE int
+XBUFFER_OFFSET (lispfwd a)
 {
   eassert (BUFFER_OBJFWDP (a));
-  return a.fwdptr;
+  return a->u.buf.offset;
 }
 
 INLINE bool
@@ -3482,11 +3469,11 @@ call0 (Lisp_Object fn)
   return calln (fn);
 }
 
-extern void defvar_lisp (struct Lisp_Objfwd const *, char const *);
-extern void defvar_lisp_nopro (struct Lisp_Objfwd const *, char const *);
-extern void defvar_bool (struct Lisp_Boolfwd const *, char const *);
-extern void defvar_int (struct Lisp_Intfwd const *, char const *);
-extern void defvar_kboard (struct Lisp_Kboard_Objfwd const *, char const *);
+extern void defvar_lisp (struct Lisp_Fwd const *, char const *);
+extern void defvar_lisp_nopro (struct Lisp_Fwd const *, char const *);
+extern void defvar_bool (struct Lisp_Fwd const *, char const *);
+extern void defvar_int (struct Lisp_Fwd const *, char const *);
+extern void defvar_kboard (struct Lisp_Fwd const *, char const *);
 
 /* Macros we use to define forwarded Lisp variables.
    These are used in the syms_of_FILENAME functions.
@@ -3505,35 +3492,35 @@ extern void defvar_kboard (struct Lisp_Kboard_Objfwd const *, char const *);
    All C code uses the `cons_cells_consed' name.  This is all done
    this way to support indirection for multi-threaded Emacs.  */
 
-#define DEFVAR_LISP(lname, vname, doc)		\
-  do {						\
-    static struct Lisp_Objfwd const o_fwd	\
-      = {Lisp_Fwd_Obj, &globals.f_##vname};	\
-    defvar_lisp (&o_fwd, lname);		\
+#define DEFVAR_LISP(lname, vname, doc)			\
+  do {							\
+    static struct Lisp_Fwd const o_fwd			\
+      = {Lisp_Fwd_Obj, .u.objvar = &globals.f_##vname};	\
+    defvar_lisp (&o_fwd, lname);			\
   } while (false)
-#define DEFVAR_LISP_NOPRO(lname, vname, doc)	\
-  do {						\
-    static struct Lisp_Objfwd const o_fwd	\
-      = {Lisp_Fwd_Obj, &globals.f_##vname};	\
-    defvar_lisp_nopro (&o_fwd, lname);		\
+#define DEFVAR_LISP_NOPRO(lname, vname, doc)		\
+  do {							\
+    static struct Lisp_Fwd const o_fwd			\
+      = {Lisp_Fwd_Obj, .u.objvar = &globals.f_##vname};	\
+    defvar_lisp_nopro (&o_fwd, lname);			\
   } while (false)
-#define DEFVAR_BOOL(lname, vname, doc)		\
-  do {						\
-    static struct Lisp_Boolfwd const b_fwd	\
-      = {Lisp_Fwd_Bool, &globals.f_##vname};	\
-    defvar_bool (&b_fwd, lname);		\
+#define DEFVAR_BOOL(lname, vname, doc)				\
+  do {								\
+    static struct Lisp_Fwd const b_fwd				\
+      = {Lisp_Fwd_Bool, .u.boolvar = &globals.f_##vname};	\
+    defvar_bool (&b_fwd, lname);				\
   } while (false)
-#define DEFVAR_INT(lname, vname, doc)		\
-  do {						\
-    static struct Lisp_Intfwd const i_fwd	\
-      = {Lisp_Fwd_Int, &globals.f_##vname};	\
-    defvar_int (&i_fwd, lname);			\
+#define DEFVAR_INT(lname, vname, doc)			\
+  do {							\
+    static struct Lisp_Fwd const i_fwd			\
+      = {Lisp_Fwd_Int, .u.intvar = &globals.f_##vname};	\
+    defvar_int (&i_fwd, lname);				\
   } while (false)
-
 #define DEFVAR_KBOARD(lname, vname, doc)			\
   do {								\
-    static struct Lisp_Kboard_Objfwd const ko_fwd		\
-      = {Lisp_Fwd_Kboard_Obj, offsetof (KBOARD, vname##_)};	\
+    static struct Lisp_Fwd const ko_fwd				\
+	= { Lisp_Fwd_Kboard_Obj,				\
+	    .u.kbdoffset = offsetof (KBOARD, vname##_)};	\
     defvar_kboard (&ko_fwd, lname);				\
   } while (false)
 
@@ -4244,7 +4231,6 @@ extern ptrdiff_t multibyte_chars_in_text (const unsigned char *, ptrdiff_t);
 extern void syms_of_character (void);
 
 /* Defined in charset.c.  */
-extern void mark_charset (void);
 extern void init_charset (void);
 extern void init_charset_once (void);
 extern void syms_of_charset (void);
@@ -4408,6 +4394,8 @@ extern void message1 (const char *);
 extern void message1_nolog (const char *);
 extern void message3 (Lisp_Object);
 extern void message3_nolog (Lisp_Object);
+extern void message3_frame (Lisp_Object, struct frame *);
+extern void message3_frame_nolog (Lisp_Object, struct frame *);
 extern void message_dolog (const char *, ptrdiff_t, bool, bool);
 extern void message_with_string (const char *, Lisp_Object, bool);
 extern void message_log_maybe_newline (void);
@@ -5183,7 +5171,7 @@ extern void *w32_daemon_event;
 /* True if handling a fatal error already.  */
 extern bool fatal_error_in_progress;
 
-/* True means don't do use window-system-specific display code.  */
+/* True means don't use window-system-specific display code.  */
 extern bool inhibit_window_system;
 /* True means that a filter or a sentinel is running.  */
 extern bool running_asynch_code;
@@ -5296,7 +5284,7 @@ maybe_disable_address_randomization (int argc, char **argv)
 extern int emacs_exec_file (char const *, char *const *, char *const *);
 extern void init_standard_fds (void);
 extern char *emacs_get_current_dir_name (void);
-extern void stuff_char (char c);
+extern int stuff_char (char c);
 extern void init_foreground_group (void);
 extern void sys_subshell (void);
 extern void sys_suspend (void);
@@ -5927,15 +5915,24 @@ struct for_each_tail_internal
    is little point to calling maybe_quit here.  */
 
 #define FOR_EACH_TAIL_INTERNAL(tail, cycle, check_quit)			\
-  for (struct for_each_tail_internal li = { tail, 2, 0, 2 };		\
-       CONSP (tail);							\
-       ((tail) = XCDR (tail),						\
-	((--li.q != 0							\
-	  || ((check_quit) ? maybe_quit () : (void) 0, 0 < --li.n)	\
-	  || (li.q = li.n = li.max <<= 1, li.n >>= USHRT_WIDTH,		\
-	      li.tortoise = (tail), false))				\
-	 && BASE_EQ (tail, li.tortoise))				\
-	? (cycle) : (void) 0))
+ FOR_EACH_TAIL_BASIC(tail,						\
+		     FOR_EACH_TAIL_STEP_CYCLEP (tail, check_quit)	\
+		     ? (cycle) : (void) 0)
+
+#define FOR_EACH_TAIL_BASIC(tail, stepper)			\
+  for (struct for_each_tail_internal li = { tail, 2, 0, 2 };	\
+       CONSP (tail); stepper)
+
+/* Step TAIL and return whether a cycle has been detected.
+   If CHECK_QUIT then check for quit occasionally.  */
+#define FOR_EACH_TAIL_STEP_CYCLEP(tail, check_quit)		\
+  ((tail) = XCDR (tail),					\
+   ((--li.q != 0						\
+     || ((check_quit) ? maybe_quit () : (void) 0, 0 < --li.n)	\
+     || (li.q = li.n = li.max <<= 1, li.n >>= USHRT_WIDTH,	\
+	 li.tortoise = (tail), false))				\
+    && BASE_EQ (tail, li.tortoise)))
+
 
 /* Do a `for' loop over alist values.  */
 

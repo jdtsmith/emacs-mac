@@ -2207,7 +2207,7 @@ TERMINAL does not refer to a text terminal.  */)
   return make_fixnum (t ? t->display_info.tty->TN_max_colors : 0);
 }
 
-#if !defined DOS_NT && !defined HAVE_ANDROID
+#if !defined MSDOS && !defined HAVE_ANDROID
 
 /* Declare here rather than in the function, as in the rest of Emacs,
    to work around an HPUX compiler bug (?). See
@@ -2246,7 +2246,7 @@ tty_default_color_capabilities (struct tty_display_info *tty, bool save)
    MODE's value is generally the number of colors which we want to
    support; zero means set up for the default capabilities, the ones
    we saw at init_tty time; -1 means turn off color support.  */
-static void
+void
 tty_setup_colors (struct tty_display_info *tty, int mode)
 {
   /* Canonicalize all negative values of MODE.  */
@@ -2269,6 +2269,10 @@ tty_setup_colors (struct tty_display_info *tty, int mode)
 #ifdef TERMINFO
 	tty->TS_set_foreground = "\033[3%p1%dm";
 	tty->TS_set_background = "\033[4%p1%dm";
+#elif WINDOWSNT
+	tty->TS_orig_pair = "\x1b[39m\x1b[49m";
+	tty->TS_set_foreground = "\x1b[%lum";
+	tty->TS_set_background = "\x1b[%lum";
 #else
 	tty->TS_set_foreground = "\033[3%dm";
 	tty->TS_set_background = "\033[4%dm";
@@ -2276,6 +2280,26 @@ tty_setup_colors (struct tty_display_info *tty, int mode)
 	tty->TN_max_colors = 8;
 	tty->TN_no_color_video = 0;
 	break;
+#ifdef WINDOWSNT
+      case 16:
+	tty->TN_max_colors = 16;
+	tty->TS_set_foreground = "\x1b[%lum";
+	tty->TS_set_background = "\x1b[%lum";
+	tty->TN_no_color_video = 0;
+	break;
+      case 256:
+	tty->TN_max_colors = 256;
+	tty->TS_set_foreground = "\x1b[38;5;%lum";
+	tty->TS_set_background = "\x1b[48;5;%lum";
+	tty->TN_no_color_video = 0;
+	break;
+      case 16777216:
+	tty->TN_max_colors = 16777216;
+	tty->TS_set_foreground = "\x1b[38;2;%lu;%lu;%lum";
+	tty->TS_set_background = "\x1b[48;2;%lu;%lu;%lum";
+	tty->TN_no_color_video = 0;
+	break;
+#endif
     }
 }
 
@@ -2312,7 +2336,7 @@ set_tty_color_mode (struct tty_display_info *tty, struct frame *f)
     }
 }
 
-#endif /* !DOS_NT && !HAVE_ANDROID */
+#endif /* !MSDOS && !HAVE_ANDROID */
 
 char *
 tty_type_name (Lisp_Object terminal)
@@ -2968,9 +2992,7 @@ Gpm-mouse can only be activated for one tty at a time.  */)
   (void)
 {
   struct frame *f = SELECTED_FRAME ();
-  struct tty_display_info *tty
-    = ((f)->output_method == output_termcap
-       ? (f)->terminal->display_info.tty : NULL);
+  struct tty_display_info *tty = FRAME_TERMCAP_P (f) ? FRAME_TTY (f) : NULL;
   Gpm_Connect connection;
 
   if (!tty)
@@ -3016,9 +3038,7 @@ DEFUN ("gpm-mouse-stop", Fgpm_mouse_stop, Sgpm_mouse_stop,
   (void)
 {
   struct frame *f = SELECTED_FRAME ();
-  struct tty_display_info *tty
-    = ((f)->output_method == output_termcap
-       ? (f)->terminal->display_info.tty : NULL);
+  struct tty_display_info *tty = FRAME_TERMCAP_P (f) ? FRAME_TTY (f) : NULL;
 
   if (!tty || gpm_tty != tty)
     return Qnil;       /* Not activated on this terminal, nothing to do.  */
@@ -3154,9 +3174,13 @@ mouse_get_xy (int *x, int *y)
   struct frame *sf = SELECTED_FRAME ();
   if (f == sf || frame_ancestor_p (sf, f))
     {
-      int mx = XFIXNUM (XCAR (XCDR (mouse)));
-      int my = XFIXNUM (XCDR (XCDR (mouse)));
-      root_xy (f, mx, my, x, y);
+      Lisp_Object lmx = XCAR (XCDR (mouse)), lmy = XCDR (XCDR (mouse));
+      if (FIXNUMP (lmx) && FIXNUMP (lmy))
+	{
+	  int mx = XFIXNUM (lmx);
+	  int my = XFIXNUM (lmy);
+	  root_xy (f, mx, my, x, y);
+	}
     }
 }
 
@@ -3892,7 +3916,7 @@ tty_menu_show (struct frame *f, int x, int y, int menuflags,
   if (menu_items_n_panes == 0)
     return Qnil;
 
-  if (menu_items_used <= MENU_ITEMS_PANE_LENGTH)
+  if (menu_items_used <= MENU_ITEMS_PANE_LENGTH || !VECTORP (menu_items))
     {
       *error_name = "Empty menu";
       return Qnil;
@@ -4075,6 +4099,9 @@ tty_menu_show (struct frame *f, int x, int y, int menuflags,
   status = tty_menu_activate (menu, &pane, &selidx, x, y, &datap,
 			      tty_menu_help_callback,
 			      menuflags & MENU_KBD_NAVIGATION);
+  if (status == TTYM_SUCCESS && !VECTORP (menu_items))
+    status = TTYM_IA_SELECT;
+
   entry = pane_prefix = Qnil;
 
   switch (status)
@@ -4191,7 +4218,7 @@ tty_free_frame_resources (struct frame *f)
 static void
 tty_free_frame_resources (struct frame *f)
 {
-  eassert (FRAME_TERMCAP_P (f) || FRAME_MSDOS_P (f));
+  eassert (is_tty_frame (f));
   free_frame_faces (f);
   /* Deleting a child frame means we have to thoroughly redisplay its
      root frame to make sure the child disappears from the display.  */
@@ -4641,6 +4668,22 @@ use the Bourne shell command 'TERM=...; export TERM' (C-shell:\n\
 
     initialize_w32_display (terminal, &width, &height);
 
+    tty->TN_no_color_video = 0;
+    tty->TN_max_colors = 16777216;
+    tty->TS_orig_pair = "\x1b[39m\x1b[49m";
+    tty->TS_set_foreground = "\x1b[38;2;%lu;%lu;%lum";
+    tty->TS_set_background = "\x1b[48;2;%lu;%lu;%lum";
+
+    /* Save default color capabilities */
+    tty_default_color_capabilities (tty, 1);
+
+    tty->TS_enter_bold_mode = "\x1b[1m";
+    tty->TS_enter_italic_mode = "\x1b[3m";
+    tty->TS_enter_strike_through_mode = "\x1b[9m";
+    tty->TS_enter_underline_mode = "\x1b[4m";
+    tty->TS_enter_reverse_mode = "\x1b[7m";
+    tty->TS_exit_attribute_mode = "\x1b[0m";
+
     FrameRows (tty) = height;
     FrameCols (tty) = width;
     tty->specified_window = height;
@@ -4686,7 +4729,6 @@ use the Bourne shell command 'TERM=...; export TERM' (C-shell:\n\
      don't think we're losing anything by turning it off.  */
   tty->line_ins_del_ok = 0;
 
-  tty->TN_max_colors = 16;  /* Must be non-zero for tty-display-color-p.  */
 #endif	/* DOS_NT */
 
 #ifdef HAVE_GPM
@@ -5202,11 +5244,11 @@ non-nil to enable this optimization.  */);
   defsubr (&Stty_display_pixel_width);
   defsubr (&Stty_display_pixel_height);
 
-#if !defined DOS_NT && !defined HAVE_ANDROID
+#if !defined MSDOS && !defined HAVE_ANDROID
   default_orig_pair = NULL;
   default_set_foreground = NULL;
   default_set_background = NULL;
-#endif /* !DOS_NT && !HAVE_ANDROID */
+#endif /* !MSDOS && !HAVE_ANDROID */
 
 #ifndef HAVE_ANDROID
   encode_terminal_src = NULL;

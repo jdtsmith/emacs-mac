@@ -405,6 +405,22 @@ of[ \t]+\"?\\([a-zA-Z]?:?[^\":\n]+\\)\"?:" 3 2 nil (1))
     (ruby-Test::Unit
      "^    [[ ]?\\([^ (].*\\):\\([1-9][0-9]*\\)\\(\\]\\)?:in " 1 2)
 
+    ;; This must precede the `gnu' rule or the latter would match instead.
+    (rust-panic
+     ,(rx bol
+          ;; The test runner cargo-nextest indents its output by four spaces
+          ;; by default, although that can be disabled.
+          (opt "    ")
+          "thread '" (+ nonl) "' " (? "(" (+ digit) ") ")
+          (group-n 1 "panicked" ) " at"
+          " " (group-n 2 (+ nonl))  ; file
+          ":" (group-n 3 (+ digit)) ; line
+          ":" (group-n 4 (+ digit)) ; column
+          ":" eol)
+     2 3 4 nil
+     nil
+     (1 compilation-error-face))
+
     ;; Tested with Lua 5.1, 5.2, 5.3, 5.4, and LuaJIT 2.1.
     (lua
      ,(rx bol
@@ -954,7 +970,11 @@ The value nil as an element means to try the default directory."
 			 (string :tag "Directory"))))
 
 ;;;###autoload
-(defcustom compile-command "make -k "
+(defcustom compile-command
+  ;; Divide by less than 2 and round up to avoid using all processors on
+  ;; multi-core systems, but use at least one processor on a single-core
+  ;; system.
+  (format "make -k -j%d " (ceiling (num-processors) 1.5))
   "Last shell command used to do a compilation; default for next compilation.
 
 Sometimes it is useful for files to supply local values for this variable.
@@ -971,6 +991,8 @@ You might also use mode hooks to specify it in certain modes, like this:
 			    (file-name-sans-extension buffer-file-name))))))))
 
 It's often useful to leave a space at the end of the value."
+  :group 'compilation
+  :initialize #'custom-initialize-delay
   :type 'string)
 ;;;###autoload(put 'compile-command 'safe-local-variable (lambda (a) (and (stringp a) (if (boundp 'compilation-read-command) compilation-read-command t))))
 

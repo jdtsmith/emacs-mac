@@ -6,6 +6,7 @@
 @c are auto-frobbed from configure.ac.
 @include trampver.texi
 @settitle @value{tramp} @value{trampver} User Manual
+@documentlanguage en
 @c %**end of header
 
 @c This is *so* much nicer :)
@@ -6658,7 +6659,7 @@ root directory, it is most likely sufficient to make the
 @code{default-directory} of the process buffer as the root directory.
 
 
-@subsection Timers, process filters, process sentinels, redisplay
+@subsection Timers, process filters, process sentinels, special events, redisplay
 
 @vindex remote-file-error
 Timers run asynchronously at any time when Emacs is waiting for
@@ -6678,7 +6679,14 @@ wrapping the timer function body as follows:
 @end lisp
 
 A similar problem could happen with process filters, process
-sentinels, and redisplay (updating the mode line).
+sentinels, special event handlers, and redisplay (updating the mode
+line).
+
+@strong{Note} that @value{tramp} raises a @code{remote-file-error}
+error for any connection-related problem.  You can protect against all
+such problems with the code snippet above (or with a
+@code{condition-case} / @code{handler-bind} form with a
+@code{remote-file-error} handler).
 
 
 @node Extension packages
@@ -6719,6 +6727,45 @@ See the docstring of variable @code{tramp-methods} for possible
 
 @code{foo-tramp-executable} in this example would be a Lisp constant,
 which is the program name of @command{foo}.
+
+If a parameter doesn't have a static value but must be computed at
+runtime, a format specifier can be used, like @t{"%h"} in the example
+above.  See the docstring of @code{tramp-methods}, which patterns are
+expanded in which parameter.  Furthermore, other format specifiers can
+be added via the variable @code{tramp-extra-expand-args}.
+
+The following parameters expand format specifiers for the
+@code{tramp-sh} backend: @code{tramp-copy-args},
+@code{tramp-copy-env}, @code{tramp-copy-file-name},
+@code{tramp-login-args}, @code{tramp-login-program},
+@code{tramp-remote-copy-args}.
+
+The example above could use
+
+@lisp
+(tramp-login-program "%1")
+@end lisp
+
+And you could set @code{tramp-extra-expand-args} as connection-local value:
+
+@lisp
+@group
+(defun foo-tramp-get-login-program (vec)
+  "Return connection-local value of `tramp-login-program'."
+  @dots{})
+@end group
+
+@group
+(connection-local-set-profile-variables
+ 'foo-tramp-connection-local-default-profile
+ '((tramp-extra-expand-args
+    ?1 (foo-tramp-get-login-program (car tramp-current-connection)))))
+
+(connection-local-set-profiles
+ '(:application tramp :protocol "foo")
+ foo-tramp-connection-local-default-profile)
+@end group
+@end lisp
 
 Another initialization could tell @value{tramp} which are the default
 user and host name for method @option{foo}.  This is done by calling
@@ -6873,12 +6920,34 @@ Then we have the different use cases:
 @end group
 @end lisp
 
+@findex with-parsed-tramp-file-name
 @var{function} is implemented like an ordinary @value{tramp} backend
 handler, see the examples in @code{tramp-<backend>-handle-*} and
 @code{tramp-handle-*}.  It can expect, that the first argument (or
 @code{default-directory}, if that is @code{nil}) has remote file name
 syntax.  It shall use @value{tramp} internal macros and functions like
 @code{with-parsed-tramp-file-name} and the different cache functions.
+
+@findex tramp-run-real-handler
+If @var{function} must call the original function, this can be done
+via @code{tramp-run-real-handler}.  The implementation of the example
+could look like:
+
+@lisp
+@group
+(defun handle-test-operation (file)
+  (message "Entry handler implementation for %s" file)
+  (tramp-run-real-handler #'test-operation (list file))
+  (message "Exit handler implementation for %s" file))
+@end group
+
+@group
+(test-operation "/ssh::/a/b")
+@result{} "Entry handler implementation for /ssh::/a/b
+   Original implementation for /ssh::/a/b
+   Exit handler implementation for /ssh::/a/b"
+@end group
+@end lisp
 
 If the same @var{function} shall be used for different @value{tramp}
 backends, @code{tramp-add-external-operation} must be called for every
@@ -6970,6 +7039,13 @@ the following settings are required:
       debug-on-signal t)
 @end group
 @end lisp
+
+@vindex tramp-error-show-message-timeout
+Sometimes, @value{tramp} shows the connection buffer for more
+information when an error has appeared.  The buffer is shown for
+@code{tramp-error-show-message-timeout} seconds, or until an input
+event arrives.  You can change this variable to another value.  If it
+isn't a natural number (for example, @code{nil}), the buffer isn't shown.
 
 @vindex warning-suppress-types
 @value{tramp} warnings are displayed in the @file{*Warnings*} buffer,

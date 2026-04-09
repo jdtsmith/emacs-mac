@@ -136,6 +136,15 @@ installed local ssh version.
 
 The string is used in `tramp-methods'.")
 
+(defvar tramp-ssh-setenv-term nil
+  "Whether ssh \"SetEnv=TERM=dumb\" argument to use.
+
+It is the string \"-o Setenv=TERM=dumb\" if supported by the local
+ssh (since release 7.8), otherwise the string \"\".  If it is nil, it
+will be auto-detected by Tramp.
+
+The string is used in `tramp-methods'.")
+
 (defvar tramp-scp-strict-file-name-checking nil
   "Which scp strict file name checking argument to use.
 
@@ -190,10 +199,7 @@ The string is used in `tramp-methods'.")
               `("scp"
                 (tramp-login-program        "ssh")
                 (tramp-login-args           (("-l" "%u") ("-p" "%p") ("%c")
-					     ("-e" "none")
-				             ("-o" ,(format "SetEnv=\"TERM=%s\""
-							    tramp-terminal-type))
-					     ("%h")))
+					     ("%w") ("-e" "none") ("%h")))
                 (tramp-async-args           (("-q")))
 		(tramp-direct-async         ("-t" "-t"))
                 (tramp-remote-shell         ,tramp-default-remote-shell)
@@ -209,11 +215,8 @@ The string is used in `tramp-methods'.")
               `("scpx"
                 (tramp-login-program        "ssh")
                 (tramp-login-args           (("-l" "%u") ("-p" "%p") ("%c")
-				             ("-e" "none") ("-t" "-t")
-					     ("-o" "RemoteCommand=\"%l\"")
-				             ("-o" ,(format "SetEnv=\"TERM=%s\""
-							    tramp-terminal-type))
-					     ("%h")))
+				             ("%w") ("-e" "none") ("-t" "-t")
+					     ("-o" "RemoteCommand=\"%l\"") ("%h")))
                 (tramp-async-args           (("-q")))
                 (tramp-remote-shell         ,tramp-default-remote-shell)
                 (tramp-remote-shell-login   ("-l"))
@@ -228,10 +231,7 @@ The string is used in `tramp-methods'.")
               `("rsync"
                 (tramp-login-program        "ssh")
                 (tramp-login-args           (("-l" "%u") ("-p" "%p") ("%c")
-				             ("-e" "none")
-				             ("-o" ,(format "SetEnv=\"TERM=%s\""
-							    tramp-terminal-type))
-					     ("%h")))
+				             ("%w") ("-e" "none") ("%h")))
                 (tramp-async-args           (("-q")))
 		(tramp-direct-async         ("-t" "-t"))
                 (tramp-remote-shell         ,tramp-default-remote-shell)
@@ -262,10 +262,7 @@ The string is used in `tramp-methods'.")
               `("ssh"
                 (tramp-login-program        "ssh")
                 (tramp-login-args           (("-l" "%u") ("-p" "%p") ("%c")
-				             ("-e" "none")
-				             ("-o" ,(format "SetEnv=\"TERM=%s\""
-							    tramp-terminal-type))
-					     ("%h")))
+				             ("%w") ("-e" "none") ("%h")))
                 (tramp-async-args           (("-q")))
 		(tramp-direct-async         ("-t" "-t"))
                 (tramp-remote-shell         ,tramp-default-remote-shell)
@@ -275,9 +272,7 @@ The string is used in `tramp-methods'.")
               `("sshx"
                 (tramp-login-program        "ssh")
                 (tramp-login-args           (("-l" "%u") ("-p" "%p") ("%c")
-				             ("-e" "none") ("-t" "-t")
-				             ("-o" ,(format "SetEnv=\"TERM=%s\""
-							    tramp-terminal-type))
+				             ("%w") ("-e" "none") ("-t" "-t")
 					     ("-o" "RemoteCommand=\"%l\"")
 					     ("%h")))
                 (tramp-async-args           (("-q")))
@@ -1969,7 +1964,7 @@ ID-FORMAT valid values are `string' and `integer'."
 	 (tramp-send-command-and-read
 	  vec (format "tramp_perl_directory_files_and_attributes %s"
 		      (tramp-shell-quote-argument localname)))))
-    (when (stringp object) (tramp-error vec 'file-error object))
+    (when (stringp object) (tramp-error vec 'remote-file-error object))
     object))
 
 ;; FIXME: Fix function to work with count parameter.
@@ -1998,48 +1993,39 @@ ID-FORMAT valid values are `string' and `integer'."
   "Like `file-name-all-completions' for Tramp files."
   (tramp-skeleton-file-name-all-completions filename directory
     (with-parsed-tramp-file-name (expand-file-name directory) nil
-      (when (and (not (string-search "/" filename))
-		 (tramp-connectable-p v))
-	(unless (string-search "/" filename)
-	  (all-completions
-	   filename
-	   (with-tramp-file-property v localname "file-name-all-completions"
-	     (let (result)
-	       ;; Get a list of directories and files, including
-	       ;; reliably tagging the directories with a trailing "/".
-	       ;; Because I rock.  --daniel@danann.net
-	       (if (tramp-get-remote-perl v)
-		   (tramp-maybe-send-script
-		    v tramp-perl-file-name-all-completions
-		    "tramp_perl_file_name_all_completions")
-		 (tramp-maybe-send-script
-		  v tramp-shell-file-name-all-completions
-		  "tramp_shell_file_name_all_completions"))
+      (let (result)
+	;; Get a list of directories and files, including reliably
+	;; tagging the directories with a trailing "/".
+	;; Because I rock.  --daniel@danann.net
+	(if (tramp-get-remote-perl v)
+	    (tramp-maybe-send-script
+	     v tramp-perl-file-name-all-completions
+	     "tramp_perl_file_name_all_completions")
+	  (tramp-maybe-send-script
+	   v tramp-shell-file-name-all-completions
+	   "tramp_shell_file_name_all_completions"))
 
-	       (dolist
-		   (elt
-		    (tramp-send-command-and-read
-		     v (format
-			"%s %s"
-			(if (tramp-get-remote-perl v)
-			    "tramp_perl_file_name_all_completions"
-			  "tramp_shell_file_name_all_completions")
-			(tramp-shell-quote-argument localname))
-		     'noerror)
-		    result)
-		 ;; Don't cache "." and "..".
-		 (when (string-match-p
-			directory-files-no-dot-files-regexp
-			(file-name-nondirectory (car elt)))
-		   (tramp-set-file-property v (car elt) "file-exists-p" (nth 1 elt))
-		   (tramp-set-file-property v (car elt) "file-readable-p" (nth 2 elt))
-		   (tramp-set-file-property v (car elt) "file-directory-p" (nth 3 elt))
-		   (tramp-set-file-property v (car elt) "file-executable-p" (nth 4 elt)))
+	(dolist
+	    (elt
+	     (tramp-send-command-and-read
+	      v (format
+		 "%s %s"
+		 (if (tramp-get-remote-perl v)
+		     "tramp_perl_file_name_all_completions"
+		   "tramp_shell_file_name_all_completions")
+		 (tramp-shell-quote-argument localname))
+	      'noerror)
+	     result)
+	  ;; Don't cache "." and "..".
+	  (when (string-match-p
+		 directory-files-no-dot-files-regexp
+		 (file-name-nondirectory (car elt)))
+	    (tramp-set-file-property v (car elt) "file-exists-p" (nth 1 elt))
+	    (tramp-set-file-property v (car elt) "file-readable-p" (nth 2 elt))
+	    (tramp-set-file-property v (car elt) "file-directory-p" (nth 3 elt))
+	    (tramp-set-file-property v (car elt) "file-executable-p" (nth 4 elt)))
 
-		 (push
-		  (concat
-		   (file-name-nondirectory (car elt)) (and (nth 3 elt) "/"))
-		  result))))))))))
+	  (push (file-name-nondirectory (car elt)) result))))))
 
 ;; cp, mv and ln
 
@@ -2378,7 +2364,7 @@ the uid and gid from FILENAME."
 			((eq op 'copy) "cp -f")
 			((eq op 'rename) "mv -f")
 			(t (tramp-error
-			    v 'file-error
+			    v 'remote-file-error
 			    "Unknown operation `%s', must be `copy' or `rename'"
 			    op))))
 	     (localname1 (tramp-file-local-name filename))
@@ -2583,6 +2569,7 @@ The method used must be an out-of-band method."
 		  ?p (or (tramp-file-name-port v) "")
 		  ?r listener ?c options ?k (if keep-date " " "")
                   ?n (concat "2>" (tramp-get-remote-null-device v))
+                  ?w (tramp-ssh-setenv-term v)
 		  ?x (tramp-scp-strict-file-name-checking v)
 		  ?y (tramp-scp-force-scp-protocol v)
 		  ?z (tramp-scp-direct-remote-copying v1 v2))
@@ -2608,7 +2595,7 @@ The method used must be an out-of-band method."
       ;; Check for local copy program.
       (unless (executable-find copy-program)
 	(tramp-error
-	 v 'file-error "Cannot find local copy program: %s" copy-program))
+	 v 'remote-file-error "Cannot find local copy program: %s" copy-program))
 
       ;; Install listener on the remote side.  The prompt must be
       ;; consumed later on, when the process does not listen anymore.
@@ -2618,7 +2605,7 @@ The method used must be an out-of-band method."
 		  (tramp-find-executable
 		   v remote-copy-program (tramp-get-remote-path v)))
 	  (tramp-error
-	   v 'file-error
+	   v 'remote-file-error
 	   "Cannot find remote listener: %s" remote-copy-program))
 	(setq remote-copy-program
 	      (string-join
@@ -2629,7 +2616,7 @@ The method used must be an out-of-band method."
 	(tramp-send-command v remote-copy-program)
 	(with-timeout
 	    (60 (tramp-error
-		 v 'file-error
+		 v 'remote-file-error
 		 "Listener process not running on remote host: `%s'"
 		 remote-copy-program))
 	  (tramp-send-command v (format "netstat -l | grep -q :%s" listener))
@@ -2807,7 +2794,7 @@ The method used must be an out-of-band method."
 	      (append switches (split-string (tramp-sh--quoting-style-options v))
 		      (when dired `(,dired))))
 	(unless dired
-	  (setq switches (delete "-N" (delete "--dired" switches)))))
+	  (setq switches (seq-difference switches '("-N" "--dired")))))
       (when wildcard
         (setq wildcard (tramp-run-real-handler
 			#'file-name-nondirectory (list localname)))
@@ -3468,7 +3455,8 @@ will be used."
 
 	       ;; Oops, I don't know what to do.
 	       (t (tramp-error
-		   v 'file-error "Wrong method specification for `%s'" method)))
+		   v 'remote-file-error
+		   "Wrong method specification for `%s'" method)))
 
 	    ;; Error handling.
 	    ((error quit)
@@ -3663,7 +3651,7 @@ will be used."
 	     ;; That's not expected.
 	     (t
 	      (tramp-error
-	       v 'file-error
+	       v 'remote-file-error
 	       (concat "Method `%s' should specify both encoding and "
 		       "decoding command or an scp program")
 	       method)))))))))
@@ -3689,7 +3677,7 @@ are \"file-exists-p\", \"file-readable-p\", \"file-directory-p\" and
 		     tramp-end-of-heredoc
 		     (mapconcat #'tramp-shell-quote-argument files "\n")
 		     tramp-end-of-heredoc))
-	     (tramp-error vec 'file-error "%s" (tramp-get-buffer-string)))
+	     (tramp-error vec 'remote-file-error "%s" (tramp-get-buffer-string)))
 	   ;; Read the expression.
 	   (goto-char (point-min))
 	   (read (current-buffer))))
@@ -3920,11 +3908,13 @@ Fall back to normal file name handler if no Tramp handler exists."
     (when rest-string
       (tramp-message proc 10 "Previous string:\n%s" rest-string))
     (tramp-message proc 6 "%S\n%s" proc string)
-    (setq string (concat rest-string string)
-          ;; Fix action names.
-          string (string-replace "attributes changed" "attribute-changed" string)
-          string (string-replace "changes done" "changes-done-hint" string)
-          string (string-replace "renamed to" "moved" string))
+    (setq string
+	  (thread-last
+	    (concat rest-string string)
+	    ;; Fix action names.
+	    (string-replace "attributes changed" "attribute-changed")
+	    (string-replace "changes done" "changes-done-hint")
+	    (string-replace "renamed to" "moved")))
 
     (catch 'doesnt-work
       ;; https://bugs.launchpad.net/bugs/1742946
@@ -4165,7 +4155,7 @@ Only send the definition if it has not already been done."
 	;; Expand format specifiers.
 	(unless (setq script (tramp-expand-script vec script))
 	  (tramp-error
-	   vec 'file-error
+	   vec 'remote-file-error
 	   (format "Script %s is not applicable on remote host" name)))
 	;; Send it.
 	(tramp-barf-unless-okay
@@ -4325,13 +4315,15 @@ file exists and nonzero exit status otherwise."
 	     ;; We cannot use `tramp-get-ls-command', this results in an infloop.
 	     ;; (Bug#65321)
 	     (ignore-errors
-	       (and (setq result (format "ls -d >%s" (tramp-get-remote-null-device vec)))
+	       (and (setq
+		     result
+		     (format "ls -d >%s" (tramp-get-remote-null-device vec)))
 		    (tramp-send-command-and-check
 		     vec (format "%s %s" result existing))
 		    (not (tramp-send-command-and-check
 			  vec (format "%s %s" result nonexistent))))))
       (tramp-error
-       vec 'file-error "Couldn't find command to check if file exists"))
+       vec 'remote-file-error "Couldn't find command to check if file exists"))
     (tramp-set-file-property vec existing "file-exists-p" t)
     result))
 
@@ -4484,7 +4476,8 @@ seconds.  If not, it produces an error message with the given ERROR-ARGS."
       (error
        (delete-process proc)
        (apply #'tramp-error-with-buffer
-	      (tramp-get-connection-buffer vec) vec 'file-error error-args)))))
+	      (tramp-get-connection-buffer vec) vec
+	      'remote-file-error error-args)))))
 
 (defvar tramp-config-check nil
   "A function to be called with one argument, VEC.
@@ -4693,7 +4686,21 @@ process to set up.  VEC specifies the connection."
 	 t))
       (when unset
 	(tramp-send-command
-	 vec (format "unset %s" (string-join unset " ")) t)))))
+	 vec (format "unset %s" (string-join unset " ")) t)))
+
+    ;; Set connection-local variable `command-line-max-length'.
+    ;; `command-line-max-length' exists since Emacs 31.
+    ;; `connection-local-profile-name-for-criteria' exists since Emacs 29.1.
+    ;; We simulate it with `make-symbol'.
+    (when (boundp 'command-line-max-length)
+      (let* ((criteria (tramp-get-connection-local-criteria vec))
+	     (profile (if (fboundp 'connection-local-profile-name-for-criteria)
+			  (connection-local-profile-name-for-criteria criteria)
+			(make-symbol "generated-profile-name"))))
+	(connection-local-set-profile-variables
+	 profile
+	 `((command-line-max-length . ,(tramp-get-remote-pipe-buf vec))))
+	(connection-local-set-profiles criteria profile)))))
 
 ;; Old text from documentation of tramp-methods:
 ;; Using a uuencode/uudecode inline method is discouraged, please use one
@@ -5029,8 +5036,7 @@ Goes through the list `tramp-inline-compress-commands'."
 
    ;; Use plink options.
    ((string-match-p
-     (rx "plink" (? ".exe") eol)
-     (tramp-get-method-parameter vec 'tramp-login-program))
+     (rx "plink" (? ".exe") eol) (tramp-expand-args vec 'tramp-login-program))
     (concat
      (if (eq tramp-use-connection-share 'suppress)
 	 "-noshare" "-share")
@@ -5080,6 +5086,24 @@ Goes through the list `tramp-inline-compress-commands'."
 
    ;; Return a string, whatsoever.
    (t "")))
+
+(defun tramp-ssh-setenv-term (vec)
+  "Return the \"-o Setenv=TERM=dumb\" option of the local ssh if possible."
+  (cond
+   ;; No options to be computed.
+   ((null (assoc "%w" (tramp-get-method-parameter vec 'tramp-login-args)))
+    "")
+
+   ;; There is already a value to be used.
+   ((stringp tramp-ssh-setenv-term)
+    tramp-ssh-setenv-term)
+
+   ;; Determine the option.
+   (t (setq tramp-ssh-setenv-term
+            (if (tramp-ssh-option-exists-p
+                 vec (format "SetEnv=\"TERM=%s\"" tramp-terminal-type))
+                (format " -o SetEnv=\"TERM=%s\"" tramp-terminal-type)
+              "")))))
 
 (defun tramp-scp-strict-file-name-checking (vec)
   "Return the strict file name checking argument of the local scp."
@@ -5293,8 +5317,8 @@ connection if a previous connection has died for some reason."
 	    (unless (and (process-live-p p)
 			 (tramp-wait-for-output p 10))
 	      ;; The error will be caught locally.
-	      (tramp-error vec 'file-error "Awake did fail")))
-	(file-error
+	      (tramp-error vec 'remote-file-error "Awake did fail")))
+	(remote-file-error
 	 (tramp-cleanup-connection vec t)
 	 (setq p nil)))
 
@@ -5314,7 +5338,8 @@ connection if a previous connection has died for some reason."
 		      (setenv "HISTFILESIZE" "0")
 		      (setenv "HISTSIZE" "0"))))
 	      (unless (stringp tramp-encoding-shell)
-                (tramp-error vec 'file-error "`tramp-encoding-shell' not set"))
+                (tramp-error
+		 vec 'remote-file-error "`tramp-encoding-shell' not set"))
 	      (let* ((current-host tramp-system-name)
 		     (target-alist (tramp-compute-multi-hops vec))
 		     (previous-hop tramp-null-hop)
@@ -5371,9 +5396,7 @@ connection if a previous connection has died for some reason."
 			  (tramp-get-method-parameter
 			   hop 'tramp-connection-timeout
 			   tramp-connection-timeout))
-			 (command
-			  (tramp-get-method-parameter
-			   hop 'tramp-login-program))
+			 (command (tramp-expand-args hop 'tramp-login-program))
 			 ;; We don't create the temporary file.  In
 			 ;; fact, it is just a prefix for the
 			 ;; ControlPath option of ssh; the real
@@ -5433,6 +5456,10 @@ connection if a previous connection has died for some reason."
 			?c (format-spec options (format-spec-make ?t tmpfile))
 			?n (concat
 			    "2>" (tramp-get-remote-null-device previous-hop))
+                        ;; This might be problematic.  We check only for
+                        ;; the first hop.  OTOH, checking ssh
+                        ;; options for every hop might be to expensive.
+                        ?w (tramp-ssh-setenv-term vec)
 			?l (concat remote-shell " " extra-args " -i"))
 		       ;; A restricted shell does not allow "exec".
 		       (when r-shell '("&&" "exit")) '("||" "exit"))
@@ -5520,7 +5547,8 @@ function waits for output unless NOOUTPUT is set."
   "Wait for output from remote command."
   (unless (buffer-live-p (process-buffer proc))
     (delete-process proc)
-    (tramp-error proc 'file-error "Process `%s' not available, try again" proc))
+    (tramp-error
+     proc 'remote-file-error "Process `%s' not available, try again" proc))
   (with-current-buffer (process-buffer proc)
     (let* (;; Initially, `tramp-end-of-output' is "#$ ".  There might
 	   ;; be leading ANSI control escape sequences, which must be
@@ -5551,11 +5579,11 @@ function waits for output unless NOOUTPUT is set."
 	      (delete-region (point) (point-max))))
 	(if timeout
 	    (tramp-error
-	     proc 'file-error
+	     proc 'remote-file-error
 	     "[[Remote prompt `%s' not found in %d secs]]"
 	     tramp-end-of-output timeout)
 	  (tramp-error
-	   proc 'file-error
+	   proc 'remote-file-error
 	   "[[Remote prompt `%s' not found]]" tramp-end-of-output)))
       ;; Return value is whether end-of-output sentinel was found.
       found)))
@@ -5594,7 +5622,7 @@ the exit status."
   (with-current-buffer (tramp-get-connection-buffer vec)
     (unless (tramp-search-regexp (rx "tramp_exit_status " (+ digit)))
       (tramp-error
-       vec 'file-error "Couldn't find exit status of `%s'" command))
+       vec 'remote-file-error "Couldn't find exit status of `%s'" command))
     (skip-chars-forward "^ ")
     (prog1
 	(if exit-status
@@ -5608,7 +5636,7 @@ the exit status."
 Similar to `tramp-send-command-and-check' but accepts two more arguments
 FMT and ARGS which are passed to `error'."
   (or (tramp-send-command-and-check vec command)
-      (apply #'tramp-error vec 'file-error fmt args)))
+      (apply #'tramp-error vec 'remote-file-error fmt args)))
 
 (defun tramp-send-command-and-read (vec command &optional noerror marker)
   "Run COMMAND and return the output, which must be a Lisp expression.
@@ -5627,7 +5655,7 @@ raises an error."
 	    (search-forward-regexp marker)
 	  (error (unless noerror
 		   (tramp-error
-		    vec 'file-error
+		    vec 'remote-file-error
 		    "`%s' does not return the marker `%s': `%s'"
 		    command marker (buffer-string))))))
       ;; Read the expression.
@@ -5641,7 +5669,7 @@ raises an error."
 	      (error nil)))
 	(error (unless noerror
 		 (tramp-error
-		  vec 'file-error
+		  vec 'remote-file-error
 		  "`%s' does not return a valid Lisp expression: `%s'"
 		  command (buffer-string))))))))
 
@@ -5774,7 +5802,8 @@ Nonexistent directories are removed from spec."
 	       remote-path :test #'string-equal :from-end t))
 
 	;; Remove non-existing directories.
-	(let (remote-file-name-inhibit-cache)
+	(let ((remote-file-name-inhibit-cache
+	       (tramp-suppress-remote-file-name-inhibit-cache)))
 	  (tramp-bundle-read-file-names vec remote-path)
 	  (cl-remove-if
 	   (lambda (x) (not (tramp-get-file-property vec x "file-directory-p")))
@@ -5854,7 +5883,8 @@ Nonexistent directories are removed from spec."
 		 (setq result (concat result " --color=never")))
 	       (throw 'ls-found result))
 	     (setq dl (cdr dl))))))
-     (tramp-error vec 'file-error "Couldn't find a proper `ls' command"))))
+     (tramp-error
+      vec 'remote-file-error "Couldn't find a proper `ls' command"))))
 
 (defun tramp-get-ls-command-with (vec option)
   "Return OPTION, if the remote `ls' command supports the OPTION option."

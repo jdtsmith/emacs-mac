@@ -111,7 +111,7 @@ If the exit status is non-zero, log the command output and re-throw."
         (apply 'vc-git-command t 0 nil args)
       (t (message "Error running Git: %s" err)
          (message "(buffer-string:\n%s\n)" (buffer-string))
-         (signal (car err) (cdr err))))
+         (signal err)))
     (buffer-string)))
 
 (defun vc-git-test--start-branch ()
@@ -193,5 +193,53 @@ is absent."
             `(("Branch"   . "feature/bar")
               ("Tracking" . ,main-branch)
               ("Remote"   . "none (tracking local branch)")))))))))
+
+(ert-deftest vc-git-test-branch-remotes ()
+  "Test behavior of `vc-git--branch-remotes'."
+  (skip-unless (executable-find vc-git-program))
+  (vc-git-test--with-repo repo
+    (let ((main-branch (vc-git-test--start-branch)))
+      (should (null (vc-git--branch-remotes)))
+      (vc-git--out-ok "config"
+                      (format "branch.%s.remote" main-branch)
+                      "origin")
+      (should (null (vc-git--branch-remotes)))
+      (vc-git--out-ok "config"
+                      (format "branch.%s.merge" main-branch)
+                      main-branch)
+      (let ((alist (vc-git--branch-remotes)))
+        (should (assq 'upstream alist))
+        (should (null (assq 'push alist))))
+      (vc-git--out-ok "config"
+                      (format "branch.%s.pushRemote" main-branch)
+                      "fork")
+      (let ((alist (vc-git--branch-remotes)))
+        (should (assq 'upstream alist))
+        (should (equal (cdr (assq 'push alist))
+                       (concat "fork/" main-branch))))
+      (vc-git--out-ok "config" "--unset"
+                      (format "branch.%s.pushRemote" main-branch))
+      (vc-git--out-ok "config" "remote.pushDefault" "fork")
+      (let ((alist (vc-git--branch-remotes)))
+        (should (assq 'upstream alist))
+        (should (equal (cdr (assq 'push alist))
+                       (concat "fork/" main-branch))))
+      (vc-git--out-ok "config" "remote.pushDefault" "origin")
+      (let ((alist (vc-git--branch-remotes)))
+        (should (assq 'upstream alist))
+        (should (null (assq 'push alist)))))))
+
+(ert-deftest vc-git-test-checkin-patch-staged-diff ()
+  "Checking in a patch that matches staged changes should not error."
+  (skip-unless (executable-find vc-git-program))
+  (require 'log-edit)
+  (vc-git-test--with-repo repo
+    (vc-git-test--start-branch)
+    (write-region "Hello\n" nil "README")
+    (vc-git-test--run "add" "README")
+    (let ((patch (vc-git-test--run "diff" "--cached")))
+      (vc-git--checkin "Second" nil patch))
+    (should (equal (string-trim (vc-git-test--run "log" "-1" "--pretty=%s"))
+                   "Second"))))
 
 ;;; vc-git-tests.el ends here

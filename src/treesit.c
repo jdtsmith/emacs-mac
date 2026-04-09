@@ -81,11 +81,15 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #undef ts_query_predicates_for_pattern
 #undef ts_query_string_value_for_id
 #undef ts_set_allocator
-#undef ts_tree_cursor_copy
 #undef ts_tree_cursor_current_node
 #undef ts_tree_cursor_delete
 #undef ts_tree_cursor_goto_first_child
 #undef ts_tree_cursor_goto_first_child_for_byte
+#ifdef HAVE_TS_TREE_CURSOR_GOTO_PREVIOUS_SIBLING
+#undef ts_tree_cursor_goto_previous_sibling
+#else
+#undef ts_tree_cursor_copy
+#endif
 #undef ts_tree_cursor_goto_next_sibling
 #undef ts_tree_cursor_goto_parent
 #undef ts_tree_cursor_new
@@ -153,12 +157,16 @@ DEF_DLL_FN (const char *, ts_query_string_value_for_id,
 	    (const TSQuery *, uint32_t, uint32_t *));
 DEF_DLL_FN (void, ts_set_allocator,
 	    (void *(*)(size_t), void *(*)(size_t, size_t), void *(*)(void *, size_t), void (*)(void *)));
-DEF_DLL_FN (TSTreeCursor, ts_tree_cursor_copy, (const TSTreeCursor *));
 DEF_DLL_FN (TSNode, ts_tree_cursor_current_node, (const TSTreeCursor *));
 DEF_DLL_FN (void, ts_tree_cursor_delete, (const TSTreeCursor *));
 DEF_DLL_FN (bool, ts_tree_cursor_goto_first_child, (TSTreeCursor *));
 DEF_DLL_FN (int64_t, ts_tree_cursor_goto_first_child_for_byte, (TSTreeCursor *, uint32_t));
 DEF_DLL_FN (bool, ts_tree_cursor_goto_next_sibling, (TSTreeCursor *));
+#ifdef HAVE_TS_TREE_CURSOR_GOTO_PREVIOUS_SIBLING
+DEF_DLL_FN (bool, ts_tree_cursor_goto_previous_sibling, (TSTreeCursor *));
+#else
+DEF_DLL_FN (TSTreeCursor, ts_tree_cursor_copy, (const TSTreeCursor *));
+#endif
 DEF_DLL_FN (bool, ts_tree_cursor_goto_parent, (TSTreeCursor *));
 DEF_DLL_FN (TSTreeCursor, ts_tree_cursor_new, (TSNode));
 DEF_DLL_FN (void, ts_tree_delete, (TSTree *));
@@ -221,12 +229,16 @@ init_treesit_functions (void)
   LOAD_DLL_FN (library, ts_query_predicates_for_pattern);
   LOAD_DLL_FN (library, ts_query_string_value_for_id);
   LOAD_DLL_FN (library, ts_set_allocator);
-  LOAD_DLL_FN (library, ts_tree_cursor_copy);
   LOAD_DLL_FN (library, ts_tree_cursor_current_node);
   LOAD_DLL_FN (library, ts_tree_cursor_delete);
   LOAD_DLL_FN (library, ts_tree_cursor_goto_first_child);
   LOAD_DLL_FN (library, ts_tree_cursor_goto_first_child_for_byte);
   LOAD_DLL_FN (library, ts_tree_cursor_goto_next_sibling);
+#ifdef HAVE_TS_TREE_CURSOR_GOTO_PREVIOUS_SIBLING
+  LOAD_DLL_FN (library, ts_tree_cursor_goto_previous_sibling);
+#else
+  LOAD_DLL_FN (library, ts_tree_cursor_copy);
+#endif
   LOAD_DLL_FN (library, ts_tree_cursor_goto_parent);
   LOAD_DLL_FN (library, ts_tree_cursor_new);
   LOAD_DLL_FN (library, ts_tree_delete);
@@ -283,12 +295,16 @@ init_treesit_functions (void)
 #define ts_query_predicates_for_pattern fn_ts_query_predicates_for_pattern
 #define ts_query_string_value_for_id fn_ts_query_string_value_for_id
 #define ts_set_allocator fn_ts_set_allocator
-#define ts_tree_cursor_copy fn_ts_tree_cursor_copy
 #define ts_tree_cursor_current_node fn_ts_tree_cursor_current_node
 #define ts_tree_cursor_delete fn_ts_tree_cursor_delete
 #define ts_tree_cursor_goto_first_child fn_ts_tree_cursor_goto_first_child
 #define ts_tree_cursor_goto_first_child_for_byte fn_ts_tree_cursor_goto_first_child_for_byte
 #define ts_tree_cursor_goto_next_sibling fn_ts_tree_cursor_goto_next_sibling
+#ifdef HAVE_TS_TREE_CURSOR_GOTO_PREVIOUS_SIBLING
+#define ts_tree_cursor_goto_previous_sibling fn_ts_tree_cursor_goto_previous_sibling
+#else
+#define ts_tree_cursor_copy fn_ts_tree_cursor_copy
+#endif
 #define ts_tree_cursor_goto_parent fn_ts_tree_cursor_goto_parent
 #define ts_tree_cursor_new fn_ts_tree_cursor_new
 #define ts_tree_delete fn_ts_tree_delete
@@ -2348,7 +2364,7 @@ an indirect buffer.  */)
     buf = buf->base_buffer;
 
   if (EQ (tag, Qt))
-    xsignal2(Qwrong_type_argument, list2(Qnot, Qt), Qt);
+    wrong_type_argument (list2 (Qnot, Qt), Qt);
 
   treesit_check_buffer_size (buf);
 
@@ -3898,9 +3914,9 @@ static Lisp_Object treesit_resolve_node (Lisp_Object obj)
       return Ftreesit_parser_root_node (parser);
     }
   else
-    xsignal2 (Qwrong_type_argument,
-	      list4 (Qor, Qtreesit_node_p, Qtreesit_parser_p, Qsymbolp),
-	      obj);
+    wrong_type_argument (list4 (Qor, Qtreesit_node_p,
+				Qtreesit_parser_p, Qsymbolp),
+			 obj);
 }
 
 /* Create and initialize QUERY.  When success, initialize TS_QUERY,
@@ -3958,6 +3974,22 @@ treesit_initialize_query (Lisp_Object query, const TSLanguage *lang,
 	  *need_free = true;
 	  return true;
 	}
+    }
+}
+
+/* Go over a list from START to END (until the element eq to END),
+   replace (capture-name . node) with just node.  */
+static void query_capture_remove_capture_name (Lisp_Object start,
+					       Lisp_Object end)
+{
+  Lisp_Object tail = start;
+  FOR_EACH_TAIL (tail)
+    {
+      Lisp_Object cell = CAR (tail);
+      CHECK_CONS (cell);
+      XSETCAR (tail, CDR (cell));
+
+      if (EQ (CDR (tail), end)) return;
     }
 }
 
@@ -4106,18 +4138,12 @@ the query.  */)
 	  TSQueryCapture capture = captures[idx];
 	  Lisp_Object captured_node = make_treesit_node (lisp_parser,
 							 capture.node);
-
-	  Lisp_Object cap;
-	  if (NILP (node_only))
-	    {
-	      const char *capture_name
-		= ts_query_capture_name_for_id (treesit_query, capture.index,
-						&capture_name_len);
-	      cap = Fcons (intern_c_string_1 (capture_name, capture_name_len),
-			   captured_node);
-	    }
-	  else
-	    cap = captured_node;
+	  const char *capture_name
+	    = ts_query_capture_name_for_id (treesit_query, capture.index,
+					    &capture_name_len);
+	  Lisp_Object cap
+	    = Fcons (intern_c_string_1 (capture_name, capture_name_len),
+		     captured_node);
 
 	  if (NILP (grouped))
 	    result = Fcons (cap, result); /* Mode 1. */
@@ -4150,12 +4176,24 @@ the query.  */)
       if (!NILP (predicate_signal_data))
 	break;
 
-      /* Mode 1: Predicates didn't pass, roll back.  */
-      if (!match && NILP (grouped))
-	result = prev_result;
-      /* Mode 2: Predicates pass, add this match group.  */
+      /* Mode 1: Roll back if predicate didn't pass, don't roll back if
+         predicate passed.  */
+      if (NILP (grouped))
+	{
+	  if (!match)
+	    result = prev_result;
+	  else if (!NILP (node_only))
+	    query_capture_remove_capture_name (result, prev_result);
+	}
+      /* Mode 2: Add this match group if predicate pass, don't add this
+         group if predicate didn't pass.  */
       if (match && !NILP (grouped))
-	result = Fcons (Fnreverse (match_group), result);
+	{
+	  match_group = Fnreverse (match_group);
+	  if (!NILP (node_only))
+	    query_capture_remove_capture_name (match_group, Qnil);
+	  result = Fcons (match_group, result);
+	}
     }
 
   /* Final clean up.  */
@@ -4277,6 +4315,19 @@ treesit_traverse_sibling_helper (TSTreeCursor *cursor,
       return false;
     }
   else /* Backward.  */
+#ifdef HAVE_TS_TREE_CURSOR_GOTO_PREVIOUS_SIBLING
+    {
+      if (!named)
+	return ts_tree_cursor_goto_previous_sibling (cursor);
+      /* Else named...  */
+      while (ts_tree_cursor_goto_previous_sibling (cursor))
+	{
+	  if (ts_node_is_named (ts_tree_cursor_current_node (cursor)))
+	    return true;
+	}
+      return false;
+    }
+#else
     {
       /* Go to first child and go through each sibling, until we find
 	 the one just before the starting node.  */
@@ -4324,6 +4375,7 @@ treesit_traverse_sibling_helper (TSTreeCursor *cursor,
       ts_tree_cursor_delete (&probe);
       return false;
     }
+#endif
 }
 
 /* Move CURSOR to the first/last child.  FORWARD controls the

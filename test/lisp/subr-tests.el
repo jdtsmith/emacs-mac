@@ -1463,6 +1463,27 @@ final or penultimate step during initialization."))
                      (t x) (:success (1+ x)))
                    '(error "")))))
 
+(ert-deftest subr-error-API ()
+  (should (error-type-p 'error))
+  (should (error-type-p 'wrong-type-argument))
+  (should-not (error-type-p 'car))
+
+  (let ((error-err (condition-case err (error "Foo") (error err)))
+        (wta-err (condition-case err (car 5) (error err))))
+    (should (error-has-type-p error-err 't))
+    (should-not (error-has-type-p error-err 'wrong-type-argument))
+    (should (error-has-type-p wta-err 'error))
+    (should (error-has-type-p wta-err 'wrong-type-argument))
+    (should-not (error-has-type-p wta-err 'wrong-number-of-arguments))
+
+    (should (equal "Foo" (error-slot-value error-err 1)))
+    (should (equal 'listp (error-slot-value wta-err 1)))
+    (should (equal 5 (error-slot-value wta-err 2)))
+
+    (should (equal wta-err (condition-case err (car 5) (error err))))
+    (should-not (eq wta-err (condition-case err (car 5) (error err))))
+    (should (eq wta-err (condition-case err (signal wta-err) (error err))))))
+
 (ert-deftest subr--subst-char-in-string ()
   ;; Cross-validate `subst-char-in-string' with `string-replace',
   ;; which should produce the same results when there are no properties.
@@ -1679,20 +1700,75 @@ final or penultimate step during initialization."))
     (should (equal (funcall (subr--identity #'all) #'plusp ls) nil))
     (should (equal (funcall (subr--identity #'all) #'numberp ls) t))))
 
-(ert-deftest subr-any ()
-  (should (equal (any #'hash-table-p nil) nil))
+(ert-deftest subr-member-if ()
+  (should (equal (member-if #'hash-table-p nil) nil))
   (let ((ls (append '(3 2 1) '(0) '(-1 -2 -3))))
-    (should (equal (any #'numberp ls) ls))
-    (should (equal (any (lambda (x) (numberp x)) ls) ls))
-    (should (equal (any #'plusp ls) ls))
-    (should (equal (any #'zerop ls) '(0 -1 -2 -3)))
-    (should (equal (any #'bufferp ls) nil))
+    (should (equal (member-if #'numberp ls) ls))
+    (should (equal (member-if (lambda (x) (numberp x)) ls) ls))
+    (should (equal (member-if #'plusp ls) ls))
+    (should (equal (member-if #'zerop ls) '(0 -1 -2 -3)))
+    (should (equal (member-if #'bufferp ls) nil))
     (let ((z 9))
-      (should (equal (any (lambda (x) (< x z)) ls) ls))
-      (should (equal (any (lambda (x) (< x (- z 9))) ls) '(-1 -2 -3)))
-      (should (equal (any (lambda (x) (> x z)) ls) nil)))
-    (should (equal (funcall (subr--identity #'any) #'minusp ls) '(-1 -2 -3)))
-    (should (equal (funcall (subr--identity #'any) #'stringp ls) nil))))
+      (should (equal (member-if (lambda (x) (< x z)) ls) ls))
+      (should (equal (member-if (lambda (x) (< x (- z 9))) ls)
+                     '(-1 -2 -3)))
+      (should (equal (member-if (lambda (x) (> x z)) ls) nil)))
+    (should (equal (funcall (subr--identity #'member-if) #'minusp ls)
+                   '(-1 -2 -3)))
+    (should (equal (funcall (subr--identity #'member-if) #'stringp ls) nil))))
+
+(defun subr-tests--member-if-memql (x xs)
+  "Like `memql', but exercising the `compiler-macro' of `member-if'.
+The argument names are important."
+  (member-if (lambda (y) (eql x y)) xs))
+
+(ert-deftest subr-member-if-compiler-macro ()
+  "Test `compiler-macro' of `member-if'."
+  (let ((xs (number-sequence 0 4)))
+    (dotimes (x (1+ (length xs)))
+      (should (eq (subr-tests--member-if-memql x xs)
+                  (memql x xs)))))
+  (let ((n 0))
+    (member-if (prog1 (lambda (x) (eq x 5)) (incf n))
+               (number-sequence 0 4))
+    (should (eq n 1))))
+
+(ert-deftest total-line-spacing ()
+  (progn
+    (let ((line-spacing 10))
+      (should (equal (total-line-spacing) line-spacing) ))
+    (let ((line-spacing 0.8))
+      (should (equal (total-line-spacing) 0.8)))
+    (let ((line-spacing '(10 . 5)))
+      (should (equal (total-line-spacing) 15)))
+    (let ((line-spacing '(0.3 . 0.4)))
+      (should (equal (total-line-spacing) 0.7)))
+    (should (equal (total-line-spacing 10) 10))
+    (should (equal (total-line-spacing 0.3) 0.3))
+    (should (equal (total-line-spacing '(1 . 3)) 4))
+    (should (equal (total-line-spacing '(0.1 . 0.1 )) 0.2))))
+
+(ert-deftest subr-multiple-command-partition-arguments ()
+  (let ((system-type 'gnu/linux)
+        (command-line-max-length 35)
+        (process-environment '("BLAH=blah" "BLAH2=blah2"))) ; Length 20.
+    (should (equal (multiple-command-partition-arguments "cmd"
+                                                         '("foo" "bar" "baz"))
+                   '(("foo" "bar" "baz"))))
+    (should (equal (multiple-command-partition-arguments "cmd"
+                                                         '("foo" "bar" "bazzzzzz"))
+                   '(("foo" "bar") ("bazzzzzz"))))
+    (should-error (multiple-command-partition-arguments "cmd"
+                                                        '("foo" "bar"
+                                                          "bazzzzzzzzzzz"))))
+  (let ((system-type 'windows-nt)
+        (command-line-max-length 30))
+    (should (equal (multiple-command-partition-arguments "cmd"
+                                                         '("foo" "bar" "baz"))
+                   '(("foo" "bar" "baz"))))
+    (should (equal (multiple-command-partition-arguments "cmd"
+                                                         '("foo" "bar" "bazzzzzz"))
+                   '(("foo" "bar") ("bazzzzzz"))))))
 
 (provide 'subr-tests)
 ;;; subr-tests.el ends here

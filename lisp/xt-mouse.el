@@ -509,16 +509,14 @@ enable, ?l to disable)."
   "Enable xterm mouse tracking on TERMINAL."
   (when (and xterm-mouse-mode (eq t (terminal-live-p terminal))
 	     ;; Avoid the initial terminal which is not a termcap device.
-	     ;; FIXME: is there more elegant way to detect the initial
-             ;; terminal?
-	     (not (string= (terminal-name terminal) "initial_terminal")))
+             (not (frame-initial-p terminal)))
     (unless (terminal-parameter terminal 'xterm-mouse-mode)
       ;; Simulate selecting a terminal by selecting one of its frames
       ;; so that we can set the terminal-local `input-decode-map'.
       ;; Use the tty-top-frame to avoid accidentally making an invisible
       ;; child frame visible by selecting it (bug#79960).
-      ;; The test for match mode is here because xt-mouse-tests run in
-      ;; match mode, and there is no top-frame in that case.
+      ;; The test for batch mode is here because xt-mouse-tests run in
+      ;; batch mode, and there is no top-frame in that case.
       (with-selected-frame (if noninteractive
                                (car (frame-list))
                              (tty-top-frame terminal))
@@ -529,9 +527,10 @@ enable, ?l to disable)."
         (condition-case err
             (send-string-to-terminal enable terminal)
           ;; FIXME: This should use a dedicated error signal.
-          (error (if (equal (cadr err) "Terminal is currently suspended")
+          (error (if (equal (error-slot-value err 1)
+                            "Terminal is currently suspended")
                      nil ; The sequence will be sent upon resume.
-                   (signal (car err) (cdr err)))))
+                   (signal err))))
         (push enable (terminal-parameter nil 'tty-mode-set-strings))
         (push disable (terminal-parameter nil 'tty-mode-reset-strings))
         (set-terminal-parameter terminal 'xterm-mouse-mode t)
@@ -553,9 +552,10 @@ enable, ?l to disable)."
         (send-string-to-terminal xterm-mouse-tracking-disable-sequence
                                  terminal)
       ;; FIXME: This should use a dedicated error signal.
-      (error (if (equal (cadr err) "Terminal is currently suspended")
+      (error (if (equal (error-slot-value err 1)
+                        "Terminal is currently suspended")
                  nil
-               (signal (car err) (cdr err)))))
+               (signal err))))
     (setf (terminal-parameter nil 'tty-mode-set-strings)
           (remq xterm-mouse-tracking-enable-sequence
                 (terminal-parameter nil 'tty-mode-set-strings)))
