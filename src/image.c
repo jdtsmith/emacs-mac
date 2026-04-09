@@ -12039,7 +12039,7 @@ webp_load (struct frame *f, struct image *img)
 	{
 	  /* Open the WebP file.  */
 	  specified_file = image_spec_value (img->spec, QCfile, NULL);
-	  contents_cpy = (uint8_t *) slurp_image (f, specified_file,
+	  contents_cpy = (uint8_t *) slurp_image (f, img, specified_file,
 						  &size, "WebP");
 	  if (!contents_cpy)
 	    goto cleanup;
