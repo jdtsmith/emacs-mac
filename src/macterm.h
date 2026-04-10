@@ -688,7 +688,6 @@ extern void mac_dispose_frame_window (struct frame *);
 extern void mac_change_frame_window_wm_state (struct frame *, WMState, WMState);
 extern CGContextRef mac_begin_cg_clip (struct frame *, GC, CGRect);
 extern void mac_end_cg_clip (CGContextRef, struct frame *);
-extern void mac_present_frame(struct frame *);
 extern CGContextRef mac_get_backing_bitmap(struct frame *);
 extern void mac_setup_drawing_context (CGContextRef);
 extern void mac_teardown_drawing_context (void);

@@ -2711,27 +2711,45 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
    EmacsBacking and display.  Since we pump the NS Event loop ourselves
    (see mac_select), this is one of the only places we can request a
    display update from the display server (which leads to an
-   `updateLayer' call).  See also mac_force_flush.
+   `updateLayer' call).  If wait is NO, do not bother waiting for the
+   draw lock, just return quickly if it is not available.  If YES, wait
+   for the draw lock, and display the view even if the FRAME doesn't
+   require presentation.  Must be called from the GUI thread.
  */
 
-- (void)presentIfReady
+- (void)presentIfReadyWithWait:(BOOL)wait
 {
     struct frame *f = emacsFrame;
-    if (!f || !FRAME_LIVE_P (f) || !FRAME_MAC_NEEDS_PRESENTATION_P (f))
-        return;
-    if (![self tryAcquireDrawLock])
-        return;  /* drawing busy, another dispatch will come */
+    BOOL needsPresenting = FRAME_LIVE_P (f) & FRAME_MAC_NEEDS_PRESENTATION_P (f);
+
+    if (wait)
+      {
+	MAC_SIGNPOST_GEN_BEGIN (draw, AcqDraw, "PRESENT");
+	[self acquireDrawLock];
+	MAC_SIGNPOST_GEN_END(draw, AcqDraw);
+      }
+    else
+      {
+	if (!needsPresenting)
+	  return;
+	if (![self tryAcquireDrawLock])
+	  return;   /* drawing busy, another dispatch will come */
+      }
+
     MAC_SIGNPOST_GEN_BEGIN (gui, Present, "FRAME: %{public}s FPTR: %p",
 			    SSDATA (f->name), f);
-    FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
-    struct mac_output *mo = FRAME_OUTPUT_DATA (f);
-    [self presentBackingWithDirtyRects:mo->dirty_rects
-                                 count:mo->dirty_rect_count];
-    mo->dirty_rect_count = 0; /* Reset for reuse */
-    [emacsView setNeedsDisplay:YES];
+    if (needsPresenting)
+      {
+	struct mac_output *mo = FRAME_OUTPUT_DATA (f);
+	[self presentBackingWithDirtyRects:mo->dirty_rects
+				     count:mo->dirty_rect_count];
+	mo->dirty_rect_count = 0; /* Reset for reuse */
+	FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
+	[emacsView setNeedsDisplay:YES];
+      }
     [emacsView displayIfNeeded];
-    [self releaseDrawLock];
     MAC_SIGNPOST_GEN_END (gui, Present);
+    [self releaseDrawLock];
 }
 
 - (struct frame *)emacsFrame
@@ -7093,17 +7111,8 @@ mac_ts_active_input_string_in_echo_area_p (struct frame *f)
 
 // ** C drawing primitives
 
-/* Atomic flag to signal that drawing has been requested (on any frame)
-   for processing during mac_gui_loop */
-static _Atomic BOOL _mac_needs_presentation = false;
-#define MAC_NEEDS_PRESENTATION()			\
-  (atomic_exchange (&_mac_needs_presentation, false))
-#define MAC_SET_NEEDS_PRESENTATION()		\
-  atomic_store (&_mac_needs_presentation, true)
-
-
 /* Present any frame which is ready for display.  Should be called from
-   the GUI thread. */
+   the GUI thread.  Does not wait for the frame's draw lock. */
 
 static void
 mac_present_all_ready_frames (void)
@@ -7113,18 +7122,24 @@ mac_present_all_ready_frames (void)
     {
       struct frame *f = XFRAME(frame);
       if (FRAME_MAC_P(f))
-	[FRAME_CONTROLLER(f) presentIfReady];
+	[FRAME_CONTROLLER(f) presentIfReadyWithWait:NO];
     }
 }
 
-/* Flush display of frame F, if necessary.  */
+/* Present and flush display of frame F, if necessary.  Waits for the
+   draw lock. */
 
 void
 mac_force_flush (struct frame *f)
 {
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
   block_input ();
-  mac_within_gui (^{[frameController displayEmacsViewIfNeeded];});
+  /* This is "backup" presentation: it waits for the draw lock, and even
+     if the frame does not need presenting, updates display (system
+     requests). */
+  mac_within_gui (^{
+      [frameController presentIfReadyWithWait:YES];
+    });
   unblock_input ();
 }
 
@@ -7189,11 +7204,13 @@ mac_draw_session_begin (struct frame *f)
   [frameController releaseArenaLock];
 }
 
+static void mac_notify_gui_of_presentation_request (void);
+
 /* End a draw session by waiting for the backing bitmap (for any dirty
-   rect copy to complete), playing back the arena into it, then
-   presenting the frame.  This is done via the GCD queue if possible.
-   Can be called from LISP or GUI threads.  Drawing is locked during
-   operation. */
+   rect copy to complete), playing back the arena into it, then calling
+   for frame presentation.  This work is done on the GCD background
+   queue if possible.  Can be called from LISP or GUI threads.  Drawing
+   is locked during operation. */
 
 void
 mac_draw_session_end (struct frame *f, int type)
@@ -7215,7 +7232,8 @@ mac_draw_session_end (struct frame *f, int type)
       if (backing_ctx)
 	{
 	  mac_playback_arena (arena, f, backing_ctx);
-	  mac_present_frame (f);
+	  FRAME_MAC_NEEDS_PRESENTATION_P (f) = true;
+	  mac_notify_gui_of_presentation_request ();
 	}
       [frameController releaseDrawLock];
 #if DRAWING_USE_GCD
@@ -7230,20 +7248,6 @@ mac_draw_session_end (struct frame *f, int type)
 #endif
       block ();
     MAC_SIGNPOST_PTR_END (arena, trace, Session, "TYPE: %d", type);
-}
-
-static void mac_dispatch_gui_present (void);
-
-/* Mark frame F as in need of presentation. */
-
-void
-mac_present_frame (struct frame *f)
-{
-  FRAME_MAC_NEEDS_PRESENTATION_P (f) = true;
-  /* Atomic signal for mac_gui_loop */
-  MAC_SET_NEEDS_PRESENTATION ();
-  /* Mach signal for MDEL (run loop running) */
-  mac_dispatch_gui_present ();
 }
 
 CGContextRef
@@ -9669,7 +9673,7 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	  struct frame *f = XFRAME (frame);
 	  if (FRAME_MAC_P (f))
 	    {
-	      /* Flush the frame to display (if needed). */
+	      /* Present and flush the frame to display (if needed). */
 	      mac_force_flush (f);
 	      /* Flush any "out-of-band" open draw sessions (e.g. mouse moves). */
 	      mac_flush_arena (f);
@@ -15920,8 +15924,7 @@ mac_sound_play (CFTypeRef mac_sound, Lisp_Object volume, Lisp_Object device)
 
 // * Thread Synchronization
 
-/* Binary semaphores for synchronization between GUI and Lisp
-   threads.  */
+/* Binary semaphores for synchronization between threads. */
 static dispatch_semaphore_t mac_gui_semaphore, mac_lisp_semaphore;
 
 /* Queues of blocks to be executed in GUI or Lisp thread
@@ -15933,25 +15936,51 @@ static NSMutableArray *mac_gui_queue, *mac_lisp_queue;
 static NSMutableArray *mac_deferred_lisp_queue;
 
 /* Dispatch source to break the run loop in the GUI thread for select
-   emulation.  */
+   emulation, and to signal GUI for presentation .  */
 static dispatch_source_t mac_select_dispatch_source;
 
 /* Command to execute in the GUI thread after the run loop is
    broken. */
 static enum
 {
-  MAC_COMMAND_TERMINATE	= 1 << 0,
-  MAC_COMMAND_SUSPEND	= 1 << 1,
-  MAC_COMMAND_PRESENT	= 1 << 2,
+  MAC_COMMAND_TERMINATE	= 1 << 0,  /* select should exit */
+  MAC_COMMAND_SUSPEND	= 1 << 1,  /* a task block is queued, run it */
+  MAC_COMMAND_PRESENT	= 1 << 2,  /* a frame may need presentation */
 } mac_next_command;
 
+/* Atomic flag to signal that presentation has been requested for one or
+   more more completed frames, to be processed by GUI. */
+static _Atomic BOOL _mac_presentation_requested = NO;
+#define MAC_CHECK_PRESENTATION_REQUESTED_AND_SET(val)	\
+  atomic_exchange (&_mac_presentation_requested, val)
 
-/* Helper to dispatch PRESENT to the GUI */
+/* Notify GUI thread of a frame presentation request.  If there is an
+   active request already, notifications are not repeated.
+   Notifications include both a Mach dispatch message (which can
+   interrupt the event loop) and a semaphore signal.
+
+   Called from the GCD queue (if GCD is active).
+
+   IMPORTANT: to avoid interfering with the LISP-GUI thread
+   synchronization, we must adhere to the following policy after this
+   notification is sent:
+
+   Always check the atomic presentation requested flag and reset it to
+   NO first.  If it was YES, this is an active request.  Present any
+   ready frames, and be sure to consume the extra mac_gui_semaphore
+   signal.  If NO, this is a stale request: take no action.
+*/
 
 static inline void
-mac_dispatch_gui_present (void)
+mac_notify_gui_of_presentation_request (void)
 {
-  dispatch_source_merge_data (mac_select_dispatch_source, MAC_COMMAND_PRESENT);
+  /* Do not signal again if we have already done so. */
+  if (!MAC_CHECK_PRESENTATION_REQUESTED_AND_SET (YES))
+    {
+      dispatch_semaphore_signal (mac_gui_semaphore);
+      dispatch_source_merge_data (mac_select_dispatch_source,
+				  MAC_COMMAND_PRESENT);
+    }
 }
 
 static void
@@ -15984,55 +16013,43 @@ mac_init_thread_synchronization (void)
   END_AUTORELEASE_POOL;
 }
 
-/* When signaled, synchronously execute task blocks from `mac_gui_queue'
-   in the GUI thread until the dequeued block is nil.  Blocks have been
-   queued by `mac_within_gui_and_here'.  Also monitor for presentation
-   requests and present any frames which have become ready. */
+/* When signaled, process a single task from the GUI queue, and signals
+   the LISP thread to let it know the task is complete.  Also monitors
+   for presentation requests and presents any frames which have become
+   ready for display.  Should be called from the GUI thread.  Returns
+   YES unless the queued block was nil.  */
 
-static void
-mac_gui_loop (void)
-{
-  eassert (pthread_main_np ());
-  void (^block) (void);
-
-  do
-    {
-      BEGIN_AUTORELEASE_POOL;
-      long timed_out;
-      do
-	{
-	  if (MAC_NEEDS_PRESENTATION ())
-            mac_present_all_ready_frames ();
-	  dispatch_time_t time = dispatch_time (DISPATCH_TIME_NOW,
-						8 * NSEC_PER_MSEC);
-          timed_out = dispatch_semaphore_wait (mac_gui_semaphore, time);
-	}
-      while (timed_out);
-
-      block = [mac_gui_queue dequeue];
-      if (block)
-	block ();
-      dispatch_semaphore_signal (mac_lisp_semaphore);
-      END_AUTORELEASE_POOL;
-    }
-  while (block);
-}
-
-/* Process a single task from the GUI queue, coordinating with the LISP
-   thread.  Should be called from the GUI thread. */
-
-static void
+static BOOL
 mac_gui_loop_once (void)
 {
   void (^block) (void);
 
   BEGIN_AUTORELEASE_POOL;
-  dispatch_semaphore_wait (mac_gui_semaphore, DISPATCH_TIME_FOREVER);
-  block = [mac_gui_queue dequeue];
-  eassert (block);
-  block ();
-  dispatch_semaphore_signal (mac_lisp_semaphore);
+  while (true)
+    {
+      dispatch_semaphore_wait (mac_gui_semaphore, DISPATCH_TIME_FOREVER);
+      if (MAC_CHECK_PRESENTATION_REQUESTED_AND_SET (NO))
+	  mac_present_all_ready_frames();
+      else
+	{	
+	  block = [mac_gui_queue dequeue];
+	  if (block)
+	    block ();
+	  dispatch_semaphore_signal (mac_lisp_semaphore);
+	  return (block ? YES : NO);
+	}
+    }
   END_AUTORELEASE_POOL;
+}
+
+/* Keep processing blocks which have been queued by
+   `mac_within_gui(_and_here)' until a nil block is encountered. */
+
+static void
+mac_gui_loop (void)
+{
+  eassert (pthread_main_np ());
+  while (mac_gui_loop_once ());
 }
 
 /* Ask execution of BLOCK to the GUI thread synchronously.  The
@@ -16094,7 +16111,8 @@ mac_within_gui_allowing_inner_lisp (void (^block) (void))
   bool __block completed_p = false;
 
   mac_within_gui (^{
-      block ();
+      block (); /* If this calls mac_within_lisp, the mac_within_gui
+		   call will return early */
       completed_p = true;
     });
   while (!completed_p)
@@ -16387,6 +16405,7 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
   mac_select_allow_lisp_evaluation = !thread_may_switch_p;
   bool __block completed_p = false;
 #endif
+  /* This is the Main Divided Event Loop: MDEL */
   mac_within_gui_and_here (
    ^{ /* GUI */
       if (thread_may_switch_p)
@@ -16412,24 +16431,37 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 		      mac_wakeup_lisp();
 		      written_p = true;
 		    }
+		  if ((mac_next_command & MAC_COMMAND_SUSPEND)
+		      && mac_gui_queue.count == 0)
+		    /* Bogus suspend command with no block to process:
+		       would be a residual from the previous round.  */
+		    mac_next_command &= ~MAC_COMMAND_SUSPEND;
+
+		  /* Presentation of frames requested */
 		  if (mac_next_command & MAC_COMMAND_PRESENT)
 		    {
 		      mac_next_command &= ~MAC_COMMAND_PRESENT;
-		      MAC_NEEDS_PRESENTATION ();  /* Clear atomic flag */
-		      mac_present_all_ready_frames ();
+		      /* If SUSPEND is set, we don't need to present,
+			 since that will be done shortly in
+			 mac_gui_loop_once.  Only present if the request
+			 hasn't already been handled (i.e. ignore a
+			 stale PRESENT). */
+		      if (!(mac_next_command & MAC_COMMAND_SUSPEND) &&
+			  MAC_CHECK_PRESENTATION_REQUESTED_AND_SET (NO))
+			{
+			  mac_present_all_ready_frames ();
+			  /* Consume the +1 GCD semaphore signal set by
+			     mac_dispatch_gui_present */
+			  dispatch_semaphore_wait(mac_gui_semaphore, DISPATCH_TIME_NOW);
+			}
 		    }
-		  if ((mac_next_command & MAC_COMMAND_SUSPEND)
-		      && mac_gui_queue.count == 0)
-		    /* Bogus suspend command: would be a residual from
-		       the previous round.  */
-		    mac_next_command &= ~MAC_COMMAND_SUSPEND;
 		}
 	      while (!mac_next_command);
 	    });
 	  if (mac_next_command & MAC_COMMAND_TERMINATE)
 	    break;
 	  else
-	    mac_gui_loop_once ();
+	    mac_gui_loop_once ();  /* Process the block */
 	}
       if (thread_may_switch_p)
 	mac_set_buffer_and_glyph_matrix_access_restricted (false);
