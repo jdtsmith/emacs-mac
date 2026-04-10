@@ -17,13 +17,12 @@ You should have received a copy of the GNU General Public License
 along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 
 // * Import/includes and general macros
-
 #include <config.h>
 #include "lisp.h"
 #include "blockinput.h"
 
-#include "mac_arena_draw.h"
 #include "macterm.h"
+#include "mac_arena_draw.h"
 
 #include <os/lock.h>
 #include <sys/socket.h>
