@@ -715,15 +715,9 @@ typedef NSInteger NSGlyphProperty;
 - (void)closeWindow;
 - (void)ensureBackingSized;
 - (CGContextRef)getBackingForDrawing;
-- (void)presentIfReady;
 - (struct frame *)emacsFrame;
 - (EmacsWindow *)emacsWindow;
 - (BOOL)acceptsFocus;
-- (BOOL)tryAcquireDrawLock;
-- (void)acquireDrawLock;
-- (void)releaseDrawLock;
-- (void)acquireArenaLock;
-- (void)releaseArenaLock;
 - (WMState)windowManagerState;
 - (void)setWindowManagerState:(WMState)newState;
 - (void)updateBackingScaleFactor;
@@ -781,7 +775,6 @@ typedef NSInteger NSGlyphProperty;
 - (void)updateBounds;
 - (void)setDirtyRects:(const CGRect *)rects count:(int)count;
 - (CGContextRef)getBackingBitmap;
-- (void)setContentsForLayer:(CALayer *)layer;
 @end
 
 /* Class for Emacs view that handles drawing events only.  It is used
