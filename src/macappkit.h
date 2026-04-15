@@ -475,6 +475,7 @@ typedef NSInteger NSGlyphProperty;
 + (NSScreen *)closestScreenForRect:(NSRect)aRect;
 - (BOOL)containsDock;
 - (BOOL)canShowMenuBar;
+- (double)refreshRate;
 @end
 
 @interface NSWindow (Emacs)

@@ -627,6 +627,26 @@ mac_within_app (void (^block) (void))
 	  || NSScreen.screensHaveSeparateSpaces);
 }
 
+- (double)refreshRate
+{
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= 120000
+  if ([self respondsToSelector:@selector(maximumFramesPerSecond)])
+    return (double)self.maximumFramesPerSecond;
+#endif
+  CGDirectDisplayID displayID = [[self deviceDescription][@"NSScreenNumber"]
+							 unsignedIntValue];
+  CGDisplayModeRef mode = CGDisplayCopyDisplayMode (displayID);
+  if (mode)
+    {
+      double refreshRate = CGDisplayModeGetRefreshRate (mode);
+      CGDisplayModeRelease(mode);
+
+      return (refreshRate > 0) ? refreshRate : 60.0;
+    }
+
+  return 60.0;
+}
+
 @end				// NSScreen (Emacs)
 
 // ** NSWindow
@@ -7567,7 +7587,9 @@ mac_display_monitor_attributes_list (struct mac_display_info *dpyinfo)
       attributes = Fcons (Fcons (Qbacking_scale_factor,
 				 make_fixnum (screen.backingScaleFactor)),
 			  attributes);
-
+      attributes = Fcons (Fcons (Qrefresh_rate,
+				 make_float (screen.refreshRate)),
+			  attributes);
       displayID =
 	((CGDirectDisplayID)
 	 [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue]);

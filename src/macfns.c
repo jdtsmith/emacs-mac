@@ -5265,6 +5265,7 @@ syms_of_macfns (void)
   DEFSYM (Qmono, "mono");
   DEFSYM (Qassq_delete_all, "assq-delete-all");
   DEFSYM (Qbacking_scale_factor, "backing-scale-factor");
+  DEFSYM (Qrefresh_rate, "refresh-rate");
   DEFSYM (Qfont_parameter, "font-parameter");
   DEFSYM (Qpdf, "pdf");
   DEFSYM (Qorientation, "orientation");
