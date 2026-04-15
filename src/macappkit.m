@@ -5807,7 +5807,6 @@ mac_iosurface_create (size_t width, size_t height)
 {
   size_t d_cnt = 0;
 #ifdef MAC_DEBUG_SIGNPOST
-  MAC_SIGNPOST_GEN_BEGIN (gui, DirtyRect, "COUNT: %d", count);
   NSSize size = self.size;
   CGFloat area = size.width * size.height;
   CGFloat area_frac = 0.0;
@@ -5823,8 +5822,9 @@ mac_iosurface_create (size_t width, size_t height)
       dirtyRects[d_cnt++] = rect;
     }
   dirtyRectCount = d_cnt;
-  MAC_SIGNPOST_GEN_END (gui, DirtyRect, "COUNT: %d" " AREA-FRAC: %.2f%%",
-			dirtyRectCount, (float) area_frac * 100.);
+
+  MAC_SIGNPOST_EVENT (gui, DirtyRect, "Dirty COUNT: %d" " AREA-FRAC: %.2f%%",
+		      dirtyRectCount, (float) area_frac * 100.);
 }
 
 - (void)setContentsForLayer:(CALayer *)layer
@@ -5964,7 +5964,6 @@ static BOOL emacsViewUpdateLayerDisabled;
 {
   if (!backing)
 	return;
-  
   [backing setContentsForLayer:self.layer];
 }
 
