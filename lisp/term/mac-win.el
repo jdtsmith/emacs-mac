@@ -2019,6 +2019,15 @@ This moves point to the current mouse position if
           (mac-dnd-drop-data event (selected-frame) window
                              (cdr type-data) (car type-data) action)))))
 
+(defun mac-monitor-dnd-types-change (symbol _newval operation _where)
+  "Trigger NSView re-registration when dnd types are updated.
+SYMBOL and OPERATION are passed by the variable watch system."
+  (when (and (eq symbol 'mac-dnd-known-types)
+             (eq operation 'set))
+    (mac-update-dragged-types)))
+
+(add-variable-watcher 'mac-dnd-known-types #'mac-monitor-dnd-types-change)
+
 
 ;;;; Key-value observing for application
 
@@ -2042,6 +2051,7 @@ A hook function can determine the current appearance by checking the
 
 (define-key mac-apple-event-map [application-kvo effectiveAppearance]
   'mac-handle-application-effective-appearance-change)
+(mac-update-apple-event-map)
 
 
 (defvar mac-popup-menu-add-contextual-menu)

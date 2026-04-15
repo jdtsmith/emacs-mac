@@ -1201,7 +1201,8 @@ static bool handling_queued_nsevents_p;
 @end				// EmacsApplication
 
 // ** EmacsController
-
+static void mac_update_dragged_types_frame (struct frame *,
+					    NSMutableArrayOf (NSPasteboardType) *);
 @implementation EmacsController
 
 - (void)dealloc
@@ -1244,6 +1245,12 @@ static bool handling_queued_nsevents_p;
 	   name:NSAntialiasThresholdChangedNotification
 	 object:nil];
 
+  [[NSNotificationCenter defaultCenter]
+    addObserver:self
+       selector:@selector(screenParametersDidChange:)
+	   name:NSApplicationDidChangeScreenParametersNotification
+	 object:nil];
+  
   mac_update_accessibility_display_options ();
   [[[NSWorkspace sharedWorkspace] notificationCenter]
     addObserver:self
@@ -1259,6 +1266,12 @@ static bool handling_queued_nsevents_p;
   
   [NSApp registerUserInterfaceItemSearchHandler:self];
   Vmac_help_topics = Qnil;
+
+
+  /* These used to happen during each (frequent) run of mac_read_socket.
+     The former was replaced by variable watch.  */
+  mac_update_dragged_types ();
+  [self updateObservedKeyPaths];
 
   /* Initialize spell checker for ispell and jinx enchant-2 using
      AppleSpell.  See https://github.com/minad/jinx/pull/91 */
@@ -1333,6 +1346,17 @@ static bool handling_queued_nsevents_p;
 - (void)willSleep:(NSNotification *)notification {
   mac_flush_open_arenas ();
 }
+
+- (void)screenParametersDidChange:(NSNotification *)notification {
+    block_input();
+    mac_get_screen_info(&one_mac_display_info);
+    //mac_update_master_display_link();
+    unblock_input();
+}
+
+/* Update the observer set from the application-kvo prefix map of
+   mac-apple-event-map.  Property changes will be handled by
+   observeValueForKeyPath. */
 
 - (void)updateObservedKeyPaths
 {
@@ -1484,22 +1508,6 @@ static EventRef peek_if_next_event_activates_menu_bar (void);
   return MOUSE_TRACKING_SUSPENDED_P ();
 }
 
-/* Minimum time interval between successive mac_read_socket calls.  */
-
-#define READ_SOCKET_MIN_INTERVAL (1/60.0)
-
-static BOOL extendReadSocketIntervalOnce;
-
-- (NSTimeInterval)minimumIntervalForReadSocket
-{
-  NSTimeInterval interval = READ_SOCKET_MIN_INTERVAL;
-
-  if (MOUSE_TRACKING_SUSPENDED_P () || extendReadSocketIntervalOnce)
-    interval *= 6;
-
-  return interval;
-}
-
 /* Handle the NSEvent EVENT.  */
 
 - (void)handleOneNSEvent:(NSEvent *)event
@@ -1571,6 +1579,12 @@ static BOOL extendReadSocketIntervalOnce;
     }
 }
 
+/* Specify how long dpyinfo->saved_menu_event remains valid in
+   seconds.  This is to avoid infinitely ignoring mouse events when
+   MENU_BAR_ACTIVATE_EVENT is not processed: e.g., "M-! sleep 30 RET
+   -> try to activate menu bar -> C-g".  */
+#define SAVE_MENU_EVENT_TIMEOUT	5
+
 /* Handle NSEvents in the queue withholding quit event in *BUFP.
    Return the number of stored Emacs events.
 
@@ -1591,6 +1605,14 @@ static BOOL extendReadSocketIntervalOnce;
       /* Mac OS X 10.2 doesn't regard untilDate:nil as polling.  */
       NSDate *expiration = [NSDate distantPast];
       struct mac_display_info *dpyinfo = &one_mac_display_info;
+
+      if (dpyinfo->saved_menu_event
+	  && (GetEventTime (dpyinfo->saved_menu_event) + SAVE_MENU_EVENT_TIMEOUT
+	      <= GetCurrentEventTime ()))
+	{
+	  ReleaseEvent (dpyinfo->saved_menu_event);
+	  dpyinfo->saved_menu_event = NULL;
+	}
 
       hold_quit = bufp;
       count = 0;
@@ -2029,6 +2051,14 @@ mac_application_state (void)
 
   return result;
 }
+
+void
+mac_update_apple_event_map (void)
+{
+  if (emacsController)
+    [emacsController updateObservedKeyPaths];
+}
+
 
 // * Windows
 
@@ -3272,6 +3302,12 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   [emacsController updatePresentationOptions];
 
   [emacsWindow.topLevelWindow makeMainWindow];
+
+  if (f->auto_raise) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+	mac_frame_raise_lower (f, true);
+      });
+  }
 }
 
 - (void)windowDidResignKey:(NSNotification *)notification
@@ -4508,9 +4544,6 @@ mac_size_frame_window (struct frame *f, int w, int h, bool update)
 
       [window setFrame:windowFrame display:update];
     });
-
-  if (window.isVisible)
-    extendReadSocketIntervalOnce = YES;
 }
 
 OSStatus
@@ -5177,6 +5210,8 @@ mac_real_positions (struct frame *f, int *xptr, int *yptr)
   *yptr = bounds.y;
 }
 
+static NSMutableArrayOf (NSPasteboardType) *registered_dragged_types = nil;
+
 /* Create a new Mac window for the frame F and store its delegate in
    FRAME_MAC_WINDOW (f).  */
 
@@ -5201,6 +5236,9 @@ mac_create_frame_window (struct frame *f)
     });
   FRAME_MAC_WINDOW (f) = (void *) CF_ESCAPING_BRIDGE (frameController);
   FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = 1;
+
+  if (registered_dragged_types)
+    mac_update_dragged_types_frame (f, registered_dragged_types);
   
   if (f->size_hint_flags & (USPosition | PPosition)
       || FRAME_PARENT_FRAME (f))
@@ -9305,15 +9343,6 @@ mac_set_font_info_for_selection (struct frame *f, int face_id, int c, int pos,
 
 extern Boolean _IsSymbolicHotKeyEvent (EventRef, UInt32 *, Boolean *) AVAILABLE_MAC_OS_X_VERSION_10_3_AND_LATER;
 
-static void update_apple_event_handler (void);
-static void update_dragged_types (void);
-
-/* Specify how long dpyinfo->saved_menu_event remains valid in
-   seconds.  This is to avoid infinitely ignoring mouse events when
-   MENU_BAR_ACTIVATE_EVENT is not processed: e.g., "M-! sleep 30 RET
-   -> try to activate menu bar -> C-g".  */
-#define SAVE_MENU_EVENT_TIMEOUT	5
-
 @implementation EmacsFrameController (EventHandling)
 
 /* Called when an EnterNotify event would happen for an Emacs window
@@ -9593,97 +9622,32 @@ int
 mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 {
   int count;
-  struct mac_display_info *dpyinfo = &one_mac_display_info;
-  static NSDate *lastCallDate;
-  static NSTimer *timer;
-  NSTimeInterval timeInterval, minimumInterval;
   Lisp_Object tail, frame;
 
   block_input ();
   BEGIN_AUTORELEASE_POOL;
 
+  MAC_SIGNPOST_GEN_BEGIN (lisp, Socket);
   
-  minimumInterval = [emacsController minimumIntervalForReadSocket];
-  if (lastCallDate
-      && (timeInterval = - [lastCallDate timeIntervalSinceNow],
-	  timeInterval < minimumInterval))
+  handling_queued_nsevents_p = true;
+  count = [emacsController handleQueuedNSEventsWithHoldingQuitIn:hold_quit];
+  handling_queued_nsevents_p = false;
+    
+  FOR_EACH_FRAME (tail, frame)
     {
-      if (![timer isValid])
+      struct frame *f = XFRAME (frame);
+      if (FRAME_MAC_P (f))
 	{
-	  MRC_RELEASE (timer);
-	  timeInterval = minimumInterval - timeInterval;  /* reschedule at minInterval */
-	  mac_within_gui (^{
-	      timer =
-		MRC_RETAIN ([NSTimer
-			      scheduledTimerWithTimeInterval:timeInterval
-						      target:emacsController
-						    selector:@selector(processDeferredReadSocket:)
-						    userInfo:nil
-						     repeats:NO]);
-	    });
+	  /* Present and flush the frame to display (if needed). */
+	  mac_force_flush (f);
+	  /* Flush any "out-of-band" open draw sessions (e.g. mouse moves). */
+	  mac_flush_arena (f);
 	}
-      count = 0;
     }
-  else
-    {
-      MAC_SIGNPOST_GEN_BEGIN (lisp, Socket);
-      MRC_RELEASE (lastCallDate);
-      lastCallDate = [[NSDate alloc] init];
-      [timer invalidate];
-      MRC_RELEASE (timer);
-      timer = nil;
-      extendReadSocketIntervalOnce = NO;
-
-      /* Maybe these should be done at some redisplay timing.  */
-      update_apple_event_handler ();
-      update_dragged_types ();
-      [emacsController updateObservedKeyPaths];
-
-      if (dpyinfo->saved_menu_event
-	  && (GetEventTime (dpyinfo->saved_menu_event) + SAVE_MENU_EVENT_TIMEOUT
-	      <= GetCurrentEventTime ()))
-	{
-	  ReleaseEvent (dpyinfo->saved_menu_event);
-	  dpyinfo->saved_menu_event = NULL;
-	}
-
-      handling_queued_nsevents_p = true;
-      count = [emacsController handleQueuedNSEventsWithHoldingQuitIn:hold_quit];
-      handling_queued_nsevents_p = false;
-
-      /* If the focus was just given to an autoraising frame,
-	 raise it now.  */
-      /* ??? This ought to be able to handle more than one such frame.  */
-      if (dpyinfo->mac_pending_autoraise_frame)
-	{
-	  terminal->frame_raise_lower_hook (dpyinfo->mac_pending_autoraise_frame,
-					    true);
-	  dpyinfo->mac_pending_autoraise_frame = NULL;
-	}
-
-      if (mac_screen_config_changed)
-	{
-	  mac_get_screen_info (dpyinfo);
-	  mac_screen_config_changed = 0;
-	}
-
-      /* Note that visibility handling has moved to a notification. */
-      FOR_EACH_FRAME (tail, frame)
-	{
-	  struct frame *f = XFRAME (frame);
-	  if (FRAME_MAC_P (f))
-	    {
-	      /* Present and flush the frame to display (if needed). */
-	      mac_force_flush (f);
-	      /* Flush any "out-of-band" open draw sessions (e.g. mouse moves). */
-	      mac_flush_arena (f);
-	    }
-	}
-      MAC_SIGNPOST_GEN_END (lisp, Socket, "NEVENTS: %d", count);
-    }  
+  MAC_SIGNPOST_GEN_END (lisp, Socket, "NEVENTS: %d", count);
   END_AUTORELEASE_POOL;
   unblock_input ();
-
+  
   return count;
 }
 
@@ -11812,8 +11776,8 @@ static NSMutableSetOf (NSNumber *) *registered_apple_event_specs;
    registered_apple_event_specs as a unsigned long long value whose
    upper and lower half stand for class and ID, respectively.  */
 
-static void
-update_apple_event_handler (void)
+void
+mac_update_apple_event_handler (void)
 {
   Lisp_Object keymap = get_keymap (Vmac_apple_event_map, 0, 0);
 
@@ -11861,7 +11825,7 @@ init_apple_event_handler (void)
      handlers may not be overwritten by lazy initialization.  */
   [NSScriptSuiteRegistry sharedScriptSuiteRegistry];
   registered_apple_event_specs = [[NSMutableSet alloc] initWithCapacity:0];
-  update_apple_event_handler ();
+  mac_update_apple_event_handler ();
   atexit (cleanup_all_suspended_apple_events);
 }
 
@@ -12179,13 +12143,31 @@ sourceOperationMaskForDraggingContext:(NSDraggingContext)context
 
 @end				// EmacsFrameController (DragAndDrop)
 
+
+static void
+mac_update_dragged_types_frame (struct frame *f,
+				NSMutableArrayOf (NSPasteboardType) *array)
+{
+  if (FRAME_TOOLTIP_P (f))
+    return;
+
+  if (FRAME_MAC_P (f))
+    {
+      EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+
+      mac_within_gui (^{
+	  [frameController registerEmacsViewForDraggedTypes:array];
+	});
+    }
+}
+
 /* Update the pasteboard types derived from the value of
    mac-dnd-known-types and register them so every Emacs view can
    accept them.  The registered types are stored in
    registered_dragged_types.  */
 
-static void
-update_dragged_types (void)
+void
+mac_update_dragged_types (void)
 {
   NSMutableArrayOf (NSPasteboardType) *array =
     [[NSMutableArray alloc] initWithCapacity:0];
@@ -12204,18 +12186,7 @@ update_dragged_types (void)
   FOR_EACH_FRAME (tail, frame)
     {
       struct frame *f = XFRAME (frame);
-
-      if (FRAME_TOOLTIP_P (f))
-	continue;
-
-      if (FRAME_MAC_P (f))
-	{
-	  EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-
-	  mac_within_gui (^{
-	      [frameController registerEmacsViewForDraggedTypes:array];
-	    });
-	}
+      mac_update_dragged_types_frame (f, array);
     }
 
   (void) MRC_AUTORELEASE (registered_dragged_types);

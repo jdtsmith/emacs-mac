@@ -1918,6 +1918,8 @@ extern Lisp_Object gui_display_get_resource (Display_Info *,
 
 extern void set_frame_menubar (struct frame *f, bool deep_p);
 extern void frame_set_mouse_pixel_position (struct frame *f, int pix_x, int pix_y);
+extern void mac_frame_raise_lower (struct frame *, bool);
+
 extern void free_frame_menubar (struct frame *);
 extern bool frame_ancestor_p (struct frame *af, struct frame *df);
 extern enum internal_border_part frame_internal_border_part (struct frame *f, int x, int y);

@@ -576,7 +576,6 @@ typedef NSInteger NSGlyphProperty;
 - (void)setMenuItemSelectionToTag:(id)sender;
 - (void)storeEvent:(struct input_event *)bufp;
 - (void)setTrackingResumeBlock:(void (^)(void))block;
-- (NSTimeInterval)minimumIntervalForReadSocket;
 - (int)handleQueuedNSEventsWithHoldingQuitIn:(struct input_event *)bufp;
 - (void)cancelHelpEchoForEmacsFrame:(struct frame *)f;
 - (BOOL)conflictingKeyBindingsDisabled;

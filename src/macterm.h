@@ -486,7 +486,6 @@ extern const char *mac_get_string_resource (void *, const char *, const char *);
 
 /* Defined in macterm.c.  */
 
-extern bool mac_screen_config_changed;
 extern CGColorSpaceRef mac_cg_color_space_rgb;
 extern void mac_make_frame_visible (struct frame *f);
 extern void mac_make_frame_invisible (struct frame *f);
@@ -637,6 +636,7 @@ extern CFStringRef mac_uti_copy_mime_type (CFStringRef);
 extern void init_activation_policy (void);
 extern OSStatus install_application_handler (void);
 extern Lisp_Object mac_application_state (void);
+extern void mac_update_apple_event_map (void);
 extern void mac_set_frame_window_title (struct frame *, CFStringRef);
 extern void mac_set_frame_window_modified (struct frame *, bool);
 extern void mac_set_frame_window_proxy (struct frame *, CFURLRef);
@@ -732,6 +732,8 @@ extern OSStatus mac_put_selection_value (Selection, Lisp_Object, Lisp_Object);
 extern bool mac_selection_has_target_p (Selection, Lisp_Object);
 extern Lisp_Object mac_get_selection_value (Selection, Lisp_Object);
 extern Lisp_Object mac_get_selection_target_list (Selection);
+extern void mac_update_dragged_types (void);
+extern void mac_update_apple_event_handler (void);
 extern Lisp_Object mac_dnd_default_known_types (void);
 extern DragActions mac_dnd_begin_drag_and_drop (struct frame *, DragActions,
 						enum mac_return_frame_mode,

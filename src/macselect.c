@@ -1096,6 +1096,17 @@ Otherwise, return the error code as an integer.  */)
   return result;
 }
 
+DEFUN ("mac-update-apple-event-map", Fmac_update_apple_event_map,
+       Smac_update_apple_event_map, 0, 0, 0,
+       doc: /* Register changes to the `mac-apple-event-map' keymap. */)
+  (void)
+{
+  mac_update_apple_event_map ();
+  mac_update_apple_event_handler ();
+  return Qnil;
+}
+
+
 
 void
 syms_of_macselect (void)
@@ -1110,7 +1121,8 @@ syms_of_macselect (void)
   defsubr (&Smac_resume_apple_event);
   defsubr (&Smac_ae_set_reply_parameter);
   defsubr (&Smac_send_apple_event_internal);
-
+  defsubr (&Smac_update_apple_event_map);
+  
   DEFVAR_LISP ("selection-converter-alist", Vselection_converter_alist,
 	       doc: /* An alist associating selection-types with functions.
 These functions are called to convert the selection, with three args:
@@ -1132,7 +1144,9 @@ The functions are called with one argument, the selection type
   Vx_lost_selection_functions = Qnil;
 
   DEFVAR_LISP ("mac-apple-event-map", Vmac_apple_event_map,
-	       doc: /* Keymap for Apple events handled by Emacs.  */);
+	       doc: /* Keymap for Apple events handled by Emacs.
+Runtime changes to this keymap must be registered using the function
+`mac-update-apple-event-map'. */);
   Vmac_apple_event_map = Qnil;
 
   DEFVAR_LISP ("mac-dnd-known-types", Vmac_dnd_known_types,

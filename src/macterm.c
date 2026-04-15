@@ -4013,7 +4013,7 @@ mac_lower_frame (struct frame *f)
     }
 }
 
-static void
+void
 mac_frame_raise_lower (struct frame *f, bool raise_flag)
 {
   if (raise_flag)
@@ -4363,9 +4363,6 @@ mac_check_font (struct frame *f, struct font *font)
 
 
 /* The Mac Event loop code */
-
-/* Whether or not the screen configuration has changed.  */
-bool mac_screen_config_changed = 0;
 
 /* Table for translating Mac keycode to X keysym values.  Contributed
    by Sudhir Shenoy.
@@ -5392,23 +5389,6 @@ mac_store_event_ref_as_apple_event (AEEventClass class, AEEventID id,
 }
 
 static void
-mac_handle_cg_display_reconfig (CGDirectDisplayID display,
-				CGDisplayChangeSummaryFlags flags,
-				void *user_info)
-{
-  mac_screen_config_changed = 1;
-}
-
-static OSErr
-init_dm_notification_handler (void)
-{
-  CGDisplayRegisterReconfigurationCallback (mac_handle_cg_display_reconfig,
-					    NULL);
-
-  return noErr;
-}
-
-static void
 mac_handle_tis_notification (CFNotificationCenterRef center, void *observer,
 			     CFStringRef name, const void *object,
 			     CFDictionaryRef userInfo)
@@ -5714,8 +5694,6 @@ mac_initialize (void)
   block_input ();
 
   init_coercion_handler ();
-
-  init_dm_notification_handler ();
 
   init_tis_notification_handler ();
 

@@ -3339,6 +3339,17 @@ DEFUN ("x-begin-drag", Fx_begin_drag, Sx_begin_drag, 3, 6, 0,
   return lval;
 }
 
+DEFUN ("mac-update-dragged-types", Fmac_update_dragged_types,
+       Smac_update_dragged_types, 0, 0, 0,
+       doc: /* Update drag-and-drop types from `mac-dnd-known-types`. */)
+  (void)
+{
+  block_input ();
+  mac_update_dragged_types ();
+  unblock_input ();
+  return Qnil;
+}
+
 /* Return the display structure for the display named NAME.
    Open a new connection if necessary.  */
 
@@ -5467,7 +5478,8 @@ respectively.  */);
   defsubr (&Sx_show_tip);
   defsubr (&Sx_hide_tip);
   defsubr (&Sx_begin_drag);
-
+  defsubr (&Smac_update_dragged_types);
+  
   tip_timer = Qnil;
   staticpro (&tip_timer);
   tip_frame = Qnil;
