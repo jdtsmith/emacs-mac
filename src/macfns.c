@@ -1222,7 +1222,7 @@ mac_set_override_redirect (struct frame *f, Lisp_Object new_value, Lisp_Object o
 static void
 mac_set_foreground_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
-  struct mac_output *mac = f->output_data.mac;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   unsigned long fg, old_fg;
 
   fg = mac_decode_color (f, arg, BLACK_PIX_DEFAULT (f));
@@ -1232,12 +1232,12 @@ mac_set_foreground_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
   if (FRAME_MAC_WINDOW (f) != 0)
     {
       block_input ();
-      mac_set_foreground (mac->normal_gc, fg);
+      mac_set_foreground (mo->normal_gc, fg);
 
-      if (mac->cursor_pixel == old_fg)
+      if (mo->cursor_pixel == old_fg)
 	{
-	  mac->cursor_pixel = fg;
-	  mac_set_background (mac->cursor_gc, mac->cursor_pixel);
+	  mo->cursor_pixel = fg;
+	  mac_set_background (mo->cursor_gc, mo->cursor_pixel);
 	}
 
       unblock_input ();
@@ -1252,7 +1252,7 @@ mac_set_foreground_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 static void
 mac_set_background_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
-  struct mac_output *mac = f->output_data.mac;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   unsigned long bg;
 
   bg = mac_decode_color (f, arg, WHITE_PIX_DEFAULT (f));
@@ -1261,10 +1261,10 @@ mac_set_background_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
   if (FRAME_MAC_WINDOW (f) != 0)
     {
       block_input ();
-      mac_set_background (mac->normal_gc, bg);
+      mac_set_background (mo->normal_gc, bg);
       if (NILP (CDR_SAFE (Fassq (Qscroll_bar_background, f->param_alist))))
 	mac_set_frame_window_background (f, bg);
-      mac_set_foreground (mac->cursor_gc, bg);
+      mac_set_foreground (mo->cursor_gc, bg);
 
       unblock_input ();
       update_face_from_frame_parameter (f, Qbackground_color, arg);
@@ -1338,7 +1338,7 @@ static const struct mouse_cursor_types mouse_cursor_types[] = {
 static void
 mac_set_mouse_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
-  struct mac_output *mac = f->output_data.mac;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   unsigned long pixel = mac_decode_color (f, arg, BLACK_PIX_DEFAULT (f));
   unsigned long mask_color = FRAME_BACKGROUND_PIXEL (f);
   Emacs_Color colors[2]; /* 0=foreground, 1=background */
@@ -1369,7 +1369,7 @@ mac_set_mouse_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 	mask_color = FRAME_FOREGROUND_PIXEL (f);
     }
 
-  mac->mouse_pixel = pixel;
+  mo->mouse_pixel = pixel;
 
   for (i = 0; i < mouse_cursor_max; i++)
     {
@@ -1382,13 +1382,13 @@ mac_set_mouse_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 
   block_input ();
 
-  colors[0].pixel = mac->mouse_pixel;
+  colors[0].pixel = mo->mouse_pixel;
   colors[1].pixel = mask_color;
   mac_query_colors (f, colors, 2);
 
 #define INSTALL_CURSOR(FIELD, SHORT_INDEX)				\
-  mac_cursor_release (mac->FIELD);					\
-  mac->FIELD = mac_cursor_create (shapes[mouse_cursor_ ## SHORT_INDEX], \
+  mac_cursor_release (mo->FIELD);					\
+  mo->FIELD = mac_cursor_create (shapes[mouse_cursor_ ## SHORT_INDEX], \
 				  &colors[0], &colors[1]);
 
   INSTALL_CURSOR (text_cursor, text);
@@ -1410,7 +1410,7 @@ mac_set_mouse_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 #undef INSTALL_CURSOR
 
   if (FRAME_MAC_WINDOW (f) != 0)
-    FRAME_TERMINAL (f)->rif->define_frame_cursor (f, mac->text_cursor);
+    FRAME_TERMINAL (f)->rif->define_frame_cursor (f, mo->text_cursor);
 
   unblock_input ();
 
@@ -1421,7 +1421,7 @@ static void
 mac_set_cursor_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
   unsigned long fore_pixel, pixel;
-  struct mac_output *mac = f->output_data.mac;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
 
   if (!NILP (Vx_cursor_fore_pixel))
     fore_pixel = mac_decode_color (f, Vx_cursor_fore_pixel,
@@ -1434,20 +1434,20 @@ mac_set_cursor_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
   /* Make sure that the cursor color differs from the background color.  */
   if (pixel == FRAME_BACKGROUND_PIXEL (f))
     {
-      pixel = mac->mouse_pixel;
+      pixel = mo->mouse_pixel;
       if (pixel == fore_pixel)
 	fore_pixel = FRAME_BACKGROUND_PIXEL (f);
     }
 
-  mac->cursor_foreground_pixel = fore_pixel;
-  mac->cursor_pixel = pixel;
+  mo->cursor_foreground_pixel = fore_pixel;
+  mo->cursor_pixel = pixel;
 
   if (FRAME_MAC_WINDOW (f) != 0)
     {
       block_input ();
       /* Update frame's cursor_gc.  */
-      mac_set_background (mac->cursor_gc, pixel);
-      mac_set_foreground (mac->cursor_gc, fore_pixel);
+      mac_set_background (mo->cursor_gc, pixel);
+      mac_set_foreground (mo->cursor_gc, fore_pixel);
       unblock_input ();
 
       if (FRAME_VISIBLE_P (f))
@@ -1467,7 +1467,7 @@ mac_set_cursor_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 static void
 mac_set_border_pixel (struct frame *f, int pix)
 {
-  f->output_data.mac->border_pixel = pix;
+  FRAME_OUTPUT_DATA (f)->border_pixel = pix;
 
   if (FRAME_MAC_WINDOW (f) != 0 && f->border_width > 0)
     {
@@ -1511,7 +1511,7 @@ mac_set_menu_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
   FRAME_MENU_BAR_HEIGHT (f) = 0;
   /* The menu bar is always shown.  */
   FRAME_EXTERNAL_MENU_BAR (f) = 1;
-  if (FRAME_MAC_P (f) && f->output_data.mac->menubar_widget == 0)
+  if (FRAME_MAC_P (f) && FRAME_OUTPUT_DATA (f)->menubar_widget == 0)
     /* Make sure next redisplay shows the menu bar.  */
     XWINDOW (FRAME_SELECTED_WINDOW (f))->update_mode_line = true;
   adjust_frame_glyphs (f);
@@ -2097,7 +2097,7 @@ mac_window (struct frame *f)
      specification of its vertical position) when the tool bar is
      first redisplayed.  */
   if (FRAME_EXTERNAL_TOOL_BAR (f))
-    f->output_data.mac->toolbar_win_gravity = f->win_gravity;
+    FRAME_OUTPUT_DATA (f)->toolbar_win_gravity = f->win_gravity;
 
   validate_x_resource_name ();
 
@@ -2115,7 +2115,7 @@ mac_window (struct frame *f)
     mac_set_name (f, name, explicit);
   }
 
-  f->output_data.mac->current_cursor = f->output_data.mac->text_cursor;
+  FRAME_OUTPUT_DATA (f)->current_cursor = FRAME_OUTPUT_DATA (f)->text_cursor;
 
   unblock_input ();
 
@@ -2137,13 +2137,13 @@ mac_make_gc (struct frame *f)
 
   gc_values.foreground = FRAME_FOREGROUND_PIXEL (f);
   gc_values.background = FRAME_BACKGROUND_PIXEL (f);
-  f->output_data.mac->normal_gc = mac_create_gc (GCForeground | GCBackground,
+  FRAME_OUTPUT_DATA (f)->normal_gc = mac_create_gc (GCForeground | GCBackground,
 						 &gc_values);
 
   /* Cursor has cursor-color background, background-color foreground.  */
   gc_values.foreground = FRAME_BACKGROUND_PIXEL (f);
-  gc_values.background = f->output_data.mac->cursor_pixel;
-  f->output_data.mac->cursor_gc = mac_create_gc (GCForeground | GCBackground,
+  gc_values.background = FRAME_OUTPUT_DATA (f)->cursor_pixel;
+  FRAME_OUTPUT_DATA (f)->cursor_gc = mac_create_gc (GCForeground | GCBackground,
 						 &gc_values);
 
   unblock_input ();
@@ -2157,28 +2157,28 @@ mac_free_gcs (struct frame *f)
 {
   block_input ();
 
-  if (f->output_data.mac->normal_gc)
+  if (FRAME_OUTPUT_DATA (f)->normal_gc)
     {
-      mac_free_gc (f->output_data.mac->normal_gc);
-      f->output_data.mac->normal_gc = 0;
+      mac_free_gc (FRAME_OUTPUT_DATA (f)->normal_gc);
+      FRAME_OUTPUT_DATA (f)->normal_gc = 0;
     }
 
-  if (f->output_data.mac->cursor_gc)
+  if (FRAME_OUTPUT_DATA (f)->cursor_gc)
     {
-      mac_free_gc (f->output_data.mac->cursor_gc);
-      f->output_data.mac->cursor_gc = 0;
+      mac_free_gc (FRAME_OUTPUT_DATA (f)->cursor_gc);
+      FRAME_OUTPUT_DATA (f)->cursor_gc = 0;
     }
 
-  if (f->output_data.mac->white_relief.gc)
+  if (FRAME_OUTPUT_DATA (f)->white_relief.gc)
     {
-      mac_free_gc (f->output_data.mac->white_relief.gc);
-      f->output_data.mac->white_relief.gc = 0;
+      mac_free_gc (FRAME_OUTPUT_DATA (f)->white_relief.gc);
+      FRAME_OUTPUT_DATA (f)->white_relief.gc = 0;
     }
 
-  if (f->output_data.mac->black_relief.gc)
+  if (FRAME_OUTPUT_DATA (f)->black_relief.gc)
     {
-      mac_free_gc (f->output_data.mac->black_relief.gc);
-      f->output_data.mac->black_relief.gc = 0;
+      mac_free_gc (FRAME_OUTPUT_DATA (f)->black_relief.gc);
+      FRAME_OUTPUT_DATA (f)->black_relief.gc = 0;
     }
 
   unblock_input ();
@@ -2381,10 +2381,10 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   f->terminal = dpyinfo->terminal;
 
   f->output_method = output_mac;
-  f->output_data.mac = xzalloc (sizeof *f->output_data.mac);
+  FRAME_OUTPUT_DATA (f) = xzalloc (sizeof *FRAME_OUTPUT_DATA (f));
   FRAME_FONTSET (f) = -1;
-  f->output_data.mac->white_relief.pixel = -1;
-  f->output_data.mac->black_relief.pixel = -1;
+  FRAME_OUTPUT_DATA (f)->white_relief.pixel = -1;
+  FRAME_OUTPUT_DATA (f)->black_relief.pixel = -1;
   FRAME_INTERNAL_TOOL_BAR_P (f) = undecorated || !NILP (parent_frame);
 
   fset_icon_name (f, gui_display_get_arg (dpyinfo,
@@ -2405,13 +2405,13 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 
   if (!NILP (parent))
     {
-      f->output_data.mac->parent_desc = (Window) XFIXNAT (parent);
-      f->output_data.mac->explicit_parent = true;
+      FRAME_OUTPUT_DATA (f)->parent_desc = (Window) XFIXNAT (parent);
+      FRAME_OUTPUT_DATA (f)->explicit_parent = true;
     }
   else
     {
-      f->output_data.mac->parent_desc = FRAME_DISPLAY_INFO (f)->root_window;
-      f->output_data.mac->explicit_parent = false;
+      FRAME_OUTPUT_DATA (f)->parent_desc = FRAME_DISPLAY_INFO (f)->root_window;
+      FRAME_OUTPUT_DATA (f)->explicit_parent = false;
     }
 
   /* Set the name; the functions to which we pass f expect the name to
@@ -2649,7 +2649,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   /* Make the window appear on the frame and enable display, unless
      the caller says not to.  However, with explicit parent, Emacs
      cannot control visibility, so don't try.  */
-  if (! f->output_data.mac->explicit_parent)
+  if (! FRAME_OUTPUT_DATA (f)->explicit_parent)
     {
       /* When called from `x-create-frame-with-faces' visibility is
 	 always explicitly nil.  */
@@ -3535,16 +3535,16 @@ mac_create_tip_frame (struct mac_display_info *dpyinfo, Lisp_Object parms)
      from this point on, mac_destroy_window might screw up reference
      counts etc.  */
   f->output_method = output_mac;
-  f->output_data.mac = xzalloc (sizeof *f->output_data.mac);
+  FRAME_OUTPUT_DATA (f) = xzalloc (sizeof *FRAME_OUTPUT_DATA (f));
   FRAME_FONTSET (f) = -1;
-  f->output_data.mac->white_relief.pixel = -1;
-  f->output_data.mac->black_relief.pixel = -1;
+  FRAME_OUTPUT_DATA (f)->white_relief.pixel = -1;
+  FRAME_OUTPUT_DATA (f)->black_relief.pixel = -1;
 
   f->tooltip = true;
   fset_icon_name (f, Qnil);
 /*   FRAME_X_DISPLAY_INFO (f) = dpyinfo; */
-  f->output_data.mac->parent_desc = FRAME_DISPLAY_INFO (f)->root_window;
-  f->output_data.mac->explicit_parent = false;
+  FRAME_OUTPUT_DATA (f)->parent_desc = FRAME_DISPLAY_INFO (f)->root_window;
+  FRAME_OUTPUT_DATA (f)->explicit_parent = false;
 
   /* Set the name; the functions to which we pass f expect the name to
      be set.  */
@@ -3632,7 +3632,7 @@ mac_create_tip_frame (struct mac_display_info *dpyinfo, Lisp_Object parms)
 
   gui_figure_window_size (f, parms, false, false);
 
-  f->output_data.mac->parent_desc = FRAME_DISPLAY_INFO (f)->root_window;
+  FRAME_OUTPUT_DATA (f)->parent_desc = FRAME_DISPLAY_INFO (f)->root_window;
 
   mac_make_gc (f);
 

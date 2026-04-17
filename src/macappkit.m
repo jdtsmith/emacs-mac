@@ -3434,7 +3434,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 {
   struct frame *f = emacsFrame;
 
-  f->output_data.mac->toolbar_win_gravity = 0;
+  FRAME_OUTPUT_DATA (f)->toolbar_win_gravity = 0;
 }
 
 - (NSSize)windowWillResize:(NSWindow *)sender
@@ -3628,7 +3628,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
       int face_id = (!NILP (Vface_remapping_alist)
 		     ? lookup_basic_face (NULL, f, INTERNAL_BORDER_FACE_ID)
 		     : INTERNAL_BORDER_FACE_ID);
-      GC gc = mac_gc_for_face_id (f, face_id, f->output_data.mac->normal_gc);
+      GC gc = mac_gc_for_face_id (f, face_id, FRAME_OUTPUT_DATA (f)->normal_gc);
       CGColorRef borderColor = CGColorCreateCopyWithAlpha (gc->cg_back_color,
 							   1.0f);
       CALayer *borderLayer = [CALayer layer];
@@ -3654,7 +3654,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
     }
   contentLayer.layoutManager = [CAConstraintLayoutManager layoutManager];
   if (flag)
-    contentLayer.backgroundColor = f->output_data.mac->normal_gc->cg_back_color;
+    contentLayer.backgroundColor = FRAME_OUTPUT_DATA (f)->normal_gc->cg_back_color;
   contentLayerSize = contentLayer.bounds.size;
 
   struct window *root_window = XWINDOW (FRAME_ROOT_WINDOW (f));
@@ -5917,7 +5917,7 @@ static BOOL emacsViewUpdateLayerDisabled;
 - (void)drawRect:(NSRect)aRect
 {
   struct frame *f = [self emacsFrame];
-  struct mac_output *mo = f->output_data.mac;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   if (!mo) return;
 
   EmacsBacking *b = self.backing;
@@ -6507,7 +6507,7 @@ event_phase_to_symbol (NSEventPhase phase)
 {
   struct frame *f = [self emacsFrame];
 
-  mac_cursor_set (f->output_data.mac->current_cursor);
+  mac_cursor_set (FRAME_OUTPUT_DATA (f)->current_cursor);
 }
 
 - (void)keyDown:(NSEvent *)theEvent
@@ -7211,7 +7211,7 @@ void
 mac_draw_session_begin (struct frame *f)
 {
 
-  struct mac_output *mo = f->output_data.mac;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
   [frameController acquireArenaLock];
 
@@ -8846,7 +8846,7 @@ update_frame_tool_bar (struct frame *f)
   EmacsWindow *window;
   NativeRectangle r;
   NSToolbar *toolbar;
-  int i, win_gravity = f->output_data.mac->toolbar_win_gravity;
+  int i, win_gravity = FRAME_OUTPUT_DATA (f)->toolbar_win_gravity;
   int pos;
   bool system_symbol_inhibited_p = false;
 
@@ -9074,7 +9074,7 @@ update_frame_tool_bar (struct frame *f)
     });
 
   [window suspendConstrainingToScreen:NO];
-  win_gravity = f->output_data.mac->toolbar_win_gravity;
+  win_gravity = FRAME_OUTPUT_DATA (f)->toolbar_win_gravity;
   if (!(EQ (frame_inhibit_implied_resize, Qt)
 	|| (CONSP (frame_inhibit_implied_resize)
 	    && !NILP (Fmemq (Qtool_bar_lines, frame_inhibit_implied_resize)))))
@@ -9084,7 +9084,7 @@ update_frame_tool_bar (struct frame *f)
 	r.height = 0;
     }
   mac_set_frame_window_gravity_reference_bounds (f, win_gravity, r);
-  f->output_data.mac->toolbar_win_gravity = 0;
+  FRAME_OUTPUT_DATA (f)->toolbar_win_gravity = 0;
 
   unblock_input ();
 }
@@ -9105,7 +9105,7 @@ free_frame_tool_bar (struct frame *f)
   toolbar = [window toolbar];
   if ([toolbar isVisible])
     {
-      int win_gravity = f->output_data.mac->toolbar_win_gravity;
+      int win_gravity = FRAME_OUTPUT_DATA (f)->toolbar_win_gravity;
       NativeRectangle r;
 
       mac_get_frame_window_gravity_reference_bounds (f, win_gravity, &r);
@@ -9127,7 +9127,7 @@ free_frame_tool_bar (struct frame *f)
 	}
       mac_set_frame_window_gravity_reference_bounds (f, win_gravity, r);
     }
-  f->output_data.mac->toolbar_win_gravity = 0;
+  FRAME_OUTPUT_DATA (f)->toolbar_win_gravity = 0;
 
   unblock_input ();
 }

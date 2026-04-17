@@ -1474,10 +1474,10 @@ mac_setup_relief_color (struct frame *f, struct relief *relief, double factor,
 			int delta, unsigned long default_pixel)
 {
   XGCValues xgcv;
-  struct mac_output *di = f->output_data.mac;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   unsigned long mask = GCForeground;
   unsigned long pixel;
-  unsigned long background = di->relief_background;
+  unsigned long background = mo->relief_background;
   struct mac_display_info *dpyinfo = FRAME_DISPLAY_INFO (f);
 
   /* MAC_TODO: Free colors (if using palette)? */
@@ -1507,7 +1507,7 @@ mac_setup_relief_color (struct frame *f, struct relief *relief, double factor,
 static void
 mac_setup_relief_colors (struct glyph_string *s)
 {
-  struct mac_output *di = s->f->output_data.mac;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (s->f);
   unsigned long color;
 
   if (s->face->use_box_color_for_shadows_p)
@@ -1525,13 +1525,13 @@ mac_setup_relief_colors (struct glyph_string *s)
       color = xgcv.background;
     }
 
-  if (di->white_relief.gc == 0
-      || color != di->relief_background)
+  if (mo->white_relief.gc == 0
+      || color != mo->relief_background)
     {
-      di->relief_background = color;
-      mac_setup_relief_color (s->f, &di->white_relief, 1.2, 0x8000,
+      mo->relief_background = color;
+      mac_setup_relief_color (s->f, &mo->white_relief, 1.2, 0x8000,
 			    WHITE_PIX_DEFAULT (s->f));
-      mac_setup_relief_color (s->f, &di->black_relief, 0.6, 0x4000,
+      mac_setup_relief_color (s->f, &mo->black_relief, 0.6, 0x4000,
 			    BLACK_PIX_DEFAULT (s->f));
     }
 }
