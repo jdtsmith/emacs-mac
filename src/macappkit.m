@@ -7294,10 +7294,10 @@ mac_draw_session_begin (struct frame *f, mac_draw_session_type type)
 #endif
 
 #if DRAWING_USE_GCD
-  MAC_SIGNPOST_GEN_BEGIN (lisp, SessionWait);
+  MAC_SIGNPOST_GEN_BEGIN (lisp, ArenaWait);
   /* Acquire the arena.  Blocks only if all arenas are in use. */
   dispatch_semaphore_wait(mo->arena_sem, DISPATCH_TIME_FOREVER);
-  MAC_SIGNPOST_GEN_END (lisp, SessionWait, "Acquired Arena: %d",
+  MAC_SIGNPOST_GEN_END (lisp, ArenaWait, "Acquired Arena: %d",
 			mo->next_arena);
 #endif
   mac_arena *arena = &mo->arenas[mo->next_arena];
@@ -7373,7 +7373,8 @@ mac_draw_session_end (struct frame *f)
   else
 #endif
     block (); /* Run directly on GUI/LISP thread */
-  MAC_SIGNPOST_PTR_END (arena, trace, Session, "TYPE: %u EMPTY: 0", arena->type);
+  MAC_SIGNPOST_PTR_END (arena, trace, Session,
+			"TYPE: %u EMPTY: 0", arena->type);
 }
 
 CGContextRef
@@ -9722,8 +9723,10 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
   block_input ();
   BEGIN_AUTORELEASE_POOL;
 
-  MAC_SIGNPOST_GEN_BEGIN (lisp, Socket);
-  
+  MAC_SIGNPOST_GEN_BEGIN (trace, Socket);
+
+  // This is called sometimes on 100µs intervals!  Switch to an event
+  // producer setup, so this can return FAST if there are no events.
   handling_queued_nsevents_p = true;
   count = [emacsController handleQueuedNSEventsWithHoldingQuitIn:hold_quit];
   handling_queued_nsevents_p = false;
