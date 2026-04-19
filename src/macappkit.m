@@ -2464,7 +2464,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 
   [self setupEmacsView];
   [self setupWindow];
-
+  [self markBackingSizeChanged];
   return self;
 }
 
@@ -2743,6 +2743,11 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
      windowWillClose: delegate method, so we remove it here.  */
   [emacsView removeFromSuperview];
   [emacsWindow close];
+}
+
+- (void)markBackingSizeChanged
+{
+  [emacsView markBackingSizeChanged];
 }
 
 - (void)ensureBackingSized
@@ -5255,7 +5260,6 @@ mac_create_frame_window (struct frame *f)
       frameController = [[EmacsFrameController alloc] initWithEmacsFrame:f];
     });
   FRAME_MAC_WINDOW (f) = (void *) CF_ESCAPING_BRIDGE (frameController);
-  FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = 1;
 
   if (registered_dragged_types)
     mac_update_dragged_types_frame (f, registered_dragged_types);
@@ -5682,22 +5686,18 @@ mac_iosurface_create (size_t width, size_t height)
   return IOSurfaceCreate ((__bridge CFDictionaryRef) properties);
 }
 
-- (instancetype)initWithView:(NSView *)view
+- (instancetype)initWithSize:(CGSize)size
+		  colorSpace:(CGColorSpaceRef)color_space
+		 scaleFactor:(CGFloat)scale
 {
   self = [super init];
   if (self == nil)
     return nil;
 
-  scaleFactor = view.window.backingScaleFactor;
-
-  NSSize size = view.bounds.size;
+  scaleFactor = scale;
   size_t width = size.width * scaleFactor;
   size_t height = size.height * scaleFactor;
-  NSColorSpace *colorSpace = view.window.colorSpace;
-  CGColorSpaceRef color_space = (colorSpace ? colorSpace.CGColorSpace
-				 /* The window does not have a backing
-				    store, and is off-screen.  */
-				 : mac_cg_color_space_rgb);
+
   CGContextRef bitmaps[2] = {NULL, NULL};
   IOSurfaceRef surfaces[2] = {NULL, NULL};
 
@@ -5808,9 +5808,9 @@ mac_iosurface_create (size_t width, size_t height)
 #endif
 }
 
-- (NSSize)size
+- (CGSize)size
 {
-  return NSMakeSize (CGBitmapContextGetWidth (backBitmap) / scaleFactor,
+  return CGSizeMake (CGBitmapContextGetWidth (backBitmap) / scaleFactor,
 		     CGBitmapContextGetHeight (backBitmap) / scaleFactor);
 }
 
@@ -5827,7 +5827,7 @@ mac_iosurface_create (size_t width, size_t height)
 {
   size_t d_cnt = 0;
 #ifdef MAC_DEBUG_SIGNPOST
-  NSSize size = self.size;
+  CGSize size = self.size;
   CGFloat area = size.width * size.height;
   CGFloat area_frac = 0.0;
 #endif
@@ -5866,6 +5866,25 @@ mac_iosurface_create (size_t width, size_t height)
 // ** EmacsView
 
 /* View for Emacs frame.  */
+
+/* Draw a CGImage into a destination CGContext, handling coordinate flips.
+   destBounds is in the destination context's coordinate space (points). */
+static void
+mac_draw_image_into_context (CGImageRef image, CGContextRef dest,
+                             CGRect destBounds, BOOL destIsFlipped)
+{
+  if (!image)
+    return;
+
+  CGContextSaveGState (dest);
+  if (destIsFlipped) /* Temporarily unflip */
+    {
+      CGContextTranslateCTM (dest, 0, destBounds.size.height);
+      CGContextScaleCTM (dest, 1, -1);
+    }
+  CGContextDrawImage (dest, destBounds, image);
+  CGContextRestoreGState (dest);
+}
 
 @implementation EmacsView
 
@@ -5925,20 +5944,18 @@ static BOOL emacsViewUpdateLayerDisabled;
 
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
   [frameController acquireDrawLock];
-  CGContextRef dest = [NSGraphicsContext currentContext].CGContext;
-  CGContextRef backBitmap = [b getBackingBitmap];
-  CGImageRef image = CGBitmapContextCreateImage (backBitmap);
+
+  /* TODO: this used to use expose_frame to actually redraw into the
+  current context.  Since this is used for e.g. PDF output, that
+  context could well be a vector device.  Copying the last backing image
+  does not produce vector data. */ 
+  CGImageRef image = CGBitmapContextCreateImage ([b getBackingBitmap]); 
   if (image)
     {
-      CGRect bounds = NSRectToCGRect (self.bounds);
-      /* The backing bitmap uses flipped coordinates (y=0 at top).
-	 CGContextDrawImage uses CG coordinates (y=0 at bottom).
-	 Flip the context to match. */
-      CGContextSaveGState(dest);
-      CGContextTranslateCTM(dest, 0, bounds.size.height);
-      CGContextScaleCTM(dest, 1, -1);
-      CGContextDrawImage(dest, bounds, image);
-      CGContextRestoreGState(dest);
+      CGContextRef dest = [NSGraphicsContext currentContext].CGContext;
+      /* AppKit dest context is NOT flipped. */
+      mac_draw_image_into_context (image, dest,
+				   NSRectToCGRect (self.bounds), NO);
       CGImageRelease (image);
     }
   [frameController releaseDrawLock];
@@ -5964,20 +5981,65 @@ static BOOL emacsViewUpdateLayerDisabled;
   return backing;
 }
 
+- (void)markBackingSizeChanged
+{
+  struct frame *f = [self emacsFrame];
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
+
+  mo->pending_size = self.bounds.size;
+  NSColorSpace *cs = self.window.colorSpace;
+  CGColorSpaceRef cgcs = cs ? cs.CGColorSpace : mac_cg_color_space_rgb;
+  if (mo->pending_color_space != cgcs)
+    {
+      CGColorSpaceRetain (cgcs);
+      CGColorSpaceRelease (mo->pending_color_space);
+      mo->pending_color_space = cgcs;
+    }
+  FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = true;
+}
+
+/* Selector is called from non-main (GCD) thread, and therefore must not
+   access properties directly.  Size and color space properties have
+   been cached in the associated frame's mac_output structure by
+   markBackingSizeChanged. */
+
 - (void)ensureBackingSized
 {
-  NSSize size = self.bounds.size;
+  struct frame *f = [self emacsFrame];
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
 
-  if (backing && NSEqualSizes (backing.size, size))
+  CGSize size = mo->pending_size;
+  if (backing && CGSizeEqualToSize(backing.size, size))
     return;
-  
-  EmacsFrameController *frameController =
-    (EmacsFrameController *) self.window.delegate;
 
-  [frameController acquireDrawLock];
-  MRC_RELEASE(backing);
-  backing = [[EmacsBacking alloc] initWithView:self];
-  [frameController releaseDrawLock];
+  MAC_SIGNPOST_GEN_BEGIN (gui, ResizeBacking, "[%u x %u]",
+			  (unsigned) size.width, (unsigned) size.height);
+
+  EmacsBacking *oldBacking = backing;
+  backing = [[EmacsBacking alloc] initWithSize:size
+				    colorSpace:mo->pending_color_space
+				   scaleFactor:mo->backing_scale_factor];
+  if (oldBacking)
+    {
+      CGImageRef oldImage =
+        CGBitmapContextCreateImage ([oldBacking getBackingBitmap]);
+      if (oldImage)
+	{
+	  /* Copy contents of old bitmap to top-left of new backing */
+	  CGSize oldSize = oldBacking.size;
+	  CGContextRef newCtx = [backing getBackingBitmap];    
+	  CGRect destRect = CGRectMake(0, 0, oldSize.width, oldSize.height);
+	  CGContextSaveGState(newCtx);
+
+	  CGContextClipToRect(newCtx, CGRectMake(0, 0, size.width, size.height));
+	  mac_draw_image_into_context(oldImage, newCtx, destRect, YES);
+
+	  CGContextRestoreGState(newCtx);
+	  CGImageRelease(oldImage);
+	}            
+      MRC_RELEASE (oldBacking);
+    }
+  MAC_SIGNPOST_GEN_END (gui, ResizeBacking);
 }
 
 - (void)updateLayer
@@ -6001,7 +6063,7 @@ static BOOL emacsViewUpdateLayerDisabled;
 
 - (void)viewFrameDidChange:(NSNotification *)notification
 {
-  FRAME_BACKING_NEEDS_SIZE_CHECK_P (self.emacsFrame) = true;
+  [self markBackingSizeChanged];
 }
 
 @end				// EmacsView
@@ -7091,7 +7153,7 @@ mac_ts_active_input_string_in_echo_area_p (struct frame *f)
 
   [super viewDidEndLiveResize];
   [self synchronizeChildFrameOrigins];
-  FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = true;
+  [self markBackingSizeChanged];
   mac_handle_size_change (f, NSWidth (frameRect), NSHeight (frameRect));
   /* Exit from mac_select so as to react to the frame size change,
      especially in a full screen tile on OS X 10.11.  */
@@ -7230,18 +7292,6 @@ mac_draw_session_begin (struct frame *f, mac_draw_session_type type)
     mac_init_arena_system (f);
 #endif
 
-  /* Ensure backing bitmap exists and is correctly sized.
-     Must happen on GUI thread since it touches NSView. */
-  if (FRAME_BACKING_NEEDS_SIZE_CHECK_P (f))
-    {
-      if (pthread_main_np ())
-	[frameController ensureBackingSized];
-      else
-	mac_within_gui (^{[frameController ensureBackingSized];});
-          
-      FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = 0;
-    }
-
 #if DRAWING_USE_GCD
   MAC_SIGNPOST_GEN_BEGIN (lisp, SessionWait);
   /* Acquire the arena.  Blocks only if all arenas are in use. */
@@ -7277,26 +7327,44 @@ mac_draw_session_end (struct frame *f)
   struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   mac_arena *arena = mo->active_arena;
 
+  if (!arena)
+    return;
+  
+  if (!arena->cmds->used) /* No actual drawing occurred */
+    {
+      MAC_SIGNPOST_PTR_END (arena, trace, Session,
+			    "TYPE: %u EMPTY: 1", arena->type);
+      return;
+    }
+  mo->active_arena = NULL;
+  
+  EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+  void (^block) (void) = ^{
+    MAC_SIGNPOST_GEN_BEGIN (gui, AcqDraw, "PLAYBACK");
+    [frameController acquireDrawLock];
+    MAC_SIGNPOST_GEN_END (gui, AcqDraw);
 
-    mo->active_arena = NULL;
-
-    EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-    void (^block) (void) = ^{
-      MAC_SIGNPOST_GEN_BEGIN (draw, AcqDraw, "PLAYBACK");
-      [frameController acquireDrawLock];
-      MAC_SIGNPOST_GEN_END (draw, AcqDraw);
-      CGContextRef backing_ctx = mac_get_backing_bitmap (f);
-      if (backing_ctx)
-	{
-	  mac_playback_arena (arena, f, backing_ctx);
-	  FRAME_MAC_NEEDS_PRESENTATION_P (f) = true;
-	  mac_notify_gui_of_presentation_request ();
-	}
-      [frameController releaseDrawLock];
+    /* Ensure backing bitmap exists and is correctly sized. */
+    if (FRAME_BACKING_NEEDS_SIZE_CHECK_P (f))
+      {
+	[frameController ensureBackingSized];
+	FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = false;
+      }
+    
+    CGContextRef backing_ctx = mac_get_backing_bitmap (f);
+    if (backing_ctx)
+      {
+	mac_playback_arena (arena, f, backing_ctx);
+	FRAME_MAC_NEEDS_PRESENTATION_P (f) = true;
+	// XXX: this should be the job of CVDisplayLink.  We should just
+	// set the atomic flag and let IT pick that up and notify GUI.
+	mac_notify_gui_of_presentation_request ();
+      }
+    [frameController releaseDrawLock];
 #if DRAWING_USE_GCD
-      dispatch_semaphore_signal (mo->arena_sem); /* release the arena */
+    dispatch_semaphore_signal (mo->arena_sem); /* release the arena */
 #endif
-    };
+  };
 
 #if DRAWING_USE_GCD    
   if (mac_drawing_use_gcd)

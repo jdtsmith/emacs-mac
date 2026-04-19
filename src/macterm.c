@@ -654,7 +654,14 @@ mac_update_end (struct frame *f)
 {
   /* Mouse highlight may be displayed again.  */
   MOUSE_HL_INFO (f)->mouse_face_defer = false;
-
+  
+  /* If the frame is garbaged and being resized, we do not close the
+     session.  A garbaged + resized_p frame is being cleared, and we
+     never want to show that state by itself.  We assume the subsequent
+     draw session will close it out shortly. */
+  if (f->garbaged && f->resized_p)  // && mac_live_resize_p (f))
+    return;
+  
   block_input ();
   mac_draw_session_end (f);
   XFlush (FRAME_MAC_DISPLAY (f));

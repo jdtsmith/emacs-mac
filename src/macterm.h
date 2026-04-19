@@ -58,7 +58,6 @@ struct mac_bitmap_record
   int refcount;
 };
 
-
 /* For each display (currently only one on mac), we have a structure that
    records information about it.  */
 
@@ -267,9 +266,6 @@ struct mac_output
   /* True means synthetic bold workaround is disabled for this
      frame.  */
   bool_bf synthetic_bold_workaround_disabled_p : 1;
-
-  /* Whether the backing size may have changed */
-  bool_bf backing_needs_size_check : 1;
   
   /* Backing scale factor (1 or 2), used for rendering images.  */
   unsigned backing_scale_factor : 2;
@@ -292,6 +288,11 @@ struct mac_output
 
   /* Whether the frame needs presentation for window display */
   bool_bf needs_presentation : 1;
+
+  /* Handling backing size/color-space changes */
+  bool_bf backing_needs_size_check : 1;
+  CGColorSpaceRef pending_color_space;
+  CGSize pending_size;
 
   /* Relief GCs, colors etc.  */
   struct relief

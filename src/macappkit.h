@@ -713,6 +713,7 @@ typedef NSInteger NSGlyphProperty;
 - (void)setupEmacsView;
 - (void)setupWindow;
 - (void)closeWindow;
+- (void)markBackingSizeChanged;
 - (void)ensureBackingSized;
 - (CGContextRef)getBackingForDrawing;
 - (struct frame *)emacsFrame;
@@ -770,8 +771,10 @@ typedef NSInteger NSGlyphProperty;
      backing. */
   CGRect backBounds;
 }
-- (instancetype)initWithView:(NSView *)view;
-- (NSSize)size;
+- (instancetype)initWithSize:(CGSize)size
+                  colorSpace:(CGColorSpaceRef)color_space
+                 scaleFactor:(CGFloat)scale;
+- (CGSize)size;
 - (void)updateBounds;
 - (void)setDirtyRects:(const CGRect *)rects count:(int)count;
 - (CGContextRef)getBackingBitmap;
@@ -789,6 +792,7 @@ typedef NSInteger NSGlyphProperty;
 - (struct frame *)emacsFrame;
 + (void)globallyDisableUpdateLayer:(BOOL)flag;
 - (EmacsBacking *)backing;
+- (void)markBackingSizeChanged;
 - (void)ensureBackingSized;
 @end
 
