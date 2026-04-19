@@ -2775,7 +2775,10 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 - (void)presentIfReadyWithWait:(BOOL)wait
 {
     struct frame *f = emacsFrame;
-    BOOL needsPresenting = FRAME_LIVE_P (f) & FRAME_MAC_NEEDS_PRESENTATION_P (f);
+    BOOL needsPresenting = FRAME_LIVE_P (f) && FRAME_MAC_NEEDS_PRESENTATION_P (f);
+
+    if (!needsPresenting)
+      return;
 
     if (wait)
       {
@@ -2785,14 +2788,12 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
       }
     else
       {
-	if (!needsPresenting)
-	  return;
 	if (![self tryAcquireDrawLock])
 	  return;   /* drawing busy, another dispatch will come */
       }
 
-    MAC_SIGNPOST_GEN_BEGIN (gui, Present, "FRAME: %{public}s FPTR: %p",
-			    SSDATA (f->name), f);
+    MAC_SIGNPOST_GEN_BEGIN (gui, Present, "FRAME: %{public}s FPTR: %p NEEDSPRESENTING: %d",
+			    SSDATA (f->name), f, FRAME_MAC_NEEDS_PRESENTATION_P (f) ? 1 : 0);
     if (needsPresenting)
       {
 	struct mac_output *mo = FRAME_OUTPUT_DATA (f);
