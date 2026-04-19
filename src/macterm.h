@@ -307,7 +307,7 @@ struct mac_output
   /* Hints for the size and the position of a window.  */
   XSizeHints *size_hints;
 
-  /* Double-buffering draw arenas and associated state */
+  /* Buffering draw arenas and associated state */
   mac_arena arenas[MAC_ARENA_COUNT];
   int next_arena;         /* The index of the arena to draw into next */
   mac_arena *active_arena;
@@ -679,8 +679,8 @@ extern CGPoint mac_get_frame_mouse (struct frame *);
 extern struct frame *mac_get_frame_at_mouse (bool);
 extern void mac_convert_frame_point_to_global (struct frame *, int *, int *);
 extern void mac_set_frame_window_background (struct frame *, unsigned long);
-extern void mac_draw_session_begin (struct frame *);
-extern void mac_draw_session_end (struct frame *, int);
+extern void mac_draw_session_begin (struct frame *, mac_draw_session_type);
+extern void mac_draw_session_end (struct frame *);
 extern void mac_cursor_to (int, int, int, int);
 extern void mac_force_flush (struct frame *);
 extern void mac_create_frame_window (struct frame *);

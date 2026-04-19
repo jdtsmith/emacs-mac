@@ -7204,13 +7204,13 @@ mac_force_flush (struct frame *f)
    threads (locks arena acquisition for thread safety).  Resizes the
    backing if needed, then waits for an arena to become available (after
    initializing the arena system, if needed).  Also reset the arena's
-   clipping rects.
+   clipping rects.  TYPE is one of MAC_SESSION_UPDATE, of
+   MAC_SESSION_OUTOFBAND, indicating what type of session close this is.
  */
 
 void
-mac_draw_session_begin (struct frame *f)
+mac_draw_session_begin (struct frame *f, mac_draw_session_type type)
 {
-
   struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
   [frameController acquireArenaLock];
@@ -7255,6 +7255,7 @@ mac_draw_session_begin (struct frame *f)
       mac_arena_cycle (f);
       mac_arena_reset (arena);
       arena->backing_scale_factor = FRAME_BACKING_SCALE_FACTOR (f);
+      arena->type = type;
       mo->active_arena = arena;
       mo->current_clip_nrects = -1;
     }
@@ -7263,20 +7264,19 @@ mac_draw_session_begin (struct frame *f)
 
 static void mac_notify_gui_of_presentation_request (void);
 
-/* End a draw session by waiting for the backing bitmap (for any dirty
-   rect copy to complete), playing back the arena into it, then calling
-   for frame presentation.  This work is done on the GCD background
-   queue if possible.  Can be called from LISP or GUI threads.  Drawing
-   is locked during operation. */
+/* End a draw session by playing back the arena into the backing bitmap,
+   then requesting frame presentation.  This work is done on the GCD
+   background queue (if enabled).  Can be called from LISP or GUI
+   threads.  Drawing is locked during operations to protect backing
+   bitmap access.
+ */
 
 void
-mac_draw_session_end (struct frame *f, int type)
+mac_draw_session_end (struct frame *f)
 {
-    struct mac_output *mo = f->output_data.mac;
-    mac_arena *arena = mo->active_arena;
+  struct mac_output *mo = FRAME_OUTPUT_DATA (f);
+  mac_arena *arena = mo->active_arena;
 
-    if (!arena)
-        return;  /* No drawing happened */
 
     mo->active_arena = NULL;
 
@@ -7299,12 +7299,12 @@ mac_draw_session_end (struct frame *f, int type)
     };
 
 #if DRAWING_USE_GCD    
-    if (mac_drawing_use_gcd)
-      dispatch_async(mo->drawing_queue, block);
-    else
+  if (mac_drawing_use_gcd)
+    dispatch_async(mo->drawing_queue, block);
+  else
 #endif
-      block ();
-    MAC_SIGNPOST_PTR_END (arena, trace, Session, "TYPE: %d", type);
+    block (); /* Run directly on GUI/LISP thread */
+  MAC_SIGNPOST_PTR_END (arena, trace, Session, "TYPE: %u EMPTY: 0", arena->type);
 }
 
 CGContextRef
@@ -9468,9 +9468,12 @@ extern Boolean _IsSymbolicHotKeyEvent (EventRef, UInt32 *, Boolean *) AVAILABLE_
 - (BOOL)clearMouseFace:(Mouse_HLInfo *)hlinfo
 {
   BOOL result;
+  struct frame *f = emacsFrame;
 
+  mac_draw_session_begin(f, MAC_SESSION_OUTOFBAND);
   result = clear_mouse_face (hlinfo);
-
+  mac_draw_session_end(f);
+  
   return result;
 }
 
@@ -9479,7 +9482,9 @@ extern Boolean _IsSymbolicHotKeyEvent (EventRef, UInt32 *, Boolean *) AVAILABLE_
   struct frame *f = emacsFrame;
 
   f->mouse_moved = true;
+  mac_draw_session_begin(f, MAC_SESSION_OUTOFBAND);
   note_mouse_highlight (f, x, y);
+  mac_draw_session_end(f);
 }
 
 @end				// EmacsFrameController (EventHandling)

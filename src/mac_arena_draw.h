@@ -12,15 +12,22 @@
 #define MAC_ARENA_CMDS_PER_BLOCK (1 << 10)
 
 typedef struct mac_arena_block {
-  struct mac_arena_block *next; // Next block (if any)
+  struct mac_arena_block *next; /* Next block (if any) */
   size_t size;
   size_t used;
-  unsigned char stash[]; // Flexible storage
+  unsigned char stash[]; /* Flexible storage */
 } mac_arena_block;
+
+typedef enum mac_draw_session_type
+{
+  MAC_SESSION_FRAME_UPDATE,     /* Normal update begin/end cycle */
+  MAC_SESSION_OUTOFBAND,        /* Out-of band drawing sessions */
+} mac_draw_session_type;
 
 typedef struct mac_arena {
   mac_arena_block *cmds, *first_cmds; /* current, linked-list of command blocks */
   mac_arena_block *data, *first_data; /* current, linked-list of data blocks */
+  mac_draw_session_type type; 
   CGFloat backing_scale_factor;
 } mac_arena;
 
@@ -34,11 +41,6 @@ typedef struct mac_arena {
 #define MAC_ARENA_RETAIN(slot, ref)                                     \
   do { if (ref) CFRetain (ref); (slot) = (ref); } while (0)
 
-enum mac_session_type
-{
-  MAC_SESSION_UPDATE,
-  MAC_SESSION_OUTOFBAND,
-};
 
 /* --- DRAW COMMANDS -- */
 enum mac_arena_cmd_type

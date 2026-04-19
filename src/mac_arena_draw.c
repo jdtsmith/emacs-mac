@@ -81,7 +81,7 @@ mac_flush_arena (struct frame *f)
 {
   struct mac_output *mo = FRAME_OUTPUT_DATA (f);
   if (mo->active_arena)
-    mac_draw_session_end (f, MAC_SESSION_OUTOFBAND);
+    mac_draw_session_end (f);
 }
 
 void
@@ -226,12 +226,15 @@ mac_arena_cmd_alloc (mac_arena *arena)
   return cmd;
 }
 
-/* Ensure an arena is open, and return it. */
+/* Ensure an arena is open, and return it.  We assume that any drawing
+   that occurs on the frame without an active arena belongs to an "out
+   of band" drawing session.  Such sessions are closed during
+   mac_frame_up_to_date. */
 mac_arena*
 mac_ensure_arena (struct frame *f)
 {
   if (!FRAME_OUTPUT_DATA (f)->active_arena)
-    mac_draw_session_begin (f);
+    mac_draw_session_begin (f, MAC_SESSION_OUTOFBAND);
   return FRAME_OUTPUT_DATA (f)->active_arena;
 }
 

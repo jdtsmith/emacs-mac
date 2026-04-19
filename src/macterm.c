@@ -541,9 +541,7 @@ mac_set_frame_alpha (struct frame *f)
 static void
 mac_update_begin (struct frame *f)
 {
-  /* We do not open a draw session, since sometimes update begin/end
-     arrive without any draw commands being submitted. Each draw command
-     opens an arena if necessary, on demand. */
+  mac_draw_session_begin(f, MAC_SESSION_FRAME_UPDATE);
 }
 
 /* Start update of window W.  */
@@ -658,7 +656,7 @@ mac_update_end (struct frame *f)
   MOUSE_HL_INFO (f)->mouse_face_defer = false;
 
   block_input ();
-  mac_draw_session_end (f, MAC_SESSION_UPDATE);
+  mac_draw_session_end (f);
   XFlush (FRAME_MAC_DISPLAY (f));
   unblock_input ();
 }
@@ -672,6 +670,10 @@ mac_frame_up_to_date (struct frame *f)
   if (FRAME_MAC_P (f))
     {
       FRAME_MOUSE_UPDATE (f);
+      struct mac_output *mo = FRAME_OUTPUT_DATA (f);
+      if (mo->active_arena &&
+	  mo->active_arena->type == MAC_SESSION_OUTOFBAND)
+	mac_flush_arena (f);
     }
 }
 
