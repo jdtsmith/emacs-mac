@@ -15438,7 +15438,8 @@ ax_get_selected_text (EmacsMainView *emacsView)
   CFRange selectedRange;
   CFStringRef string;
 
-  if (poll_suppress_count == 0 && !NILP (Vinhibit_quit))
+  if ((poll_suppress_count == 0 && !NILP (Vinhibit_quit)) ||
+      gc_in_progress)
     /* Don't try to get buffer contents as the gap might be being
        altered. */
     return nil;
@@ -15455,7 +15456,8 @@ ax_get_insertion_point_line_number (EmacsMainView *emacsView)
   struct frame *f = [emacsView emacsFrame];
   EMACS_INT line;
 
-  if (poll_suppress_count == 0 && !NILP (Vinhibit_quit))
+  if ((poll_suppress_count == 0 && !NILP (Vinhibit_quit)) ||
+      gc_in_progress)
     /* Don't try to get buffer contents as the gap might be being
        altered. */
     return nil;
@@ -15579,7 +15581,8 @@ ax_get_line_for_index (EmacsMainView *emacsView, id parameter)
   struct frame *f = [emacsView emacsFrame];
   EMACS_INT line;
 
-  if (poll_suppress_count == 0 && !NILP (Vinhibit_quit))
+  if ((poll_suppress_count == 0 && !NILP (Vinhibit_quit)) ||
+      gc_in_progress)
     /* Don't try to get buffer contents as the gap might be being
        altered. */
     return nil;
@@ -15596,7 +15599,8 @@ ax_get_range_for_line (EmacsMainView *emacsView, id parameter)
   EMACS_INT line;
   NSRange range;
 
-  if (poll_suppress_count == 0 && !NILP (Vinhibit_quit))
+  if ((poll_suppress_count == 0 && !NILP (Vinhibit_quit)) ||
+      gc_in_progress)
     /* Don't try to get buffer contents as the gap might be being
        altered. */
     return nil;
@@ -15615,7 +15619,8 @@ ax_get_string_for_range (EmacsMainView *emacsView, id parameter)
   struct frame *f = [emacsView emacsFrame];
   CFStringRef string;
 
-  if (poll_suppress_count == 0 && !NILP (Vinhibit_quit))
+  if ((poll_suppress_count == 0 && !NILP (Vinhibit_quit)) ||
+      gc_in_progress)
     /* Don't try to get buffer contents as the gap might be being
        altered. */
     return nil;

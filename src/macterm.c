@@ -5335,68 +5335,81 @@ mac_ax_line_for_index (struct frame *f, EMACS_INT index)
   return line;
 }
 
-static unsigned char *
-mac_ax_buffer_skip_lines (struct buffer *buf, EMACS_INT n,
-			  unsigned char *start, unsigned char *end)
+static ptrdiff_t
+mac_ax_buffer_skip_lines_offset (struct buffer *buf, EMACS_INT n,
+                                ptrdiff_t start_byte, ptrdiff_t end_byte)
 {
-  unsigned char *gpt, *p, *limit;
+  ptrdiff_t pos = start_byte;
 
-  gpt = BUF_GPT_ADDR (buf);
-  p = start;
-
-  if (p <= gpt && gpt < end)
-    limit = gpt;
-  else
-    limit = end;
-
-  while (n > 0)
+  while (n > 0 && pos < end_byte)
     {
-      p = memchr (p, '\n', limit - p);
-      if (p)
-	p++;
-      else if (limit == end)
-	break;
+      /* We calculate addresses INSIDE the loop. 
+         This way, if the gap moved in the last iteration, 
+         we get the fresh, correct address for this iteration. */
+      unsigned char *p = BUF_BYTE_ADDRESS (buf, pos);
+      unsigned char *gpt = BUF_GPT_ADDR (buf);
+      unsigned char *end_ptr = BUF_BYTE_ADDRESS (buf, end_byte);
+      unsigned char *limit;
+
+      /* Determine the end of the current contiguous memory block */
+      if (p < gpt)
+        limit = gpt;
       else
-	{
-	  p = BUF_GAP_END_ADDR (buf);
-	  p = memchr (p, '\n', end - p);
-	  if (p)
-	    p++;
-	  else
-	    break;
-	}
-      n--;
+        limit = end_ptr;
+
+      unsigned char *next_nl = memchr (p, '\n', limit - p);
+
+      if (next_nl)
+        {
+          pos += (next_nl - p) + 1;
+          n--;
+        }
+      else if (limit == end_ptr)
+        {
+          /* Reached the absolute end of the searchable range */
+          return end_byte;
+        }
+      else
+        {
+          /* Reached the gap; jump to the start of the next block */
+          pos = BUF_GPT_BYTE (buf);
+        }
     }
 
-  return p;
+  return pos;
 }
 
 int
 mac_ax_range_for_line (struct frame *f, EMACS_INT line, CFRange *range)
 {
-  struct buffer *b = XBUFFER (XWINDOW (f->selected_window)->contents);
-  unsigned char *begv, *zv, *p;
-  EMACS_INT start, end;
+  ptrdiff_t begv_byte, zv_byte, p_byte;
+  EMACS_INT start_char, end_char;
 
   if (line < 0)
     return 0;
 
-  begv = BUF_BYTE_ADDRESS (b, BUF_BEGV_BYTE (b));
-  zv = BUF_BYTE_ADDRESS (b, BUF_ZV_BYTE (b));
+  if (!BUFFERP (XWINDOW (f->selected_window)->contents))
+    return 0;
+  struct buffer *b = XBUFFER (XWINDOW (f->selected_window)->contents);
+  
+  begv_byte = BUF_BEGV_BYTE (b);
+  zv_byte = BUF_ZV_BYTE (b);
 
-  p = mac_ax_buffer_skip_lines (b, line, begv, zv);
-  if (p == NULL)
+  /* Find the start of the target line */
+  p_byte = mac_ax_buffer_skip_lines_offset (b, line, begv_byte, zv_byte);
+  
+  /* Validate p_byte isn't past the end */
+  if (p_byte >= zv_byte && line > 0) 
     return 0;
 
-  start = buf_bytepos_to_charpos (b, BUF_PTR_BYTE_POS (b, p));
-  p = mac_ax_buffer_skip_lines (b, 1, p, zv);
-  if (p)
-    end = buf_bytepos_to_charpos (b, BUF_PTR_BYTE_POS (b, p));
-  else
-    end = BUF_ZV (b);
+  start_char = buf_bytepos_to_charpos (b, p_byte);
+  
+  /* Find the end of that line (skip 1 more line) */
+  p_byte = mac_ax_buffer_skip_lines_offset (b, 1, p_byte, zv_byte);
+  end_char = buf_bytepos_to_charpos (b, p_byte);
 
-  range->location = start - BUF_BEGV (b);
-  range->length = end - start;
+  range->location = start_char - BUF_BEGV (b);
+  range->length = end_char - start_char;
 
   return 1;
 }
