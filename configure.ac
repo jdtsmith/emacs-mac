@@ -568,6 +568,7 @@ OPTION_DEFAULT_ON([xdbe],[don't use X11 double buffering support])
 AC_ARG_WITH([mac],[AS_HELP_STRING([--with-mac],
 [use GUI on macOS.
 On by default on macOS.])],[],[with_mac=maybe])
+OPTION_DEFAULT_ON([mac-objc-arc], [don't use ARC for mac GUI build])
 OPTION_DEFAULT_OFF([ns],[use Nextstep (macOS Cocoa or GNUstep) windowing system.])
 OPTION_DEFAULT_OFF([w32], [use native MS Windows GUI in a Cygwin build])
 OPTION_DEFAULT_OFF([pgtk], [use GTK to support window systems other than X])
@@ -5641,7 +5642,11 @@ if test "${HAVE_MACGUI}" = "yes"; then
   AC_DEFINE(HAVE_MACGUI, 1, [Define to 1 if you are using GUI on macOS.])
   AC_DEFINE(HAVE_SOUND, 1, [Define to 1 if you have sound support.])
   AC_CHECK_HEADERS(AvailabilityMacros.h)
-  MAC_CFLAGS="-fconstant-cfstrings"
+  if test "${with_mac_objc_arc}" != "no"; then
+    MAC_CFLAGS="-fconstant-cfstrings -fobjc-arc"
+  else
+    MAC_CFLAGS="-fconstant-cfstrings"
+  fi
   # We also have mouse menus.
   HAVE_MENUS=yes
   # Tell src/Makefile.in to create files in the macOS application
