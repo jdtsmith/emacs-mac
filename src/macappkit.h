@@ -107,36 +107,6 @@ typedef NSString * NSWindowTabbingIdentifier;
 @end
 #endif
 
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101200
-enum {
-    NSWindowListOrderedFrontToBack = (1 << 0)
-};
-typedef NSInteger NSWindowListOptions;
-
-@interface NSApplication (AvailableOn101200AndLater)
-- (void)enumerateWindowsWithOptions:(NSWindowListOptions)options
-			 usingBlock:(void (NS_NOESCAPE ^) (NSWindow *window,
-							   BOOL *stop))block;
-@end
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101300
-typedef NSInteger NSModalResponse;
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101300
-@interface NSWindowTabGroup : NSObject
-@property (readonly, copy) NSArrayOf (NSWindow *) *windows;
-@property (getter=isOverviewVisible) BOOL overviewVisible;
-@property (readonly, getter=isTabBarVisible) BOOL tabBarVisible;
-@property (assign) NSWindow *selectedWindow;
-@end
-
-@interface NSWindow (AvailableOn101300AndLater)
-@property (readonly, assign) NSWindowTabGroup *tabGroup;
-- (void)toggleTabOverview:(id)sender;
-@end
-#endif
 
 /* Undocumented NSWindowStackController class and NSWindow property to
    access it.  Only used as a fallback for NSWindowTabGroup on macOS
@@ -149,41 +119,6 @@ typedef NSInteger NSModalResponse;
 @property (readonly, assign) NSWindowStackController *_windowStackController;
 @end
 
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101200
-enum {
-  NSWindowStyleMaskBorderless		= NSBorderlessWindowMask,
-  NSWindowStyleMaskTitled		= NSTitledWindowMask,
-  NSWindowStyleMaskClosable		= NSClosableWindowMask,
-  NSWindowStyleMaskMiniaturizable	= NSMiniaturizableWindowMask,
-  NSWindowStyleMaskResizable		= NSResizableWindowMask,
-  NSWindowStyleMaskFullScreen		= NSFullScreenWindowMask
-};
-typedef NSUInteger NSWindowStyleMask;
-
-enum {
-  NSWindowUserTabbingPreferenceManual,
-  NSWindowUserTabbingPreferenceAlways,
-  NSWindowUserTabbingPreferenceInFullScreen
-};
-typedef NSInteger NSWindowUserTabbingPreference;
-
-enum {
-  NSWindowTabbingModeAutomatic,
-  NSWindowTabbingModePreferred,
-  NSWindowTabbingModeDisallowed
-};
-typedef NSInteger NSWindowTabbingMode;
-
-@interface NSWindow (AvailableOn101200AndLater)
-+ (NSWindowUserTabbingPreference)userTabbingPreference;
-- (void)addTabbedWindow:(NSWindow *)window
-		ordered:(NSWindowOrderingMode)ordered;
-@property NSWindowTabbingMode tabbingMode;
-@property (copy) NSWindowTabbingIdentifier tabbingIdentifier;
-@property (readonly, copy) NSArrayOf (NSWindow *) *tabbedWindows;
-@end
-#endif
-
 #if MAC_OS_X_VERSION_MAX_ALLOWED < 101500
 @interface NSScreen (AvailableOn101500AndLater)
 @property (readonly, copy) NSString *localizedName;
@@ -195,24 +130,6 @@ typedef NSInteger NSWindowTabbingMode;
 + (NSAppearance *)currentDrawingAppearance;
 - (void)performAsCurrentDrawingAppearance:(void (NS_NOESCAPE ^)(void))block;
 @end
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101400
-@interface NSApplication (AppearanceCustomization) <NSAppearanceCustomization>
-@end
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101300
-typedef NSInteger NSWindowLevel;
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101300
-enum {
-  NSFontPanelModeMaskFace = NSFontPanelFaceModeMask,
-  NSFontPanelModeMaskSize = NSFontPanelSizeModeMask,
-  NSFontPanelModeMaskCollection = NSFontPanelCollectionModeMask
-};
-typedef NSUInteger NSFontPanelModeMask;
 #endif
 
 #if MAC_OS_X_VERSION_MAX_ALLOWED < 101400
@@ -231,193 +148,10 @@ typedef NSUInteger NSFontPanelModeMask;
 @end
 #endif
 
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101300
-enum {
-  NSProgressIndicatorStyleBar = NSProgressIndicatorBarStyle,
-  NSProgressIndicatorStyleSpinning = NSProgressIndicatorSpinningStyle
-};
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101100
-@interface NSEvent (AvailableOn101003AndLater)
-- (NSInteger)stage;
-@end
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101200
-enum {
-  NSEventTypeLeftMouseDown	= NSLeftMouseDown,
-  NSEventTypeLeftMouseUp	= NSLeftMouseUp,
-  NSEventTypeMouseMoved		= NSMouseMoved,
-  NSEventTypeLeftMouseDragged	= NSLeftMouseDragged,
-  NSEventTypeKeyDown		= NSKeyDown,
-  NSEventTypeKeyUp		= NSKeyUp,
-  NSEventTypeApplicationDefined	= NSApplicationDefined,
-  NSEventTypeScrollWheel	= NSScrollWheel
-};
-
-enum {
-  NSEventMaskLeftMouseDown	= NSLeftMouseDownMask,
-  NSEventMaskLeftMouseUp	= NSLeftMouseUpMask,
-  NSEventMaskRightMouseDown	= NSRightMouseDownMask,
-  NSEventMaskRightMouseUp	= NSRightMouseUpMask,
-  NSEventMaskMouseMoved		= NSMouseMovedMask,
-  NSEventMaskLeftMouseDragged	= NSLeftMouseDraggedMask,
-  NSEventMaskRightMouseDragged	= NSRightMouseDraggedMask,
-  NSEventMaskMouseEntered	= NSMouseEnteredMask,
-  NSEventMaskMouseExited	= NSMouseExitedMask,
-  NSEventMaskKeyDown		= NSKeyDownMask,
-  NSEventMaskKeyUp		= NSKeyUpMask,
-  NSEventMaskScrollWheel	= NSScrollWheelMask,
-  NSEventMaskOtherMouseDown	= NSOtherMouseDownMask,
-  NSEventMaskOtherMouseUp	= NSOtherMouseUpMask,
-  NSEventMaskOtherMouseDragged	= NSOtherMouseDraggedMask,
-  NSEventMaskAny		= NSAnyEventMask
-};
-
-enum {
-  NSEventModifierFlagCapsLock	= NSAlphaShiftKeyMask,
-  NSEventModifierFlagShift	= NSShiftKeyMask,
-  NSEventModifierFlagControl	= NSControlKeyMask,
-  NSEventModifierFlagOption	= NSAlternateKeyMask,
-  NSEventModifierFlagCommand	= NSCommandKeyMask,
-  NSEventModifierFlagNumericPad	= NSNumericPadKeyMask,
-  NSEventModifierFlagHelp	= NSHelpKeyMask,
-  NSEventModifierFlagFunction	= NSFunctionKeyMask,
-  NSEventModifierFlagDeviceIndependentFlagsMask
-				= NSDeviceIndependentModifierFlagsMask
-};
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101200
-static const NSBezelStyle NSBezelStylePush = NSRoundedBezelStyle;
-#elif MAC_OS_X_VERSION_MAX_ALLOWED < 140000
-static const NSBezelStyle NSBezelStylePush = NSBezelStyleRounded;
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101200
-enum {
-  NSCompositingOperationSourceOver = NSCompositeSourceOver
-};
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101200
-enum {
-  NSControlSizeRegular	= NSRegularControlSize,
-  NSControlSizeSmall	= NSSmallControlSize
-};
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101300
-typedef NSInteger NSControlStateValue;
-static const NSControlStateValue NSControlStateValueOff = NSOffState;
-static const NSControlStateValue NSControlStateValueOn = NSOnState;
-#endif
-
 #if MAC_OS_X_VERSION_MAX_ALLOWED < 110000
 @interface NSImage (AvailableOn110000AndLater)
 + (instancetype)imageWithSystemSymbolName:(NSString *)symbolName
 		 accessibilityDescription:(NSString *)description;
-@end
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101201
-@protocol NSTouchBarDelegate @end
-
-@interface NSTouchBarItem : NSObject <NSCoding>
-- (instancetype)initWithIdentifier:(NSTouchBarItemIdentifier)identifier;
-@end
-
-@interface NSCustomTouchBarItem : NSTouchBarItem
-@property (retain) __kindof NSView *view;
-@end
-
-@interface NSCandidateListTouchBarItem : NSTouchBarItem
-@end
-
-@interface NSTouchBar : NSObject <NSCoding>
-@property (assign) id <NSTouchBarDelegate> delegate;
-@property (copy) NSArrayOf (NSTouchBarItemIdentifier) *defaultItemIdentifiers;
-@property (copy) NSTouchBarItemIdentifier principalItemIdentifier;
-@end
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101100
-@interface NSLayoutAnchor : NSObject <NSCopying, NSCoding>
-- (NSLayoutConstraint *)constraintEqualToAnchor:(NSLayoutAnchor *)anchor;
-- (NSLayoutConstraint *)constraintGreaterThanOrEqualToAnchor:(NSLayoutAnchor *)anchor;
-- (NSLayoutConstraint *)constraintLessThanOrEqualToAnchor:(NSLayoutAnchor *)anchor;
-- (NSLayoutConstraint *)constraintEqualToAnchor:(NSLayoutAnchor *)anchor constant:(CGFloat)c;
-- (NSLayoutConstraint *)constraintGreaterThanOrEqualToAnchor:(NSLayoutAnchor *)anchor constant:(CGFloat)c;
-- (NSLayoutConstraint *)constraintLessThanOrEqualToAnchor:(NSLayoutAnchor *)anchor constant:(CGFloat)c;
-@end
-
-@interface NSLayoutXAxisAnchor : NSLayoutAnchor
-@end
-@interface NSLayoutYAxisAnchor : NSLayoutAnchor
-@end
-
-@interface NSLayoutDimension : NSLayoutAnchor
-- (NSLayoutConstraint *)constraintEqualToConstant:(CGFloat)c;
-- (NSLayoutConstraint *)constraintGreaterThanOrEqualToConstant:(CGFloat)c;
-- (NSLayoutConstraint *)constraintLessThanOrEqualToConstant:(CGFloat)c;
-- (NSLayoutConstraint *)constraintEqualToAnchor:(NSLayoutDimension *)anchor multiplier:(CGFloat)m;
-- (NSLayoutConstraint *)constraintGreaterThanOrEqualToAnchor:(NSLayoutDimension *)anchor multiplier:(CGFloat)m;
-- (NSLayoutConstraint *)constraintLessThanOrEqualToAnchor:(NSLayoutDimension *)anchor multiplier:(CGFloat)m;
-- (NSLayoutConstraint *)constraintEqualToAnchor:(NSLayoutDimension *)anchor multiplier:(CGFloat)m constant:(CGFloat)c;
-- (NSLayoutConstraint *)constraintGreaterThanOrEqualToAnchor:(NSLayoutDimension *)anchor multiplier:(CGFloat)m constant:(CGFloat)c;
-- (NSLayoutConstraint *)constraintLessThanOrEqualToAnchor:(NSLayoutDimension *)anchor multiplier:(CGFloat)m constant:(CGFloat)c;
-@end
-
-@interface NSView (AvailableOn101100AndLater)
-@property (readonly, retain) NSLayoutXAxisAnchor *leadingAnchor;
-@property (readonly, retain) NSLayoutXAxisAnchor *trailingAnchor;
-@property (readonly, retain) NSLayoutXAxisAnchor *leftAnchor;
-@property (readonly, retain) NSLayoutXAxisAnchor *rightAnchor;
-@property (readonly, retain) NSLayoutYAxisAnchor *topAnchor;
-@property (readonly, retain) NSLayoutYAxisAnchor *bottomAnchor;
-@property (readonly, retain) NSLayoutDimension *widthAnchor;
-@property (readonly, retain) NSLayoutDimension *heightAnchor;
-@property (readonly, retain) NSLayoutXAxisAnchor *centerXAnchor;
-@property (readonly, retain) NSLayoutYAxisAnchor *centerYAnchor;
-@property (readonly, retain) NSLayoutYAxisAnchor *firstBaselineAnchor;
-@property (readonly, retain) NSLayoutYAxisAnchor *lastBaselineAnchor;
-@end
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101200
-@interface NSButton (AvailableOn101200AndLater)
-+ (instancetype)buttonWithTitle:(NSString *)title image:(NSImage *)image
-			 target:(id)target action:(SEL)action;
-+ (instancetype)buttonWithTitle:(NSString *)title
-			 target:(id)target action:(SEL)action;
-+ (instancetype)buttonWithImage:(NSImage *)image
-			 target:(id)target action:(SEL)action;
-+ (instancetype)checkboxWithTitle:(NSString *)title
-			   target:(id)target action:(SEL)action;
-+ (instancetype)radioButtonWithTitle:(NSString *)title
-			      target:(id)target action:(SEL)action;
-@end
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101200
-static const NSBitmapImageFileType NSBitmapImageFileTypePNG = NSPNGFileType;
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101200
-@interface PDFPage (AvailableOn101200AndLater)
-- (void) drawWithBox: (PDFDisplayBox) box toContext:(CGContextRef)context;
-@end
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 101100
-typedef NSInteger NSGlyphProperty;
-
-@interface NSLayoutManager (AvailableOn101100AndLater)
-- (NSUInteger)getGlyphsInRange:(NSRange)glyphRange glyphs:(CGGlyph *)glyphBuffer
-		    properties:(NSGlyphProperty *)props
-	      characterIndexes:(NSUInteger *)charIndexBuffer
-		    bidiLevels:(unsigned char *)bidiLevelBuffer;
 @end
 #endif
 
