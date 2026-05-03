@@ -69,7 +69,8 @@ static void _mac_init_signposts(void) {
   _mac_sp_log_lisp = os_log_create ("org.gnu.Emacs", "LISP");
   _mac_sp_log_gui = os_log_create ("org.gnu.Emacs", "GUI");
   _mac_sp_log_draw = os_log_create ("org.gnu.Emacs", "DRAW");
-  _mac_sp_log_trace = os_log_create ("org.gnu.Emacs",OS_LOG_CATEGORY_DYNAMIC_STACK_TRACING);
+  _mac_sp_log_trace = os_log_create ("org.gnu.Emacs",
+				     OS_LOG_CATEGORY_DYNAMIC_STACK_TRACING);
 }
 #endif
 
@@ -1287,13 +1288,13 @@ static void mac_update_dragged_types_frame (struct frame *,
        selector:@selector(willSleep:)
 	   name:NSWorkspaceWillSleepNotification
 	 object:nil];
-  
+
   [NSApp registerUserInterfaceItemSearchHandler:self];
   Vmac_help_topics = Qnil;
 
 
   /* These used to happen during each (frequent) run of mac_read_socket.
-     The former was replaced by variable watch.  */
+     The first was replaced by variable watch.  */
   mac_update_dragged_types ();
   [self updateObservedKeyPaths];
 
@@ -4273,10 +4274,10 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
       flashLayer.compositingFilter = @"differenceBlendMode";
       flashLayer.opacity = 1.0;
       [emacsView.layer addSublayer:flashLayer];
-  
+
       /* Force immediate composite */
       [CATransaction flush];
-  
+
       dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_MSEC),
 		     dispatch_get_main_queue(), ^{
 		       [flashLayer removeFromSuperlayer];
@@ -4285,7 +4286,6 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
     });
 }
 @end				// EmacsFrameController
-
 
 // ** Window manager C functions
 
@@ -5287,7 +5287,7 @@ mac_create_frame_window (struct frame *f)
 
   if (registered_dragged_types)
     mac_update_dragged_types_frame (f, registered_dragged_types);
-  
+
   if (f->size_hint_flags & (USPosition | PPosition)
       || FRAME_PARENT_FRAME (f))
     {
@@ -5616,6 +5616,7 @@ static bool mac_try_buffer_and_glyph_matrix_access (void);
 static void mac_end_buffer_and_glyph_matrix_access (void);
 
 // ** EmacsBacking
+/* Container and associated logic for back/front bitmaps/surfaces */
 
 @implementation EmacsBacking
 
@@ -5637,7 +5638,7 @@ mac_scroll_bitmap (CGContextRef ctx, CGRect dest, CGSize delta, CGFloat scale)
   /* Dimensions and starting coordinates cannot be negative, use size_t */
   size_t width  = CGRectGetWidth (dest) * scale;
   size_t height = CGRectGetHeight (dest) * scale;
-  
+
   /* Compute source coordinates safely */
   size_t dest_x = CGRectGetMinX (dest) * scale;
   size_t dest_y = CGRectGetMinY (dest) * scale;
@@ -5648,7 +5649,7 @@ mac_scroll_bitmap (CGContextRef ctx, CGRect dest, CGSize delta, CGFloat scale)
   src.width  = width;
   src.height = height;
   src.rowBytes = bytesPerRow; // vImage rowBytes is implicitly cast to ptrdiff_t
-  
+
   /* All unsigned math for the pointer offset */
   src.data = base + (src_y * bytesPerRow) + (src_x * bytesPerPixel);
 
@@ -5779,7 +5780,7 @@ mac_iosurface_create (size_t width, size_t height)
 
   IOSurfaceLock (frontSurface, kIOSurfaceLockReadOnly, NULL);
   IOSurfaceLock (backSurface, 0, NULL);
-    
+
   unsigned char *backBase = IOSurfaceGetBaseAddress (backSurface);
   unsigned char *frontBase = IOSurfaceGetBaseAddress (frontSurface);
   size_t bytesPerRow = IOSurfaceGetBytesPerRow (backSurface);
@@ -5814,7 +5815,7 @@ mac_iosurface_create (size_t width, size_t height)
 	  mac_vimage_copy_8888 (&src, &dest, kvImageDoNotTile);
 	}
     }
-      
+
   IOSurfaceUnlock (frontSurface, kIOSurfaceLockReadOnly, NULL);
   MAC_SIGNPOST_PTR_END(backSurface, gui, SurfSync, "Copied: %d", dirtyRectCount);
 }
@@ -7314,7 +7315,7 @@ mac_draw_session_begin (struct frame *f, mac_draw_session_type type)
       return;
     }
 
-  MAC_SIGNPOST_PTR_BEGIN (mo->arenas + mo->next_arena, trace, Session,
+  MAC_SIGNPOST_PTR_BEGIN (mo->arenas + mo->next_arena, draw, Session,
 			  "ARENA: %d FRAME: %{public}s FPTR: %p",
 			  mo->next_arena, SSDATA (f->name), f);
 #if DRAWING_USE_GCD
@@ -7360,15 +7361,15 @@ mac_draw_session_end (struct frame *f)
 
   if (!arena)
     return;
-  
-  if (!arena->cmds->used) /* No actual drawing occurred */
+
+  if (!arena->cmds || !arena->cmds->used) /* No actual drawing occurred */
     {
-      MAC_SIGNPOST_PTR_END (arena, trace, Session,
-			    "TYPE: %u EMPTY: 1", arena->type);
+      MAC_SIGNPOST_PTR_END (arena, draw, Session,
+			    "TYPE: %u EMPTY: %d", arena->type, 1);
       return;
     }
   mo->active_arena = NULL;
-  
+
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
   void (^block) (void) = ^{
     MAC_SIGNPOST_GEN_BEGIN (gui, AcqDraw, "PLAYBACK");
@@ -7381,7 +7382,7 @@ mac_draw_session_end (struct frame *f)
 	[frameController ensureBackingSized];
 	FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = false;
       }
-    
+
     CGContextRef backing_ctx = mac_get_backing_bitmap (f);
     if (backing_ctx)
       {
@@ -7401,8 +7402,8 @@ mac_draw_session_end (struct frame *f)
   else
 #endif
     block (); /* Run directly on GUI/LISP thread */
-  MAC_SIGNPOST_PTR_END (arena, trace, Session,
-			"TYPE: %u EMPTY: 0", arena->type);
+  MAC_SIGNPOST_PTR_END (arena, draw, Session,
+			"TYPE: %u EMPTY: %d", arena->type, 0);
 }
 
 CGContextRef
@@ -9571,7 +9572,7 @@ extern Boolean _IsSymbolicHotKeyEvent (EventRef, UInt32 *, Boolean *) AVAILABLE_
   mac_draw_session_begin(f, MAC_SESSION_OUTOFBAND);
   result = clear_mouse_face (hlinfo);
   mac_draw_session_end(f);
-  
+
   return result;
 }
 
