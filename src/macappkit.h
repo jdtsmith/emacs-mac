@@ -257,7 +257,7 @@ typedef NSString * NSWindowTabbingIdentifier;
 
   /* Number of events stored during a
      handleQueuedEventsWithHoldingQuitIn: call.  */
-  int count;
+  int eventsStoredCount;
 
   /* Whether to generate a HELP_EVENT at the end of handleOneNSEvent:
      call.  */

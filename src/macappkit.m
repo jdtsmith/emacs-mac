@@ -1512,7 +1512,7 @@ static EventRef peek_if_next_event_activates_menu_bar (void);
   else
     {
       kbd_buffer_store_event_hold (bufp, hold_quit);
-      count++;
+      eventsStoredCount++;
     }
 }
 
@@ -1602,7 +1602,7 @@ static EventRef peek_if_next_event_activates_menu_bar (void);
 	  help_echo_string = Qnil;
 	  gen_help_event (Qnil, frame, Qnil, Qnil, 0);
 	}
-      count++;
+      eventsStoredCount++;
     }
 }
 
@@ -1642,7 +1642,7 @@ static EventRef peek_if_next_event_activates_menu_bar (void);
 	}
 
       hold_quit = bufp;
-      count = 0;
+      eventsStoredCount = 0; /* This is an ivar! */
 
       if (MOUSE_TRACKING_SUSPENDED_P ())
 	{
@@ -1698,7 +1698,7 @@ static EventRef peek_if_next_event_activates_menu_bar (void);
 
       hold_quit = NULL;
 
-      result = count;
+      result = eventsStoredCount;
     });
 
   return result;
@@ -9666,6 +9666,12 @@ mac_peek_next_event (void)
   return event;
 }
 
+static inline int
+mac_main_events_queued (void)
+{
+  return GetNumEventsInQueue (GetMainEventQueue ());
+}
+
 /* Return next event in the main queue if it exists and is a mouse
    down on the menu bar.  Otherwise return NULL.  */
 
@@ -9737,24 +9743,31 @@ peek_if_next_event_activates_menu_bar (void)
 
 /* Emacs calls this read socket hook frequently, whenever it needs to
    read an input event, e.g. after mac_select returns, and periodically
-   while LISP is sleeping/busy.  We use this (with a rate-limite) to
-   process accumulated NSEvents, flush any newly finished but as yet not
-   presented frames to the display, and close open draw arenas
-   (e.g. from out-of-band drawing like mouse movement). */
+   while LISP is sleeping/busy.  We use this to process accumulated
+   NSEvents, and (if the EmacsDisplayLinkPresenter is not available)
+   flush any completed but as yet not presented frames to the display as
+   a backup. */
 
 int
 mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 {
+  /* Fast path: if no physical events are queued, and we aren't in the
+     middle of synthetic mouse tracking or holding a menu event, and
+     display link is handling frame presentation, we can bail
+     immediately. */
+#ifdef MAC_DISPLAY_LINK
+  if (@available (macOS 14.0, *))
+    if (![emacsController isMouseTrackingSuspended]
+	&& one_mac_display_info.saved_menu_event == NULL
+	&& mac_main_events_queued() == 0)
+      return 0;
+#endif
+  
   int count;
-  Lisp_Object tail, frame;
-
   block_input ();
   BEGIN_AUTORELEASE_POOL;
+  MAC_SIGNPOST_GEN_BEGIN (lisp, Socket);
 
-  MAC_SIGNPOST_GEN_BEGIN (trace, Socket);
-
-  // This is called sometimes on 100µs intervals!  Switch to an event
-  // producer setup, so this can return FAST if there are no events.
   handling_queued_nsevents_p = true;
   count = [emacsController handleQueuedNSEventsWithHoldingQuitIn:hold_quit];
   handling_queued_nsevents_p = false;
