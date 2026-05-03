@@ -50,11 +50,15 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 #define MRC_RELEASE(receiver)
 #define MRC_AUTORELEASE(receiver)	((id) (receiver))
 #define CF_ESCAPING_BRIDGE		CFBridgingRetain
+#define NS_WEAK weak
+#define NS_STRONG strong
 #else
 #define MRC_RETAIN(receiver)		[(receiver) retain]
 #define MRC_RELEASE(receiver)		[(receiver) release]
 #define MRC_AUTORELEASE(receiver)	[(receiver) autorelease]
 #define CF_ESCAPING_BRIDGE(X)		((CFTypeRef) (X))
+#define NS_WEAK assign
+#define NS_STRONG retain
 #endif
 
 #ifdef MAC_DEBUG_SIGNPOST
@@ -1370,7 +1374,10 @@ static void mac_update_dragged_types_frame (struct frame *,
 - (void)screenParametersDidChange:(NSNotification *)notification {
     block_input();
     mac_get_screen_info(&one_mac_display_info);
-    //mac_update_master_display_link();
+#ifdef MAC_DISPLAY_LINK
+    if (@available (macOS 14.0, *))
+      [[EmacsDisplayLinkPresenter shared] removeInvalidDisplayLinks];
+#endif
     unblock_input();
 }
 
@@ -2766,46 +2773,62 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
    EmacsBacking and display.  Since we pump the NS Event loop ourselves
    (see mac_select), this is one of the only places we can request a
    display update from the display server (which leads to an
-   `updateLayer' call).  If wait is NO, do not bother waiting for the
-   draw lock, just return quickly if it is not available.  If YES, wait
-   for the draw lock, and display the view even if the FRAME doesn't
-   require presentation.  Must be called from the GUI thread.
- */
+   `updateLayer' call).
 
-- (void)presentIfReadyWithWait:(BOOL)wait
+   If WAIT is NO, do not bother waiting for the draw lock, just return
+   quickly if it is not available.  If YES, wait for the draw lock, and
+   display the view even if the FRAME does not require presentation.
+
+   If WAIT is YES and DEADLINE>0 is a valid time in the future, wait for
+   the lock, but only up to that deadline.  Must be called from the GUI
+   thread.
+
+   Returns YES if the draw lock is acquired. */
+
+- (BOOL)presentIfReadyWithWait:(BOOL)wait deadline:(CFTimeInterval)deadline
 {
     struct frame *f = emacsFrame;
-    BOOL needsPresenting = FRAME_LIVE_P (f) && FRAME_MAC_NEEDS_PRESENTATION_P (f);
-
-    if (!needsPresenting)
-      return;
 
     if (wait)
       {
 	MAC_SIGNPOST_GEN_BEGIN (draw, AcqDraw, "PRESENT");
-	[self acquireDrawLock];
+	if (deadline > 0 && CACurrentMediaTime() < deadline)
+	  {
+	    BOOL acquired = NO;
+	    do
+	      {
+		if ((acquired = [self tryAcquireDrawLock]))
+		  break;
+		/* yield briefly. */
+		struct timespec ts = {0, 200000};  /* 200µs */
+		nanosleep (&ts, NULL);
+	      }
+	    while (CACurrentMediaTime() < deadline);
+	    if (!acquired)
+	      return NO;
+	  }
+	else
+	  [self acquireDrawLock];
 	MAC_SIGNPOST_GEN_END(draw, AcqDraw);
       }
     else
       {
 	if (![self tryAcquireDrawLock])
-	  return;   /* drawing busy, another dispatch will come */
+	  return NO;   /* drawing busy, another dispatch will come */
       }
 
     MAC_SIGNPOST_GEN_BEGIN (gui, Present, "FRAME: %{public}s FPTR: %p NEEDSPRESENTING: %d",
 			    SSDATA (f->name), f, FRAME_MAC_NEEDS_PRESENTATION_P (f) ? 1 : 0);
-    if (needsPresenting)
-      {
-	struct mac_output *mo = FRAME_OUTPUT_DATA (f);
-	[self presentBackingWithDirtyRects:mo->dirty_rects
-				     count:mo->dirty_rect_count];
-	mo->dirty_rect_count = 0; /* Reset for reuse */
-	FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
-	[emacsView setNeedsDisplay:YES];
-      }
+    struct mac_output *mo = FRAME_OUTPUT_DATA (f);
+    [self presentBackingWithDirtyRects:mo->dirty_rects
+				 count:mo->dirty_rect_count];
+    mo->dirty_rect_count = 0; /* Reset for reuse */
+    FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
+    [emacsView setNeedsDisplay:YES];
     [emacsView displayIfNeeded];
     MAC_SIGNPOST_GEN_END (gui, Present);
     [self releaseDrawLock];
+    return YES;
 }
 
 - (struct frame *)emacsFrame
@@ -7232,35 +7255,42 @@ mac_ts_active_input_string_in_echo_area_p (struct frame *f)
 // ** C drawing primitives
 
 /* Present any frame which is ready for display.  Should be called from
-   the GUI thread.  Does not wait for the frame's draw lock. */
+   the GUI thread. Either loops over frames and presents without waiting
+   for the draw lock, or uses the EmacsDisplayLinkPresenter. */
 
 static void
 mac_present_all_ready_frames (void)
 {
+#ifdef MAC_DISPLAY_LINK
+  if (@available (macOS 14.0, *))
+    {
+      [[EmacsDisplayLinkPresenter shared] presentAllReadyFrames];
+      return;
+    }
+#endif
   Lisp_Object tail, frame;
   FOR_EACH_FRAME(tail, frame)
     {
       struct frame *f = XFRAME(frame);
-      if (FRAME_MAC_P(f))
-	[FRAME_CONTROLLER(f) presentIfReadyWithWait:NO];
+      if (FRAME_MAC_NEEDS_PRESENTATION_P (f))
+	[FRAME_CONTROLLER(f) presentIfReadyWithWait:NO deadline:0];
     }
 }
 
 /* Present and flush display of frame F, if necessary.  Waits for the
-   draw lock. */
+   draw lock.  Unused when EmacsDisplayLinkPresenter is active.  This is
+   a "backup" presentation. */
 
 void
 mac_force_flush (struct frame *f)
 {
-  EmacsFrameController *frameController = FRAME_CONTROLLER (f);
-  block_input ();
-  /* This is "backup" presentation: it waits for the draw lock, and even
-     if the frame does not need presenting, updates display (system
-     requests). */
-  mac_within_gui (^{
-      [frameController presentIfReadyWithWait:YES];
-    });
-  unblock_input ();
+  if (FRAME_MAC_NEEDS_PRESENTATION_P (f))
+    {    
+      EmacsFrameController *frameController = FRAME_CONTROLLER (f);
+      block_input ();
+      mac_within_gui (^{[frameController presentIfReadyWithWait:YES deadline:0];});
+      unblock_input ();
+    }
 }
 
 /* Begin a draw session for frame F.  May be called by LISP or GUI
@@ -7313,7 +7343,7 @@ mac_draw_session_begin (struct frame *f, mac_draw_session_type type)
   [frameController releaseArenaLock];
 }
 
-static void mac_notify_gui_of_presentation_request (void);
+static void mac_note_pending_content (EmacsFrameController *);
 
 /* End a draw session by playing back the arena into the backing bitmap,
    then requesting frame presentation.  This work is done on the GCD
@@ -7357,9 +7387,7 @@ mac_draw_session_end (struct frame *f)
       {
 	mac_playback_arena (arena, f, backing_ctx);
 	FRAME_MAC_NEEDS_PRESENTATION_P (f) = true;
-	// XXX: this should be the job of CVDisplayLink.  We should just
-	// set the atomic flag and let IT pick that up and notify GUI.
-	mac_notify_gui_of_presentation_request ();
+	mac_note_pending_content (frameController);
       }
     [frameController releaseDrawLock];
 #if DRAWING_USE_GCD
@@ -9730,22 +9758,27 @@ mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
   handling_queued_nsevents_p = true;
   count = [emacsController handleQueuedNSEventsWithHoldingQuitIn:hold_quit];
   handling_queued_nsevents_p = false;
-    
-  FOR_EACH_FRAME (tail, frame)
+
+#ifdef MAC_DISPLAY_LINK
+  if (@available (macOS 14.0, *))
     {
-      struct frame *f = XFRAME (frame);
-      if (FRAME_MAC_P (f))
-	{
-	  /* Present and flush the frame to display (if needed). */
-	  mac_force_flush (f);
-	  /* Flush any "out-of-band" open draw sessions (e.g. mouse moves). */
-	  mac_flush_arena (f);
-	}
+      /* The display link will handle all presentation */
     }
+  else
+#endif
+    {  /* Backup display of any missed frames needing presentation. */
+      Lisp_Object tail, frame;
+      FOR_EACH_FRAME (tail, frame)
+	{
+	  struct frame *f = XFRAME (frame);
+	  if (FRAME_MAC_P (f))
+	    mac_force_flush (f);
+	}
+    } 
   MAC_SIGNPOST_GEN_END (lisp, Socket, "NEVENTS: %d", count);
   END_AUTORELEASE_POOL;
   unblock_input ();
-  
+
   return count;
 }
 
@@ -16017,27 +16050,26 @@ static enum
   MAC_COMMAND_PRESENT	= 1 << 2,  /* a frame may need presentation */
 } mac_next_command;
 
-/* Atomic flag to signal that presentation has been requested for one or
-   more more completed frames, to be processed by GUI. */
+/* Atomic flag to signal to the GUI that presentation has been requested
+   for one or more more completed frames. */
 static _Atomic BOOL _mac_presentation_requested = NO;
 #define MAC_CHECK_PRESENTATION_REQUESTED_AND_SET(val)	\
   atomic_exchange (&_mac_presentation_requested, val)
 
-/* Notify GUI thread of a frame presentation request.  If there is an
-   active request already, notifications are not repeated.
+/* Notify GUI thread of a frame presentation request.
+
    Notifications include both a Mach dispatch message (which can
    interrupt the event loop) and a semaphore signal.
 
-   Called from the GCD queue (if GCD is active).
-
-   IMPORTANT: to avoid interfering with the LISP-GUI thread
-   synchronization, we must adhere to the following policy after this
-   notification is sent:
+   IMPORTANT: To avoid interfering with the LISP-GUI thread
+   synchronization, we must adhere to the following strict policy after
+   notifications are sent (see e.g. mac_gui_loop_once):
 
    Always check the atomic presentation requested flag and reset it to
-   NO first.  If it was YES, this is an active request.  Present any
-   ready frames, and be sure to consume the extra mac_gui_semaphore
-   signal.  If NO, this is a stale request: take no action.
+   NO first.  If it was formerly YES, this is an active request.
+   Present any ready frames, and be sure to consume the extra
+   mac_gui_semaphore signal.  If it was NO, this is a stale request:
+   take no action.
 */
 
 static inline void
@@ -16050,6 +16082,29 @@ mac_notify_gui_of_presentation_request (void)
       dispatch_source_merge_data (mac_select_dispatch_source,
 				  MAC_COMMAND_PRESENT);
     }
+}
+
+/* Note pending drawing content.  Called from the GCD queue thread (if
+   running).
+
+   If there is no display-link support (or v<14), post a presentation
+   request directly to GUI.  Otherwise, set pending screen content for
+   the frame's screen with the display link presenter.  The screen's
+   display link timer will un-pause, fire at the appropriate time, and
+   request GUI presentation at that point. */
+
+static void
+mac_note_pending_content (EmacsFrameController *fc)
+{
+#ifdef MAC_DISPLAY_LINK
+  if (@available (macOS 14.0, *))
+    {
+      [[EmacsDisplayLinkPresenter shared]
+	      setPendingContentForScreen:[[fc emacsWindow] screen]];
+    }
+  else
+#endif
+    mac_notify_gui_of_presentation_request();
 }
 
 static void
@@ -16251,7 +16306,264 @@ mac_within_lisp_deferred_if_gui_thread (void (^block) (void))
     block ();
 }
 
+// * Display Link
+/* Refresh-synchronized display presentation */
+
+#ifdef MAC_DISPLAY_LINK
+@interface EmacsDisplayLinkState : NSObject
+{
+ _Atomic BOOL _pendingContent;
+}
+@property (NS_WEAK) NSScreen *screen;
+@property (NS_STRONG) CADisplayLink *link;
+@property CFTimeInterval presentationDeadline;
+@property int consecutiveMisses;
+@end
+
+@implementation EmacsDisplayLinkState
+
+- (BOOL)pendingContent
+{
+  return _pendingContent;
+}
+
+- (void)setPendingContent:(BOOL)val
+{
+  _pendingContent = val;
+}
+
+- (BOOL)checkPendingContentAndSet:(BOOL)val
+{
+  return atomic_exchange (&_pendingContent, val);
+}
+
+- (void)dealloc {
+  [_link invalidate];
+  MRC_RELEASE (_link);
+}
+
+@end
+
+@implementation EmacsDisplayLinkPresenter
+
++ (instancetype)shared
+{
+  static EmacsDisplayLinkPresenter *instance;
+  static dispatch_once_t once;
+  dispatch_once (&once, ^{instance = [[self alloc] init];});
+  return instance;
+}
+
+/* Create a screen->display link table and start a new thread. */
+
+- (instancetype)init
+{
+  self = [super init];
+  if (!self)
+    return nil;
+
+  /* Use weak keys: don't retain screens which are removed */
+  displayLinks = [NSMapTable weakToStrongObjectsMapTable];
+  _displayLinksLock = OS_UNFAIR_LOCK_INIT;
+
+  _thread = [[NSThread alloc] initWithTarget:self
+                                    selector:@selector(_threadMain)
+                                      object:nil];
+  _thread.name = @"org.gnu.Emacs.display-link";
+  _thread.qualityOfService = NSQualityOfServiceUserInteractive;
+  [_thread start];
+
+  return self;
+}
+
+- (void)acquireLinksLock
+{
+  os_unfair_lock_lock(&_displayLinksLock);
+}
+
+- (void)releaseLinksLock
+{
+  os_unfair_lock_unlock(&_displayLinksLock);
+}
+
+/* Run standalone event loop on dedicated thread */
+
+- (void)_threadMain
+{
+  BEGIN_AUTORELEASE_POOL;
+  _runLoop = [NSRunLoop currentRunLoop];
+
+  /* Dummy port to keep run loop alive with no sources */
+  [_runLoop addPort:[NSMachPort port] forMode:NSDefaultRunLoopMode];
+
+  while (![NSThread currentThread].cancelled)
+    [_runLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];
+  END_AUTORELEASE_POOL;
+}
+
+- (void)_createDisplayLinkForState:(EmacsDisplayLinkState *)state
+{
+  if (state.link)
+    return;
+  NSScreen *screen = state.screen;
+  CADisplayLink *link =
+    [screen displayLinkWithTarget:self
+			 selector:@selector(displayLinkFired:)];
+  link.paused = YES;
+  if (@available(macOS 15.0, *))
+    link.preferredFrameRateRange = CAFrameRateRangeMake(1, 120, 0);
+
+  objc_setAssociatedObject(link, @selector(stateForScreen:),
+			   state, OBJC_ASSOCIATION_RETAIN);
+  state.link = link;
+
+  [link addToRunLoop:_runLoop forMode:NSDefaultRunLoopMode];
+}
+
+- (EmacsDisplayLinkState *)stateForScreen:(NSScreen *)screen
+{
+  if (!screen)
+    screen = [NSScreen mainScreen];
+
+  [self acquireLinksLock];
+  EmacsDisplayLinkState *state = [displayLinks objectForKey:screen];
+  if (!state)
+    {
+      state = [[EmacsDisplayLinkState alloc] init];
+      state.screen = screen;
+      state.consecutiveMisses = 0;
+      [displayLinks setObject:state forKey:screen];
+      MRC_RELEASE (state);  /* Owned by table */
+    }
+  [self releaseLinksLock];
+
+  if (!state.link)
+    [self performSelector:@selector(_createDisplayLinkForState:)
+		 onThread:_thread
+	       withObject:state
+	    waitUntilDone:YES];
+  return state;
+}
+
+- (void)setPendingContentForScreen:(NSScreen *)screen
+{
+  EmacsDisplayLinkState *state = [self stateForScreen:screen];
+  if (!state) return;
+
+  [state setPendingContent:YES];
+  state.link.paused = NO;
+}
+
+/* Display link callback — fires on _thread */
+
+- (void)displayLinkFired:(CADisplayLink *)sender
+{
+  EmacsDisplayLinkState *state =
+    objc_getAssociatedObject (sender, @selector(stateForScreen:));
+
+  if (!state || !state.screen) return;
+
+  if (![state pendingContent])
+    {
+      sender.paused = YES;
+      return;
+    }
+
+  CFTimeInterval frameBudget = sender.targetTimestamp - CACurrentMediaTime();
+  state.presentationDeadline =
+    sender.targetTimestamp - (frameBudget * 0.15);  /* reserve 15% for
+						       present + display */
+
+  mac_notify_gui_of_presentation_request ();
+  MAC_SIGNPOST_EVENT (draw, DisplayLink, "Deadline: %.2f ms",
+		      1000. * (state.presentationDeadline - CACurrentMediaTime()));
+}
+
+/* Present all frames on SCREEN which need it.  Return YES if
+   presentation occurred for all frames which needed it. */
+
+- (BOOL)presentAllFramesOnScreen:(NSScreen *)screen
+                        deadline:(CFTimeInterval)deadline
+{
+  Lisp_Object tail, frame;
+  BOOL anyMissed = NO;
+
+  FOR_EACH_FRAME (tail, frame)
+    {
+      struct frame *f = XFRAME (frame);
+      if (!FRAME_MAC_NEEDS_PRESENTATION_P (f))
+	continue;
+      EmacsFrameController *fc = FRAME_CONTROLLER (f);
+      if (![screen isEqual:[[fc emacsWindow] screen]])
+	continue;
+      if (![fc presentIfReadyWithWait:YES deadline:deadline])
+	anyMissed = YES;
+    }
+
+  return !anyMissed;
+}
+
+/* Present all ready frames on all screens.  A ready frame is:
+
+   1. In need of presentation due to pending content having been drawn
+      to it.
+   2. On a screen that our display link has signaled is now ready for
+      presentation.
+
+We wait for the draw lock only up until the scheduled deadline.  If the
+lock is missed, we re-arm the screen for the next displayLinkFire
+call.  GUI calls this when it wakes for presenting. */
+
+- (void)presentAllReadyFrames
+{
+  [self acquireLinksLock];
+  NSArray *states = NSAllMapTableValues(displayLinks);
+  [self releaseLinksLock];
+
+  for (EmacsDisplayLinkState *state in states)
+    {
+      if (![state checkPendingContentAndSet:NO])
+	continue;
+      /* If we have already missed a frame, wait for the draw lock */
+      CFTimeInterval deadline = (state.consecutiveMisses > 1 ?
+				 0 : state.presentationDeadline);
+      if ([self presentAllFramesOnScreen:state.screen
+				deadline:deadline])
+	{
+	  state.consecutiveMisses = 0;
+	  state.link.paused = YES;
+	}
+      else
+	{
+	  /* Missed a frame, try to present again */
+	  state.consecutiveMisses++;
+	  [state setPendingContent:YES];
+	}
+    }
+}
+
+- (void)removeInvalidDisplayLinks
+{
+  eassert (pthread_main_np ());
+
+  NSArray *currentScreens = [NSScreen screens];
+
+  [self acquireLinksLock];
+  NSArray *trackedScreens = [[displayLinks keyEnumerator] allObjects];
+  for (NSScreen *screen in trackedScreens)
+    {
+      if (![currentScreens containsObject:screen])
+	  [displayLinks removeObjectForKey:screen];
+    }
+   [self releaseLinksLock];
+}
+
+@end
+#endif
+
 // * Select emulation
+/* An emulation of (p)select which coordinates LISP and GUI threads and
+   events */
 
 /* File descriptors of the socket pair used for breaking pselect calls
    in Lisp threads.  One direction, writing to mac_select_fds[0] and
@@ -16474,7 +16786,7 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
   mac_select_allow_lisp_evaluation = !thread_may_switch_p;
   bool __block completed_p = false;
 #endif
-  /* This is the Main Divided Event Loop: MDEL */
+  /***** This is the Main Divided Event Loop: MDEL *****/
   mac_within_gui_and_here (
    ^{ /* GUI */
       if (thread_may_switch_p)
@@ -16494,12 +16806,6 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 		{
 		  [currentRunLoop runMode:NSDefaultRunLoopMode
 			       beforeDate:limit];
-		  if (!written_p && (mac_peek_next_event () != NULL ||
-				     detect_input_pending ()))
-		    {
-		      mac_wakeup_lisp();
-		      written_p = true;
-		    }
 		  if ((mac_next_command & MAC_COMMAND_SUSPEND)
 		      && mac_gui_queue.count == 0)
 		    /* Bogus suspend command with no block to process:
@@ -16512,17 +16818,25 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 		      mac_next_command &= ~MAC_COMMAND_PRESENT;
 		      /* If SUSPEND is set, we don't need to present,
 			 since that will be done shortly in
-			 mac_gui_loop_once.  Only present if the request
-			 hasn't already been handled (i.e. ignore a
-			 stale PRESENT). */
+			 mac_gui_loop_once.  Also, we only present if
+			 the request hasn't already been handled
+			 (i.e. ignore a stale PRESENT). */
 		      if (!(mac_next_command & MAC_COMMAND_SUSPEND) &&
 			  MAC_CHECK_PRESENTATION_REQUESTED_AND_SET (NO))
 			{
 			  mac_present_all_ready_frames ();
 			  /* Consume the +1 GCD semaphore signal set by
-			     mac_dispatch_gui_present */
+			     mac_notify_gui_of_presentation_request */
 			  dispatch_semaphore_wait(mac_gui_semaphore, DISPATCH_TIME_NOW);
 			}
+		    }
+
+		  /* Time to wake LISP? */
+		  if (!written_p && (mac_peek_next_event () != NULL ||
+				     detect_input_pending ()))
+		    {
+		      mac_wakeup_lisp();
+		      written_p = true;
 		    }
 		}
 	      while (!mac_next_command);
@@ -16530,7 +16844,7 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 	  if (mac_next_command & MAC_COMMAND_TERMINATE)
 	    break;
 	  else
-	    mac_gui_loop_once ();  /* Process the block */
+	    mac_gui_loop_once ();  /* Process (one) block */
 	}
       if (thread_may_switch_p)
 	mac_set_buffer_and_glyph_matrix_access_restricted (false);

@@ -514,6 +514,29 @@ typedef NSString * NSWindowTabbingIdentifier;
 - (CGContextRef)getBackingBitmap;
 @end
 
+
+/* Class for managing a display link per screen, to coordinate backing
+   display with monitor sync across screens with different (and
+   potentially variable) refresh rates.  Runs on a standalone event loop
+   on a separate thread. */
+
+#ifdef MAC_DISPLAY_LINK
+
+@interface EmacsDisplayLinkPresenter : NSObject
+{
+  NSThread *_thread;
+  NSRunLoop *_runLoop;
+  NSMapTable *displayLinks;  /* NSScreen → CADisplayLink */
+  os_unfair_lock _displayLinksLock; /* To protect the map table */
+}
++ (instancetype)shared;
+- (void)presentAllReadyFrames;  /* called by GUI thread */
+- (void)setPendingContentForScreen:(NSScreen *)screen;
+- (void)removeInvalidDisplayLinks;
+@end
+
+#endif
+
 /* Class for Emacs view that handles drawing events only.  It is used
    directly by tooltip frames, and indirectly by ordinary frames via
    inheritance.  */
