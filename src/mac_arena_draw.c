@@ -1,5 +1,5 @@
 /* mac_arena_draw.c */
-/* Arena-based GCD background drawing for Cocoa on MacOS
+/* Arena-based GCD background drawing for Cocoa on macOS
    Copyright (C) 2026  J.D. Smith
 
 This file is part of GNU Emacs Mac port.
@@ -19,23 +19,26 @@ along with GNU Emacs Mac port.  If not, see <https://www.gnu.org/licenses/>.  */
 
 /* arena-draw
 
-Arena-draw is an allocating, multi-arena drawing system for mac.  Its
-primary function is to permit simplification of the `mac' terminal
-(macterm.[ch]), which have become pure command producers.  All drawing
-now occurs here.
+Arena-draw is an allocating, multi-arena drawing system for emacs-mac.
+Its primary function is to permit simplification of the `mac' terminal
+(macterm.[ch]), which have become pure command producers, and to
+substantially reduce the time the LISP thread needs to spend drawing.
+All drawing now occurs here.
 
 Arenas are filled with commands (see `mac_arena_draw_cmd') and
-associated allocated/retained data (e.g. glyphs, rectangles, colors,
-etc.) necessary for drawing operation.  Arenas full of commands can be
-played back in quick succession on the GCD queue, significantly reducing
-GCD scheduling overhead.
+associated allocated or retained data (e.g. glyphs, rectangles, colors,
+etc.) necessary for drawing operation.  Arenas full of commands can then
+be played back as a single block in quick succession on the GCD queue,
+significantly reducing GCD scheduling overhead (see
+`mac_playback_arena').
 
 The multi-arena design also avoids blocking the LISP thread, which no
 longer must wait for drawing to complete.  Indeed, the LISP thread can
-"work ahead" several frames.  Arena drawing makes it possible to move
-*all* drawing (LISP or GUI-driven) to the background GCD thread.  All
-draw session playback is atomic and cannot be interrupted, eliminating
-flashing and other visual artifacts. */
+"work ahead" by several frames until it runs out of available arenas.
+Arena drawing makes it possible to move *all* drawing (LISP or
+GUI-driven) to the background GCD thread.  All draw session playback is
+atomic and cannot be interrupted, eliminating flashing and other visual
+artifacts. */
 
 #include <config.h>
 #include "lisp.h"
@@ -99,16 +102,12 @@ static void
 mac_arena_release_draw_cmds (mac_arena_block *block)
 {
   mac_arena_draw_cmd *cmds = MAC_ARENA_BLOCK_CMDS (block);
-  size_t count = block->used / sizeof(mac_arena_draw_cmd);
+  size_t cmd_count = block->used / sizeof(mac_arena_draw_cmd);
 
-  for (size_t i = 0; i < count; i++)
-    {
-      for (size_t j = 0; j <= 1; j++)
-	{
-	  if (cmds[i].refs[j])
-	    CFRelease(cmds[i].refs[j]);
-	}
-    }
+  for (size_t i = 0; i < cmd_count; i++)
+    for (size_t j = 0; j <= 1; j++)
+      if (cmds[i].refs[j])
+	CFRelease(cmds[i].refs[j]);
 }
 
 void
@@ -153,8 +152,8 @@ mac_teardown_arena_system (struct frame *f)
 }
 
 /* Allocate arena memory for data or commands.  If TYPE is DATA, SIZE is
- in bytes.  Otherwise it is ignored, and an allocation for a single
- command struct is returned. */
+   in bytes.  Otherwise it is ignored, and an allocation for a single
+   command struct is returned. */
 static void *
 mac_arena_alloc (mac_arena *arena, int type, size_t size) {
   if (!arena)
@@ -306,8 +305,8 @@ mac_record_gc_clip (struct frame *f, GC gc) {
 }
 
 /* Compute the background fill color, respecting alpha and transparency.
-Returns the retained CGColorRef (caller must release). Based on prior
-CG_CONTEXT_FILL_RECT_WITH_GC_BACKGROUND macro. */
+   Returns the retained CGColorRef (caller must release). Based on prior
+   CG_CONTEXT_FILL_RECT_WITH_GC_BACKGROUND macro. */
 CGColorRef
 mac_bg_color_for_gc (struct frame *f, GC gc, bool respect_alpha_background,
 		     bool *clear_p)
@@ -397,6 +396,7 @@ typedef struct mac_arena_state
   CGFontRef current_font;
   CGFloat current_font_size;
 } mac_arena_state;
+
 
 /* Playback an individual drawing command from arena into context,
    tracking and update draw state */
@@ -669,9 +669,9 @@ mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
        block; block = block->next)
     {
       mac_arena_draw_cmd *cmds = MAC_ARENA_BLOCK_CMDS (block);
-      size_t count = block->used / sizeof(mac_arena_draw_cmd);
+      size_t cmd_count = block->used / sizeof(mac_arena_draw_cmd);
 	
-      for (size_t i = 0; i < count; i++)
+      for (size_t i = 0; i < cmd_count; i++)
 	{
 	  mac_arena_draw_cmd *cmd = &cmds[i];
 	  MAC_SIGNPOST_DRAW_CMD_BEGIN (cmd, "");
