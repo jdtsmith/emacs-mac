@@ -7594,47 +7594,47 @@ case "$opsys" in
    ## about 14 to about 34. Setting it high gets us plenty of slop and
    ## only costs about 1.5K of wasted binary space.
    headerpad_extra=1000
+
    if test "$HAVE_MACGUI" = "yes"; then
-     AC_MSG_CHECKING(Mac OS X version max allowed >= 10.11)
-     AC_CACHE_VAL(emacs_cv_mac_os_x_max_allowed_10_11,
-     [AC_LINK_IFELSE([AC_LANG_PROGRAM([[
-#ifdef HAVE_AVAILABILITYMACROS_H
+     # Enforce macOS 10.14 Minimum
+     AC_MSG_CHECKING([macOS deployment target is 10.14 or later])
+     AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #include <AvailabilityMacros.h>
-#endif]],
-[[#if MAC_OS_X_VERSION_MAX_ALLOWED >= 101100 && MAC_OS_X_VERSION_MIN_REQUIRED > 1020
-fail;
+#if !defined(MAC_OS_X_VERSION_MIN_REQUIRED) || MAC_OS_X_VERSION_MIN_REQUIRED < 101400
+# error "Target too old"
 #endif
-]])], emacs_cv_mac_os_x_max_allowed_10_11=no, emacs_cv_mac_os_x_max_allowed_10_11=yes)])
-     libs_metal=
-     if test $emacs_cv_mac_os_x_max_allowed_10_11 = yes; then
-       AC_MSG_RESULT(10.11 or later)
-     else
-       AC_MSG_RESULT(before 10.11)
-     fi
-     AC_MSG_CHECKING(Mac OS X version min required >= 11)
-     AC_CACHE_VAL(emacs_cv_mac_os_x_min_required_11,
-     [AC_LINK_IFELSE([AC_LANG_PROGRAM([[
-#ifdef HAVE_AVAILABILITYMACROS_H
+     ]], [[]])],
+     [AC_MSG_RESULT([yes])],
+     [AC_MSG_ERROR([emacs-mac v31+ requires macOS 10.14 (Mojave) or later.])])
+
+     # Check for macOS 11+ specific features (UniformTypeIdentifiers)
+     AC_MSG_CHECKING(macOS version min required >= 11)
+     AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #include <AvailabilityMacros.h>
-#endif]],
-[[#if MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
-fail;
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 110000
+# error "Before 11"
 #endif
-]])], emacs_cv_mac_os_x_min_required_11=no, emacs_cv_mac_os_x_min_required_11=yes)])
+     ]], [[]])], 
+     [emacs_cv_mac_os_x_min_required_11=yes], 
+     [emacs_cv_mac_os_x_min_required_11=no])
+
      libs_uniform_type_identifiers=
      if test $emacs_cv_mac_os_x_min_required_11 = yes; then
-       AC_MSG_RESULT(11 or later)
+       AC_MSG_RESULT(yes)
        AC_DEFINE(HAVE_UNIFORM_TYPE_IDENTIFIERS, 1,
-		 [Define to 1 if using UniformTypeIdentifiers framework.])
+                 [Define to 1 if using UniformTypeIdentifiers framework.])
        libs_uniform_type_identifiers="-framework UniformTypeIdentifiers"
      else
-       AC_MSG_RESULT(before 11)
+       AC_MSG_RESULT(no)
      fi
-     libs_macgui="-framework Carbon -framework WebKit -framework Quartz -framework QuartzCore -framework IOKit -framework OSAKit -framework Accelerate -framework IOSurface $libs_metal $libs_uniform_type_identifiers -framework Cocoa"
+
+     # Finalize Frameworks
+     libs_macgui="-framework Carbon -framework Cocoa -framework QuartzCore -framework IOSurface -framework WebKit -framework Quartz -framework IOKit -framework OSAKit -framework Accelerate $libs_uniform_type_identifiers"
      headerpad_extra=BD0
    else
      libs_macgui=$libs_nsgui
    fi
+
    LD_SWITCH_SYSTEM_TEMACS=$libs_macgui
    if test "$with_unexec" = yes; then
      LD_SWITCH_SYSTEM_TEMACS="-fno-pie $LD_SWITCH_SYSTEM_TEMACS -Xlinker -headerpad -Xlinker $headerpad_extra"
@@ -7901,6 +7901,7 @@ AS_ECHO(["  Does Emacs use -lXaw3d?                                 ${HAVE_XAW3D
   Does Emacs use -llcms2?                                 ${HAVE_LCMS2}
   Does Emacs use imagemagick?                             ${HAVE_IMAGEMAGICK}
   Does Emacs use native APIs for images?                  ${NATIVE_IMAGE_API}
+  Does Emacs use ARC for Mac GUI?                         ${with_mac_objc_arc}
   Does Emacs support sound?                               ${HAVE_SOUND}
   Does Emacs use -lgpm?                                   ${HAVE_GPM}
   Does Emacs use -ldbus?                                  ${HAVE_DBUS}
