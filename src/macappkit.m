@@ -3510,10 +3510,10 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 	 implemented by generating fake release and press events.
 	 This seems to be too intrusive for "window snapping"
 	 introduced in macOS 10.12, so we suppress it when pixelwise
-	 frame resizing is in effect.  */
-      && (floor (NSAppKitVersionNumber) <= NSAppKitVersionNumber10_11
-	  || (FRAME_SIZE_HINTS (emacsFrame)->width_inc != 1
-	      && FRAME_SIZE_HINTS (emacsFrame)->height_inc != 1))
+	 frame resizing is in effect.  NOTE: not necessary in v14+ */
+      // && (floor (NSAppKitVersionNumber) <= NSAppKitVersionNumber10_11
+      // 	  || (FRAME_SIZE_HINTS (emacsFrame)->width_inc != 1
+      // 	      && FRAME_SIZE_HINTS (emacsFrame)->height_inc != 1))
       && (!([currentEvent modifierFlags]
 	    & (NSEventModifierFlagShift | NSEventModifierFlagOption))))
     {
