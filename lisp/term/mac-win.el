@@ -2824,6 +2824,15 @@ See also `mac-frame-tabbing'."
    frame :tab-bar-visible-p
    (not (mac-frame-tab-group-property frame :tab-bar-visible-p))))
 
+(defun mac-new-tab (arg)
+  "Create a new tab on the frame.
+With a prefix argument ARG, find a file to display on another frame."
+  (interactive "p")
+  (let ((mac-frame-tabbing t))
+    (if (not (eq arg 4))
+	(make-frame)
+      (call-interactively #'find-file-other-frame))))
+
 (defun mac-next-tab (arg)
   "Select the ARGth next tab on the current tab group."
   (interactive "p")
