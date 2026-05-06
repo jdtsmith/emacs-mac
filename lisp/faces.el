@@ -2914,6 +2914,13 @@ used to display the prompt text."
 (setq minibuffer-prompt-properties
       (append minibuffer-prompt-properties (list 'face 'minibuffer-prompt)))
 
+(defface margin
+  '((t :inherit default))
+  "Basic face for window margins (both left and right).
+This face is used to customize the appearance of the margin areas."
+  :version "31.1"
+  :group 'basic-faces)
+
 (defface fringe
   '((((class color) (background light))
      :background "grey95")
@@ -3006,7 +3013,22 @@ Note: Other faces cannot inherit from the cursor face."
      :background "grey")
     (t
      :inverse-video t))
-  "Tab line face."
+  "Basic tab line face.
+See `tab-line-active' and `tab-line-inactive' for the faces
+used on tab lines."
+  :version "31.1"
+  :group 'basic-faces)
+
+(defface tab-line-active
+  '((t :inherit tab-line))
+  "Face for the selected tab line.
+This inherits from the `tab-line' face."
+  :version "31.1"
+  :group 'basic-faces)
+
+(defface tab-line-inactive
+  '((t :inherit tab-line))
+  "Basic tab line face for non-selected windows."
   :version "31.1"
   :group 'basic-faces)
 

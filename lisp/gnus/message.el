@@ -5054,13 +5054,19 @@ that instead."
                (smtpmail-smtp-server (nth 1 method))
                (service (nth 2 method))
                (port (string-to-number service))
-               ;; If we're talking to the TLS SMTP port, then force a
-               ;; TLS connection.
-               (smtpmail-stream-type (if (= port 465)
-                                         'tls
-                                       smtpmail-stream-type))
                (smtpmail-smtp-service (if (> port 0) port service))
-               (smtpmail-smtp-user (or (nth 3 method) smtpmail-smtp-user)))
+               (smtpmail-smtp-user (or (nth 3 method) smtpmail-smtp-user))
+               (stream-type (nth 4 method))
+               (smtpmail-stream-type
+                (cond ((member stream-type '("nil" "starttls" "plain" "tls"))
+                       (intern stream-type))
+                      (stream-type
+                       (user-error "Invalid stream type: %s" stream-type))
+                      ;; If the user didn't say anything and we're
+                      ;; talking to the TLS SMTP port, then force a TLS
+                      ;; connection.
+                      ((= port 465) 'tls)
+                      (t smtpmail-stream-type))))
           (message-smtpmail-send-it)))
        (send-function
         (funcall send-function))

@@ -59,12 +59,13 @@ static WORD w32_face_attributes (struct frame *f, int face_id);
 static int  w32con_write_vt_seq (const char *);
 static void turn_on_face (struct frame *, int face_id);
 static void turn_off_face (struct frame *, int face_id);
-static COORD w32con_get_cursor_coords ();
+static COORD w32con_get_cursor_coords (void);
 
 static COORD	cursor_coords;
 static HANDLE	prev_screen, cur_screen;
 static WORD	char_attr_normal;
 static DWORD	prev_console_mode;
+static DWORD	prev_output_mode;
 static int      bg_normal;
 static int      fg_normal;
 
@@ -121,7 +122,7 @@ w32con_write_vt_seq (const char *seq)
 }
 
 static COORD
-w32con_get_cursor_coords ()
+w32con_get_cursor_coords (void)
 {
   CONSOLE_SCREEN_BUFFER_INFO info;
   GetConsoleScreenBufferInfo (GetStdHandle (STD_OUTPUT_HANDLE), &info);
@@ -155,6 +156,32 @@ w32con_show_cursor (void)
   console_cursor_info.bVisible = TRUE;
   SetConsoleCursorInfo (cur_screen, &console_cursor_info);
 }
+
+static void
+w32con_set_cursor_size (EMACS_INT esize)
+{
+
+  if (w32_use_virtual_terminal && !w32__terminal_is_conhost)
+    {
+      /* The Virtual Terminal Sequences don't support arbitrary sizes of
+         the block and underline cursor, so we can only provide 2
+         extreme shapes.  */
+      if (esize < 50)
+	w32con_write_vt_seq ("\x1b[3 q");
+      else
+	w32con_write_vt_seq ("\x1b[1 q");
+    }
+  else
+    {
+      /* Use legacy APIs, which on Windows Terminal don't change the
+         cursor shape.  */
+      CONSOLE_CURSOR_INFO cci;
+      cci.dwSize = esize;
+      cci.bVisible = TRUE;
+      (void) SetConsoleCursorInfo (cur_screen, &cci);
+    }
+}
+
 
 /* Clear from cursor to end of screen.  */
 static void
@@ -656,6 +683,8 @@ w32con_reset_terminal_modes (struct terminal *t)
   SetConsoleActiveScreenBuffer (prev_screen);
 #else
   SetConsoleCursorInfo (prev_screen, &prev_console_cursor);
+  if (w32_use_virtual_terminal)
+    w32con_set_cursor_size (prev_console_cursor.dwSize);
 #endif
 
   SetConsoleMode (keyboard_handle, prev_console_mode);
@@ -664,12 +693,8 @@ w32con_reset_terminal_modes (struct terminal *t)
 static void
 w32con_set_terminal_modes (struct terminal *t)
 {
-  CONSOLE_CURSOR_INFO cci;
-
-  /* make cursor big and visible (100 on Windows 95 makes it disappear)  */
-  cci.dwSize = 99;
-  cci.bVisible = TRUE;
-  (void) SetConsoleCursorInfo (cur_screen, &cci);
+  /* Make cursor big and visible (100 on Windows 95 makes it disappear).  */
+  w32con_set_cursor_size (99);
 
   SetConsoleActiveScreenBuffer (cur_screen);
 
@@ -1005,6 +1030,13 @@ initialize_w32_display (struct terminal *term, int *width, int *height)
   GetConsoleCursorInfo (prev_screen, &prev_console_cursor);
 #endif
 
+  /* Record whether we are on ConHost or Windows Terminal.  */
+  const DWORD virt_mode_flags
+    = (ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+  GetConsoleMode (cur_screen, &prev_output_mode);
+  w32__terminal_is_conhost =
+    (prev_output_mode & virt_mode_flags) != virt_mode_flags;
+
   /* Respect setting of LINES and COLUMNS environment variables.  */
   {
     char * lines = getenv ("LINES");
@@ -1184,10 +1216,7 @@ DEFUN ("set-cursor-size", Fset_cursor_size, Sset_cursor_size, 1, 1, 0,
        doc: /* Set cursor size.  */)
   (Lisp_Object size)
 {
-  CONSOLE_CURSOR_INFO cci;
-  cci.dwSize = XFIXNAT (size);
-  cci.bVisible = TRUE;
-  (void) SetConsoleCursorInfo (cur_screen, &cci);
+  w32con_set_cursor_size (XFIXNAT (size));
 
   return Qt;
 }
@@ -1203,6 +1232,12 @@ A value of nil means use the current console window dimensions; this
 may be preferable when working directly at the console with a large
 scroll-back buffer.  */);
   w32_use_full_screen_buffer = 0;
+
+  DEFVAR_BOOL ("w32--terminal-is-conhost",
+	       w32__terminal_is_conhost,
+	       doc: /* Non-nil means Emacs text-mode terminal is MS-Windows ConHost.
+If nil, Emacs is displaying text-mode frames on the Windows Terminal.  */);
+  w32__terminal_is_conhost = 0;
 
   defsubr (&Sset_screen_color);
   defsubr (&Sget_screen_color);

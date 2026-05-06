@@ -524,6 +524,89 @@ BODY is the test body."
 
 ;;; Query
 
+(ert-deftest treesit-range-helper ()
+  "Test range helpers."
+  ;; Simple.
+  (should (equal (treesit--range-start '(1 . 2)) 1))
+  (should (equal (treesit--range-end '(1 . 2)) 2))
+  ;; Empty.
+  (should (equal (treesit--range-start '()) nil))
+  (should (equal (treesit--range-end '()) nil))
+  ;; List.
+  (should (equal (treesit--range-start '((1 . 2) (3 . 4))) 1))
+  (should (equal (treesit--range-end '((1 . 2) (3 . 4))) 4))
+  ;; The complicated range is...
+  ;; ...in the middle.
+  (should (equal (treesit--flatten-ranges (list (cons 1 2)
+                                                (cons 3 4)
+                                                (list (cons 5 6)
+                                                      (cons 7 8))
+                                                (cons 9 10)))
+
+                 '((1 . 2) (3 . 4) (5 . 6) (7 . 8) (9 . 10))))
+  ;; ... the second.
+  (should (equal (treesit--flatten-ranges (list (cons 1 2)
+                                                (list (cons 5 6)
+                                                      (cons 7 8))
+                                                (cons 3 4)
+                                                (cons 9 10)))
+
+                 '((1 . 2) (5 . 6) (7 . 8) (3 . 4) (9 . 10))))
+  ;; ...last.
+  (should (equal (treesit--flatten-ranges (list (cons 1 2)
+                                                (cons 3 4)
+                                                (cons 9 10)
+                                                (list (cons 5 6)
+                                                      (cons 7 8))))
+                 '((1 . 2) (3 . 4) (9 . 10) (5 . 6) (7 . 8))))
+  ;; ...first.
+  (should (equal (treesit--flatten-ranges (list (list (cons 5 6)
+                                                      (cons 7 8))
+                                                (cons 1 2)
+                                                (cons 3 4)
+                                                (cons 9 10)))
+
+                 '((5 . 6) (7 . 8) (1 . 2) (3 . 4) (9 . 10))))
+  ;; ...doubled.
+  (should (equal (treesit--flatten-ranges (list (list (cons 5 6)
+                                                      (cons 7 8))
+                                                (list (cons 5 6)
+                                                      (cons 7 8))
+                                                (cons 1 2)
+                                                (cons 3 4)
+                                                (cons 9 10)))
+                 '((5 . 6) (7 . 8) (5 . 6) (7 . 8) (1 . 2) (3 . 4) (9 . 10))))
+  ;; ...has one element.
+  (should (equal (treesit--flatten-ranges (list (cons 1 2)
+                                                (cons 3 4)
+                                                (cons 9 10)
+                                                (list (cons 5 6))))
+                 '((1 . 2) (3 . 4) (9 . 10) (5 . 6)))))
+
+(ert-deftest treesit-intersect-ranges ()
+  "Test `treesit--intersect-ranges'."
+  ;; Empty.
+  (should (equal (treesit--intersect-ranges '() '()) '()))
+  (should (equal (treesit--intersect-ranges '((1 . 5)) '()) '()))
+  ;; No overlap.
+  (should (equal (treesit--intersect-ranges '((1 . 3)) '((5 . 7))) '()))
+  ;; Adjacent (touching at boundary, no overlap).
+  (should (equal (treesit--intersect-ranges '((1 . 5)) '((5 . 10))) '()))
+  ;; Partial overlap.
+  (should (equal (treesit--intersect-ranges '((1 . 5)) '((3 . 7)))
+                 '((3 . 5))))
+  ;; One inside another.
+  (should (equal (treesit--intersect-ranges '((1 . 10)) '((3 . 5)))
+                 '((3 . 5))))
+  ;; Multiple ranges, multiple intersections.
+  (should (equal (treesit--intersect-ranges '((1 . 5) (10 . 15))
+                                            '((3 . 12)))
+                 '((3 . 5) (10 . 12))))
+  ;; One range spanning multiple.
+  (should (equal (treesit--intersect-ranges '((2 . 5) (7 . 10) (15 . 18))
+                                            '((1 . 20)))
+                 '((2 . 5) (7 . 10) (15 . 18)))))
+
 (defun treesit--ert-pred-last-sibling (node)
   (null (treesit-node-next-sibling node t)))
 
@@ -619,6 +702,22 @@ BODY is the test body."
       (should (consp (nth 0 res)))
       ;; First element of the match group should be a node.
       (should (treesit-node-p (nth 0 (nth 0 res)))))))
+
+(ert-deftest treesit-query-marker-position ()
+  "Tests for query API."
+  (skip-unless (treesit-language-available-p 'json))
+  (with-temp-buffer
+    (insert "[1,2,{\"name\": \"Bob\"},3]")
+    (treesit-parser-create 'json)
+
+    ;; Test marker.
+    (let* ((beg (point-min-marker))
+           (end (point-max-marker))
+           (res (treesit-query-capture 'json '((number) @num) beg end)))
+      (should (equal (length res) 3)))
+
+    ;; Test out-of-range.
+    (should-error (treesit-query-capture 'json '((number) @num) -1 1))))
 
 ;;; Narrow
 

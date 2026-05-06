@@ -1152,7 +1152,7 @@ xg_set_icon_from_xpm_data (struct frame *f, const char **data)
      Pacify GCC for now.  */
 #if (defined GDK_PIXBUF_VERSION_2_44 \
      && GDK_PIXBUF_VERSION_2_44 <= GDK_PIXBUF_VERSION_MIN_REQUIRED \
-     && GNUC_PREREQ (4, 6, 0))
+     && (GNUC_PREREQ (4, 6, 0) || defined __clang__))
 # pragma GCC diagnostic push
 # pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
@@ -1161,7 +1161,7 @@ xg_set_icon_from_xpm_data (struct frame *f, const char **data)
 
 #if (defined GDK_PIXBUF_VERSION_2_44 \
      && GDK_PIXBUF_VERSION_2_44 <= GDK_PIXBUF_VERSION_MIN_REQUIRED \
-     && GNUC_PREREQ (4, 6, 0))
+     && (GNUC_PREREQ (4, 6, 0) || defined __clang__))
 # pragma GCC diagnostic pop
 #endif
 
@@ -4483,7 +4483,7 @@ x_window (struct frame *f)
 
   attributes.background_pixel = FRAME_BACKGROUND_PIXEL (f);
   attributes.border_pixel = f->output_data.x->border_pixel;
-  attributes.bit_gravity = NorthWestGravity;
+  attributes.bit_gravity = StaticGravity;
   attributes.backing_store = NotUseful;
   attributes.save_under = True;
   attributes.event_mask = STANDARD_EVENT_SET;
@@ -10058,7 +10058,7 @@ DEFUN ("x-gtk-debug", Fx_gtk_debug, Sx_gtk_debug, 1, 1, 0,
 #endif /* HAVE_GTK3 */
 #endif	/* USE_GTK */
 
-DEFUN ("x-display-set-last-user-time", Fx_display_last_user_time,
+DEFUN ("x-display-set-last-user-time", Fx_display_set_last_user_time,
        Sx_display_set_last_user_time, 1, 2, 0,
        doc: /* Set the last user time of TERMINAL to TIME-OBJECT.
 TIME-OBJECT is the X server time, in milliseconds, of the last user
@@ -10483,10 +10483,6 @@ default and usually works with most desktops.  Some desktop environments
 (GNOME shell in particular when using the mutter window manager),
 however, may refuse to resize a child frame when Emacs is built with
 GTK3.  For those environments, the two settings below are provided.
-
-If this equals the symbol `hide', Emacs temporarily hides the child
-frame during resizing.  This approach seems to work reliably, may
-however induce some flicker when the frame is made visible again.
 
 If this equals the symbol `resize-mode', Emacs uses GTK's resize mode to
 always trigger an immediate resize of the child frame.  This method is

@@ -25,6 +25,14 @@ applies, and please also update docstrings as needed.
 * Installation Changes in Emacs 31.1
 
 +++
+** New face 'margin' for the window margin background.
+A new basic face 'margin' is used by default for text displayed in the
+left and right margin areas, i.e., the areas reserved by packages such as
+git-gutter, lsp-mode, and hl-diff for per-line annotations.  Its
+background defaults to the frame default, so existing behavior is
+unchanged for users who do not customize it.
+
++++
 ** Unexec dumper removed.
 The traditional unexec dumper, deprecated since Emacs 27, has been
 removed.
@@ -604,6 +612,10 @@ This is useful when you define custom tab parameters that may need
 adjustment when a tab is restored, and avoids advice.
 
 ---
+*** Tabs are closed now on releasing the middle mouse button.
+Previously, closing the tab-bar's tabs was on pressing the button.
+
+---
 *** New user option 'tab-bar-define-keys'.
 This controls which key bindings tab-bar creates.  Values are t, the
 default, which defines all keys and is backwards compatible, 'numeric'
@@ -657,6 +669,12 @@ will change its appearance if the tab buffer has been modified.
 *** New user option 'tab-line-tabs-window-buffers-filter-function'.
 This user option controls which buffers should appear in the tab line.
 By default, this is set to not filter the buffers.
+
++++
+*** New faces 'tab-line-active' and 'tab-line-inactive'.
+These inherit from the 'tab-line' face, but the faces actually used
+on the tab lines are now these two: the selected window uses
+'tab-line-active', non-selected windows use 'tab-line-inactive'.
 
 ** Help
 
@@ -747,9 +765,16 @@ as in 'emacsclient --eval "(length (pop server-eval-args-left))" ""'.
 These are no longer discarded.
 
 +++
+** Emacs now uses the 'setrgbf' and 'setrgbb' terminfo capabilities.
+Emacs now uses 24-bit colors on terminals that support the 'setrgbf' and
+'setrgbb' user-defined terminfo capabilities.  These are supported by
+more terminals and applications than the old capabilities, 'setf24' and
+'setb24', which are now obsolete.
+
++++
 ** New user option 'xterm-update-cursor' to update cursor display on TTYs.
 When enabled, Emacs sends Xterm escape sequences on Xterm-compatible
-terminals to update the cursor's appearacse.  Emacs can update the
+terminals to update the cursor's appearance.  Emacs can update the
 cursor's shape and color.  For example, if you use a purple bar cursor
 on graphical displays then when this option is enabled Emacs will use a
 purple bar cursor on compatible terminals as well.  See the Info node
@@ -769,6 +794,14 @@ docstring for the new option.
 
 ** Emacs now comes with Org v9.8.
 See the file "etc/ORG-NEWS" for user-visible changes in Org.
+
++++
+** New user option 'compilation-search-extra-path'
+compile.el will now use paths specified in both
+'compilation-search-extra-path' and 'compilation-search-path', when
+doing search.  'compilation-search-extra-path' is consulted first.
+One possible use case of this option is to customize add new search
+paths on a per-project basis with directory-local variables.
 
 
 * Editing Changes in Emacs 31.1
@@ -808,6 +841,12 @@ writing in the orthographies of the six languages simultaneously.
 ---
 *** New input methods for languages based on Burmese.
 These include: Burmese, Burmese (visual order), Shan, and Mon.
+
+---
+*** New language environment and input methods for Syriac languages.
+A new language environment for languages that use the Syriac script:
+Classical Syriac, Aramaic, and others.  Two new input methods for these
+languages: Syriac and Syriac (phonetic).
 
 ---
 ** 'visual-wrap-prefix-mode' now supports variable-pitch fonts.
@@ -945,11 +984,10 @@ It is equivalent to running 'project-any-command' with
 The prompt now displays the chosen project on which to invoke a command.
 
 ---
-*** 'project-prompter' values may be called with up to four arguments.
+*** 'project-prompter' values may be called with up to three arguments.
 These allow callers of the value of 'project-prompter' to specify a
 prompt string; prompt the user to choose between a subset of all the
-known projects; disallow returning arbitrary directories; and allow
-returning an empty string.
+known projects; and disallow returning arbitrary directories.
 See the docstring of 'project-prompter' for a full specification of
 these new optional arguments.
 
@@ -1265,6 +1303,17 @@ Multi-language major modes can rely on the default return value from
 'treesit-language-at' that uses the new function 'treesit-parsers-at'.
 
 +++
+*** New function 'treesit-query-with-optional'.
+When used in 'treesit-font-lock-rules', 'treesit-query-with-optional'
+returns a default query plus the valid queries from a list of optional
+queries.
+
++++
+*** New function 'treesit-query-with-fallback'.
+When used in 'treesit-font-lock-rules', 'treesit-query-with-fallback'
+selects the first valid query from a list.
+
++++
 *** Tree-sitter thing functions now work better with multiple parsers.
 The following functions now handle better the case when there are
 multiple parsers at point: 'treesit-thing-prev', 'treesit-thing-next',
@@ -1359,7 +1408,7 @@ set to 'margin' or nil.
 hide the innermost block to which the current line belongs instead of
 the block after cursor position.
 
-To restore the old behavior set the new user option
+To restore the old behavior, set the new user option
 'hs-hide-block-behavior' to 'after-cursor'.
 
 +++
@@ -1766,7 +1815,7 @@ used to customize the appearance.
 ---
 *** New user option 'whitespace-global-mode-buffers'.
 Normally, 'global-whitespace-mode' skips special buffers whose name
-starts with an asterisk '*'.  This user option provides an override: it
+starts with an asterisk "*".  This user option provides an override: it
 contains a list of regular expressions used to match the names of
 special buffers in which 'global-whitespace-mode' should turn on.  The
 default value preserves the existing exception for the "*scratch*"
@@ -2530,7 +2579,8 @@ names relative to the root directory of the current project.
 
 +++
 *** Warning when Dired displays a file name with a literal newline.
-On visiting a directory that contains a file whose name has a newline,
+If Dired uses an 'ls' implementation that supports the '-b' switch, then
+on visiting a directory that contains a file whose name has a newline,
 and Dired displays that character as a literal newline, Emacs now
 automatically pops up a buffer warning that such a display can be
 problematic for Dired and showing a way to change the display to use the
@@ -2538,7 +2588,8 @@ unproblematic character '\n'.
 
 +++
 *** New user option 'dired-auto-toggle-b-switch'.
-When this user option is non-nil and 'dired-listing-switches' does not
+When this user option is non-nil and Dired uses an 'ls' implementation
+that supports the '-b' switch and 'dired-listing-switches' does not
 include the '-b' switch, then on visiting a directory containing a file
 whose name has a newline, Emacs automatically adds the '-b' switch and
 redisplays the directory in Dired to show '\n' in the file name instead
@@ -2758,6 +2809,12 @@ To undo this change you can use
 This command prints the log of VC changes to the current fileset on
 another branch.
 
+---
+*** VC Annotate for Mercurial repositories shows changeset hashes.
+To restore showing revision numbers instead of changeset hashes,
+customize the new option vc-hg-annotate-show-revision-numbers to
+non-nil.
+
 +++
 *** New commands to handle repositories with multiple working trees.
 Some VCS support more than one working tree with the same backing
@@ -2948,15 +3005,28 @@ include were committed and will be pushed.
 current VC fileset.
 
 +++
-*** New commands to report information about outstanding changes.
-'C-x v T =' ('vc-diff-outstanding') and 'C-x v T D'
-('vc-root-diff-outstanding') report diffs of changes since the merge
+*** New commands to report information about unintegrated changes.
+'C-x v T =' ('vc-diff-unintegrated') and 'C-x v T D'
+('vc-root-diff-unintegrated') report diffs of changes since the merge
 base with the remote branch, including uncommitted changes.
-'C-x v T l' ('vc-log-outstanding') and 'C-x v T L'
-('vc-root-log-outstanding') show the corresponding revision logs.
+'C-x v T l' ('vc-log-unintegrated') and 'C-x v T L'
+('vc-root-log-unintegrated') show the corresponding revision logs.
 These are useful to view all outstanding (unmerged, unpushed) changes on
 the current branch.  They are also available as 'T =', 'T D', 'T l' and
 'T L' in VC Directory buffers.
+
+'C-x v T R =' ('vc-diff-remote-unintegrated'), 'C-x v T R D'
+('vc-root-diff-remote-unintegrated'), 'C-x v T R l'
+('vc-log-remote-unintegrated') and 'C-x v T R L'
+('vc-root-log-remote-unintegrated') are corresponding commands which
+report information about the remote versions of a topic branch.
+
++++
+*** New commands to report combined diffs of all local changes.
+'C-x v E =' ('vc-diff-outgoing-and-edited') and 'C-x v E D'
+('vc-root-diff-outgoing-and-edited') report combined diffs of all
+outgoing changes plus any uncommitted changes.  They are useful to show
+all work that's present only locally.
 
 +++
 *** New user option 'vc-use-incoming-outgoing-prefixes'.
@@ -3224,7 +3294,7 @@ minor mode 'global-xref-mouse-mode' will enable this in all buffers.
 
 +++
 *** New command 'xref-change-to-xref-edit-mode'.
-It's bound to "e" and it switches an Xref buffer into an "editable" mode
+It is bound to 'e' and it switches an Xref buffer into an "editable" mode
 like similar features in Occur and Grep buffers.
 
 ** Revert
@@ -3555,11 +3625,15 @@ provide more accurate warnings from byte compilation.
 The new optional argument READONLY to 'sqlite-open' function allows to
 open an existing database only for reading.
 
++++
 *** 'sqlite-open' now recognizes 'file://' URIs as well as file names.
 The 'file://' URIs are supported by default.  In the unusual case that a
 normal file name starts with "file:", you can disable the URI
 recognition by invoking 'sqlite-open' with the new optional argument
 DISABLE-URI non-nil.
+
++++
+*** 'sqlite-close' now does nothing if the connection is already closed.
 
 ** GUD
 
@@ -3898,7 +3972,7 @@ all versions, sleep events require Windows 8 or later).
 
 +++
 ** 'makunbound' on a variable alias undoes the alias.
-Previously it had the effect of applying the 'makunbound' on the
+Previously, it had the effect of applying the 'makunbound' on the
 target of the alias (which can fail on some builtin variables).
 
 ---
@@ -4174,14 +4248,14 @@ change it globally with:
 
 ---
 ** New function 'set-local'.
-This is the buffer local equivalent of the function 'set'.
+This is the buffer-local equivalent of the function 'set'.
 
 +++
 ** New macro 'setopt-local'.
-This is the buffer local version of 'setopt' for user options rather
+This is the buffer-local version of 'setopt' for user options rather
 than plain variables and uses 'custom-set'/'set-local' to set variable
 values.  A new argument, BUFFER-LOCAL, is passed to 'custom-set'
-functions to indicate the buffer local context.
+functions to indicate the buffer-local context.
 
 +++
 ** New macros 'incf' and 'decf'.
@@ -4234,6 +4308,19 @@ The following macros, previously only available in the experimental
 - 'ert-with-buffer-renamed'
 
 See "(ert) Helper Functions" node in the ERT manual for more information.
+
++++
+*** New function 'ert-play-keys'.
+Previously, 'ert-simulate-keys' could be used for sending keys to input
+functions such as 'read-from-minibuffer', but not for other interactive
+input such as starting key-mapped commands.
+
++++
+*** Show executed tests from erts files via the ERT results buffer.
+For tests that call 'ert-test-erts-file', the ERT results buffer now
+allows you to list the tests defined in the referenced erts files that
+have been executed by the test at point.  See "(ert) Running Tests
+Interactively" for more information.
 
 ** Time & Date
 
@@ -4514,15 +4601,37 @@ is a proper list, in which case the list will be returned as is,
 otherwise the function will return the object wrapped in a
 singleton list.
 
+---
+** In batch mode, 'C-c' (i.e. SIGINT) can either 'quit' or kill Emacs.
+By default it kills Emacs, as before, but 'kill-emacs-on-sigint'
+can be set to nil to change that.
+The response to SIGINT in interactive sessions is unaffected,
+e.g. in a normal GUI session it still kills Emacs whereas in a terminal
+it causes 'quit' since it is used for 'C-g'.
+
++++
+** New ':interactive-only' way to add an advice.
+While it is marginally more efficient than ':after' or ':before',
+the main purpose is to make the intention more obvious when the advice
+modifies only the interactive form and not the actual behavior
+of the function.
 
 * Changes in Emacs 31.1 on Non-Free Operating Systems
 
 ---
 ** Support macOS Accessibility Zoom focus tracking.
 This is an important change for visually-impaired users.  If macOS
-Accessibility Zoom is enabled (System Settings, Accessibility, Zoom)
-with keyboard focus tracking (Advanced...), Zoom is informed of updated
-cursor positions during each redisplay cycle.
+Accessibility Zoom is enabled via (System Settings, Accessibility,
+Zoom...) with keyboard focus tracking (Advanced...), Zoom is informed
+of updated cursor positions during each redisplay cycle.
+
+---
+** New macOS function 'ns-process-is-accessibility-trusted'.
+This function returns t if the macOS Accessibility Framework trusts
+Emacs.  This is a necessary condition for Accessibility Zoom and other
+accessibility features.  Enable Emacs via (System Settings, Privacy &
+Security, Accessibility...) and add the Emacs.app installed directory to
+the enabled application list.
 
 ---
 ** Process execution has been optimized on Android.
@@ -4593,9 +4702,7 @@ color Emoji font installed on your system for the 'emoji' script.
 +++
 ** Emacs on MS-Windows now supports 'yank-media'.
 This command inserts clipboard data of different formats into the
-current buffer, if the major mode supports it.  (Support for
-'yank-media' will be unavailable on MS-Windows if Emacs was configured
-'--without-native-image-api'.)
+current buffer, if the major mode supports it.
 
 ---
 ** Emacs on MS-Windows now supports up to 1024 sub-processes.
@@ -4635,12 +4742,13 @@ Binutils 2.26.
 Previously, terminal sessions on Windows supported display of 16 colors.
 There is now support for 8-bit (256 color) and 24-bit RGB (true color).
 The new mechanism will be enabled automatically when supported.
-It defaults to 24-bit RGB color, but can be set to 8, 16, '8bit, or '24bit
-by passing the '--color' flag or setting the 'tty-color-mode' frame parameter.
-Use of the new mechanism is controlled by an internal variable that can be
-set and inspected via the functions 'w32-use-virtual-terminal' and
-'w32-use-virtual-terminal-p' (respectively).  See the manual entry specific
-to MS-Windows for more details.
+It defaults to 24-bit RGB color, but can be set to 8, 16, '8bit', or
+'24bit' by passing the '--color' flag or setting the 'tty-color-mode'
+frame parameter.  Use of the new mechanism is controlled by an internal
+variable that can be set and inspected via the functions
+'w32-use-virtual-terminal' and 'w32-use-virtual-terminal-p'
+(respectively).  See the manual entry "(emacs) Windows Misc" for more
+details.
 
 
 ----------------------------------------------------------------------

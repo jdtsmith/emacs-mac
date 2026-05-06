@@ -1343,7 +1343,7 @@ window_box_height (struct window *w)
 	  if (tl_row && tl_row->mode_line_p)
 	    height -= tl_row->height;
 	  else
-	    height -= estimate_mode_line_height (f, TAB_LINE_FACE_ID);
+	    height -= estimate_mode_line_height (f, CURRENT_TAB_LINE_ACTIVE_FACE_ID (w));
 	}
     }
 
@@ -1743,7 +1743,7 @@ pos_visible_p (struct window *w, ptrdiff_t charpos, int *x, int *y,
 	= window_parameter (w, Qtab_line_format);
 
       w->tab_line_height
-	= display_mode_line (w, TAB_LINE_FACE_ID,
+	= display_mode_line (w, CURRENT_TAB_LINE_ACTIVE_FACE_ID (w),
 			     NILP (window_tab_line_format)
 			     ? BVAR (current_buffer, tab_line_format)
 			     : window_tab_line_format);
@@ -3288,7 +3288,8 @@ init_iterator (struct it *it, struct window *w,
       if (base_face_id == MODE_LINE_ACTIVE_FACE_ID
 	  || base_face_id == MODE_LINE_INACTIVE_FACE_ID)
 	row = MATRIX_MODE_LINE_ROW (w->desired_matrix);
-      else if (base_face_id == TAB_LINE_FACE_ID)
+      else if (base_face_id == TAB_LINE_ACTIVE_FACE_ID
+	       || base_face_id == TAB_LINE_INACTIVE_FACE_ID)
 	row = MATRIX_TAB_LINE_ROW (w->desired_matrix);
       else if (base_face_id == HEADER_LINE_ACTIVE_FACE_ID
 	       || base_face_id == HEADER_LINE_INACTIVE_FACE_ID)
@@ -4875,6 +4876,17 @@ face_at_pos (const struct it *it, enum lface_attribute_index attr_filter)
 	       : DEFAULT_FACE_ID)
 	    : underlying_face_id (it);
 	}
+
+      /* For strings displayed in a margin area via a 'display' property,
+         use the realized 'margin' face as the base so that unspecified
+         attributes (notably background) are inherited from 'margin'
+         rather than from 'default' or the buffer face at point.  This
+         allows packages to specify only a foreground color for a margin
+         annotation and have the margin background fill in automatically.  */
+      if (it->string_from_display_prop_p
+	  && it->area != TEXT_AREA
+	  && it->w)
+	base_face_id = lookup_basic_face (it->w, it->f, MARGIN_FACE_ID);
 
       return face_at_string_position (it->w,
                                       it->string,
@@ -11978,7 +11990,7 @@ window_text_pixel_size (Lisp_Object window, Lisp_Object from, Lisp_Object to,
       Lisp_Object window_tab_line_format
 	= window_parameter (w, Qtab_line_format);
 
-      y = y + display_mode_line (w, TAB_LINE_FACE_ID,
+      y = y + display_mode_line (w, CURRENT_TAB_LINE_ACTIVE_FACE_ID (w),
 				 NILP (window_tab_line_format)
 				 ? BVAR (current_buffer, tab_line_format)
 				 : window_tab_line_format);
@@ -24316,13 +24328,14 @@ append_space_for_newline (struct it *it, bool default_face_p)
   return false;
 }
 
-
-/* Extend the face of the last glyph in the text area of IT->glyph_row
-   to the end of the display line.  Called from display_line.  If the
-   glyph row is empty, add a space glyph to it so that we know the
-   face to draw.  Set the glyph row flag fill_line_p.  If the glyph
-   row is R2L, prepend a stretch glyph to cover the empty space to the
-   left of the leftmost glyph.  */
+ /* Extend the face of the last glyph in the text area of IT->glyph_row
+    to the end of the display line.  Also fill the window margins with
+    the 'margin' face.  If the text area is empty, a space glyph is
+    added to it to carry the face used for clearing the line.  In the
+    margin areas, empty cells are explicitly filled with space glyphs
+    (TTY) or a single stretch glyph (GUI).  Set the glyph row flag
+    fill_line_p.  If the glyph row is R2L, prepend a stretch glyph to
+    cover the empty space to the left of the leftmost glyph.  */
 
 static void
 extend_face_to_end_of_line (struct it *it)
@@ -24371,6 +24384,18 @@ extend_face_to_end_of_line (struct it *it)
                                         ? it->saved_face_id
                                         : extend_face_id));
 
+  /* Use the 'margin' face to fill empty cells in the left and right
+     margin areas.  That face defaults to the frame default, so it is a
+     no-op unless the user customizes its background.  This is the only
+     way to give the margin area below point-max (where no overlay can
+     place glyphs) a non-default background.  The approach is analogous
+     to 'maybe_produce_line_number' for the line-number area.  */
+  int margin_fill_face_id = lookup_basic_face (it->w, f, MARGIN_FACE_ID);
+
+  /* Skip if none of the conditions that require extending the face to the
+     end of line are met: text face extends to EOL, box/underline/etc are
+     drawn, fill-column indicator is shown, or the 'margin' face has a
+     non-default background in a window that has margins.  */
   if (FRAME_WINDOW_P (f)
       && MATRIX_ROW_DISPLAYS_TEXT_P (it->glyph_row)
       && face->box == FACE_NO_BOX
@@ -24382,7 +24407,11 @@ extend_face_to_end_of_line (struct it *it)
       && !face->stipple
 #endif
       && !it->glyph_row->reversed_p
-      && !display_fill_column_indicator)
+      && !display_fill_column_indicator
+      && !(FACE_FROM_ID (f, margin_fill_face_id)->background
+	   != FRAME_BACKGROUND_PIXEL (f)
+	   && (WINDOW_LEFT_MARGIN_WIDTH (it->w) > 0
+	       || WINDOW_RIGHT_MARGIN_WIDTH (it->w) > 0)))
     return;
 
   /* Set the glyph row flag indicating that the face of the last glyph
@@ -24422,28 +24451,94 @@ extend_face_to_end_of_line (struct it *it)
 #endif
 	    ))
 	{
-	  if (WINDOW_LEFT_MARGIN_WIDTH (it->w) > 0
-	      && it->glyph_row->used[LEFT_MARGIN_AREA] == 0)
-	    {
-	      it->glyph_row->glyphs[LEFT_MARGIN_AREA][0] = space_glyph;
-	      it->glyph_row->glyphs[LEFT_MARGIN_AREA][0].face_id =
-		default_face->id;
-	      it->glyph_row->glyphs[LEFT_MARGIN_AREA][0].frame = f;
-	      it->glyph_row->used[LEFT_MARGIN_AREA] = 1;
-	    }
-	  if (WINDOW_RIGHT_MARGIN_WIDTH (it->w) > 0
-	      && it->glyph_row->used[RIGHT_MARGIN_AREA] == 0)
-	    {
-	      it->glyph_row->glyphs[RIGHT_MARGIN_AREA][0] = space_glyph;
-	      it->glyph_row->glyphs[RIGHT_MARGIN_AREA][0].face_id =
-		default_face->id;
-	      it->glyph_row->glyphs[RIGHT_MARGIN_AREA][0].frame = f;
-	      it->glyph_row->used[RIGHT_MARGIN_AREA] = 1;
-	    }
-
 	  struct font *font = (default_face->font
 	                       ? default_face->font
 	                       : FRAME_FONT (f));
+
+	  /* The third condition is a safety bound preventing writes
+	     past the end of the left-margin glyph array.  In the
+	     non-window-system branch the equivalent bound is expressed
+	     via a pointer 'g' initialized to the first empty slot and
+	     advanced by 'g++', so the limit arises naturally from the
+	     iteration.  Here we index by 'n = used' directly and
+	     recompute the equivalent pointer bound inline.  */
+	  /* Left Margin GUI; GUI-specific optimization: use one stretch glyph
+	     to fill the rest.  */
+	  if (WINDOW_LEFT_MARGIN_WIDTH (it->w) > 0
+	      && (it->glyph_row->used[LEFT_MARGIN_AREA]
+		  < WINDOW_LEFT_MARGIN_WIDTH (it->w)))
+	    {
+	      int used = it->glyph_row->used[LEFT_MARGIN_AREA];
+	      int remaining_pixels = (WINDOW_LEFT_MARGIN_WIDTH (it->w)
+				      * FRAME_COLUMN_WIDTH (f));
+
+	      /* Subtract width of existing glyphs.  */
+	      struct glyph *g = it->glyph_row->glyphs[LEFT_MARGIN_AREA];
+	      for (int i = 0; i < used; ++i)
+		remaining_pixels -= (g++)->pixel_width;
+
+	      if (remaining_pixels > 0)
+		{
+		  int saved_face_id = it->face_id;
+		  enum glyph_row_area saved_area = it->area;
+		  struct text_pos saved_pos = it->position;
+
+		  it->face_id = margin_fill_face_id;
+		  it->area = LEFT_MARGIN_AREA;
+		  /* Set position to 0 for the filler glyph. */
+		  clear_position (it);
+
+		  int stretch_ascent =
+		    ((it->ascent + it->descent) * FONT_BASE (font))
+		    / FONT_HEIGHT (font);
+		  append_stretch_glyph (it, Qnil, remaining_pixels,
+					it->ascent + it->descent,
+					stretch_ascent);
+
+		  it->position = saved_pos;
+		  it->face_id = saved_face_id;
+		  it->area = saved_area;
+		}
+	    }
+
+	  /* Right Margin GUI; GUI-specific optimization: use one stretch glyph
+	     to fill the rest.  */
+	  if (WINDOW_RIGHT_MARGIN_WIDTH (it->w) > 0
+	      && (it->glyph_row->used[RIGHT_MARGIN_AREA]
+		  < WINDOW_RIGHT_MARGIN_WIDTH (it->w)))
+	    {
+	      int used = it->glyph_row->used[RIGHT_MARGIN_AREA];
+	      int remaining_pixels = (WINDOW_RIGHT_MARGIN_WIDTH (it->w)
+				      * FRAME_COLUMN_WIDTH (f));
+
+	      /* Subtract width of existing glyphs.  */
+	      struct glyph *g = it->glyph_row->glyphs[RIGHT_MARGIN_AREA];
+	      for (int i = 0; i < used; ++i)
+		remaining_pixels -= (g++)->pixel_width;
+
+	      if (remaining_pixels > 0)
+		{
+		  int saved_face_id = it->face_id;
+		  enum glyph_row_area saved_area = it->area;
+		  struct text_pos saved_pos = it->position;
+
+		  it->face_id = margin_fill_face_id;
+		  it->area = RIGHT_MARGIN_AREA;
+		  /* Set position to 0 for the filler glyph. */
+		  clear_position (it);
+
+		  int stretch_ascent =
+		    ((it->ascent + it->descent) * FONT_BASE (font))
+		    / FONT_HEIGHT (font);
+		  append_stretch_glyph (it, Qnil, remaining_pixels,
+					it->ascent + it->descent,
+					stretch_ascent);
+
+		  it->position = saved_pos;
+		  it->face_id = saved_face_id;
+		  it->area = saved_area;
+		}
+	    }
 
 	  const int char_width = (font->average_width
 	                          ? font->average_width
@@ -24607,11 +24702,16 @@ extend_face_to_end_of_line (struct it *it)
       it->c = it->char_to_display = ' ';
       it->len = 1;
 
+      /* Fill the left margin if it is only partially covered by glyphs and
+	 the margin face or the extended face differ from the frame default.
+	 Mode-line rows are excluded because they have no margin area.  */
       if (WINDOW_LEFT_MARGIN_WIDTH (it->w) > 0
 	  && (it->glyph_row->used[LEFT_MARGIN_AREA]
 	      < WINDOW_LEFT_MARGIN_WIDTH (it->w))
 	  && !it->glyph_row->mode_line_p
-	  && face->background != FRAME_BACKGROUND_PIXEL (f))
+	  && (face->background != FRAME_BACKGROUND_PIXEL (f)
+	      || FACE_FROM_ID (f, margin_fill_face_id)->background
+	      != FRAME_BACKGROUND_PIXEL (f)))
 	{
 	  struct glyph *g = it->glyph_row->glyphs[LEFT_MARGIN_AREA];
 	  struct glyph *e = g + it->glyph_row->used[LEFT_MARGIN_AREA];
@@ -24624,7 +24724,7 @@ extend_face_to_end_of_line (struct it *it)
 	    it->wrap_prefix_width = it->current_x;
 
 	  it->area = LEFT_MARGIN_AREA;
-	  it->face_id = default_face->id;
+	  it->face_id = margin_fill_face_id;
 	  while (it->glyph_row->used[LEFT_MARGIN_AREA]
 		 < WINDOW_LEFT_MARGIN_WIDTH (it->w)
 		 && g < it->glyph_row->glyphs[TEXT_AREA])
@@ -24686,7 +24786,9 @@ extend_face_to_end_of_line (struct it *it)
 	  && (it->glyph_row->used[RIGHT_MARGIN_AREA]
 	      < WINDOW_RIGHT_MARGIN_WIDTH (it->w))
 	  && !it->glyph_row->mode_line_p
-	  && face->background != FRAME_BACKGROUND_PIXEL (f))
+	  && (face->background != FRAME_BACKGROUND_PIXEL (f)
+	      || FACE_FROM_ID (f, margin_fill_face_id)->background
+	      != FRAME_BACKGROUND_PIXEL (f)))
 	{
 	  struct glyph *g = it->glyph_row->glyphs[RIGHT_MARGIN_AREA];
 	  struct glyph *e = g + it->glyph_row->used[RIGHT_MARGIN_AREA];
@@ -24695,7 +24797,7 @@ extend_face_to_end_of_line (struct it *it)
 	    it->current_x += g->pixel_width;
 
 	  it->area = RIGHT_MARGIN_AREA;
-	  it->face_id = default_face->id;
+	  it->face_id = margin_fill_face_id;
 	  while (it->glyph_row->used[RIGHT_MARGIN_AREA]
 		 < WINDOW_RIGHT_MARGIN_WIDTH (it->w)
 		 && g < it->glyph_row->glyphs[LAST_AREA])
@@ -25723,8 +25825,8 @@ display_line (struct it *it, int cursor_vpos)
 {
   struct glyph_row *row = it->glyph_row;
   Lisp_Object overlay_arrow_string;
-  struct it wrap_it;
-  void *wrap_data = NULL;
+  struct it wrap_it, prev_it;
+  void *wrap_data = NULL, *prev_data = NULL;
   bool may_wrap = false;
   int wrap_x UNINIT;
   int wrap_row_used = -1;
@@ -25733,6 +25835,7 @@ display_line (struct it *it, int cursor_vpos)
   int wrap_row_extra_line_spacing UNINIT;
   ptrdiff_t wrap_row_min_pos UNINIT, wrap_row_min_bpos UNINIT;
   ptrdiff_t wrap_row_max_pos UNINIT, wrap_row_max_bpos UNINIT;
+  int wrap_face_id UNINIT, prev_face_id;
   int cvpos;
   ptrdiff_t min_pos = ZV + 1, max_pos = 0;
   ptrdiff_t min_bpos UNINIT, max_bpos UNINIT;
@@ -25903,6 +26006,7 @@ display_line (struct it *it, int cursor_vpos)
 
   /* Loop generating characters.  The loop is left with IT on the next
      character to display.  */
+  wrap_face_id = -1;
   while (true)
     {
       int n_glyphs_before, hpos_before, x_before;
@@ -25944,17 +26048,21 @@ display_line (struct it *it, int cursor_vpos)
 	  it->font_height = Qnil;
 	  it->voffset = 0;
 	  row->ends_at_zv_p = true;
-	  /* A row that displays right-to-left text must always have
-	     its last face extended all the way to the end of line,
-	     even if this row ends in ZV, because we still write to
-	     the screen left to right.  We also need to extend the
-	     last face if the default face is remapped to some
-	     different face, otherwise the functions that clear
-	     portions of the screen will clear with the default face's
-	     background color.  */
+	  /* A row that displays right-to-left text must always have its
+	     last face extended all the way to the end of line, even if
+	     this row ends in ZV, because we still write to the screen
+	     left to right.  We also need to extend the last face if the
+	     default face is remapped to some different face, otherwise
+	     the functions that clear portions of the screen will clear
+	     with the default face's background color.  We also call
+	     extend_face_to_end_of_line when the window has a left or
+	     right margin so that the empty areas of the margins are
+	     filled with the 'margin' face background.  */
 	  if (row->reversed_p
 	      || lookup_basic_face (it->w, it->f, DEFAULT_FACE_ID)
-              != DEFAULT_FACE_ID)
+              != DEFAULT_FACE_ID
+	      || WINDOW_LEFT_MARGIN_WIDTH (it->w) > 0
+	      || WINDOW_RIGHT_MARGIN_WIDTH (it->w) > 0)
 	    extend_face_to_end_of_line (it);
 	  break;
 	}
@@ -25996,9 +26104,17 @@ display_line (struct it *it, int cursor_vpos)
 		  wrap_row_min_bpos = min_bpos;
 		  wrap_row_max_pos = max_pos;
 		  wrap_row_max_bpos = max_bpos;
+		  wrap_face_id = prev_face_id;
 		}
 	      /* Update may_wrap for the next iteration.  */
               may_wrap = next_may_wrap;
+	      if (may_wrap)
+		{
+		  prev_face_id = it->face_id;
+		  SAVE_IT (prev_it, *it, prev_data);
+		}
+	      else
+		prev_face_id = -1;
 	    }
 	}
 
@@ -26256,8 +26372,10 @@ display_line (struct it *it, int cursor_vpos)
 		      if (row->reversed_p)
 			unproduce_glyphs (it,
 					  row->used[TEXT_AREA] - wrap_row_used);
-		      RESTORE_IT (it, &wrap_it, wrap_data);
-		      it->continuation_lines_width += wrap_x;
+		      /* We need to extend the face of the display
+                         element _before_ the wrap point.  */
+		      eassert (wrap_face_id >= 0);
+		      RESTORE_IT (it, &prev_it, prev_data);
 		      row->used[TEXT_AREA] = wrap_row_used;
 		      row->ascent = wrap_row_ascent;
 		      row->height = wrap_row_height;
@@ -26271,10 +26389,11 @@ display_line (struct it *it, int cursor_vpos)
 		      row->continued_p = true;
 		      row->ends_at_zv_p = false;
 		      row->exact_window_width_line_p = false;
-
 		      /* Make sure that a non-default face is extended
 			 up to the right margin of the window.  */
 		      extend_face_to_end_of_line (it);
+		      RESTORE_IT (it, &wrap_it, wrap_data);
+		      it->continuation_lines_width += wrap_x;
 		    }
 		  else if ((it->what == IT_CHARACTER
 			    || it->what == IT_STRETCH
@@ -26520,18 +26639,6 @@ display_line (struct it *it, int cursor_vpos)
 		    }
 		  it->hpos = hpos_before;
 		}
-	      /* If the default face is remapped, and the window has
-                 display margins, and no glyphs were written yet to the
-                 margins on this screen line, we must add one space
-                 glyph to the margin area to make sure the margins use
-                 the background of the remapped default face.  */
-	      if (lookup_basic_face (it->w, it->f, DEFAULT_FACE_ID)
-		  != DEFAULT_FACE_ID /* default face is remapped */
-		  && ((WINDOW_LEFT_MARGIN_WIDTH (it->w) > 0
-		       && it->glyph_row->used[LEFT_MARGIN_AREA] == 0)
-		      || (WINDOW_RIGHT_MARGIN_WIDTH (it->w) > 0
-			  && it->glyph_row->used[RIGHT_MARGIN_AREA] == 0)))
-		extend_face_to_end_of_line (it);
 	    }
 	  else if (IT_OVERFLOW_NEWLINE_INTO_FRINGE (it))
 	    {
@@ -26554,6 +26661,29 @@ display_line (struct it *it, int cursor_vpos)
 	      it->hpos = hpos_before;
 	    }
 
+	  /* If the default face is remapped or the 'margin' face has a
+	     non-default background, and the window has display margins,
+	     and no glyphs were written yet to the margins on this screen
+	     line, fill the margin area so that the margins use the
+	     correct background.  Placed here, after the if/else-if chain
+	     above, so it fires for all three truncation paths: TTY/no-fringe
+	     truncation glyph, GUI newline-overflow-into-fringe, and GUI
+	     regular truncation where the indicator is drawn as a fringe
+	     bitmap.  */
+	  {
+	    int margin_face_id =
+	      lookup_basic_face (it->w, it->f, MARGIN_FACE_ID);
+	    if ((lookup_basic_face (it->w, it->f, DEFAULT_FACE_ID)
+	         != DEFAULT_FACE_ID
+	         || FACE_FROM_ID (it->f, margin_face_id)->background
+	         != FRAME_BACKGROUND_PIXEL (it->f))
+	        && ((WINDOW_LEFT_MARGIN_WIDTH (it->w) > 0
+	             && it->glyph_row->used[LEFT_MARGIN_AREA] == 0)
+	            || (WINDOW_RIGHT_MARGIN_WIDTH (it->w) > 0
+	                && it->glyph_row->used[RIGHT_MARGIN_AREA] == 0)))
+	      extend_face_to_end_of_line (it);
+	  }
+
 	  row->truncated_on_right_p = true;
 	  it->continuation_lines_width = 0;
 	  reseat_at_next_visible_line_start (it, false);
@@ -26573,6 +26703,8 @@ display_line (struct it *it, int cursor_vpos)
 
   if (wrap_data)
     bidi_unshelve_cache (wrap_data, true);
+  if (prev_data)
+    bidi_unshelve_cache (prev_data, true);
 
   /* If line is not empty and hscrolled, maybe insert truncation glyphs
      at the left window margin.  */
@@ -27785,7 +27917,7 @@ display_tty_menu_separator (struct it *it, const char *label, int width)
   else
     c = display_tty_menu_separator_char ('-', BOX_HORIZONTAL);
   Lisp_Object sep = Fmake_string (make_fixnum (width - 1), make_fixnum (c), Qt);
-  display_string ((char *) SDATA (sep), Qnil, Qnil, 0, 0, it, width, -1, -1, 1);
+  display_string ((char *) SDATA (sep), sep, Qnil, 0, 0, it, width, -1, -1, 1);
 }
 
 /* Display one menu item on a TTY, by overwriting the glyphs in the
@@ -27967,7 +28099,7 @@ display_mode_lines (struct window *w)
       Lisp_Object window_tab_line_format
 	= window_parameter (w, Qtab_line_format);
 
-      display_mode_line (w, TAB_LINE_FACE_ID,
+      display_mode_line (w, CURRENT_TAB_LINE_ACTIVE_FACE_ID_3 (sel_w, sel_w, w),
 			 NILP (window_tab_line_format)
 			 ? BVAR (current_buffer, tab_line_format)
 			 : window_tab_line_format);
@@ -27996,10 +28128,10 @@ display_mode_lines (struct window *w)
 
 /* Display mode or header/tab line of window W.  FACE_ID specifies which
    line to display; it is either MODE_LINE_ACTIVE_FACE_ID,
-   HEADER_LINE_ACTIVE_FACE_ID, HEADER_LINE_INACTIVE_FACE_ID, or
-   TAB_LINE_FACE_ID.  FORMAT is the mode/header/tab line format to
-   display.  Value is the pixel height of the mode/header/tab line
-   displayed.  */
+   HEADER_LINE_ACTIVE_FACE_ID, HEADER_LINE_INACTIVE_FACE_ID,
+   TAB_LINE_ACTIVE_FACE_ID or TAB_LINE_INACTIVE_FACE_ID.
+   FORMAT is the mode/header/tab line format to display.
+   Value is the pixel height of the mode/header/tab line displayed.  */
 
 static int
 display_mode_line (struct window *w, enum face_id face_id, Lisp_Object format)
@@ -28015,7 +28147,8 @@ display_mode_line (struct window *w, enum face_id face_id, Lisp_Object format)
   prepare_desired_row (w, it.glyph_row, true);
 
   it.glyph_row->mode_line_p = true;
-  if (face_id == TAB_LINE_FACE_ID)
+  if (face_id == TAB_LINE_ACTIVE_FACE_ID
+      || face_id == TAB_LINE_INACTIVE_FACE_ID)
     {
       it.glyph_row->tab_line_p = true;
       w->desired_matrix->tab_line_p = true;
@@ -28042,7 +28175,8 @@ display_mode_line (struct window *w, enum face_id face_id, Lisp_Object format)
   if (NILP (Vmode_line_compact)
       || face_id == HEADER_LINE_ACTIVE_FACE_ID
       || face_id == HEADER_LINE_INACTIVE_FACE_ID
-      || face_id == TAB_LINE_FACE_ID)
+      || face_id == TAB_LINE_ACTIVE_FACE_ID
+      || face_id == TAB_LINE_INACTIVE_FACE_ID)
     {
       mode_line_target = MODE_LINE_DISPLAY;
       display_mode_element (&it, 0, 0, 0, format, Qnil, false);
@@ -28900,7 +29034,8 @@ are the selected window and the WINDOW's buffer).  */)
     : EQ (face, Qmode_line_inactive) ? MODE_LINE_INACTIVE_FACE_ID
     : EQ (face, Qheader_line_active) ? HEADER_LINE_ACTIVE_FACE_ID
     : EQ (face, Qheader_line_inactive) ? HEADER_LINE_INACTIVE_FACE_ID
-    : EQ (face, Qtab_line) ? TAB_LINE_FACE_ID
+    : EQ (face, Qtab_line_active) ? TAB_LINE_ACTIVE_FACE_ID
+    : EQ (face, Qtab_line_inactive) ? TAB_LINE_INACTIVE_FACE_ID
     : EQ (face, Qtab_bar) ? TAB_BAR_FACE_ID
     : EQ (face, Qtool_bar) ? TOOL_BAR_FACE_ID
     : DEFAULT_FACE_ID;
@@ -31399,7 +31534,10 @@ glyph_string_containing_background_width (struct glyph_string *s)
 {
   if (s->cmp)
     while (s->cmp_from)
-      s = s->prev;
+      {
+	s = s->prev;
+	eassume (s);
+      }
 
   return s;
 }

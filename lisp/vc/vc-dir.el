@@ -408,10 +408,17 @@ an \\+`up-to-date' or \\+`ignored' file."
     (define-key map (kbd "M-s a M-C-s") #'vc-dir-isearch-regexp)
     (define-key map "G" #'vc-dir-ignore)
     (define-key map "@" #'vc-revert)
-    (define-key map "Tl" #'vc-log-outstanding)
-    (define-key map "TL" #'vc-root-log-outstanding)
-    (define-key map "T=" #'vc-diff-outstanding)
-    (define-key map "TD" #'vc-root-diff-outstanding)
+    (define-key map "Tl" #'vc-log-unintegrated)
+    (define-key map "TL" #'vc-root-log-unintegrated)
+    (define-key map "T=" #'vc-diff-unintegrated)
+    (define-key map "TD" #'vc-root-diff-unintegrated)
+    (define-key map "TRl" #'vc-log-remote-unintegrated)
+    (define-key map "TRL" #'vc-root-log-remote-unintegrated)
+    (define-key map "TR=" #'vc-diff-remote-unintegrated)
+    (define-key map "TRD" #'vc-root-diff-remote-unintegrated)
+    (define-key map "EL" #'vc-root-log-outgoing)
+    (define-key map "E=" #'vc-diff-outgoing-and-edited)
+    (define-key map "ED" #'vc-root-diff-outgoing-and-edited)
     (define-key map "V" #'vc-dir-root-next-action)
 
     (let ((branch-map (make-sparse-keymap)))
@@ -1298,7 +1305,7 @@ that file."
 
 (defun vc-dir-resynch-file (&optional fname)
   "Update the entries for FNAME in any directory buffers that list it."
-  (let ((file (expand-file-name (or fname buffer-file-name)))
+  (let ((file (file-truename (or fname buffer-file-name)))
         (drop '()))
     (save-current-buffer
       ;; look for a vc-dir buffer that might show this file.
