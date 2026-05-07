@@ -529,31 +529,51 @@ defaults write org.gnu.Emacs Emacs.fringe.attributeStipple alpha:.5
 @code{scroll-bar-background} frame parameter.  If it is @code{nil},
 which is the default, then the frame background color is used instead.
 Its color also affects the appearance of other GUI parts: scroll bars,
-the title bar, the tool bar, (the tab bar on macOS 10.12 and later),
-and popup menus on OS X 10.10 -- macOS 10.13 become light (or dark) if
-the color is considered light (or dark, respectively).  On macOS 10.14
-and later, the appearance of GUI parts other than scroll bars respect
-the global setting, which is available via
+the title bar, the tool bar, (the tab bar on macOS 10.12 and later), and
+popup menus on OS X 10.10 -- macOS 10.13 become light (or dark) if the
+color is considered light (or dark, respectively).  Unless
+@code{mac-appearance} frame parameter is non-@code{nil}, then on macOS
+10.14 and later, the appearance of GUI parts other than scroll bars
+respect the global setting, which is available via the function
 @code{(mac-application-state)}.  On macOS 10.12 and later, the
 title/tool/tab bars look slightly colored with the value of the
 @code{scroll-bar-background} frame parameter (or the frame background
 color) if the frame is focused and not in fullscreen.
 
-@vindex mac-transparent-titlebar
-  The title bar transparency can be controlled by the value of the
-@code{mac-transparent-titlebar} frame parameter.  If it is @code{nil},
-which is the default then title bar uses system color for its
-background.  If it is non-@code{nil} then the frame background color is
-used instead.
+@vindex mac-appearance@r{, a frame parameter}
+  If set to @code{dark} draw this frame's window-system window using the
+``vibrant dark'' theme.  If set to @code{light} draw this frame's
+window-system window using ``vibrant light'' theme.  Otherwise, when set
+to @code{nil} (which is the default) use an automatic appearance based
+on the frame's background color.  When the automatic appearance doesn't
+render a legible frame, the ``vibrant dark'' theme/``vibrant light''
+theme can be used to set the toolbar and scrollbars to a macOS
+Dark/Light appearance when using an Emacs theme with a dark/light
+background.  For example to make Emacs frame appearance to follow system
+appearance the following snipped can be used:
 
-It is recommended that the theme applied on the frame with transparent
-title bar matches current macOS appearance.  That is, when macOS
-appearance is Light the theme should have a light colored background.
-Likewise, when macOS appearance is Dark the theme should have a dark
-colored background.
+@example
+(add-hook
+ 'mac-effective-appearance-change-hook
+ (lambda ()
+   "Change frames appearances according to current system setting."
+   (when-let* ((system-appearance (plist-get (mac-application-state)
+                                             :appearance))
+               (appearance (if (let ((case-fold-search t))
+                                 (string-match "dark" system-appearance))
+                               'dark
+                             'light)))
+     (dolist (frame (frame-list))
+       (unless (eq (frame-parameter frame 'mac-appearance)
+                   appearance)
+         (set-frame-parameter frame 'mac-appearance appearance))))))
+@end example
 
-The theme can be automatically changed when macOS appearance changes by
-registering a @code{mac-effective-appearance-change-hook}, for example:
+  In cases when theme change occurs as a result of system appearance
+change, the automatic frame appearance - based on the theme's background
+may be sufficient.  The theme can be automatically changed when macOS
+appearance changes by registering a
+@code{mac-effective-appearance-change-hook}, for example:
 
 @example
 (add-hook
@@ -563,13 +583,30 @@ registering a @code{mac-effective-appearance-change-hook}, for example:
    (when-let* ((appearance (plist-get (mac-application-state)
                                       :appearance))
                (desired-theme (let ((case-fold-search t))
-                                (if (string-match-p "dark" appearance)
+                                (if (string-match "dark" appearance)
                                     (cadr modus-themes-to-toggle)
                                   (car modus-themes-to-toggle))))
                ((not (eq desired-theme
                          (car custom-enabled-themes)))))
-     (message "Loading theme: %s" desired-theme))))
+     (message "Loading theme: %s" desired-theme)
+     (load-theme desired-theme))))
 @end example
+
+@vindex mac-transparent-titlebar@r{, a frame parameter}
+  The title bar transparency can be controlled by the value of the
+@code{mac-transparent-titlebar} frame parameter.  If it is @code{nil},
+which is the default then title bar uses system color for its
+background.  If it is non-@code{nil} then the frame background color is
+used instead.
+
+  It is recommended that theme applied on a frame with transparent title
+bar matches current macOS appearance (as reported by
+@code{mac-application-state}) when frame parameter
+@code{mac-appearance} is @code{nil} or value of frame parameter
+@code{mac-appearance} when it is non-@code{nil}.  That is, when the
+appearance is Light the theme should have a light colored background.
+Likewise, when the appearance is Dark the theme should have a dark
+colored background.
 
 @node Mac Fullscreen
 @section Fullscreen support on the Mac Port

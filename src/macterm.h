@@ -339,6 +339,8 @@ struct mac_output
 #define FRAME_MAC_DOUBLE_BUFFERED_P(f) \
   ((f)->output_data.mac->double_buffered_p)
 
+#define FRAME_MAC_APPEARANCE(f) \
+  ((f)->mac_appearance)
 #define FRAME_MAC_TRANSPARENT_TITLEBAR(f) \
   ((f)->mac_transparent_titlebar)
 
@@ -623,6 +625,7 @@ extern OSStatus install_application_handler (void);
 extern Lisp_Object mac_application_state (void);
 extern void mac_set_frame_window_title (struct frame *, CFStringRef);
 extern void mac_set_frame_window_modified (struct frame *, bool);
+extern void mac_set_frame_window_appearance (struct frame *, enum mac_appearance_type);
 extern void mac_set_frame_window_transparent_titlebar (struct frame *, bool);
 extern void mac_set_frame_window_proxy (struct frame *, CFURLRef);
 extern bool mac_is_frame_window_visible (struct frame *);

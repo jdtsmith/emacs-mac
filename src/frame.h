@@ -77,6 +77,14 @@ enum ns_appearance_type
     ns_appearance_vibrant_dark
   };
 #endif
+#ifdef HAVE_MACGUI
+enum mac_appearance_type
+  {
+    mac_appearance_system_default,
+    mac_appearance_vibrant_light,
+    mac_appearance_vibrant_dark
+  };
+#endif
 #endif /* HAVE_WINDOW_SYSTEM */
 
 #ifdef HAVE_TEXT_CONVERSION
@@ -747,6 +755,7 @@ struct frame
   bool_bf ns_transparent_titlebar;
 #endif
 #ifdef HAVE_MACGUI
+  enum mac_appearance_type mac_appearance;
   bool_bf mac_transparent_titlebar;
 #endif
 
