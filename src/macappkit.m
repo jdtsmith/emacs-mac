@@ -9462,6 +9462,9 @@ mac_set_font_info_for_selection (struct frame *f, int face_id, int c, int pos,
 // * Event Handling
 
 extern Boolean _IsSymbolicHotKeyEvent (EventRef, UInt32 *, Boolean *) AVAILABLE_MAC_OS_X_VERSION_10_3_AND_LATER;
+static NSMutableArray *mac_lisp_queue;
+static dispatch_semaphore_t mac_lisp_semaphore;
+static _Atomic BOOL mac_select_lisp_processing_p;
 
 @implementation EmacsFrameController (EventHandling)
 
@@ -9743,24 +9746,24 @@ peek_if_next_event_activates_menu_bar (void)
 }
 
 /* Emacs calls this read socket hook frequently, whenever it needs to
-   read an input event, e.g. after mac_select returns, and periodically
-   while LISP is sleeping/busy.  We use this to process accumulated
-   NSEvents, and (if the EmacsDisplayLinkPresenter is not available)
-   flush any completed but as yet not presented frames to the display as
-   a backup. */
+   read or poll for input events (e.g. after mac_select returns), and
+   periodically while LISP is sleeping/busy.  We use this to process any
+   accumulated NSEvents, and (if the EmacsDisplayLinkPresenter is not
+   available) flush any completed but as yet unpresented frames to the
+   display, as a backup. */
 
 int
 mac_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 {
-  /* Fast path: if no physical events are queued, and we aren't in the
-     middle of synthetic mouse tracking or holding a menu event, and
-     display link is handling frame presentation, we can bail
-     immediately. */
 #ifdef MAC_DISPLAY_LINK
+  /* Fast path: if no physical events are queued, and we aren't in the
+     middle of synthetic mouse tracking or holding a menu event, and if
+     display link is handling the frame presentation, we can bail
+     immediately. */
   if (@available (macOS 14.0, *))
     if (![emacsController isMouseTrackingSuspended]
 	&& one_mac_display_info.saved_menu_event == NULL
-	&& mac_main_events_queued() == 0)
+	&& mac_main_events_queued () == 0)
       return 0;
 #endif
   
@@ -14631,6 +14634,16 @@ static id ax_get_style_range_for_index (EmacsMainView *, id);
 #endif
 static id ax_get_attributed_string_for_range (EmacsMainView *, id);
 
+/* Main accessibility callbacks (normal and parameterized).  Note that
+   there is a mismatch between macOS expectations for accessibility
+   (synchronous, on-demand access via the main GUI thread to all visible
+   UI elements, text and its geometry) and the real situation (LISP
+   thread owns the buffer and its layout).  We smooth this mismatch by
+   requesting sensitive operations to complete on the LISP thread
+   (within mac_select), with a timeout; see
+   ax_execute_handler_with_lisp.  This means nil may be returned for
+   accessibility requests in some situations. */
+
 static const struct {
   NSAccessibilityAttributeName const *ns_name_ptr;
   CFStringRef fallback_name;
@@ -14703,6 +14716,26 @@ static Lisp_Object ax_action_event_ids;
 
 static NSAccessibilityNotificationName ax_selected_text_changed_notification;
 
+/* Blocks can be marked emphemeral, in which case they are not
+   associated with a recursive mac_gui_loop.  Useful for timed
+   synchronous block execution. */
+
+static const char *kAXBlockEphemeral = "kAXBlockEphemeral";
+
+static void
+mac_mark_block_ephemeral (id obj)
+{
+  objc_setAssociatedObject(obj, kAXBlockEphemeral, @YES,
+			   OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static BOOL
+mac_block_is_ephemeral(id obj)
+{
+  NSNumber *ephem = objc_getAssociatedObject(obj, kAXBlockEphemeral);
+  return ephem && [ephem boolValue];
+}
+
 static Lisp_Object
 ax_name_to_symbol (NSString *name, NSString *prefix)
 {
@@ -14773,6 +14806,73 @@ init_accessibility (void)
     NSAccessibilitySelectedTextChangedNotification;
 }
 
+/* For relaying request/results from GUI to LISP thread */
+typedef struct {
+  EmacsMainView *view;
+  id parameter;          // Used only for parameterized attributes
+  _Atomic BOOL timed_out;
+  dispatch_semaphore_t sem;
+  id result;
+} AXGenericPayload;
+
+/* Ask the LISP thread to execute a HANDLER function.  PARAMETER (which
+   may be nil) is a parameter to pass a parameterized handler (may be
+   nil).  If the request times out, disables the block to prevent
+   running it.  Quickly returns nil if LISP is not sitting ready in
+   mac_select, processing blocks. This is a best-effort handler; it will
+   return nil when LISP is busy. */
+
+typedef id (*AXSimpleHandler)(EmacsMainView *);
+typedef id (*AXParamHandler)(EmacsMainView *, id);
+
+static id
+ax_execute_handler_with_lisp(EmacsMainView *view, id parameter, void *handler,
+			     NSString *attribute)
+{
+  MAC_SIGNPOST_GEN_BEGIN (gui, AXHandle, "ATTR: %{public}s",
+			  [attribute UTF8String] ? [attribute UTF8String] :
+			  "UnknownAttribute");
+  if (!mac_select_lisp_processing_p)
+    {
+      MAC_SIGNPOST_GEN_END (gui, AXHandle, "UNAVAIL");
+      return nil;
+    }
+  __block AXGenericPayload payload = {
+    .view = view,
+    .parameter = parameter,
+    .timed_out = NO,
+    .sem = dispatch_semaphore_create(0),
+    .result = nil
+  };
+
+  void (^lisp_block)(void) = ^{
+    if (payload.timed_out)
+      return;
+    id local_result = nil;
+    if (payload.parameter)
+      local_result = ((AXParamHandler) handler) (payload.view, payload.parameter);
+    else
+      local_result = ((AXSimpleHandler) handler) (payload.view);
+    payload.result = MRC_AUTORELEASE (MRC_RETAIN (local_result));
+    dispatch_semaphore_signal(payload.sem);
+  };
+  void (^heap_block)(void) = [lisp_block copy];
+  mac_mark_block_ephemeral (heap_block); /* No gui_loop is waiting here! */
+  [mac_lisp_queue enqueue:heap_block];
+  dispatch_semaphore_signal (mac_lisp_semaphore);
+
+  /* We wait for LISP to run our ephemeral block, but not too long */
+  dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 25 * NSEC_PER_MSEC);
+  if (dispatch_semaphore_wait (payload.sem, timeout) == 0)
+    {
+      MAC_SIGNPOST_GEN_END (gui, AXHandle, "SUCCESS");
+      return payload.result;
+    }
+  payload.timed_out = YES;
+  MAC_SIGNPOST_GEN_END (gui, AXHandle, "TIMED-OUT");
+  return nil;
+}
+
 // ** EmacsController (Accessibility)
 
 @implementation EmacsController (Accessibility)
@@ -14832,12 +14932,6 @@ ax_get_selected_text (EmacsMainView *emacsView)
   CFRange selectedRange;
   CFStringRef string;
 
-  if ((poll_suppress_count == 0 && !NILP (Vinhibit_quit)) ||
-      gc_in_progress)
-    /* Don't try to get buffer contents as the gap might be being
-       altered. */
-    return nil;
-
   mac_ax_selected_text_range (f, &selectedRange);
   string = mac_ax_create_string_for_range (f, &selectedRange, NULL);
 
@@ -14849,12 +14943,6 @@ ax_get_insertion_point_line_number (EmacsMainView *emacsView)
 {
   struct frame *f = [emacsView emacsFrame];
   EMACS_INT line;
-
-  if ((poll_suppress_count == 0 && !NILP (Vinhibit_quit)) ||
-      gc_in_progress)
-    /* Don't try to get buffer contents as the gap might be being
-       altered. */
-    return nil;
 
   line = mac_ax_line_for_index (f, -1);
 
@@ -14895,14 +14983,15 @@ ax_get_selected_text_ranges (EmacsMainView *emacsView)
 
 - (id)accessibilityAttributeValue:(NSAccessibilityAttributeName)attribute
 {
-  NSUInteger index = [ax_attribute_names indexOfObject:attribute];
-
-  if (index != NSNotFound)
-    return (*ax_attribute_table[index].handler) (self);
-  else if ([attribute isEqualToString:NSAccessibilityRoleAttribute])
+  if ([attribute isEqualToString:NSAccessibilityRoleAttribute])
     return NSAccessibilityTextAreaRole;
-  else
+  NSUInteger index = [ax_attribute_names indexOfObject:attribute];
+  if (index == NSNotFound)
     return [super accessibilityAttributeValue:attribute];
+  id (*handler)(EmacsMainView *) = ax_attribute_table[index].handler;
+  if (handler == ax_get_selected_text_range || handler == ax_get_selected_text_ranges)
+    return handler(self);  /* Can safely execute on GUI queue */
+  return ax_execute_handler_with_lisp(self, nil, (void *)handler, attribute);
 }
 
 - (BOOL)accessibilityIsAttributeSettable:(NSAccessibilityAttributeName)attribute
@@ -14975,12 +15064,6 @@ ax_get_line_for_index (EmacsMainView *emacsView, id parameter)
   struct frame *f = [emacsView emacsFrame];
   EMACS_INT line;
 
-  if ((poll_suppress_count == 0 && !NILP (Vinhibit_quit)) ||
-      gc_in_progress)
-    /* Don't try to get buffer contents as the gap might be being
-       altered. */
-    return nil;
-
   line = mac_ax_line_for_index (f, [(NSNumber *)parameter longValue]);
 
   return line >= 0 ? @(line) : nil;
@@ -14992,12 +15075,6 @@ ax_get_range_for_line (EmacsMainView *emacsView, id parameter)
   struct frame *f = [emacsView emacsFrame];
   EMACS_INT line;
   NSRange range;
-
-  if ((poll_suppress_count == 0 && !NILP (Vinhibit_quit)) ||
-      gc_in_progress)
-    /* Don't try to get buffer contents as the gap might be being
-       altered. */
-    return nil;
 
   line = [(NSNumber *)parameter longValue];
   if (mac_ax_range_for_line (f, line, (CFRange *) &range))
@@ -15012,12 +15089,6 @@ ax_get_string_for_range (EmacsMainView *emacsView, id parameter)
   NSRange range = [(NSValue *)parameter rangeValue];
   struct frame *f = [emacsView emacsFrame];
   CFStringRef string;
-
-  if ((poll_suppress_count == 0 && !NILP (Vinhibit_quit)) ||
-      gc_in_progress)
-    /* Don't try to get buffer contents as the gap might be being
-       altered. */
-    return nil;
 
   string = mac_ax_create_string_for_range (f, (CFRange *) &range, NULL);
 
@@ -15119,11 +15190,14 @@ ax_get_attributed_string_for_range (EmacsMainView *emacsView, id parameter)
 		     forParameter:(id)parameter
 {
   NSUInteger index = [ax_parameterized_attribute_names indexOfObject:attribute];
-
-  if (index != NSNotFound)
-    return (*ax_parameterized_attribute_table[index].handler) (self, parameter);
-  else
+  if (index == NSNotFound)
     return [super accessibilityAttributeValue:attribute forParameter:parameter];
+  id (*handler)(EmacsMainView *, id) = ax_parameterized_attribute_table[index].handler;
+
+  if (handler == ax_get_range_for_index)
+    return handler(self, parameter);  /* Safe on GUI */
+
+  return ax_execute_handler_with_lisp(self, parameter, (void *)handler, attribute);
 }
 
 - (NSArrayOf (NSAccessibilityActionName) *)accessibilityActionNames
@@ -16169,7 +16243,7 @@ mac_gui_loop_once (void)
       if (MAC_CHECK_PRESENTATION_REQUESTED_AND_SET (NO))
 	  mac_present_all_ready_frames();
       else
-	{	
+	{
 	  block = [mac_gui_queue dequeue];
 	  if (block)
 	    block ();
@@ -16204,8 +16278,8 @@ mac_within_gui (void (^block) (void))
 
 /* Ask execution of BLOCK_GUI to the GUI thread.  The calling thread
    must not be the GUI thread.  If BLOCK_HERE is non-nil, then it is
-   also executed in the calling Lisp thread, simultaneously.  Control
-   returns when the both executions have finished.  */
+   also executed in the calling thread, simultaneously.  Control returns
+   when the both executions have finished.  */
 
 static void
 mac_within_gui_and_here (void (^block_gui) (void),
@@ -16214,7 +16288,7 @@ mac_within_gui_and_here (void (^block_gui) (void),
   eassert (!pthread_main_np ());
   eassert (mac_gui_queue.count <= 1);
 
-  [mac_gui_queue enqueue:block_gui];
+  [mac_gui_queue enqueue:block_gui];  /* Will be processed in mac_gui_loop_once */
   dispatch_source_merge_data (mac_select_dispatch_source, MAC_COMMAND_SUSPEND);
   dispatch_semaphore_signal (mac_gui_semaphore);
   if (block_here)
@@ -16273,7 +16347,7 @@ static void
 mac_within_lisp (void (^block) (void))
 {
   eassert (pthread_main_np ());
-  eassert (mac_lisp_queue.count == 0);
+  // eassert (mac_lisp_queue.count == 0); /* no longer true with disabled blocks! */
   eassert (block);
 
   [mac_lisp_queue enqueue:block];
@@ -16889,20 +16963,22 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 	      dispatch_source_merge_data (mac_select_dispatch_source,
 					  MAC_COMMAND_TERMINATE);
 	    });
+	  mac_select_lisp_processing_p = YES;
 	  dispatch_semaphore_wait (mac_lisp_semaphore, DISPATCH_TIME_FOREVER);
 	  while (!completed_p)
 	    {
 	      void (^block_lisp) (void) = [mac_lisp_queue dequeue];
 	      bool was_waiting_for_input = waiting_for_input;
-
 	      waiting_for_input = 0;
 	      block_lisp ();
 	      waiting_for_input = was_waiting_for_input;
-	      mac_within_gui (nil);
+	      if (!mac_block_is_ephemeral(block_lisp))
+		mac_within_gui (nil); /* release the recursive mac_gui_loop */
 	      dispatch_semaphore_wait (mac_lisp_semaphore,
 				       DISPATCH_TIME_FOREVER);
 	    }
 	  dispatch_semaphore_signal (mac_lisp_semaphore);
+	  mac_select_lisp_processing_p = NO;
 	}
 #endif
       if (r > 0 && FD_ISSET (mac_select_fds[1], rfds))
