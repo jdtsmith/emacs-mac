@@ -3427,6 +3427,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 - (void)windowDidChangeBackingProperties:(NSNotification *)notification
 {
   [self updateBackingScaleFactor];
+  clear_image_cache(emacsFrame, Qt);
 }
 
 - (BOOL)windowShouldClose:(id)sender

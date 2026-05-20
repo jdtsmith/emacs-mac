@@ -421,7 +421,6 @@ mac_data_provider_release_data (void *info, const void *data, size_t size)
   xfree ((void *)data);
 }
 
-
 static CGImageRef
 mac_create_cg_image_from_image (struct frame *f, struct image *img)
 {
@@ -445,10 +444,10 @@ mac_create_cg_image_from_image (struct frame *f, struct image *img)
 
   if (img->mask)
     {
-      mask_provider = CGDataProviderCreateWithData (NULL, img->mask->data,
-						    img->mask->bytes_per_line
-						    * img->mask->height,
-						    mac_data_provider_release_data);
+      mask_provider =
+	CGDataProviderCreateWithData (NULL, img->mask->data,
+				      img->mask->bytes_per_line * img->mask->height,
+				      mac_data_provider_release_data);
       img->mask->data = NULL;
 
       int bpp = img->mask->bits_per_pixel;
@@ -465,6 +464,25 @@ mac_create_cg_image_from_image (struct frame *f, struct image *img)
   else
     {
       result = main_img;
+    }
+
+  /* pre-draw into a bitmap of the desired colorspace, etc. */
+  if (result)
+    {
+      CGContextRef bitmap_context =
+	CGBitmapContextCreate (NULL, pimg->width, pimg->height,
+			       8, 0, /* system picks bytes per row */
+			       mac_cg_color_space_rgb,
+			       kCGImageAlphaPremultipliedFirst |
+			       kCGBitmapByteOrder32Host);
+      if (bitmap_context)
+        {
+          CGRect rect = CGRectMake (0, 0, pimg->width, pimg->height);
+          CGContextDrawImage (bitmap_context, rect, result);
+	  CGImageRelease (result);
+          result = CGBitmapContextCreateImage (bitmap_context);
+          CGContextRelease (bitmap_context);
+        }
     }
 
   unblock_input ();
