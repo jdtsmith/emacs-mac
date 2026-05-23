@@ -296,7 +296,7 @@ mac_record_gc_clip (struct frame *f, GC gc) {
 	size_t bytes = gc->num_clip_rects * sizeof (CGRect);
 	CGRect *arena_rects = mac_arena_data_alloc (arena, bytes);
 	memcpy (arena_rects, gc->clip_rects, bytes);
-
+	/* N.B.: final rect arg is ignored */
 	MAC_ARENA_CMD (cmd, f, SET_CLIP, CGRectNull);
 	cmd->clip.rects = mo->current_clip_rects = arena_rects;
 	cmd->clip.nrects = mo->current_clip_nrects = gc->num_clip_rects;
@@ -524,6 +524,7 @@ mac_playback_cmd (mac_arena_draw_cmd *cmd, mac_arena *arena,
 	CGContextSaveGState (context);
 	CGContextClipToRect (context, dest);
 
+	/* Mask fills only */
 	if (cmd->image.fill_color)
 	  CGContextSetFillColorWithColor (context, cmd->image.fill_color);
 
@@ -566,10 +567,10 @@ mac_playback_cmd (mac_arena_draw_cmd *cmd, mac_arena *arena,
 		
 	CGImageRef image_mask =
 	  (CGImageRef) CFArrayGetValueAtIndex (cmd->stipple.stipple, scale - 1);
-	CGRect r = CGRectMake (0, 0,
+	CGRect dest = CGRectMake (0, 0,
 			       CGImageGetWidth (image_mask) / (CGFloat) scale,
 			       CGImageGetHeight (image_mask) / (CGFloat) scale);
-	CGContextDrawTiledImage (context, r, image_mask);
+	CGContextDrawTiledImage (context, dest, image_mask);
 	CGContextRestoreGState (context);
       }
       break;
@@ -704,7 +705,7 @@ mac_playback_arena(mac_arena *arena, struct frame *f, CGContextRef context)
       if (block == arena->cmds)
 	break;  /* Don't walk past the last active block */
     }
-
+  CGContextFlush (context);
   mac_teardown_drawing_context ();
 #ifdef MAC_DEBUG_SIGNPOST
   size_t data_allocated = 0;
