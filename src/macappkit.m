@@ -2806,11 +2806,17 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 	      }
 	    while (CACurrentMediaTime() < deadline);
 	    if (!acquired)
-	      return NO;
+	      {
+		MAC_SIGNPOST_GEN_END(draw, AcqDraw, "DEADLINE-MISSED");
+		return NO;
+	      }
+	    MAC_SIGNPOST_GEN_END(draw, AcqDraw, "ON-TIME");
 	  }
 	else
-	  [self acquireDrawLock];
-	MAC_SIGNPOST_GEN_END(draw, AcqDraw);
+	  {
+	    [self acquireDrawLock];
+	    MAC_SIGNPOST_GEN_END(draw, AcqDraw, "HARD-WAIT");
+	  }
       }
     else
       {

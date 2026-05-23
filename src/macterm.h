@@ -810,7 +810,7 @@ extern os_log_t _mac_sp_log_lisp, _mac_sp_log_gui, _mac_sp_log_draw, _mac_sp_log
 /* Use with a mac_arena_draw_cmd CMD */
 # define MAC_SIGNPOST_DRAW_CMD_BEGIN(cmd, format, ...)			\
   MAC_SIGNPOST_GEN_BEGIN(draw, Draw,					\
-			 "TYPE:%u [%u,%u:%ux%u] " format, (cmd)->type,	\
+			 "TYPE:%u [%u;%u:%ux%u] " format, (cmd)->type,	\
 			 (unsigned)(cmd)->rect.origin.x,		\
 			 (unsigned)(cmd)->rect.origin.y,		\
 			 (unsigned)(cmd)->rect.size.width,		\
