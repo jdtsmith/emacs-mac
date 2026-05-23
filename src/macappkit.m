@@ -2832,7 +2832,7 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
     mo->dirty_rect_count = 0; /* Reset for reuse */
     FRAME_MAC_NEEDS_PRESENTATION_P (f) = false;
     [emacsView setNeedsDisplay:YES];
-    [emacsView displayIfNeeded];
+    [emacsView displayIfNeeded]; /* results in updateLayer getting called */
     MAC_SIGNPOST_GEN_END (gui, Present);
     [self releaseDrawLock];
     return YES;
@@ -2890,6 +2890,19 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
 {
   os_unfair_lock_unlock(&drawLock);
 }
+
+- (void)acquireDrawLockAndSurface
+{
+    [self acquireDrawLock];
+    [[emacsView backing] lockBackSurface];
+}
+
+- (void)releaseDrawLockAndSurface
+{
+    [[emacsView backing] unlockBackSurface];
+    [self releaseDrawLock];
+}
+
 
 /* Arena locks are used to avoid two threads accidentally attempting to
    acquire the same arena at the same time, which could lead to arena
@@ -5763,6 +5776,7 @@ mac_iosurface_create (size_t width, size_t height)
   frontSurface = surfaces[1];
   if (frontSurface)
     IOSurfaceUnlock (frontSurface, 0, NULL);
+  [self unlockBackSurface];
   [self updateBounds];
   return self;
 }
@@ -5772,26 +5786,29 @@ mac_iosurface_create (size_t width, size_t height)
   return backBitmap;
 }
 
-- (void)swapResourcesAndStartCopy
+/* Lock surface for drawing */
+
+- (void)lockBackSurface
 {
-  MAC_SIGNPOST_PTR_BEGIN (frontSurface, gui, SurfSync, "Dest: %p", frontSurface);
-  CGContextRef bitmap = backBitmap;
-  backBitmap = frontBitmap;
-  frontBitmap = bitmap;
+  IOSurfaceLock(backSurface, 0, NULL);
+}
 
+/* Unlock back surface after drawing */
+
+- (void)unlockBackSurface
+{
   IOSurfaceUnlock (backSurface, 0, NULL);
+}
 
-  IOSurfaceRef surface = backSurface;
-  backSurface = frontSurface;
-  frontSurface = surface;
-
-  IOSurfaceLock (frontSurface, kIOSurfaceLockReadOnly, NULL);
-  IOSurfaceLock (backSurface, 0, NULL);
+- (void)syncDirtyRectsBackToFront
+{
+  IOSurfaceLock (backSurface, kIOSurfaceLockReadOnly, NULL);
+  IOSurfaceLock (frontSurface, 0, NULL);
 
   unsigned char *backBase = IOSurfaceGetBaseAddress (backSurface);
   unsigned char *frontBase = IOSurfaceGetBaseAddress (frontSurface);
   size_t bytesPerRow = IOSurfaceGetBytesPerRow (backSurface);
-  size_t surfaceWidth = IOSurfaceGetWidth (backSurface); /* Add this back! */
+  size_t surfaceWidth = IOSurfaceGetWidth (backSurface);
 
   vImage_Buffer src, dest;
   src.rowBytes = dest.rowBytes = bytesPerRow;
@@ -5809,22 +5826,30 @@ mac_iosurface_create (size_t width, size_t height)
 
       if (surfaceWidth - src.width < surfaceWidth / 16)
 	{
-	  memcpy (backBase + offset, frontBase + offset,
+	  /* <surfaceWidth>  width of the full surface
+	         <width>     width of the current dirty rect (SF)
+             +------------+
+             |   S-----+XX|  As an optimization, copy contiguous
+	     |XXX|.....|XX|  pixels from S->F as a single block.
+	     |XXX|.....|XX|  X pixels are not part of the dirty
+	     |XXX+-----F  |  region, but are harmless to copy.
+	     +------------+ */
+	  memcpy (frontBase + offset, backBase + offset,
 		  ((src.height - 1) * bytesPerRow
 		   + src.width * sizeof (Pixel_8888)));
 	}
       else
 	{
-	  src.data = frontBase + offset;
+	  src.data = backBase + offset;
 	  dest.width = src.width;
 	  dest.height = src.height;
-	  dest.data = backBase + offset;
+	  dest.data = frontBase + offset;
 	  mac_vimage_copy_8888 (&src, &dest, kvImageDoNotTile);
 	}
     }
 
-  IOSurfaceUnlock (frontSurface, kIOSurfaceLockReadOnly, NULL);
-  MAC_SIGNPOST_PTR_END(backSurface, gui, SurfSync, "Copied: %d", dirtyRectCount);
+  IOSurfaceUnlock (backSurface, kIOSurfaceLockReadOnly, NULL);
+  IOSurfaceUnlock (frontSurface, 0, NULL);
 }
 
 - (void)dealloc
@@ -5883,8 +5908,13 @@ mac_iosurface_create (size_t width, size_t height)
 {
   if (frontSurface)
     {
-      [self swapResourcesAndStartCopy];
-      layer.contents = (__bridge id) frontSurface; /* The new front! */
+      MAC_SIGNPOST_GEN_BEGIN (gui, SyncContents, "Dest: %p", frontSurface);
+      /* Temporarily detach front surface and bring it up to date.
+	 This is the ONLY place frontSurface is ever modified. */
+      layer.contents = nil;
+      [self syncDirtyRectsBackToFront];
+      layer.contents = (__bridge id) frontSurface; /* Reattach reference surface */
+      MAC_SIGNPOST_GEN_END(gui, SyncContents, "Copied: %d", dirtyRectCount);
     }
   else
     layer.contents =
@@ -6059,7 +6089,7 @@ static BOOL emacsViewUpdateLayerDisabled;
 	{
 	  /* Copy contents of old bitmap to top-left of new backing */
 	  CGSize oldSize = oldBacking.size;
-	  CGContextRef newCtx = [backing getBackingBitmap];    
+	  CGContextRef newCtx = [backing getBackingBitmap];
 	  CGRect destRect = CGRectMake(0, 0, oldSize.width, oldSize.height);
 	  CGContextSaveGState(newCtx);
 
@@ -7380,7 +7410,7 @@ mac_draw_session_end (struct frame *f)
   EmacsFrameController *frameController = FRAME_CONTROLLER (f);
   void (^block) (void) = ^{
     MAC_SIGNPOST_GEN_BEGIN (gui, AcqDraw, "PLAYBACK");
-    [frameController acquireDrawLock];
+    [frameController acquireDrawLockAndSurface];
     MAC_SIGNPOST_GEN_END (gui, AcqDraw);
 
     /* Ensure backing bitmap exists and is correctly sized. */
@@ -7397,7 +7427,7 @@ mac_draw_session_end (struct frame *f)
 	FRAME_MAC_NEEDS_PRESENTATION_P (f) = true;
 	mac_note_pending_content (frameController);
       }
-    [frameController releaseDrawLock];
+    [frameController releaseDrawLockAndSurface];
 #if DRAWING_USE_GCD
     dispatch_semaphore_signal (mo->arena_sem); /* release the arena */
 #endif

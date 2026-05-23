@@ -482,16 +482,19 @@ typedef NSString * NSWindowTabbingIdentifier;
 @interface EmacsBacking : NSObject
 {
   /* Backing bitmaps used in application-side double buffering.  If
-     backSurface below is NULL, then frontBitmap should also be NULL,
-     and CALayer contents is a CGImage generated from backBitmap.
-     Otherwise, CALayer contents is of IOSurface and updated by
-     swapping.  */
+     backSurface below is NULL (which it shouldn't be), then frontBitmap
+     should also be NULL, and CALayer contents is a CGImage generated
+     from backBitmap.  Otherwise, CALayer contents is of IOSurface and
+     updated by swapping.  */
   CGContextRef backBitmap, frontBitmap;
 
   /* Hardware-accelerated buffer data for backing bitmap and CALayer
-     contents.  NULL for backSurface means the backing bitmap uses the
-     ordinary main memory as its data, and frontSurface should also be
-     NULL in this case.  */
+     contents.  NULL for backSurface means the backing bitmap uses
+     ordinary main memory; frontSurface should also be NULL in this
+     case.  The backSurface acts as the consistent "scratch" buffer
+     which we always draw into (via backBitmap).  Changed dirtyRects are
+     then copied from backSurface to frontSurface, which is our
+     reference, display surface. */
   IOSurfaceRef backSurface, frontSurface;
 
   CGFloat scaleFactor;
@@ -512,6 +515,8 @@ typedef NSString * NSWindowTabbingIdentifier;
 - (void)updateBounds;
 - (void)setDirtyRects:(const CGRect *)rects count:(int)count;
 - (CGContextRef)getBackingBitmap;
+- (void)lockBackSurface;
+- (void)unlockBackSurface;
 @end
 
 
