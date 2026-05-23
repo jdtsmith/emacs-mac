@@ -347,18 +347,18 @@ mac_record_erase_bg (struct frame *f, GC gc, CGRect rect,
 }
 
 /* Accumulate a new dirty rect into up to MAC_N_DIRTY_RECTS slots,
-   merging when it wastes no more than 35% area.  If all slots are
-   filled, force merge with the least wasteful rect.  Dirty rects can be
-   accumulated from multiple playbacks, and are reset in
-   mac_force_flush. */
+   merging into the best option if it wastes no more than 35% area (or
+   if we are out of free slots).  Dirty rects can be accumulated across
+   multiple arena playbacks, and are reset during presentation. */
 void
 mac_accumulate_dirty (struct mac_output *mo, CGRect rect)
 {
   if (CGRectIsEmpty(rect))
     return;
 
-  int best_idx = 0;
-  CGFloat min_waste = CGFLOAT_MAX;
+  int best_idx = -1;
+  CGFloat best_waste_ratio = CGFLOAT_MAX;
+
   for (int i = 0; i < mo->dirty_rect_count; i++)
     {
       CGRect merged = CGRectUnion (mo->dirty_rects[i], rect);
@@ -366,28 +366,20 @@ mac_accumulate_dirty (struct mac_output *mo, CGRect rect)
       CGFloat sum_areas = (mo->dirty_rects[i].size.width *
 			   mo->dirty_rects[i].size.height
 			   + rect.size.width * rect.size.height);
-      
-      if (merged_area < sum_areas * 1.35)
+      CGFloat ratio = merged_area / sum_areas;
+      if (ratio < best_waste_ratio)
         {
-          mo->dirty_rects[i] = merged;
-          return;
-	}
-
-      if (mo->dirty_rect_count == MAC_N_DIRTY_RECTS) /* Full */
-	{
-	  CGFloat waste = merged_area - sum_areas;
-	  if (waste < min_waste)
-	    {
-	      min_waste = waste;
-	      best_idx = i;
-	    }
-	}
+          best_waste_ratio = ratio;
+          best_idx = i;
+        }
     }
 
-  if (mo->dirty_rect_count < MAC_N_DIRTY_RECTS)
-    mo->dirty_rects[mo->dirty_rect_count++] = rect;
-  else /* Forcibly merge */
+  if (best_idx >= 0 &&
+      (best_waste_ratio < 1.35 || mo->dirty_rect_count == MAC_N_DIRTY_RECTS))
+    /* Merge if we have a good candidate, or are out of room */
     mo->dirty_rects[best_idx] = CGRectUnion(mo->dirty_rects[best_idx], rect);
+  else
+    mo->dirty_rects[mo->dirty_rect_count++] = rect;
 }
 
 typedef struct mac_arena_state
