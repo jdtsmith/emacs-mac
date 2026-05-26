@@ -154,6 +154,7 @@ static bool xbm_read_bitmap_data (struct frame *, char *, char *, int *, int *,
 static Lisp_Object mac_find_2x_image_file (Lisp_Object, int *);
 static Lisp_Object mac_preprocess_image_for_2x_file (struct frame *, struct image *,
 						     Lisp_Object, int *);
+static bool mac_can_use_native_image_api (Lisp_Object type);
 #endif /* HAVE_MACGUI */
 
 #ifdef HAVE_NS
@@ -3334,6 +3335,10 @@ image_set_transform (struct frame *f, struct image *img)
   /* Image I/O images already have the correct transform.  */
   Lisp_Object type = image_spec_value (img->spec, QCtype, NULL);
   if (EQ (type, Qimagemagick) || EQ (type, Qimage_io)
+#  ifdef HAVE_NATIVE_IMAGE_API
+      /* Image I/O is used as backup for many types if unavailable */
+      || mac_can_use_native_image_api (type)
+#  endif
 #  ifndef HAVE_RSVG
       /* Likewise for SVG via WebKit.  */
       || EQ (type, Qsvg)
