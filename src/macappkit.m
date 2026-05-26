@@ -1289,6 +1289,12 @@ static void mac_update_dragged_types_frame (struct frame *,
 	   name:NSWorkspaceWillSleepNotification
 	 object:nil];
 
+  [[[NSWorkspace sharedWorkspace] notificationCenter]
+    addObserver:self
+       selector:@selector(workspaceDidWake:)
+           name:NSWorkspaceDidWakeNotification
+         object:nil];
+
   [NSApp registerUserInterfaceItemSearchHandler:self];
   Vmac_help_topics = Qnil;
 
@@ -1370,6 +1376,13 @@ static void mac_update_dragged_types_frame (struct frame *,
 
 - (void)willSleep:(NSNotification *)notification {
   mac_flush_open_arenas ();
+}
+
+- (void)workspaceDidWake:(NSNotification *)notification
+{
+  dispatch_async (dispatch_get_main_queue (), ^{
+    [[EmacsDisplayLinkPresenter shared] removeInvalidDisplayLinks];
+  });
 }
 
 - (void)screenParametersDidChange:(NSNotification *)notification {
@@ -2781,10 +2794,10 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
    display the view even if the FRAME does not require presentation.
 
    If WAIT is YES and DEADLINE>0 is a valid time in the future, wait for
-   the lock, but only up to that deadline.  Must be called from the GUI
-   thread.
+   the lock, but only up to that deadline.
 
-   Returns YES if the draw lock is acquired. */
+   Must be called from the GUI thread.  Returns YES if the draw lock was
+   acquired. */
 
 - (BOOL)presentIfReadyWithWait:(BOOL)wait deadline:(CFTimeInterval)deadline
 {
@@ -16680,17 +16693,19 @@ call.  GUI calls this when it wakes for presenting. */
 - (void)removeInvalidDisplayLinks
 {
   eassert (pthread_main_np ());
-
-  NSArray *currentScreens = [NSScreen screens];
-
   [self acquireLinksLock];
-  NSArray *trackedScreens = [[displayLinks keyEnumerator] allObjects];
-  for (NSScreen *screen in trackedScreens)
+  for (NSScreen *screen in [[displayLinks keyEnumerator] allObjects])
     {
-      if (![currentScreens containsObject:screen])
-	  [displayLinks removeObjectForKey:screen];
+      NSNumber *displayID = screen.deviceDescription[@"NSScreenNumber"];
+      if (!displayID || !CGDisplayIsOnline ([displayID unsignedIntValue]))
+        {
+	  EmacsDisplayLinkState *state = [displayLinks objectForKey:screen];
+	  if (state && state.link)
+	    [state.link invalidate];
+          [displayLinks removeObjectForKey:screen];
+        }
     }
-   [self releaseLinksLock];
+  [self releaseLinksLock];
 }
 
 @end
