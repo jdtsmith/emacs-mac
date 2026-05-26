@@ -5726,7 +5726,7 @@ mac_iosurface_create (size_t width, size_t height)
     @{(__bridge NSString *) kIOSurfaceWidth : @(width),
       (__bridge NSString *) kIOSurfaceHeight : @(height),
       (__bridge NSString *) kIOSurfaceBytesPerElement : @4,
-      (__bridge NSString *) kIOSurfacePixelFormat : @((uint32_t) 'BGRA')};
+      (__bridge NSString *) kIOSurfacePixelFormat : @(kCVPixelFormatType_32BGRA)};
 
   return IOSurfaceCreate ((__bridge CFDictionaryRef) properties);
 }
@@ -5769,8 +5769,10 @@ mac_iosurface_create (size_t width, size_t height)
 					  (kCGImageAlphaPremultipliedFirst
 					   | kCGBitmapByteOrder32Host));
       CGContextTranslateCTM (bitmaps[i], 0, height);
-      CGContextScaleCTM (bitmaps[i], scaleFactor, - scaleFactor);
-      if (!surfaces[i])
+      CGContextScaleCTM (bitmaps[i], scaleFactor, -scaleFactor);
+      if (surfaces[i])
+	IOSurfaceUnlock (surfaces[i], 0, NULL);
+      else
 	break;
     }
   backBitmap = bitmaps[0];
@@ -5827,7 +5829,7 @@ mac_iosurface_create (size_t width, size_t height)
       src.width = CGRectGetWidth (rect) * scaleFactor;
       src.height = CGRectGetHeight (rect) * scaleFactor;
 
-      if (surfaceWidth - src.width < surfaceWidth / 16)
+      if (surfaceWidth - src.width < surfaceWidth / 3)
 	{
 	  /* <surfaceWidth>  width of the full surface
 	         <width>     width of the current dirty rect (SF)

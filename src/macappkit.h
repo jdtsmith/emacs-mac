@@ -489,12 +489,13 @@ typedef NSString * NSWindowTabbingIdentifier;
   CGContextRef backBitmap, frontBitmap;
 
   /* Hardware-accelerated buffer data for backing bitmap and CALayer
-     contents.  NULL for backSurface means the backing bitmap uses
-     ordinary main memory; frontSurface should also be NULL in this
-     case.  The backSurface acts as the consistent "scratch" buffer
-     which we always draw into (via backBitmap).  Changed dirtyRects are
-     then copied from backSurface to frontSurface, which is our
-     reference, display surface. */
+     contents.  The backSurface acts as the consistent "scratch" buffer
+     for all drawing (via backBitmap).  It is never shared with the
+     render server.  On deisplay, the changed dirtyRects are copied from
+     backSurface to frontSurface, which serves as the reference, display
+     surface, and is the only surface the render server sees.  NULL for
+     backSurface means the backing bitmap uses ordinary main memory;
+     frontSurface should also be NULL in this case. */
   IOSurfaceRef backSurface, frontSurface;
 
   CGFloat scaleFactor;
