@@ -6072,14 +6072,6 @@ static BOOL emacsViewUpdateLayerDisabled;
   struct mac_output *mo = FRAME_OUTPUT_DATA (f);
 
   mo->pending_size = self.bounds.size;
-  NSColorSpace *cs = self.window.colorSpace;
-  CGColorSpaceRef cgcs = cs ? cs.CGColorSpace : mac_cg_color_space_rgb;
-  if (mo->pending_color_space != cgcs)
-    {
-      CGColorSpaceRetain (cgcs);
-      CGColorSpaceRelease (mo->pending_color_space);
-      mo->pending_color_space = cgcs;
-    }
   FRAME_BACKING_NEEDS_SIZE_CHECK_P (f) = true;
 }
 
@@ -6102,7 +6094,7 @@ static BOOL emacsViewUpdateLayerDisabled;
 
   EmacsBacking *oldBacking = backing;
   backing = [[EmacsBacking alloc] initWithSize:size
-				    colorSpace:mo->pending_color_space
+				    colorSpace:mac_cg_color_space_rgb
 				   scaleFactor:mo->backing_scale_factor];
   if (oldBacking)
     {

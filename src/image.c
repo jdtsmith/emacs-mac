@@ -422,72 +422,129 @@ mac_data_provider_release_data (void *info, const void *data, size_t size)
   xfree ((void *)data);
 }
 
+/* This is the C-equivalent of mac_iosurface_create; keep in sync.  HDR
+   image values clamp at 1.0 in 8-bit mode.  If 16-bit HDR rendering is
+   added later, switch IOSurface format to kCVPixelFormatType_64RGBAHalf
+   and bitmap flags to: kCGImageAlphaPremultipliedLast |
+   kCGBitmapByteOrder16Host | kCGBitmapFloatComponents. */
+
+static IOSurfaceRef
+mac_image_iosurface_create (size_t width, size_t height)
+{
+  uint32_t pixel_format = kCVPixelFormatType_32BGRA;
+  uint32_t bytes_per_element = 4;
+
+  CFNumberRef cf_width   = CFNumberCreate (NULL, kCFNumberSInt64Type, &width);
+  CFNumberRef cf_height  = CFNumberCreate (NULL, kCFNumberSInt64Type, &height);
+  CFNumberRef cf_bpe     = CFNumberCreate (NULL, kCFNumberSInt32Type, &bytes_per_element);
+  CFNumberRef cf_fmt     = CFNumberCreate (NULL, kCFNumberSInt32Type, &pixel_format);
+
+  const void *keys[] = {
+    kIOSurfaceWidth, kIOSurfaceHeight,
+    kIOSurfaceBytesPerElement, kIOSurfacePixelFormat
+  };
+  const void *values[] = { cf_width, cf_height, cf_bpe, cf_fmt };
+
+  CFDictionaryRef props =
+    CFDictionaryCreate (NULL, keys, values, 4,
+                        &kCFTypeDictionaryKeyCallBacks,
+                        &kCFTypeDictionaryValueCallBacks);
+
+  IOSurfaceRef surface = IOSurfaceCreate (props);
+
+  CFRelease (cf_width); CFRelease (cf_height);
+  CFRelease (cf_bpe);   CFRelease (cf_fmt);
+  CFRelease (props);
+
+  return surface;
+}
+
+static void
+mac_data_provider_release_surface (void *info, const void *data, size_t size)
+{
+  CFRelease( (IOSurfaceRef) info);
+}
+
 static CGImageRef
 mac_create_cg_image_from_image (struct frame *f, struct image *img)
 {
   Emacs_Pix_Container pimg = img->pixmap;
-  CGDataProviderRef provider, mask_provider;
-  CGImageRef main_img, mask_img = NULL, result;
-  const CGFloat decodeInverted[] = { 1.0, 0.0 };
+  size_t width  = pimg->width;
+  size_t height = pimg->height;
   
-  block_input ();
-  provider = CGDataProviderCreateWithData (NULL, pimg->data,
-					   pimg->bytes_per_line * pimg->height,
-					   mac_data_provider_release_data);  
+  IOSurfaceRef surface = mac_image_iosurface_create (width, height);
+  if (!surface)
+    return NULL;
+
+  IOSurfaceLock (surface, 0, NULL);
+  void *base = IOSurfaceGetBaseAddress (surface);
+  size_t bpr = IOSurfaceGetBytesPerRow (surface);
+
+  CGContextRef ctx =
+    CGBitmapContextCreate (base, width, height, 8, bpr,
+                           mac_cg_color_space_rgb,
+                           kCGImageAlphaPremultipliedFirst |
+                           kCGBitmapByteOrder32Host);
+  if (!ctx)
+    {
+      IOSurfaceUnlock (surface, 0, NULL);
+      CFRelease (surface);
+      return NULL;
+    }
+
+  CGDataProviderRef provider =
+    CGDataProviderCreateWithData (NULL, pimg->data,
+                                  pimg->bytes_per_line * height,
+                                  mac_data_provider_release_data);
   pimg->data = NULL;
 
-  main_img = CGImageCreate (pimg->width, pimg->height, 
-			    8, pimg->bits_per_pixel, /* Dynamic bit depth */
-			    pimg->bytes_per_line, mac_cg_color_space_rgb,
-			    kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Host,
-			    provider, NULL, 0, kCGRenderingIntentDefault);
+  CGImageRef main_img =
+    CGImageCreate (width, height, 8, pimg->bits_per_pixel,
+                   pimg->bytes_per_line, mac_cg_color_space_rgb,
+                   kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Host,
+                   provider, NULL, false, kCGRenderingIntentDefault);
   CGDataProviderRelease (provider);
+
+  CGImageRef source_img = main_img;
 
   if (img->mask)
     {
-      mask_provider =
-	CGDataProviderCreateWithData (NULL, img->mask->data,
-				      img->mask->bytes_per_line * img->mask->height,
-				      mac_data_provider_release_data);
+      const CGFloat decode[] = { 1.0, 0.0 }; /* alpha is reversed! */
+      int bpp = img->mask->bits_per_pixel;
+      CGDataProviderRef mask_provider =
+        CGDataProviderCreateWithData (NULL, img->mask->data,
+                                      img->mask->bytes_per_line * height,
+                                      mac_data_provider_release_data);
       img->mask->data = NULL;
 
-      int bpp = img->mask->bits_per_pixel;
-      mask_img = CGImageMaskCreate (img->mask->width, img->mask->height,
-				    (bpp == 32) ? 8 : bpp, bpp,
-				    img->mask->bytes_per_line, mask_provider,
-				    decodeInverted, false);
-
-      result = CGImageCreateWithMask (main_img, mask_img);
-      CGImageRelease (main_img);
-      CGImageRelease (mask_img);
+      CGImageRef mask_img =
+        CGImageMaskCreate (img->mask->width, img->mask->height,
+                           (bpp == 32) ? 8 : bpp, bpp,
+                           img->mask->bytes_per_line,
+                           mask_provider, decode, false);
       CGDataProviderRelease (mask_provider);
-    }
-  else
-    {
-      result = main_img;
+
+      source_img = CGImageCreateWithMask (main_img, mask_img);
+      CGImageRelease (mask_img);
+      CGImageRelease (main_img);
     }
 
-  /* pre-draw into a bitmap of the desired colorspace, etc. */
-  if (result)
-    {
-      CGContextRef bitmap_context =
-	CGBitmapContextCreate (NULL, pimg->width, pimg->height,
-			       8, 0, /* system picks bytes per row */
-			       mac_cg_color_space_rgb,
-			       kCGImageAlphaPremultipliedFirst |
-			       kCGBitmapByteOrder32Host);
-      if (bitmap_context)
-        {
-          CGRect rect = CGRectMake (0, 0, pimg->width, pimg->height);
-          CGContextDrawImage (bitmap_context, rect, result);
-	  CGImageRelease (result);
-          result = CGBitmapContextCreateImage (bitmap_context);
-          CGContextRelease (bitmap_context);
-        }
-    }
+  CGContextDrawImage (ctx, CGRectMake (0, 0, width, height), source_img);
+  CGImageRelease (source_img);
+  CGContextRelease (ctx);
 
-  unblock_input ();
-  return result;
+  provider =
+    CGDataProviderCreateWithData (surface, base, bpr * height,
+				  mac_data_provider_release_surface);
+  source_img =
+    CGImageCreate (width, height, 8, 32, bpr, mac_cg_color_space_rgb,
+		   kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host,
+		   provider, NULL, false, kCGRenderingIntentDefault);
+
+  CGDataProviderRelease (provider);
+  IOSurfaceUnlock (surface, 0, NULL);
+
+  return source_img;
 }
 
 #endif /* HAVE_MACGUI */

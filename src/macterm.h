@@ -289,9 +289,8 @@ struct mac_output
   /* Whether the frame needs presentation for window display */
   bool_bf needs_presentation : 1;
 
-  /* Handling backing size/color-space changes */
+  /* Handling backing size changes */
   bool_bf backing_needs_size_check : 1;
-  CGColorSpaceRef pending_color_space;
   CGSize pending_size;
 
   /* Relief GCs, colors etc.  */
