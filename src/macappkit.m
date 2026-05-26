@@ -5735,6 +5735,9 @@ mac_iosurface_create (size_t width, size_t height)
 		  colorSpace:(CGColorSpaceRef)color_space
 		 scaleFactor:(CGFloat)scale
 {
+ if (size.width <= 0 || size.height <= 0)
+    return nil;
+
   self = [super init];
   if (self == nil)
     return nil;
