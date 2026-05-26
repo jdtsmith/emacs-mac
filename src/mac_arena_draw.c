@@ -347,8 +347,8 @@ mac_record_erase_bg (struct frame *f, GC gc, CGRect rect,
 }
 
 /* Accumulate a new dirty rect into up to MAC_N_DIRTY_RECTS slots,
-   merging into the best option if it wastes no more than 35% area (or
-   if we are out of free slots).  Dirty rects can be accumulated across
+   merging into the best option if it wastes no more than 60% area, or
+   if we are out of free slots.  Dirty rects can be accumulated across
    multiple arena playbacks, and are reset during presentation. */
 void
 mac_accumulate_dirty (struct mac_output *mo, CGRect rect)
@@ -358,8 +358,9 @@ mac_accumulate_dirty (struct mac_output *mo, CGRect rect)
 
   int best_idx = -1;
   CGFloat best_waste_ratio = CGFLOAT_MAX;
+  CGRect best_merged;
 
-  for (int i = 0; i < mo->dirty_rect_count; i++)
+  for (int i = mo->dirty_rect_count - 1; i >= 0 ; i--)
     {
       CGRect merged = CGRectUnion (mo->dirty_rects[i], rect);
       CGFloat merged_area = merged.size.width * merged.size.height;
@@ -367,17 +368,23 @@ mac_accumulate_dirty (struct mac_output *mo, CGRect rect)
 			   mo->dirty_rects[i].size.height
 			   + rect.size.width * rect.size.height);
       CGFloat ratio = merged_area / sum_areas;
+      if (ratio <= 1.) /* Perfectly abutting/overlapping */
+	{
+	  mo->dirty_rects[i] = merged;
+	  return;
+	}
       if (ratio < best_waste_ratio)
         {
-          best_waste_ratio = ratio;
           best_idx = i;
+	  best_merged = merged;
+          best_waste_ratio = ratio;
         }
     }
 
   if (best_idx >= 0 &&
-      (best_waste_ratio < 1.35 || mo->dirty_rect_count == MAC_N_DIRTY_RECTS))
-    /* Merge if we have a good candidate, or are out of room */
-    mo->dirty_rects[best_idx] = CGRectUnion(mo->dirty_rects[best_idx], rect);
+      (best_waste_ratio <= 1.4 || mo->dirty_rect_count == MAC_N_DIRTY_RECTS))
+    /* Use best merge if we have a good candidate or are out of room */
+    mo->dirty_rects[best_idx] = best_merged;
   else
     mo->dirty_rects[mo->dirty_rect_count++] = rect;
 }

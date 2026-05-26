@@ -5879,29 +5879,34 @@ mac_iosurface_create (size_t width, size_t height)
 }
 
 /* Set the bounds-clipped dirty rects */
+#define MAC_DIRTY_FRACTION_LIMIT 0.9
 
 - (void)setDirtyRects:(const CGRect *)rects count:(int)count
 {
   size_t d_cnt = 0;
-#ifdef MAC_DEBUG_SIGNPOST
   CGSize size = self.size;
   CGFloat area = size.width * size.height;
   CGFloat area_frac = 0.0;
-#endif
   for (size_t i = 0; i < count; i++)
     {
       CGRect rect = CGRectIntersection (rects[i], backBounds);
       if (CGRectIsNull (rect) || CGRectIsEmpty (rect))
 	continue;
-#ifdef MAC_DEBUG_SIGNPOST
       area_frac += (rect.size.width * rect.size.height) / area;
-#endif
+      if (area_frac >= MAC_DIRTY_FRACTION_LIMIT) break;
       dirtyRects[d_cnt++] = rect;
     }
-  dirtyRectCount = d_cnt;
 
-  MAC_SIGNPOST_EVENT (gui, DirtyRect, "Dirty COUNT: %d" " AREA-FRAC: %.2f%%",
-		      dirtyRectCount, (float) area_frac * 100.);
+  if (area_frac >= MAC_DIRTY_FRACTION_LIMIT)  /* Just copy the whole thing */
+    {
+      dirtyRectCount = 1;
+      dirtyRects[0] = backBounds;
+    }
+  else
+    dirtyRectCount = d_cnt;
+
+  MAC_SIGNPOST_EVENT (gui, DirtyRect, "Dirty COUNT: %d, AREA-FRAC: %f",
+		      dirtyRectCount, (float)area_frac * 100.0);
 }
 
 - (void)setContentsForLayer:(CALayer *)layer

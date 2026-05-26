@@ -35,7 +35,7 @@ typedef struct mac_arena {
 #define MAC_ARENA_DATA_ALLOC_TYPE (1 << 1)
 
 /* Maximum number of dirty rects to accumulate prior to frame flush */
-#define MAC_N_DIRTY_RECTS 16
+#define MAC_N_DIRTY_RECTS 8
 
 /* Retain a CFTypeRef into a command's ref slot */
 #define MAC_ARENA_RETAIN(slot, ref)                                     \
