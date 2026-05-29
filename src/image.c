@@ -5303,6 +5303,26 @@ image_load_image_io (struct frame *f, struct image *img, CFStringRef type)
 
 		  if (cg_image)
 		    {
+		      /* If frame is on a high-DPI display, check the
+			 DPI in the metadata and dedicate 2x if high. */
+		      if (img->target_backing_scale == 0  &&
+			  FRAME_BACKING_SCALE_FACTOR (f) == 2)
+			{
+			  CGFloat dpi_width = 72.0, dpi_height = 72.0;
+			  CFNumberRef dpi_width_ref =
+			    CFDictionaryGetValue (props, kCGImagePropertyDPIWidth);
+			  CFNumberRef dpi_height_ref =
+			    CFDictionaryGetValue (props, kCGImagePropertyDPIHeight);
+			  if (dpi_width_ref && dpi_height_ref)
+			    {
+			      CFNumberGetValue (dpi_width_ref,
+						kCFNumberDoubleType, &dpi_width);
+			      CFNumberGetValue (dpi_height_ref,
+						kCFNumberDoubleType, &dpi_height);
+			      if (fmax(dpi_width, dpi_height) > 115.0)
+				img->target_backing_scale = 2;
+			    }
+			}
 		      width = CGImageGetWidth (cg_image);
 		      height = CGImageGetHeight (cg_image);
 		      if (img->target_backing_scale == 2)
