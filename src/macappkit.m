@@ -13241,6 +13241,15 @@ is_action_selector (SEL selector)
 {
   NSString *name = NSStringFromSelector (selector);
 
+  /* This runs on the GUI thread, including from synchronous
+     accessibility callbacks (e.g. menu inspection via
+     -respondsToSelector:).  Walking the keymaps below touches Lisp
+     data that the Lisp thread may be altering, so bail out during the
+     windows when such access is unsafe.  */
+  if ((poll_suppress_count == 0 && !NILP (Vinhibit_quit))
+      || gc_in_progress)
+    return NO;
+
   /* The selector name is of the form `ACTIONNAME:' ?  */
   if (NSMaxRange ([name rangeOfString:@":"]) == [name length])
     {
