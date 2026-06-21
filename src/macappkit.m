@@ -989,7 +989,29 @@ mac_bring_current_process_to_front (bool front_window_only_p)
     }
   if (!front_window_only_p)
     options |= NSApplicationActivateAllWindows;
-  [NSRunningApplication.currentApplication activateWithOptions:options];
+
+#if __clang_major__ >= 9
+  if (@available (macOS 14.0, *))
+#else
+  if ([NSApp respondsToSelector:@selector(activate:)])
+#endif
+    {
+      NSRunningApplication *current = NSRunningApplication.currentApplication;
+      NSRunningApplication *frontmost
+	= NSWorkspace.sharedWorkspace.frontmostApplication;
+
+      /* On macOS 14 and later a process cannot activate itself while
+	 another app is frontmost unless that app yields activation.  When
+	 the Emacs daemon services emacsclient the frontmost app is usually
+	 the invoking terminal, so activate from it to make the request
+	 cooperative; otherwise the frame is raised but never becomes key.  */
+      if (frontmost && ![frontmost isEqual:current])
+	[current activateFromApplication:frontmost options:options];
+      else
+	[current activateWithOptions:options];
+    }
+  else
+    [NSRunningApplication.currentApplication activateWithOptions:options];
 }
 
 /* Move FILENAME to the trash without using the Finder and return
