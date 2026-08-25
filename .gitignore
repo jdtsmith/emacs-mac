@@ -398,3 +398,9 @@ exec/config.h.in
 exec/config-mips.m4
 exec/configure
 exec/*.s.s
+
+# Agent working files
+.agent-shell/
+
+# Dumped Emacs image produced by the build
+mac/Emacs.app/Contents/MacOS/libexec/
