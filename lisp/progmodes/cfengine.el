@@ -1,6 +1,6 @@
 ;;; cfengine.el --- mode for editing Cfengine files  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Dave Love <fx@gnu.org>
 ;; Maintainer: Ted Zlatanov <tzz@lifelogs.com>
@@ -52,7 +52,7 @@
 ;; the policy, it's a quick way to make it more legible without
 ;; manually reindenting it.  For instance:
 
-;; (global-set-key [(control f4)] 'cfengine3-reformat-json-string)
+;; (keymap-global-set "C-<f4>" 'cfengine3-reformat-json-string)
 
 ;; This is not the same as the mode written by Rolf Ebert
 ;; <ebert@waporo.muc.de>, distributed with cfengine-2.0.5.  It does

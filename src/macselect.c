@@ -116,7 +116,7 @@ mac_own_selection (Lisp_Object selection_name, Lisp_Object selection_value,
 	    }
 
 	  if (!NILP (handler_fn))
-	    value = call3 (handler_fn, selection_name, target_type, tem);
+	    value = calln (handler_fn, selection_name, target_type, tem);
 	  else
 	    value = Qnil;
 
@@ -230,7 +230,7 @@ mac_get_local_selection (Lisp_Object selection_symbol, Lisp_Object target_type,
 	}
 
       if (!NILP (handler_fn))
-	value = call3 (handler_fn,
+	value = calln (handler_fn,
 		       selection_symbol, (local_request ? Qnil : target_type),
 		       tem);
       else

@@ -1,6 +1,6 @@
 ;;; ob-C.el --- Babel Functions for C and Similar Languages -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2010-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric Schulte
 ;;      Thierry Banel
@@ -482,7 +482,6 @@ int get_column_num (int nbcols, const char** header, const char* column)
 (defun org-babel-C-header-to-C (head type)
   "Convert an elisp list of header table into a C or D vector
 specifying a variable with the name of the table."
-  (unless noninteractive (message "%S" type))
   (let ((table (car head))
         (headers (cdr head))
         (typename (pcase type

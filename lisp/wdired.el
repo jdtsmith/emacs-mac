@@ -1,6 +1,6 @@
 ;;; wdired.el --- Rename files editing their names in dired buffers -*- coding: utf-8; lexical-binding: t; -*-
 
-;; Copyright (C) 2004-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
 ;; Author: Juan León Lahoz García <juanleon1@gmail.com>
 ;; Old-Version: 2.0
@@ -69,6 +69,7 @@
 ;;; Code:
 
 (require 'dired)
+(eval-when-compile (require 'cl-lib))
 (autoload 'dired-do-create-files-regexp "dired-aux")
 
 (defgroup wdired nil
@@ -527,7 +528,7 @@ non-nil means return old filename."
     (when files-renamed
       (pcase-let ((`(,errs . ,successful-renames)
                    (wdired-do-renames files-renamed)))
-        (cl-incf errors errs)
+        (incf errors errs)
         ;; Some of the renames may fail -- in that case, don't mark an
         ;; already-existing file with the same name as renamed.
         (pcase-dolist (`(,file . _) wdired--old-marks)

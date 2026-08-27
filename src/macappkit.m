@@ -9503,7 +9503,7 @@ update_frame_tool_bar (struct frame *f)
 		Lisp_Object names = Qnil;
 		if (!NILP (specified_file)
 		    && !NILP (Ffboundp (Qmac_map_system_symbol)))
-		  names = call1 (Qmac_map_system_symbol, specified_file);
+		  names = calln (Qmac_map_system_symbol, specified_file);
 
 		if (CONSP (names))
 		  {
@@ -12085,7 +12085,6 @@ mac_export_frames (Lisp_Object frames, Lisp_Object type)
   NSView *contentView;
   specpdl_ref count = SPECPDL_INDEX ();
 
-  specbind (Qredisplay_dont_pause, Qt);
   redisplay_preserve_echo_area (31);
 
   f = XFRAME (XCAR (frames));

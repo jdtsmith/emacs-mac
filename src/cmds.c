@@ -1,6 +1,6 @@
 /* Simple built-in editing commands.
 
-Copyright (C) 1985, 1993-1998, 2001-2025 Free Software Foundation, Inc.
+Copyright (C) 1985, 1993-1998, 2001-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -255,7 +255,7 @@ because it respects values of `delete-active-region' and `overwrite-mode'.  */)
     }
   else
     {
-      call1 (Qkill_forward_chars, n);
+      calln (Qkill_forward_chars, n);
     }
   return Qnil;
 }
@@ -458,7 +458,7 @@ internal_self_insert (int c, EMACS_INT n)
       ptrdiff_t to;
       if (ckd_add (&to, PT, chars_to_delete))
 	to = PTRDIFF_MAX;
-      replace_range (PT, to, string, 1, 1, 1, 0, false);
+      replace_range (PT, to, string, true, true, false);
       Fforward_char (make_fixnum (n));
     }
   else if (n > 1)

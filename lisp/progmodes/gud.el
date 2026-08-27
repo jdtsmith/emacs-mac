@@ -1,6 +1,6 @@
 ;;; gud.el --- Grand Unified Debugger mode for running GDB and other debuggers  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-1996, 1998, 2000-2025 Free Software Foundation,
+;; Copyright (C) 1992-1996, 1998, 2000-2026 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Eric S. Raymond <esr@thyrsus.com>
@@ -331,20 +331,17 @@ Check it when `gud-running' is t")
       (tool-bar-local-item-from-menu
        (car x) (cdr x) map gud-menu-mode-map))))
 
-(defvar gud-gdb-repeat-map
-  (let ((map (make-sparse-keymap)))
-    (pcase-dolist (`(,key . ,cmd) '(("n" . gud-next)
-                                    ("s" . gud-step)
-                                    ("i" . gud-stepi)
-                                    ("c" . gud-cont)
-                                    ("l" . gud-refresh)
-                                    ("f" . gud-finish)
-                                    ("<" . gud-up)
-                                    (">" . gud-down)))
-      (define-key map key cmd))
-    map)
-  "Keymap to repeat `gud-gdb' stepping instructions \\`C-x C-a C-n n n'.
-Used in `repeat-mode'.")
+(defvar-keymap gud-gdb-repeat-map
+  :doc "Keymap to repeat `gud-gdb' stepping instructions \\`C-x C-a C-n n n'.
+Used in `repeat-mode'."
+  "n" #'gud-next
+  "s" #'gud-step
+  "i" #'gud-stepi
+  "c" #'gud-cont
+  "l" #'gud-refresh
+  "f" #'gud-finish
+  "<" #'gud-up
+  ">" #'gud-down)
 
 (defun gud-set-repeat-map-property (keymap-symbol)
   "Set the `repeat-map' property of relevant gud commands to KEYMAP-SYMBOL.
@@ -449,8 +446,9 @@ we're in the GUD buffer)."
      ,(if key `(define-key gud-global-map ,key #',func))))
 
 ;; Where gud-display-frame should put the debugging arrow; a cons of
-;; (filename . line-number).  This is set by the marker-filter, which scans
-;; the debugger's output for indications of the current program counter.
+;; (filename . line-number) or (list filename line-number column-number).
+;; This is set by the marker-filter, which scans the debugger's output
+;; for indications of the current program counter.
 (defvar gud-last-frame nil)
 
 ;; Used by gud-refresh, which should cause gud-display-frame to redisplay
@@ -586,7 +584,7 @@ required by the caller."
 	  (while var-list
 	    (let* (char (depth 0) (start 0) (var (car var-list))
 			(varnum (car var)) (expr (nth 1 var))
-			(type (if (nth 3 var) (nth 3 var) " "))
+			(type (copy-sequence (or (nth 3 var) " ")))
 			(value (nth 4 var)) (status (nth 5 var))
 			(has-more (nth 6 var)))
 	      (put-text-property
@@ -760,7 +758,11 @@ The option \"--fullname\" must be included in this value."
   :parent minibuffer-local-map
   "C-i" #'comint-dynamic-complete-filename)
 
-(defun gud-query-cmdline (minor-mode &optional init)
+(defun gud-query-cmdline (minor-mode &optional init default-list)
+  "Prompt for a command to run the debugger.
+MINOR-MODE is the name of the debugger to run.  INIT is the initial
+command, before any history is available.  DEFAULT-LIST is a list of
+default commands, accessible via \\[next-history-element]."
   (let* ((hist-sym (gud-symbol 'history nil minor-mode))
 	 (cmd-name (gud-val 'command-name minor-mode)))
     (unless (boundp hist-sym) (set hist-sym nil))
@@ -783,7 +785,8 @@ The option \"--fullname\" must be included in this value."
 			       (setq file f)))
                             file)))))
      gud-minibuffer-local-map nil
-     hist-sym)))
+     hist-sym
+     default-list)))
 
 (defvar gdb-first-prompt t)
 
@@ -922,7 +925,7 @@ CONTEXT is the text before COMMAND on the line."
 	 (while (string-match "\\([^'\\]\\|\\\\'\\)*'" str pos)
 	   (setq count (1+ count)
 		 pos (match-end 0)))
-	 (and (= (mod count 2) 1)
+	 (and (oddp count)
 	      (setq complete-list (list (concat str "'"))))))
   complete-list)
 
@@ -1062,17 +1065,14 @@ SKIP is the number of chars to skip on each line, it defaults to 0."
 
 (defvar gud-sdb-lastfile nil)
 
-(defvar gud-sdb-repeat-map
-  (let ((map (make-sparse-keymap)))
-    (pcase-dolist (`(,key . ,cmd) '(("n" . gud-next)
-                                    ("s" . gud-step)
-                                    ("i" . gud-stepi)
-                                    ("c" . gud-cont)
-                                    ("l" . gud-refresh)))
-      (define-key map key cmd))
-    map)
-  "Keymap to repeat `sdb' stepping instructions \\`C-x C-a C-n n n'.
-Used in `repeat-mode'.")
+(defvar-keymap gud-sdb-repeat-map
+  :doc "Keymap to repeat `sdb' stepping instructions \\`C-x C-a C-n n n'.
+Used in `repeat-mode'."
+  "n" #'gud-next
+  "s" #'gud-step
+  "i" #'gud-stepi
+  "c" #'gud-cont
+  "l" #'gud-refresh)
 
 (defun gud-sdb-marker-filter (string)
   (setq gud-marker-acc
@@ -1267,66 +1267,34 @@ containing the executable being debugged."
 
     output))
 
-;; The dbx in IRIX is a pain.  It doesn't print the file name when
-;; stopping at a breakpoint (but you do get it from the `up' and
-;; `down' commands...).  The only way to extract the information seems
-;; to be with a `file' command, although the current line number is
-;; available in $curline.  Thus we have to look for output which
-;; appears to indicate a breakpoint.  Then we prod the dbx sub-process
-;; to output the information we want with a combination of the
-;; `printf' and `file' commands as a pseudo marker which we can
-;; recognize next time through the marker-filter.  This would be like
-;; the gdb marker but you can't get the file name without a newline...
-;; Note that gud-remove won't work since Irix dbx expects a breakpoint
-;; number rather than a line number etc.  Maybe this could be made to
-;; work by listing all the breakpoints and picking the one(s) with the
-;; correct line number, but life's too short.
-;;   d.love@dl.ac.uk (Dave Love) can be blamed for this
-
 (defvar gud-irix-p nil
   "Non-nil to assume the interface appropriate for IRIX dbx.
 This works in IRIX 4, 5 and 6, but `gud-dbx-use-stopformat-p' provides
 a better solution in 6.1 upwards.")
+(make-obsolete-variable 'gud-irix-p nil "31.1")
 (defvar gud-dbx-use-stopformat-p nil
   "Non-nil to use the dbx feature present at least from Irix 6.1
 whereby $stopformat=1 produces an output format compatible with
 `gud-dbx-marker-filter'.")
-;; [Irix dbx seemed to be a moving target.  The dbx output changed
-;; subtly sometime between OS v4.0.5 and v5.2 so that, for instance,
-;; the output from `up' is no longer spotted by gud (and it's probably
-;; not distinctive enough to try to match it -- use C-<, C->
-;; exclusively) .  For 5.3 and 6.0, the $curline variable changed to
-;; `long long'(why?!), so the printf stuff needed changing.  The line
-;; number was cast to `long' as a compromise between the new `long
-;; long' and the original `int'.  This was reported not to work in 6.2,
-;; so it's changed back to int -- don't make your sources too long.
-;; From Irix6.1 (but not 6.0?) dbx supported an undocumented feature
-;; whereby `set $stopformat=1' reportedly produces output compatible
-;; with `gud-dbx-marker-filter', which we prefer.
+(make-obsolete-variable 'gud-dbx-use-stopformat-p nil "31.1")
 
-(defvar gud-dbx-repeat-map
-  (let ((map (make-sparse-keymap)))
-    (pcase-dolist (`(,key . ,cmd) '(("n" . gud-next)
-                                    ("s" . gud-step)
-                                    ("i" . gud-stepi)
-                                    ("c" . gud-cont)
-                                    ("l" . gud-refresh)
-                                    ("<" . gud-up)
-                                    (">" . gud-down)))
-      (define-key map key cmd))
-    (when (or gud-mips-p
-              gud-irix-p)
-      (define-key map "f" #'gud-finish))
-    map)
-  "Keymap to repeat `dbx' stepping instructions \\`C-x C-a C-n n n'.
-Used in `repeat-mode'.")
+(defvar-keymap gud-dbx-repeat-map
+  :doc "Keymap to repeat `dbx' stepping instructions \\`C-x C-a C-n n n'.
+Used in `repeat-mode'."
+  "n" #'gud-next
+  "s" #'gud-step
+  "i" #'gud-stepi
+  "c" #'gud-cont
+  "l" #'gud-refresh
+  "<" #'gud-up
+  ">" #'gud-down)
 
-;; The process filter is also somewhat
-;; unreliable, sometimes not spotting the markers; I don't know
-;; whether there's anything that can be done about that.]
+(when (or gud-mips-p
+          gud-irix-p)
+  (keymap-set gud-dbx-repeat-map "f" #'gud-finish))
 
-;; this filter is influenced by the xdb one rather than the gdb one
 (defun gud-irixdbx-marker-filter (string)
+  (declare (obsolete nil "31.1"))
   (let (result (case-fold-search nil))
     (if (or (string-match comint-prompt-regexp string)
 	    (string-match ".*\012" string))
@@ -1424,8 +1392,9 @@ and source-file directory for your debugger."
    (gud-mips-p
     (gud-common-init command-line nil 'gud-mipsdbx-marker-filter))
    (gud-irix-p
-    (gud-common-init command-line 'gud-dbx-massage-args
-		     'gud-irixdbx-marker-filter))
+    (with-suppressed-warnings ((obsolete gud-irixdbx-marker-filter))
+      (gud-common-init command-line 'gud-dbx-massage-args
+		       #'gud-irixdbx-marker-filter)))
    (t
     (gud-common-init command-line 'gud-dbx-massage-args
 		     'gud-dbx-marker-filter)))
@@ -1481,20 +1450,17 @@ and source-file directory for your debugger."
 ;; History of argument lists passed to xdb.
 (defvar gud-xdb-history nil)
 
-(defvar gud-xdb-repeat-map
-  (let ((map (make-sparse-keymap)))
-    (pcase-dolist (`(,key . ,cmd) '(("n" . gud-next)
-                                    ("s" . gud-step)
-                                    ("i" . gud-stepi)
-                                    ("c" . gud-cont)
-                                    ("l" . gud-refresh)
-                                    ("f" . gud-finish)
-                                    ("<" . gud-up)
-                                    (">" . gud-down)))
-      (define-key map key cmd))
-    map)
-  "Keymap to repeat `xdb' stepping instructions \\`C-x C-a C-n n n'.
-Used in `repeat-mode'.")
+(defvar-keymap gud-xdb-repeat-map
+  :doc "Keymap to repeat `xdb' stepping instructions \\`C-x C-a C-n n n'.
+Used in `repeat-mode'."
+  "n" #'gud-next
+  "s" #'gud-step
+  "i" #'gud-stepi
+  "c" #'gud-cont
+  "l" #'gud-refresh
+  "f" #'gud-finish
+  "<" #'gud-up
+  ">" #'gud-down)
 
 (defcustom gud-xdb-directories nil
   "A list of directories that xdb should search for source code.
@@ -1573,16 +1539,13 @@ directories if your program contains sources from more than one directory."
 ;; History of argument lists passed to perldb.
 (defvar gud-perldb-history nil)
 
-(defvar gud-perldb-repeat-map
-  (let ((map (make-sparse-keymap)))
-    (pcase-dolist (`(,key . ,cmd) '(("n" . gud-next)
-                                    ("s" . gud-step)
-                                    ("c" . gud-cont)
-                                    ("l" . gud-refresh)))
-      (define-key map key cmd))
-    map)
-  "Keymap to repeat `perldb' stepping instructions \\`C-x C-a C-n n n'.
-Used in `repeat-mode'.")
+(defvar-keymap gud-perldb-repeat-map
+  :doc "Keymap to repeat `perldb' stepping instructions \\`C-x C-a C-n n n'.
+Used in `repeat-mode'."
+  "n" #'gud-next
+  "s" #'gud-step
+  "c" #'gud-cont
+  "l" #'gud-refresh)
 
 (defun gud-perldb-massage-args (_file args)
   "Convert a command line as would be typed normally to run perldb
@@ -1714,8 +1677,13 @@ Noninteractively, COMMAND-LINE should be on the form
 The directory containing the perl program becomes the initial
 working directory and source-file directory for your debugger."
   (interactive
-   (list (gud-query-cmdline 'perldb
-			    (concat (or (buffer-file-name) "-E 0") " "))))
+   (list
+    (gud-query-cmdline
+     'perldb
+     (concat (or (buffer-file-name) "-E 0") " ")
+     (when-let* ((file (buffer-file-name)))
+       (list (concat gud-perldb-command-name " "
+                     (shell-quote-argument file) " "))))))
 
   (gud-common-init command-line 'gud-perldb-massage-args
 		   'gud-perldb-marker-filter)
@@ -1761,19 +1729,16 @@ working directory and source-file directory for your debugger."
 
 (defvar gud-pdb-marker-regexp-start "^> ")
 
-(defvar gud-pdb-repeat-map
-  (let ((map (make-sparse-keymap)))
-    (pcase-dolist (`(,key . ,cmd) '(("n" . gud-next)
-                                    ("s" . gud-step)
-                                    ("c" . gud-cont)
-                                    ("l" . gud-refresh)
-                                    ("f" . gud-finish)
-                                    ("<" . gud-up)
-                                    (">" . gud-down)))
-      (define-key map key cmd))
-    map)
-  "Keymap to repeat `pdb' stepping instructions \\`C-x C-a C-n n n'.
-Used in `repeat-mode'.")
+(defvar-keymap gud-pdb-repeat-map
+  :doc "Keymap to repeat `pdb' stepping instructions \\`C-x C-a C-n n n'.
+Used in `repeat-mode'."
+  "n" #'gud-next
+  "s" #'gud-step
+  "c" #'gud-cont
+  "l" #'gud-refresh
+  "f" #'gud-finish
+  "<" #'gud-up
+  ">" #'gud-down)
 
 ;; There's no guarantee that Emacs will hand the filter the entire
 ;; marker at once; it could be broken up across several strings.  We
@@ -1848,7 +1813,11 @@ If called interactively, the command line will be prompted for.
 The directory containing this file becomes the initial working
 directory and source-file directory for your debugger."
   (interactive
-   (list (gud-query-cmdline 'pdb)))
+   (list (gud-query-cmdline
+          'pdb nil
+          (when-let* ((file (buffer-file-name)))
+            (list (concat gud-pdb-command-name " "
+                          (shell-quote-argument file)))))))
 
   (gud-common-init command-line nil 'gud-pdb-marker-filter)
   (setq-local gud-minor-mode 'pdb)
@@ -1879,18 +1848,15 @@ directory and source-file directory for your debugger."
 
 (defvar gud-guiler-lastfile nil)
 
-(defvar gud-guiler-repeat-map
-  (let ((map (make-sparse-keymap)))
-    (pcase-dolist (`(,key . ,cmd) '(("n" . gud-next)
-                                    ("s" . gud-step)
-                                    ("l" . gud-refresh)
-                                    ("f" . gud-finish)
-                                    ("<" . gud-up)
-                                    (">" . gud-down)))
-      (define-key map key cmd))
-    map)
-  "Keymap to repeat `guiler' stepping instructions \\`C-x C-a C-n n n'.
-Used in `repeat-mode'.")
+(defvar-keymap gud-guiler-repeat-map
+  :doc "Keymap to repeat `guiler' stepping instructions \\`C-x C-a C-n n n'.
+Used in `repeat-mode'."
+  "n" #'gud-next
+  "s" #'gud-step
+  "l" #'gud-refresh
+  "f" #'gud-finish
+  "<" #'gud-up
+  ">" #'gud-down)
 
 (defun gud-guiler-marker-filter (string)
   (setq gud-marker-acc (if gud-marker-acc (concat gud-marker-acc string) string))
@@ -1938,7 +1904,12 @@ This should be an executable on your path, or an absolute file name."
 The directory containing FILE becomes the initial working directory
 and source-file directory for your debugger."
   (interactive
-   (list (gud-query-cmdline 'guiler)))
+   (list
+    (gud-query-cmdline
+     'guiler nil
+     (when-let* ((file (buffer-file-name)))
+       (list (concat gud-guiler-command-name " "
+                     (shell-quote-argument file)))))))
 
   (gud-common-init command-line nil 'gud-guiler-marker-filter)
   (setq-local gud-minor-mode 'guiler)
@@ -2404,20 +2375,17 @@ extension EXTN.  Normally EXTN is given as the regular expression
 ;; Note: Reset to this value every time a prompt is seen
 (defvar gud-jdb-lowest-stack-level 999)
 
-(defvar gud-jdb-repeat-map
-  (let ((map (make-sparse-keymap)))
-    (pcase-dolist (`(,key . ,cmd) '(("n" . gud-next)
-                                    ("s" . gud-step)
-                                    ("i" . gud-stepi)
-                                    ("c" . gud-cont)
-                                    ("f" . gud-finish)
-                                    ("<" . gud-up)
-                                    (">" . gud-down)
-                                    ("l" . gud-refresh)))
-      (define-key map key cmd))
-    map)
-  "Keymap to repeat `jdb' stepping instructions \\`C-x C-a C-n n n'.
-Used in `repeat-mode'.")
+(defvar-keymap gud-jdb-repeat-map
+  :doc "Keymap to repeat `jdb' stepping instructions \\`C-x C-a C-n n n'.
+Used in `repeat-mode'."
+  "n" #'gud-next
+  "s" #'gud-step
+  "i" #'gud-stepi
+  "c" #'gud-cont
+  "f" #'gud-finish
+  "<" #'gud-up
+  ">" #'gud-down
+  "l" #'gud-refresh)
 
 (defun gud-jdb-find-source-using-classpath (p)
   "Find source file corresponding to fully qualified class P.
@@ -2949,11 +2917,21 @@ It is saved for when this flag is not set.")
   "Overlay created for `gud-highlight-current-line'.
 It is nil if not yet present.")
 
+(defun gud-hide-current-line-indicator(destroy-overlay)
+  "Stop displaying arrow and highlighting current line in a source file."
+  ;; Stop displaying an arrow in a source file.
+  (setq gud-overlay-arrow-position nil)
+  ;; And any highlight overlays.
+  (when gud-highlight-current-line-overlay
+    (delete-overlay gud-highlight-current-line-overlay)
+    (if destroy-overlay
+    (setq gud-highlight-current-line-overlay nil))))
+
 (defun gud-sentinel (proc msg)
   (cond ((null (buffer-name (process-buffer proc)))
 	 ;; buffer killed
-	 ;; Stop displaying an arrow in a source file.
-	 (setq gud-overlay-arrow-position nil)
+	 ;; Stop displaying an arrow and highlight overlay in a source file.
+	 (gud-hide-current-line-indicator t)
 	 (set-process-buffer proc nil)
 	 (if (and (boundp 'speedbar-initial-expansion-list-name)
 		  (string-equal speedbar-initial-expansion-list-name "GUD"))
@@ -2963,12 +2941,9 @@ It is nil if not yet present.")
 	     (gdb-reset)
 	   (gud-reset)))
 	((memq (process-status proc) '(signal exit))
-	 ;; Stop displaying an arrow in a source file.
-	 (setq gud-overlay-arrow-position nil)
-         ;; And any highlight overlays.
-         (when gud-highlight-current-line-overlay
-           (delete-overlay gud-highlight-current-line-overlay)
-           (setq gud-highlight-current-line-overlay nil))
+
+         (gud-hide-current-line-indicator t)
+
 	 (if (eq (buffer-local-value 'gud-minor-mode gud-comint-buffer)
 		   'gdbmi)
 	     (gdb-reset)
@@ -3880,8 +3855,10 @@ so they have been disabled."))
          (lambda (m)
            (let ((line (string-to-number (match-string 1 m)))
                  (col (string-to-number (match-string 2 m)))
-                 (file  (match-string 3 m)))
-             (setq gud-last-frame (list file line col)))
+                 (file (match-string 3 m)))
+             (setq gud-last-frame (if (zerop col)
+                                      (cons file line)
+                                    (list file line col))))
            ;; Remove the line so that the user won't see it.
            "")
          string t t))
@@ -4134,7 +4111,8 @@ This command runs functions from `lldb-mode-hook'."
   (add-hook 'completion-at-point-functions
             #'gud-lldb-completion-at-point
             nil 'local)
-  (keymap-local-set "<tab>" #'completion-at-point)
+  ;; Bind TAB not <tab> so that it also works on ttys.
+  (keymap-local-set "TAB" #'completion-at-point)
 
   (gud-set-repeat-map-property 'gud-gdb-repeat-map)
   (setq comint-prompt-regexp (rx line-start "(lldb)" (0+ blank)))

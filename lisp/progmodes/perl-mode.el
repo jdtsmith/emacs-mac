@@ -1,6 +1,6 @@
 ;;; perl-mode.el --- Perl code editing commands for GNU Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1990, 1994, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1990, 1994, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: William F. Mann
 ;; Maintainer: emacs-devel@gnu.org
@@ -96,19 +96,16 @@
   "Face used for non-scalar variables."
   :version "28.1")
 
-(defvar perl-mode-abbrev-table nil
-  "Abbrev table in use in `perl-mode' buffers.")
-(define-abbrev-table 'perl-mode-abbrev-table ())
+(define-abbrev-table 'perl-mode-abbrev-table ()
+  "Abbrev table in use in perl-mode buffers.")
 
-(defvar perl-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "\e\C-a" 'perl-beginning-of-function)
-    (define-key map "\e\C-e" 'perl-end-of-function)
-    (define-key map "\e\C-h" 'perl-mark-function)
-    (define-key map "\e\C-q" 'perl-indent-exp)
-    (define-key map "\177" 'backward-delete-char-untabify)
-    map)
-  "Keymap used in Perl mode.")
+(defvar-keymap perl-mode-map
+  :doc "Keymap used in Perl mode."
+  "C-M-a" #'perl-beginning-of-function
+  "C-M-e" #'perl-end-of-function
+  "C-M-h" #'perl-mark-function
+  "C-M-q" #'perl-indent-exp
+  "DEL"   #'backward-delete-char-untabify)
 
 (defvar perl-mode-syntax-table
   (let ((st (make-syntax-table (standard-syntax-table))))
@@ -167,19 +164,19 @@
     ;;
     ;; Fontify function and package names in declarations.
     ("\\<\\(package\\|sub\\)\\>[ \t]*\\(\\(?:\\sw\\|::\\)+\\)?"
-     (1 font-lock-keyword-face) (2 font-lock-function-name-face nil t))
+     (1 'font-lock-keyword-face) (2 'font-lock-function-name-face nil t))
     ("\\(?:^\\|[^$@%&\\]\\)\\<\\(import\\|no\\|require\\|use\\)\\>[ \t]*\\(\\(?:\\sw\\|::\\)+\\)?"
-     (1 font-lock-keyword-face) (2 font-lock-constant-face nil t)))
+     (1 'font-lock-keyword-face) (2 'font-lock-constant-face nil t)))
   "Subdued level highlighting for Perl mode.")
 
 (defconst perl-font-lock-keywords-2
   (append
    '(;; Fontify function, variable and file name references. They have to be
      ;; handled first because they might conflict with keywords.
-     ("&\\(\\sw+\\(::\\sw+\\)*\\)" 1 font-lock-function-name-face)
+     ("&\\(\\sw+\\(::\\sw+\\)*\\)" 1 'font-lock-function-name-face)
      ;; Additionally fontify non-scalar variables.  `perl-non-scalar-variable'
      ;; will underline them by default.
-     ("[$*]{?\\(\\sw+\\(::\\sw+\\)*\\)" 1 font-lock-variable-name-face)
+     ("[$*]{?\\(\\sw+\\(::\\sw+\\)*\\)" 1 'font-lock-variable-name-face)
      ("\\([@%]\\|\\$#\\)\\(\\sw+\\(::\\sw+\\)*\\)"
       (2 'perl-non-scalar-variable)))
    perl-font-lock-keywords-1
@@ -193,13 +190,13 @@
               "\\>")
      ;;
      ;; Fontify declarators and prefixes as types.
-     ("\\<\\(has\\|local\\|my\\|our\\|state\\)\\>" . font-lock-keyword-face) ; declarators
-     ("<\\(\\sw+\\)>" 1 font-lock-constant-face)
+     ("\\<\\(has\\|local\\|my\\|our\\|state\\)\\>" . 'font-lock-keyword-face) ; declarators
+     ("<\\(\\sw+\\)>" 1 'font-lock-constant-face)
      ;;
      ;; Fontify keywords with/and labels as we do in `c++-font-lock-keywords'.
      ("\\<\\(continue\\|goto\\|last\\|next\\|redo\\)\\>[ \t]*\\(\\sw+\\)?"
-      (1 font-lock-keyword-face) (2 font-lock-constant-face nil t))
-     ("^[ \t]*\\(\\sw+\\)[ \t]*:[^:]" 1 font-lock-constant-face)))
+      (1 'font-lock-keyword-face) (2 'font-lock-constant-face nil t))
+     ("^[ \t]*\\(\\sw+\\)[ \t]*:[^:]" 1 'font-lock-constant-face)))
   "Gaudy level highlighting for Perl mode.")
 
 (defvar perl-font-lock-keywords perl-font-lock-keywords-1
@@ -633,7 +630,7 @@ create a new comment."
 ;; Outline support
 
 (defvar perl-outline-regexp
-  (concat (mapconcat 'cadr perl-imenu-generic-expression "\\|")
+  (concat (mapconcat #'cadr perl-imenu-generic-expression "\\|")
 	  "\\|^=cut\\>"))
 
 (defun perl-outline-level ()
@@ -963,8 +960,8 @@ changed by, or (parse-state) if line starts in a quoted string."
   (save-excursion
     (skip-chars-backward " \t\n")
     (beginning-of-line)
-    (when-let ((comm (and (looking-at "^\\.$")
-                          (nth 8 (syntax-ppss)))))
+    (when-let* ((comm (and (looking-at "^\\.$")
+                           (nth 8 (syntax-ppss)))))
       (goto-char comm)
       (beginning-of-line)
       (looking-at perl--format-regexp))))
@@ -1024,7 +1021,7 @@ Returns (parse-state) if line starts inside a string."
 	   (containing-sexp (nth 1 state))
 	   ;; Don't auto-indent in a quoted string or a here-document.
            (unindentable (or (nth 3 state) (eq 2 (nth 7 state))))
-           (format (and (nth 3 state)
+           (format (and (characterp (nth 3 state))
                         (char-equal (nth 3 state) ?\n))))
       (when (and (eq t (nth 3 state))
                  (save-excursion
@@ -1128,16 +1125,9 @@ Returns (parse-state) if line starts inside a string."
             ;; Move back over whitespace before the openbrace.
             ;; If openbrace is not first nonwhite thing on the line,
             ;; add the perl-brace-imaginary-offset.
-            (progn (skip-chars-backward " \t")
-                   (if (bolp) 0 perl-brace-imaginary-offset))
-            ;; If the openbrace is preceded by a parenthesized exp,
-            ;; move to the beginning of that;
-            ;; possibly a different line
-            (progn
-              (if (eq (preceding-char) ?\))
-                  (forward-sexp -1))
-              ;; Get initial indentation of the line we are on.
-              (current-indentation)))))))))
+            (save-excursion (skip-chars-backward " \t")
+                            (if (bolp) 0 perl-brace-imaginary-offset))
+            (perl-indent-new-calculate 'virtual))))))))
 
 (defun perl-backward-to-noncomment ()
   "Move point backward to after the first non-white-space, skipping comments."

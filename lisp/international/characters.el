@@ -1,6 +1,6 @@
 ;;; characters.el --- set syntax and category for multibyte characters  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997, 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 2000-2026 Free Software Foundation, Inc.
 ;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
 ;;   2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -849,6 +849,19 @@ with L, LRE, or LRO Unicode bidi character type.")
   ;; Fixme: syntax for symbols &c
   )
 
+
+;; Symbols and digits
+;;; Each character whose script is 'symbol' gets the symbol category,
+;;; see charscript.el.
+;;; Each character whose Unicode general-category is Nd gets the digit
+;;; category:
+(let ((table (unicode-property-table-internal 'general-category)))
+  (when table
+    (map-char-table (lambda (key val)
+                      (if (eq val 'Nd)
+			  (modify-category-entry key ?6)))
+		    table)))
+
 (let ((pairs
        '("⁅⁆"				; U+2045 U+2046
 	 "⁽⁾"				; U+207D U+207E
@@ -1181,7 +1194,9 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x10A01 . #x10A0F)
 	   (#x10A38 . #x10A3F)
 	   (#x10AE5 . #x10AE6)
+           (#x10D69 . #x10D6D)
 	   (#x10EAB . #x10EAC)
+           (#x10EFC . #x10EFF)
 	   (#x11001 . #x11001)
 	   (#x11038 . #x11046)
 	   (#x1107F . #x11081)
@@ -1207,6 +1222,11 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x11340 . #x11340)
 	   (#x11366 . #x1136C)
 	   (#x11370 . #x11374)
+           (#x113BB . #x113C0)
+           (#x113CE . #x113CE)
+           (#x113D0 . #x113D0)
+           (#x113D2 . #x113D2)
+           (#x113E1 . #x113E2)
 	   (#x11438 . #x1143F)
 	   (#x11442 . #x11444)
 	   (#x11446 . #x11446)
@@ -1236,12 +1256,18 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x11CAA . #x11CB0)
 	   (#x11CB2 . #x11CB3)
 	   (#x11CB5 . #x11CB6)
+           (#x11F5A . #x11F5A)
+           (#x13430 . #x13440)
+           (#x13447 . #x13455)
+           (#x1611E . #x16129)
+           (#x1612D . #x1612F)
 	   (#x16AF0 . #x16AF4)
 	   (#x16B30 . #x16B36)
 	   (#x16F8F . #x16F92)
 	   (#x16FE4 . #x16FE4)
 	   (#x1BC9D . #x1BC9E)
 	   (#x1BCA0 . #x1BCA3)
+           (#x1CF00 . #x1CF02)
 	   (#x1D167 . #x1D169)
 	   (#x1D173 . #x1D182)
 	   (#x1D185 . #x1D18B)
@@ -1258,6 +1284,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x1E01B . #x1E021)
 	   (#x1E023 . #x1E024)
 	   (#x1E026 . #x1E02A)
+           (#x1E5EE . #x1E5EF)
 	   (#x1E8D0 . #x1E8D6)
 	   (#x1E944 . #x1E94A)
 	   (#xE0001 . #xE01EF))))
@@ -1273,9 +1300,11 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x23F3 . #x23F3)
 	   (#x25FD . #x25FE)
 	   (#x2614 . #x2615)
+           (#x2630 . #x2637)
 	   (#x2648 . #x2653)
 	   (#x267F . #x267F)
-	   (#x2693 . #x2693)
+           (#x268A . #x268F)
+	   (#x2690 . #x2693)
 	   (#x26A1 . #x26A1)
 	   (#x26AA . #x26AB)
 	   (#x26BD . #x26BE)
@@ -1308,10 +1337,11 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x3041 . #x3096)
            (#x3099 . #x30FF)
            (#x3105 . #x312F)
-           (#x3131 . #x31E3)
+           (#x3131 . #x31E5)
            (#x31EF . #x31EF)
            (#x31F0 . #x3247)
 	   (#x3250 . #x4DBF)
+           (#x4DC0 . #x4DFF)
 	   (#x4E00 . #xA48C)
 	   (#xA490 . #xA4C6)
 	   (#xA960 . #xA97C)
@@ -1322,11 +1352,13 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#xFF01 . #xFF60)
 	   (#xFFE0 . #xFFE6)
 	   (#x16FE0 . #x16FE4)
-	   (#x16FF0 . #x16FF1)
+	   (#x16FF0 . #x16FF6)
 	   (#x17000 . #x187F7)
 	   (#x18800 . #x18AFF)
 	   (#x18B00 . #x18CD5)
-           (#x18D00 . #x18D08)
+           (#x18CFF . #x18CFF)
+           (#x18D00 . #x18D1E)
+           (#x18D80 . #x18DF2)
 	   (#x1AFF0 . #x1AFF3)
            (#x1AFF5 . #x1AFFB)
            (#x1AFFD . #x1AFFE)
@@ -1336,6 +1368,8 @@ with L, LRE, or LRO Unicode bidi character type.")
            (#x1B155 . #x1B155)
 	   (#x1B164 . #x1B167)
 	   (#x1B170 . #x1B2FB)
+           (#x1D300 . #x1D356)
+           (#x1D360 . #x1D376)
 	   (#x1F004 . #x1F004)
 	   (#x1F0CF . #x1F0CF)
 	   (#x1F18E . #x1F18E)
@@ -1370,7 +1404,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x1F680 . #x1F6C5)
 	   (#x1F6CC . #x1F6CC)
 	   (#x1F6D0 . #x1F6D2)
-	   (#x1F6D5 . #x1F6D7)
+	   (#x1F6D5 . #x1F6D8)
 	   (#x1F6DC . #x1F6DF)
 	   (#x1F6EB . #x1F6EC)
 	   (#x1F6F4 . #x1F6FC)
@@ -1381,14 +1415,13 @@ with L, LRE, or LRO Unicode bidi character type.")
 	   (#x1F947 . #x1F9FF)
 	   (#x1FA00 . #x1FA53)
 	   (#x1FA60 . #x1FA6D)
-	   (#x1FA70 . #x1FA74)
-	   (#x1FA78 . #x1FA7C)
-	   (#x1FA80 . #x1FA88)
-	   (#x1FA90 . #x1FABD)
-	   (#x1FABF . #x1FAC5)
-	   (#x1FACE . #x1FADB)
-	   (#x1FAE0 . #x1FAE8)
-	   (#x1FAF0 . #x1FAF8)
+	   (#x1FA70 . #x1FA7C)
+	   (#x1FA80 . #x1FA8A)
+	   (#x1FA8E . #x1FAC6)
+	   (#x1FAC8 . #x1FAC8)
+	   (#x1FACD . #x1FADC)
+	   (#x1FADF . #x1FAEA)
+	   (#x1FAEF . #x1FAF8)
 	   (#x1FB00 . #x1FB92)
 	   (#x20000 . #x2FFFF)
 	   (#x30000 . #x3FFFF))))
@@ -1579,6 +1612,22 @@ with L, LRE, or LRO Unicode bidi character type.")
  (lambda (range _ignore) (set-char-table-range char-width-table range 2))
  'arabic-2-column)
 
+
+;;; Setting printable-chars.  The default is nil for control characters,
+;;; otherwise t.
+;;; The table is initialized in character.c with a crude approximation,
+;;; which considers any non-ASCII character above U+009F to be printable.
+;;; Note: this should be consistent with [:print:] character class,
+;;; see character.c:printablep.
+(let ((table (unicode-property-table-internal 'general-category)))
+    (when table
+      (map-char-table (lambda (key val)
+                        ;; Cs: Surrogates
+                        ;; Cn: Unassigned
+                        (when (memq val '(Cs Cn))
+                          (set-char-table-range printable-chars key nil)))
+                      table)))
+
 ;; Internal use only.
 ;; Alist of locale symbol vs charsets.  In a language environment
 ;; corresponding to the locale, width of characters in the charsets is
@@ -1623,7 +1672,7 @@ these characters are displayed as full-width.  This setting is most
 important for text-mode frames, because there Emacs cannot access the
 metrics of the fonts used by the console or the terminal emulator.
 You should configure the terminal emulator to behave consistently
-with the value of this option, by making sure it dispays ambiguous-width
+with the value of this option, by making sure it displays ambiguous-width
 characters as half-width or full-width, depending on the value of this
 option.
 
@@ -1662,11 +1711,26 @@ the value of the variable with `setq'."
 				 (car code-range) (cdr code-range)))))
 	(optimize-char-table table)
 	(set-char-table-parent table char-width-table)
-        (let ((tbl (make-char-table nil)))
+        (let ((tbl (make-char-table nil))
+              (ambiguous-is-wide
+               (and cjk-ambiguous-chars-are-wide
+                    ;; MS-Windows Terminal forces all ambiguous
+                    ;; characters to be narrow, even in CJK locales,
+                    ;; assuming the fonts it uses were left at their
+                    ;; defaults.
+                    (not (and (eq system-type 'windows-nt)
+                              ;; 'window-system' might be nil when this
+                              ;; code is called from startup.el, as part
+                              ;; of 'set-locale-environment', so we must
+                              ;; test 'initial-window-system' instead.
+                              (null initial-window-system)
+                              (boundp 'w32--terminal-is-conhost)
+                              (null w32--terminal-is-conhost))))))
           (map-char-table
            (lambda (range _val)
-             (set-char-table-range tbl range
-                                   (if cjk-ambiguous-chars-are-wide 2 1)))
+             (set-char-table-range
+              tbl range
+              (if ambiguous-is-wide 2 1)))
            ambiguous-width-chars)
           (optimize-char-table tbl)
           (set-char-table-parent tbl table)
@@ -1733,15 +1797,15 @@ Setup `char-width-table' appropriate for non-CJK language environment."
 (let ((c0-acronyms '("NUL" "SOH" "STX" "ETX" "EOT" "ENQ" "ACK" "BEL"
 		     "BS"   nil   nil  "VT"  "FF"  "CR"  "SO"  "SI"
 		     "DLE" "DC1" "DC2" "DC3" "DC4" "NAK" "SYN" "ETB"
-		     "CAN" "EM"  "SUB" "ESC" "FC"  "GS"  "RS"  "US")))
+		     "CAN" "EM"  "SUB" "ESC" "FS"  "GS"  "RS"  "US")))
   (dotimes (i 32)
     (aset char-acronym-table i (car c0-acronyms))
     (setq c0-acronyms (cdr c0-acronyms))))
 
 (let ((c1-acronyms '("PAD" "HOP" "BPH" "NBH" "IND" "NEL" "SSA" "ESA"
-		     "HTS" "HTJ" "VTS" "PLD" "PLU" "R1"  "SS2" "SS1"
+		     "HTS" "HTJ" "VTS" "PLD" "PLU" "RI"  "SS2" "SS3"
 		     "DCS" "PU1" "PU2" "STS" "CCH" "MW"  "SPA" "EPA"
-		     "SOS" "SGCI" "SC1" "CSI" "ST"  "OSC" "PM"  "APC")))
+		     "SOS" "SGCI" "SCI" "CSI" "ST"  "OSC" "PM"  "APC")))
   (dotimes (i 32)
     (aset char-acronym-table (+ #x0080 i) (car c1-acronyms))
     (setq c1-acronyms (cdr c1-acronyms))))
@@ -1959,6 +2023,28 @@ visual representation of these characters."
   :set 'update-glyphless-char-display
   :group 'display)
 
+
+;;; Special mirror.  Only populate table here, its definition is in
+;;; xdisp.c.
+(let ((pairs '(;; Some truncation examples.
+	       (?← . ?→)
+               (?↜ . ?↝)
+               (?↞ . ?↠)
+               (?↢ . ?↣)
+               (?↤ . ?↦)
+               (?↼ . ?⇀)
+               (?↽ . ?⇁)
+               (?⇇ . ?⇉)
+               (?⇐ . ?⇒)
+               (?⇠ . ?⇢)
+               (?⇦ . ?⇨)
+               ;; Some continuation examples.
+               (?↩ . ?↪)
+               (?↫ . ?↬)
+               (?↲ . ?↳))))
+  (dolist (pair pairs)
+    (aset special-mirror-table (car pair) (cdr pair))
+    (aset special-mirror-table (cdr pair) (car pair))))
 
 ;;; Setting word boundary.
 

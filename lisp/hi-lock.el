@@ -1,6 +1,6 @@
 ;;; hi-lock.el --- minor mode for interactive automatic highlighting  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: David M. Koppelman <koppel@ece.lsu.edu>
 ;; Keywords: faces, minor-mode, matching, display
@@ -245,17 +245,6 @@ by cycling through the faces in `hi-lock-face-defaults'."
 (defvar hi-lock-file-patterns-prefix "Hi-lock"
   "String used to identify hi-lock patterns at the start of files.")
 
-(defvar hi-lock-archaic-interface-message-used nil
-  "Non-nil if user alerted that `global-hi-lock-mode' is now the global switch.
-Earlier versions of hi-lock used `hi-lock-mode' as the global switch;
-the message is issued if it appears that `hi-lock-mode' is used assuming
-that older functionality.  This variable avoids multiple reminders.")
-
-(defvar hi-lock-archaic-interface-deduce nil
-  "If non-nil, sometimes assume that `hi-lock-mode' means `global-hi-lock-mode'.
-Assumption is made if `hi-lock-mode' used in the *scratch* buffer while
-a library is being loaded.")
-
 (easy-menu-define hi-lock-menu nil
   "Menu for hi-lock mode."
   '("Hi Lock"
@@ -358,17 +347,6 @@ Hi-lock: end is found.  A mode is excluded if it's in the list
 		      " Hi" ""))
   :global nil
   :keymap hi-lock-map
-  (when (and (equal (buffer-name) "*scratch*")
-             load-in-progress
-             (not (called-interactively-p 'interactive))
-             (not hi-lock-archaic-interface-message-used))
-    (setq hi-lock-archaic-interface-message-used t)
-    (if hi-lock-archaic-interface-deduce
-        (global-hi-lock-mode hi-lock-mode)
-      (warn "%s"
-       "Possible archaic use of (hi-lock-mode).
-Use (global-hi-lock-mode 1) in .emacs to enable hi-lock for all buffers,
-use (hi-lock-mode 1) for individual buffers.")))
   (if hi-lock-mode
       ;; Turned on.
       (progn
@@ -403,7 +381,6 @@ use (hi-lock-mode 1) for individual buffers.")))
   :group 'hi-lock)
 
 (defun turn-on-hi-lock-if-enabled ()
-  (setq hi-lock-archaic-interface-message-used t)
   (unless (memq major-mode hi-lock-exclude-modes)
     (hi-lock-mode 1)))
 
@@ -416,7 +393,7 @@ The lines that match REGEXP will be displayed by merging
 the attributes of FACE with any other face attributes
 of text in those lines.
 
-Interactively, prompt for REGEXP using `read-regexp', then FACE.
+Interactively, prompt for REGEXP using `hi-lock-read-regexp', then FACE.
 Use the global history list for FACE.
 
 If REGEXP contains upper case characters (excluding those preceded by `\\')
@@ -427,8 +404,7 @@ use overlays for highlighting.  If overlays are used, the
 highlighting will not update as you type."
   (interactive
    (list
-    (hi-lock-regexp-okay
-     (read-regexp "Regexp to highlight line" 'regexp-history-last))
+    (hi-lock-read-regexp "Regexp to highlight line")
     (hi-lock-read-face-name)))
   (or (facep face) (setq face 'hi-yellow))
   (unless hi-lock-mode (hi-lock-mode 1))
@@ -446,7 +422,7 @@ highlighting will not update as you type."
 ;;;###autoload
 (defun hi-lock-face-buffer (regexp &optional face subexp lighter)
   "Set face of each match of REGEXP to FACE.
-Interactively, prompt for REGEXP using `read-regexp', then FACE.
+Interactively, prompt for REGEXP using `hi-lock-read-regexp', then FACE.
 Use the global history list for FACE.  Limit face setting to the
 corresponding SUBEXP (interactively, the prefix argument) of REGEXP.
 If SUBEXP is omitted or nil, the entire REGEXP is highlighted.
@@ -466,14 +442,7 @@ causes `font-lock-specified-p' to return non-nil, which means
 the major mode specifies support for Font Lock."
   (interactive
    (list
-    (hi-lock-regexp-okay
-     (read-regexp "Regexp to highlight"
-                  (if (use-region-p)
-                      (prog1
-                          (buffer-substring (region-beginning)
-                                            (region-end))
-                        (deactivate-mark))
-                    'regexp-history-last)))
+    (hi-lock-read-regexp "Regexp to highlight")
     (hi-lock-read-face-name)
     current-prefix-arg))
   (when (stringp face)
@@ -492,7 +461,7 @@ the major mode specifies support for Font Lock."
 ;;;###autoload
 (defun hi-lock-face-phrase-buffer (regexp &optional face)
   "Set face of each match of phrase REGEXP to FACE.
-Interactively, prompt for REGEXP using `read-regexp', then FACE.
+Interactively, prompt for REGEXP using `hi-lock-read-regexp', then FACE.
 Use the global history list for FACE.
 
 If REGEXP contains upper case characters (excluding those preceded by `\\')
@@ -507,8 +476,7 @@ causes `font-lock-specified-p' to return non-nil, which means
 the major mode specifies support for Font Lock."
   (interactive
    (list
-    (hi-lock-regexp-okay
-     (read-regexp "Phrase to highlight" 'regexp-history-last))
+    (hi-lock-read-regexp "Phrase to highlight")
     (hi-lock-read-face-name)))
   (or (facep face) (setq face 'hi-yellow))
   (unless hi-lock-mode (hi-lock-mode 1))
@@ -749,6 +717,21 @@ with completion and history."
       (add-to-list 'hi-lock-face-defaults face t))
     (intern face)))
 
+(defun hi-lock-read-regexp (prompt)
+  "Read font-lock pattern from the minibuffer and return it.
+
+The pattern is read using `read-regexp' with PROMPT and validated using
+`hi-lock-regexp-okay'.  If the region is active, use its content as the
+default value."
+  (hi-lock-regexp-okay
+   (read-regexp prompt
+                (if (use-region-p)
+                    (prog1
+                        (buffer-substring (region-beginning)
+                                          (region-end))
+                      (deactivate-mark))
+                  'regexp-history-last))))
+
 (defvar hi-lock-use-overlays nil
   "Whether to always use overlays instead of font-lock rules.
 When `font-lock-mode' is enabled and the buffer specifies font-lock rules,
@@ -891,7 +874,7 @@ Apply the previous patterns after reverting the buffer."
             (let ((face (hi-lock-keyword->face (cdr pattern))))
               (highlight-regexp (or (get-text-property 0 'regexp (car pattern))
                                     (car pattern))
-                                face)
+                                face nil (car pattern))
               (setq hi-lock--unused-faces
                     (remove (face-name face) hi-lock--unused-faces)))))))))
 

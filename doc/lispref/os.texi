@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--1999, 2001--2025 Free Software
+@c Copyright (C) 1990--1995, 1998--1999, 2001--2026 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node System Interface
@@ -34,6 +34,8 @@ terminal and the screen.
 * Batch Mode::          Running Emacs without terminal interaction.
 * Session Management::  Saving and restoring state with X Session Management.
 * Desktop Notifications:: Desktop notifications.
+* System Taskbar::      Controlling system GUI taskbar features.
+* System Sleep::        Block system sleep and process sleep events.
 * File Notifications::  File notifications.
 * Dynamic Libraries::   On-demand loading of support libraries.
 * Security Considerations:: Running Emacs in an unfriendly environment.
@@ -94,6 +96,11 @@ if requested by environment variables such as @env{LANG}.
 It does some basic parsing of the command-line arguments.
 
 @item
+It loads the library @file{site-start}, if it exists.  This is not
+done if the options @samp{-Q} or @samp{--no-site-file} were specified.
+@cindex @file{site-start.el}
+
+@item
 It loads your early init file (@pxref{Early Init File,,, emacs, The
 GNU Emacs Manual}).  This is not done if the options @samp{-q},
 @samp{-Q}, or @samp{--batch} were specified.  If the @samp{-u} option
@@ -141,7 +148,7 @@ the tool bar even if the current frame is not a graphical one, since a
 graphical frame may be created later on.
 
 @item
-It use @code{custom-reevaluate-setting} to re-initialize the members
+It uses @code{custom-reevaluate-setting} to re-initialize the members
 of the list @code{custom-delayed-init-variables}.  These are any
 pre-loaded user options whose default value depends on the run-time,
 rather than build-time, context.
@@ -149,11 +156,6 @@ rather than build-time, context.
 
 @c @item
 @c It registers the colors available for tty frames.
-
-@item
-It loads the library @file{site-start}, if it exists.  This is not
-done if the options @samp{-Q} or @samp{--no-site-file} were specified.
-@cindex @file{site-start.el}
 
 @item
 It loads your init file (@pxref{Init File}).  This is not done if the
@@ -409,8 +411,8 @@ that the early init file is loaded much earlier during the startup
 process, so you can use it to customize some things that are
 initialized before loading the regular init file.  For example, you
 can customize the process of initializing the package system, by
-setting variables such as @var{package-load-list} or
-@var{package-enable-at-startup}.  @xref{Package Installation,,,
+setting variables such as @code{package-load-list} or
+@code{package-enable-at-startup}.  @xref{Package Installation,,,
 emacs,The GNU Emacs Manual}.
 
 @cindex default init file
@@ -432,9 +434,9 @@ loading of this file with the option @samp{--no-site-file}.
 
 @defopt site-run-file
 This variable specifies the site-customization file to load before the
-user's init file.  Its normal value is @code{"site-start"}.  The only
-way you can change it with real effect is to do so before dumping
-Emacs.
+user's early init file and regular init file.  Its normal value is
+@code{"site-start"}.  The only way you can change it with real effect is
+to do so before dumping Emacs.
 @c So why even mention it here.  I imagine it is almost never changed.
 @end defopt
 
@@ -590,10 +592,10 @@ displays the startup messages.
 The value of this variable is @code{t} once the command line has been
 processed.
 
-If you redump Emacs by calling @code{dump-emacs} (@pxref{Building
-Emacs}), you may wish to set this variable to @code{nil} first in
-order to cause the new dumped Emacs to process its new command-line
-arguments.
+If you redump Emacs by calling @code{dump-emacs-portable}
+(@pxref{Building Emacs}), you may wish to set this variable to
+@code{nil} first in order to cause the new dumped Emacs to process its
+new command-line arguments.
 @end defvar
 
 @defvar command-switch-alist
@@ -709,9 +711,11 @@ If @var{exit-data} is an integer, that is used as the exit status of
 the Emacs process.  (This is useful primarily in batch operation; see
 @ref{Batch Mode}.)
 
-If @var{exit-data} is a string, its contents are stuffed into the
-terminal input buffer so that the shell (or whatever program next reads
-input) can read them.
+If @var{exit-data} is a string, its contents (followed by a newline) are
+stuffed into the terminal input buffer so that the shell (or whatever
+program next reads input) can read them.  However, stuffing is silently
+skipped if Emacs is not running interactively on a terminal, or if
+stuffing requires special privileges or is not supported on this platform.
 
 If @var{exit-data} is neither an integer nor a string, or is omitted,
 that means to use the (system-specific) exit status which indicates
@@ -811,6 +815,9 @@ before suspending Emacs, or this function signals an error.
 
 If @var{string} is non-@code{nil}, its characters are sent to Emacs's
 superior shell, to be read as terminal input.
+However, this action is skipped if Emacs is not running interactively on
+a terminal, or if stuffing characters into the terminal input requires
+special privileges or is not supported on this platform.
 
 Before suspending, @code{suspend-emacs} runs the normal hook
 @code{suspend-hook}.  After the user resumes Emacs,
@@ -835,7 +842,7 @@ Here is an example of how you could use these hooks:
 @c The sit-for prevents the @code{nil} that suspend-emacs returns
 @c hiding the message.
 
-Here is what you would see upon evaluating @code{(suspend-emacs "pwd")}:
+Here is what you would see upon evaluating @code{(suspend-emacs)}:
 
 @smallexample
 @group
@@ -846,8 +853,6 @@ Really suspend? @kbd{y}
 
 @group
 ---------- Parent Shell ----------
-bash$ pwd
-/home/username
 bash$ fg
 @end group
 
@@ -1017,6 +1022,18 @@ as a string.  @var{var} should be a string.  If @var{var} is undefined
 in the environment, @code{getenv} returns @code{nil}.  It returns
 @samp{""} if @var{var} is set but null.  Within Emacs, a list of environment
 variables and their values is kept in the variable @code{process-environment}.
+
+Optional argument @var{frame}, if non-@code{nil}, specifies a frame, in
+which case the function searches @var{frame}'s parameter
+@code{environment} (@pxref{Basic Parameters}) for @var{var} instead of
+looking for it in @code{process-environment}.
+
+@cindex DISPLAY environment variable search
+The @samp{DISPLAY} environment variable is treated specially when
+@var{frame} is omitted or @code{nil}: if that variable is not found in
+@code{process-environment}, the function looks at the selected-frame's
+@code{display} parameter, and if that is @code{nil}, it also looks in
+@code{initial-environment}.
 
 @example
 @group
@@ -1790,8 +1807,8 @@ Conversion}).
 This function parses the time-string @var{string} and returns the
 corresponding Lisp timestamp.  The argument @var{string} should represent
 a date-time, and should be in one of the forms recognized by
-@code{parse-time-string} (see below).  This function assumes Universal
-Time if @var{string} lacks explicit time zone information,
+@code{parse-time-string} (see below).  This function assumes local time
+if @var{string} lacks explicit time zone information,
 and assumes earliest values if @var{string} lacks month, day, or time.
 The operating system limits the range of time and zone values.
 @end defun
@@ -1802,6 +1819,9 @@ structure (@pxref{Time Conversion}).  The argument @var{string} should
 resemble an RFC 822 (or later) or ISO 8601 string, like ``Fri, 25 Mar
 2016 16:24:56 +0100'' or ``1998-09-12T12:21:54-0200'', but this
 function will attempt to parse less well-formed time strings as well.
+It parses an incomplete string like ``2024-08-13'' to an incomplete
+structure like @samp{(nil nil nil 13 8 2024 nil -1 nil)}, in which
+an unknown DST value is @minus{}1 and other unknown values are @code{nil}.
 
 Note that, unlike @code{decode-time} (@pxref{Time Conversion}), this
 function does not interpret the time string, and in particular the
@@ -1833,7 +1853,6 @@ it also parses things like ``1998W45-3'' (week number) and ``1998-245''
 @code{iso8601-parse-interval}.  All these functions return decoded time
 structures, except the final one, which returns three of them (the
 start, the end, and the duration).
-
 Like @code{parse-time-string}, this function does not interpret the time
 string, and in particular the time-zone designator or UTC offset that is
 part of the @var{string} argument does not affect the returned value of
@@ -1847,6 +1866,19 @@ include it; otherwise the time-zone member of the returned value will be
 @code{nil}.  In other words, this function simply parses the textual
 representation of date and time into separate numerical values, and
 doesn't care whether the input time is local or UTC.
+@end defun
+
+@defun iso8601-parse-duration string
+This function parses an ISO 8601 time duration @var{string}
+and returns a decoded time structure.
+@c FIXME: example? behavior on incomplete input?
+@end defun
+
+@defun iso8601-parse-interval string
+This function parses an ISO 8601 time interval @var{string}
+and returns three decoded time structures
+representing the start, the end, and the duration.
+@c FIXME: example? behavior on incomplete input?
 @end defun
 
 @defun format-time-string format-string &optional time zone
@@ -2193,6 +2225,28 @@ Return the date of @var{ordinal} in @var{year} as a decoded time
 structure.  For instance, the 120th day in 2004 is April 29th.
 @end defun
 
+@defun seconds-to-string delay &optional readable abbrev precision
+Return a string describing a given @var{delay} (in seconds).  By
+default, this function formats the returned string as a floating-point
+number in units selected according to the value of @var{delay}.  For
+example, a delay of 9861.5 seconds yields @samp{2.74h}, since the value
+of @var{delay} is longer than 1 hour, but shorter than 1 day.  The
+output formatting can be further controlled by the optional arguments,
+if optional argument @var{readable} is non-@code{nil}.  If
+@var{readable}'s value is @code{expanded}, the returned string will
+describe @var{delay} using two units; for example, a delay of 9861.5
+seconds with @var{readable} set to the symbol @code{expanded} returns
+@samp{2 hours 44 minutes}, but if @var{readable} is @code{t}, the
+function returns @samp{3 hours}.  Optional argument @var{abbrev}, if
+non-@code{nil}, means to abbreviate the units: use @samp{h} instead of
+@samp{hours}, @samp{m} instead of @samp{minutes}, etc.  If
+@var{precision} is a whole integer number, the function rounds the value
+of the smallest unit it produces to that many digits after the decimal
+point; thus, 9861.5 with @var{precision} set to 3 yields @samp{2.739
+hours}.  If @var{precision} is a non-negative float smaller than 1, the
+function rounds to that value.
+@end defun
+
 @node Timers
 @section Timers for Delayed Execution
 @cindex timers
@@ -2247,7 +2301,7 @@ be protected by wrapping the timer function body with
 
 @lisp
 @group
-(ignore-error 'remote-file-error
+(ignore-error remote-file-error
   @dots{})
 @end group
 @end lisp
@@ -2340,6 +2394,7 @@ calling a timer function in a row, when many previously scheduled
 calls were unavoidably delayed.
 @end defopt
 
+@cindex running code with timeout
 @defmac with-timeout (seconds timeout-forms@dots{}) body@dots{}
 Execute @var{body}, but give up after @var{seconds} seconds.  If
 @var{body} finishes before the time is up, @code{with-timeout} returns
@@ -2358,6 +2413,8 @@ primitive that can wait, @code{with-timeout} cannot stop executing
 @var{body} while it is in the midst of a computation---only when it
 calls one of those primitives.  So use @code{with-timeout} only with a
 @var{body} that waits for input, not one that does a long computation.
+Primitives that wait for input include @code{sit-for}, @code{sleep-for},
+@code{accept-process-output}, and some others.
 @end defmac
 
   The function @code{y-or-n-p-with-timeout} provides a simple way to use
@@ -2485,8 +2542,7 @@ idleness.  Here's an example:
 @cindex terminal input
 
   This section describes functions and variables for recording or
-manipulating terminal input.  See @ref{Display}, for related
-functions.
+manipulating terminal input.  @xref{Display}, for related functions.
 
 @menu
 * Input Modes::         Options for how input is processed.
@@ -3219,9 +3275,10 @@ Note that versions of Windows before W2K support only @code{:icon} and
 @code{:tip}.  The other parameters can be passed, but they will be
 ignored on those old systems.
 
-There can be at most one active notification at any given time.  An
-active notification must be removed by calling
-@code{w32-notification-close} before a new one can be shown.
+There can be at most one active notification at any given time for each
+Emacs frame.  An active notification must be removed by calling
+@code{w32-notification-close} before a new one can be shown for the same
+frame.
 @end defun
 
 To remove the notification and its icon from the taskbar, use the
@@ -3229,7 +3286,12 @@ following function:
 
 @defun w32-notification-close id
 This function removes the tray notification given by its unique
-@var{id}.
+@var{id}.  The same Emacs frame which was the selected frame when the
+notification was created must be selected when removing the
+notification.  A Lisp program which shows notifications must track which
+frame corresponds to which notification @var{id}, and select that frame
+when removing the notification.  (When a frame is deleted, a
+notification it created, if any, will be removed by MS-Windows.)
 @end defun
 
 @cindex desktop notifications, Haiku
@@ -3300,7 +3362,7 @@ notification sent will belong.  This category is reproduced within the
 system's notification settings menus, but is ignored under Android 7.1
 and earlier.
 
-If @var{group} is nil or not present within @var{params}, it is
+If @var{group} is @code{nil} or not present within @var{params}, it is
 replaced by the string @samp{"Desktop Notifications"}.
 
 Callers should provide one stable combination of @var{urgency} and
@@ -3328,6 +3390,196 @@ If Emacs is not afforded the permission to display notifications
 Android 13 and later, any notifications sent will be silently
 disregarded.
 @end defun
+
+@node System Taskbar
+@section Controlling System GUI Taskbar Features
+@cindex system taskbar
+@cindex mode, system taskbar
+
+  @xref{System Taskbar,,, emacs, The GNU Emacs Manual}, for an overview
+and configuration.
+
+@defun system-taskbar-badge &optional count
+This function displays @var{count} as an overlay on the system taskbar
+Emacs icon.
+
+If @var{count} is an integer, display that.
+
+If @var{count} is a string on back ends that support strings, display
+that.  The string should be short.
+
+On back ends which do not support strings, convert @var{count} to an
+integer, or @code{nil} if that fails.
+
+If @var{count} is @code{nil} or an empty string, remove the counter or
+short string.
+
+Display the system taskbar icon badge set to @var{count}.  If
+@var{count} is @code{nil}, clear the badge.  @var{count} is typically an
+integer.
+
+If @var{count} is a string, it is converted to an integer on systems
+that do not support string badges, such as GNU/Linux D-Bus, and the
+badge will be cleared if the string is an invalid integer
+representation.  On systems that support strings, such as macOS/GNUstep
+and MS-Windows, the badge is set to the string and displayed, and may be
+truncated to fit the visual space allocated by the system.  In any case,
+if the string is empty, clear the badge.
+@end defun
+
+@defun system-taskbar-attention &optional urgency timeout
+This function flashes or bounces system taskbar Emacs icon and/or its
+frame to alert the user.
+
+@var{urgency} can be one of the symbols @code{informational}, or
+@code{critical}.
+
+If @var{urgency} is @code{nil}, clear the attention indicator.
+
+The attention indicator is cleared by the earliest of bringing the Emacs
+GUI into focus, or after @var{timeout} seconds.  If @var{timeout} is
+@code{nil}, the system GUI behavior has priority.
+
+On some back ends, @code{critical} has the same effect as
+@code{informational}.
+
+On some back ends, attention will be displayed
+only if Emacs is not the currently focused application.
+@end defun
+
+@defun system-taskbar-progress &optional progress
+  This function displays a progress indicator overlay on the system
+taskbar Emacs icon.
+
+@var{progress} is a float in the range 0.0 to 1.0.  If @var{progress} is
+@code{nil}, remove the progress indicator.
+
+It is convenient to use the built-in progress reporter functions which,
+when @code{system-taskbar-mode} is enabled, integrate with
+@code{system-taskbar-progress} by default.  @xref{Progress}.
+@end defun
+
+@noindent
+Examples of system taskbar functions:
+
+@lisp
+@group
+;; Enable and initialize system-taskbar-mode before calling its
+;; package functions.
+(system-taskbar-mode)
+
+;; Display a badge integer on the taskbar icon.
+(system-taskbar-badge emacs-major-version)
+
+;; A string representation of an integer is converted to an
+;; integer on GNU/Linux.
+(system-taskbar-badge "31")
+
+;; Short strings are displayed on macOS/GNUstep and MS-Windows.
+(system-taskbar-badge "Test")
+
+;; Clear the badge.
+(system-taskbar-badge)
+@end group
+
+@group
+;; Get the user's attention and clear the request after 3 seconds.
+(system-taskbar-attention 'informational 3)
+
+;; Get the user's attention and clear when Emacs is focused.
+(system-taskbar-attention 'critical)
+
+;; Clear the attention request.
+(system-taskbar-attention)
+@end group
+
+@group
+;; Make sure system taskbar is integrated with progress-reporter.
+(setopt system-taskbar-use-progress-reporter t) ; t is the default
+(system-taskbar-mode)
+
+;; Report `dotimes` progress on the taskbar icon.
+(dotimes-with-progress-reporter
+    (i 10)
+    "Counting from 1 to 10..."
+  (sleep-for 1))
+
+;; Report `dolist` progress on the taskbar icon.
+(dolist-with-progress-reporter
+    (i (make-list 10 t))
+    "Progress from 1 to 10 elements..."
+  (sleep-for 1))
+@end group
+@end lisp
+
+@node System Sleep
+@section Block System Sleep and Process Sleep Events
+@cindex system sleep
+@cindex mode, system sleep
+
+@defun system-sleep-block-sleep &optional why allow-display-sleep
+This function blocks the system from entering its idle sleep state.
+
+It returns a token that must be passed to
+@code{system-sleep-unblock-sleep} to unblock this specific block (other
+sleep blocks may be simultaneously in force for other purposes).
+Otherwise, it returns @code{nil} if the sleep blocking fails.
+
+@var{why} is a string and, when non-@code{nil}, is used to identify the
+sleep block as it may appear on the system's inspectable block lists.
+It defaults to @samp{Emacs}.
+
+If @var{allow-display-sleep} is non-@code{nil}, allow the display to
+sleep.  By default, the display is kept active.
+
+Note that when the Emacs process terminates, blocks are released on all
+platforms.
+@end defun
+
+@defun system-sleep-unblock-sleep token
+This function unblocks the sleep block associated with @var{token}.  It
+returns non-@code{nil} on success, otherwise it returns @code{nil}.
+@end defun
+
+@defmac with-system-sleep-block (&optional why allow-display-sleep) body@dots{}
+This is a convenience macro that lets you wrap the forms in @var{body}
+with a sleep block that is unblocked for you when @var{body} completes.
+This guarantees that the system will never go to sleep while @var{body}
+executes.  The arguments have the same meaning as in
+@code{system-sleep-block-sleep}, above.
+@end defmac
+
+@defun system-sleep-sleep-blocked-p
+This predicate function returns non-@code{nil} if there are any
+active @code{system-sleep} blocks, otherwise it returns @code{nil}.
+@end defun
+
+@defun system-sleep-unblock-all-sleep-blocks
+This function unblocks all active sleep blocks.  It is unlikely that you
+will need to call this function.
+@end defun
+
+@defopt system-sleep-event-functions
+When the system is about to enter a sleep state or after it wakes from
+one, each function on this abnormal hook is called with one argument,
+@var{event}, a sleep event.  Its state can be retrieved via
+@samp{@code{(sleep-event-state event)}}.  State will be one of the
+symbols @code{pre-sleep} or @code{post-wake}.
+
+Handling @code{pre-sleep} events should be done as fast as possible and
+avoid user prompting.  Systems often grant a very short pre-sleep
+processing interval, typically ranging between 2 and 5 seconds.  The
+system may sleep even if your processing is not complete, so be sure you
+do as little as possible.  For example, your function could close active
+connections or serial ports.
+
+Handling @code{post-wake} events offers more leeway.  Use this, for
+example, to reestablish connections.
+
+Note: Your code, or the functions it calls, should not raise any signals
+or all hooks will be halted.  You can wrap your code in a
+@code{condition-case} block (@pxref{Errors}).
+@end defopt
 
 @node File Notifications
 @section Notifications on File Changes

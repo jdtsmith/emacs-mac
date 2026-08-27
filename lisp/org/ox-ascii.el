@@ -1,6 +1,6 @@
 ;;; ox-ascii.el --- ASCII Backend for Org Export Engine -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2012-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
 ;; Author: Nicolas Goaziou <n.goaziou at gmail dot com>
 ;; Keywords: outlines, hypermedia, calendar, text
@@ -37,9 +37,6 @@
 ;;; Function Declarations
 
 (declare-function aa2u "ext:ascii-art-to-unicode" ())
-(declare-function org-at-heading-p "org" (&optional _))
-(declare-function org-back-to-heading "org" (&optional invisible-ok))
-(declare-function org-next-visible-heading "org" (arg))
 
 ;;; Define Backend
 ;;
@@ -688,8 +685,8 @@ possible.  It doesn't apply to `inlinetask' elements."
 			   (org-make-tag-string tag-list)))))
 	 (priority
 	  (and (plist-get info :with-priority)
-	       (let ((char (org-element-property :priority element)))
-		 (and char (format "(#%c) " char)))))
+	       (let ((priority-value (org-element-property :priority element)))
+		 (and priority-value (format "(#%s) " (org-priority-to-string priority-value))))))
 	 (first-part (concat numbers todo priority text)))
     (concat
      first-part

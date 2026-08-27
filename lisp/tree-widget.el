@@ -1,6 +1,6 @@
 ;;; tree-widget.el --- Tree widget  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2004-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
 ;; Author: David Ponce <david@dponce.com>
 ;; Created: 16 Feb 2001
@@ -392,13 +392,11 @@ EVENT is the mouse event received."
     (if (get-char-property pos 'button)
         (widget-button-click event))))
 
-(defvar tree-widget-button-keymap
-  (let ((km (make-sparse-keymap)))
-    (set-keymap-parent km widget-keymap)
-    (define-key km [down-mouse-1] 'tree-widget-button-click)
-    km)
-  "Keymap used inside node buttons.
-Handle mouse button 1 click on buttons.")
+(defvar-keymap tree-widget-button-keymap
+  :doc "Keymap used inside node buttons.
+Handle mouse button 1 click on buttons."
+  :parent widget-keymap
+  "<down-mouse-1>" #'tree-widget-button-click)
 
 (define-widget 'tree-widget-icon 'push-button
   "Basic widget other tree-widget icons are derived from."

@@ -1,8 +1,8 @@
 ;;; reftex-dcr.el --- viewing cross references and citations with RefTeX  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2026 Free Software Foundation, Inc.
 
-;; Author: Carsten Dominik <dominik@science.uva.nl>
+;; Author: Carsten Dominik <carsten.dominik@gmail.com>
 ;; Maintainer: auctex-devel@gnu.org
 
 ;; This file is part of GNU Emacs.
@@ -23,8 +23,6 @@
 ;;; Commentary:
 
 ;;; Code:
-
-(eval-when-compile (require 'cl-lib))
 
 (declare-function bibtex-beginning-of-entry "bibtex" ())
 
@@ -415,7 +413,7 @@ Calling this function several times find successive citation locations."
     (if match
         (progn
           (put 'reftex-view-regexp-match :props newprop)
-          (put 'reftex-view-regexp-match :cnt (cl-incf cnt))
+          (put 'reftex-view-regexp-match :cnt (incf cnt))
           (reftex-highlight 0 (match-beginning highlight-group)
                             (match-end highlight-group))
           (add-hook 'pre-command-hook #'reftex-highlight-shall-die)

@@ -1,6 +1,6 @@
 ;;; xdisp-tests.el --- tests for xdisp.c functions -*- lexical-binding: t -*-
 
-;; Copyright (C) 2020-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -178,5 +178,39 @@ int main () {
       (with-current-buffer messages-buffer-name
         (buffer-string)))
     "foo\n")))
+
+(ert-deftest xdisp-test-format-mode-line ()
+  ;; 'format-mode-line' returns an empty string with no properties in
+  ;; noninteractive sessions.
+  (skip-when noninteractive)
+  (with-temp-buffer
+    (insert (format-mode-line " " t))
+    (should (equal (buffer-string) #(" " 0 1 (face mode-line-active)))))
+  (with-temp-buffer
+    (insert (format-mode-line
+             (propertize "x" 'face 'bold-italic)
+             1200000000000000000000000000))
+    (should (null (get-text-property 1 'face))))
+  (should
+   (equal
+    (text-properties-at
+     0
+     (format-mode-line '((:propertize "Hello!" face bold)) 'mode-line))
+    (list 'face '(bold mode-line) 'mode-line-elt-no 3)))
+  (with-temp-buffer
+    ;; This test is due to Markus Triska <triska@metalevel.at>.
+    (let ((m1 (format-mode-line mode-line-format nil))
+	  (m2 (format-mode-line mode-line-format 'default))
+	  s1 s2)
+      (font-lock-mode 0)
+      (insert "\n")
+      (insert m1)
+      (setq s1 (buffer-text-pixel-size))
+      (erase-buffer)
+      (insert "\n")
+      (insert m2)
+      (setq s2 (buffer-text-pixel-size))
+      (should (equal m1 m2))
+      (should (equal s1 s2)))))
 
 ;;; xdisp-tests.el ends here

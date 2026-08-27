@@ -1,6 +1,6 @@
 ;;;  syncdoc-type-hierarchy.el--- -*- lexical-binding: t -*-
 
-;; Copyright (C) 2023-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 ;; Author: Andrea Corallo <acorallo@gnu.org>
 ;; Keywords: documentation
@@ -107,7 +107,7 @@
                                 (insert "|\n||")
                                 (setq x 0))
                            do (insert (symbol-name child) " ")
-                           do (cl-incf x (1+ child-len)) )
+                           do (incf x (1+ child-len)) )
                do (insert "\n")))
     (require 'org-table)
     (declare-function org-table-align "org")

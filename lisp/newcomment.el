@@ -1,6 +1,6 @@
 ;;; newcomment.el --- (un)comment regions of buffers -*- lexical-binding: t -*-
 
-;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
 ;; Author: code extracted from Emacs-20's simple.el
 ;; Maintainer: Stefan Monnier <monnier@gnu.org>
@@ -56,7 +56,6 @@
 ;; - spill auto-fill of comments onto the end of the next line.
 ;; - uncomment-region with a consp (for blocks) or somehow make the
 ;;   deletion of continuation markers less dangerous.
-;; - drop block-comment-<foo> unless it's really used.
 ;; - uncomment-region on a subpart of a comment.
 ;; - support gnu-style "multi-line with space in continue".
 ;; - somehow allow comment-dwim to use the region even if transient-mark-mode
@@ -109,8 +108,8 @@ can set the value for a particular mode using that mode's hook.
 Comments might be indented to a different value in order not to go beyond
 `comment-fill-column' or in order to align them with surrounding comments."
   :type 'integer
+  :local t
   :group 'comment)
-(make-variable-buffer-local 'comment-column)
 ;;;###autoload
 (put 'comment-column 'safe-local-variable 'integerp)
 
@@ -136,7 +135,7 @@ by the close of the first pair.")
 (put 'comment-end-skip 'safe-local-variable 'stringp)
 
 ;;;###autoload
-(defvar comment-end (purecopy "")
+(defvar comment-end ""
   "String to insert to end a new comment.
 Should be an empty string if comments are terminated by end-of-line.")
 ;;;###autoload
@@ -182,10 +181,6 @@ guaranteed to be correctly ordered.  It is called within `save-excursion'.
 
 Applicable at least in modes for languages like fixed-format Fortran where
 comments always start in column zero.")
-
-;; ?? never set
-(defvar block-comment-start nil)
-(defvar block-comment-end nil)
 
 (defvar comment-quote-nested t
   "Non-nil if nested comments should be quoted.
@@ -288,7 +283,7 @@ See `comment-styles' for a list of available styles."
   :group 'comment)
 
 ;;;###autoload
-(defcustom comment-padding (purecopy " ")
+(defcustom comment-padding " "
   "Padding string that `comment-region' puts between comment chars and text.
 Can also be an integer which will be automatically turned into a string
 of the corresponding number of spaces.
@@ -349,6 +344,9 @@ terminated by the end of line (i.e., `comment-end' is empty)."
   "Return the mirror image of string S, without any trailing space."
   (comment-string-strip (concat (nreverse (string-to-list s))) nil t))
 
+(defvar comment-setup-function #'ignore
+  "Function to set up variables needed by commenting functions.")
+
 ;;;###autoload
 (defun comment-normalize-vars (&optional noerror)
   "Check and set up variables needed by other commenting functions.
@@ -356,6 +354,7 @@ All the `comment-*' commands call this function to set up various
 variables, like `comment-start', to ensure that the commenting
 functions work correctly.  Lisp callers of any other `comment-*'
 function should first call this function explicitly."
+  (funcall comment-setup-function)
   (unless (and (not comment-start) noerror)
     (unless comment-start
       (let ((cs (read-string "No comment syntax is defined.  Use: ")))
@@ -718,63 +717,70 @@ Point is expected to be at the start of the comment."
 If CONTINUE is non-nil, use the `comment-continue' markers if any."
   (interactive "*")
   (comment-normalize-vars)
-  (let* ((empty (save-excursion (beginning-of-line)
-				(looking-at "[ \t]*$")))
-	 (starter (or (and continue comment-continue)
-		      (and empty block-comment-start) comment-start))
-	 (ender (or (and continue comment-continue "")
-		    (and empty block-comment-end) comment-end)))
-    (unless starter (error "No comment syntax defined"))
-    (beginning-of-line)
-    (let* ((eolpos (line-end-position))
-	   (begpos (comment-search-forward eolpos t))
-	   cpos indent)
-      (if (and comment-insert-comment-function (not begpos))
-	  ;; If no comment and c-i-c-f is set, let it do everything.
-	  (funcall comment-insert-comment-function)
-	;; An existing comment?
-	(if begpos
-	    (progn
-	      (if (and (not (looking-at "[\t\n ]"))
-		       (looking-at comment-end-skip))
-		  ;; The comment is empty and we have skipped all its space
-		  ;; and landed right before the comment-ender:
-		  ;; Go back to the middle of the space.
-		  (forward-char (/ (skip-chars-backward " \t") -2)))
-	      (setq cpos (point-marker)))
-	  ;; If none, insert one.
-	  (save-excursion
-	    ;; Some `comment-indent-function's insist on not moving
-	    ;; comments that are in column 0, so we first go to the
-	    ;; likely target column.
-	    (indent-to comment-column)
-	    ;; Ensure there's a space before the comment for things
-	    ;; like sh where it matters (as well as being neater).
-	    (unless (memq (char-before) '(nil ?\n ?\t ?\s))
-	      (insert ?\s))
-	    (setq begpos (point))
-	    (insert starter)
-	    (setq cpos (point-marker))
-	    (insert ender)))
-	(goto-char begpos)
-	;; Compute desired indent.
-	(setq indent (save-excursion (funcall comment-indent-function)))
-	;; If `indent' is nil and there's code before the comment, we can't
-	;; use `indent-according-to-mode', so we default to comment-column.
-	(unless (or indent (save-excursion (skip-chars-backward " \t") (bolp)))
-	  (setq indent comment-column))
-	(if (not indent)
-	    ;; comment-indent-function refuses: delegate to line-indent.
-	    (indent-according-to-mode)
-	  ;; If the comment is at the right of code, adjust the indentation.
-	  (unless (save-excursion (skip-chars-backward " \t") (bolp))
-	    (setq indent (comment-choose-indent indent)))
-	  ;; If that's different from comment's current position, change it.
-	  (unless (= (current-column) indent)
-	    (delete-region (point) (progn (skip-chars-backward " \t") (point)))
-	    (indent-to indent)))
-	(goto-char cpos)
-	(set-marker cpos nil)))))
+  (beginning-of-line)
+  (let ((starter (or (and continue comment-continue)
+                     comment-start
+                     (error "No comment syntax defined")))
+	(ender (or (and continue comment-continue "")
+                   comment-end))
+	(begpos (comment-search-forward (line-end-position) t))
+	cpos indent)
+    (cond
+     ;; If we couldn't find a comment *starting* on this line, see if we
+     ;; are already within a multiline comment at BOL (bug#78003).
+     ((and (not begpos) (not continue)
+           comment-use-syntax comment-use-global-state
+           (save-excursion (nth 4 (syntax-ppss (line-beginning-position)))))
+      ;; We don't know anything about the nature of the multiline
+      ;; construct, so immediately delegate to the mode.
+      (indent-according-to-mode))
+     ((and (not begpos) comment-insert-comment-function)
+      ;; If no comment and c-i-c-f is set, let it do everything.
+      (funcall comment-insert-comment-function))
+     (t
+      ;; An existing comment?
+      (if begpos
+	  (progn
+	    (if (and (not (looking-at "[\t\n ]"))
+		     (looking-at comment-end-skip))
+		;; The comment is empty and we have skipped all its space
+		;; and landed right before the comment-ender:
+		;; Go back to the middle of the space.
+		(forward-char (/ (skip-chars-backward " \t") -2)))
+	    (setq cpos (point-marker)))
+	;; If none, insert one.
+	(save-excursion
+	  ;; Some `comment-indent-function's insist on not moving
+	  ;; comments that are in column 0, so we first go to the
+	  ;; likely target column.
+	  (indent-to comment-column)
+	  ;; Ensure there's a space before the comment for things
+	  ;; like sh where it matters (as well as being neater).
+	  (unless (memq (char-before) '(nil ?\n ?\t ?\s))
+	    (insert ?\s))
+	  (setq begpos (point))
+	  (insert starter)
+	  (setq cpos (point-marker))
+	  (insert ender)))
+      (goto-char begpos)
+      ;; Compute desired indent.
+      (setq indent (save-excursion (funcall comment-indent-function)))
+      ;; If `indent' is nil and there's code before the comment, we can't
+      ;; use `indent-according-to-mode', so we default to comment-column.
+      (unless (or indent (save-excursion (skip-chars-backward " \t") (bolp)))
+	(setq indent comment-column))
+      (if (not indent)
+	  ;; comment-indent-function refuses: delegate to line-indent.
+	  (indent-according-to-mode)
+	;; If the comment is at the right of code, adjust the indentation.
+	(unless (save-excursion (skip-chars-backward " \t") (bolp))
+	  (setq indent (comment-choose-indent indent)))
+	;; If that's different from comment's current position, change it.
+	(unless (= (current-column) indent)
+	  (delete-region (point) (progn (skip-chars-backward " \t") (point)))
+	  (indent-to indent)))
+      (goto-char cpos)
+      (set-marker cpos nil)))))
 
 ;;;###autoload
 (defun comment-set-column (arg)
@@ -918,7 +924,7 @@ comment delimiters."
   (when (> beg end) (setq beg (prog1 end (setq end beg))))
   ;; Bind `comment-use-global-state' to nil.  While uncommenting a region
   ;; (which works a line at a time), a comment can appear to be
-  ;; included in a mult-line string, but it is actually not.
+  ;; included in a multi-line string, but it is actually not.
   (let ((comment-use-global-state nil))
     (save-excursion
       (funcall uncomment-region-function beg end arg))))

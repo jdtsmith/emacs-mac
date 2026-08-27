@@ -2,6 +2,7 @@
 
 @setfilename ../../info/message.info
 @settitle Message Manual
+@documentlanguage en
 @include docstyle.texi
 @synindex fn cp
 @synindex vr cp
@@ -9,7 +10,7 @@
 @copying
 This file documents Message, the Emacs message composition mode.
 
-Copyright @copyright{} 1996--2025 Free Software Foundation, Inc.
+Copyright @copyright{} 1996--2026 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -1688,13 +1689,14 @@ result is inserted.
 
 @item message-subject-re-regexp
 @vindex message-subject-re-regexp
+@vindex mail-re-regexps
 @cindex Aw
 @cindex Sv
 @cindex Re
 Responses to messages have subjects that start with @samp{Re: }.  This
 is @emph{not} an abbreviation of the English word ``response'', but it
 comes from the Latin ``res'', and means ``in the matter of''.  Some
-illiterate nincompoops have failed to grasp this fact, and have
+companies, seemingly allergic to standards, have failed to grasp this fact, and have
 ``internationalized'' their software to use abominations like
 @samp{Aw: } (``antwort'') or @samp{Sv: } (``svar'') instead, which is
 meaningless and evil.  However, you may have to deal with users that
@@ -1725,6 +1727,16 @@ responding to a message:
        "*[ \t]*"
        ))
 @end lisp
+
+You shouldn't need to do this, since the default value of
+@code{message-subject-re-regexp} is initialized based on
+@code{mail-re-regexps}, which covers most known cases of such
+internationalization, and is a lot easier to customize.  Customizing
+@code{mail-re-regexps} updates @code{message-subject-re-regexp} to
+match.
+
+Note that the regexp is matched case-insensitively against the
+@samp{Subject} header contents.
 
 @item message-subject-trailing-was-query
 @vindex message-subject-trailing-was-query
@@ -1785,6 +1797,12 @@ A list of lists of header synonyms.  E.g., if this list contains a
 member list with elements @code{CC} and @code{To}, then
 @code{message-carefully-insert-headers} will not insert a @code{To}
 header when the message is already @code{CC}ed to the recipient.
+
+@item message-header-use-obsolete-in-reply-to
+@vindex message-header-use-obsolete-in-reply-to
+When non-@code{nil}, use an obsolete form of the @code{In-Reply-To}
+header that includes a parenthetical phrase with details of the
+originating email following the message id.  The default is @code{nil}.
 
 @item message-syntax-checks
 @vindex message-syntax-checks
@@ -1891,13 +1909,6 @@ Regexp of headers to be removed before mailing.  The default is@*
 This string is inserted at the end of the headers in all message
 buffers that are initialized as mail.
 
-@item message-generate-hashcash
-@vindex message-generate-hashcash
-Variable that indicates whether @samp{X-Hashcash} headers
-should be computed for the message.  @xref{Hashcash, ,Hashcash,gnus,
-The Gnus Manual}.  If @code{opportunistic}, only generate the headers
-when it doesn't lead to the user having to wait.
-
 @end table
 
 
@@ -1960,6 +1971,15 @@ X-Message-SMTP-Method: smtp smtp.fsf.org 587 other-user
 This is the same as the above, but uses @samp{other-user} as the user
 name when authenticating.  This is handy if you have several
 @acronym{SMTP} accounts on the same server.
+
+Normally, the connection to the SMTP server follows the value of
+@code{smtpmail-stream-type} except if port is 465, in which case a TLS
+connection is required.  To enforce a specific stream type, mention one
+of the possible values of that variable, like so:
+
+@example
+X-Message-SMTP-Method: smtp smtp.fsf.org 587 other-user starttls
+@end example
 
 This header may also be used to specify an alternative MTA by using a
 @samp{mailer} keyword, where @samp{mailer} is the name of an MTA with

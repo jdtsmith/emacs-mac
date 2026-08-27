@@ -1,8 +1,8 @@
 ;;; reftex.el --- minor mode for doing \label, \ref, \cite, \index in LaTeX  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2000, 2003-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2026 Free Software Foundation, Inc.
 
-;; Author: Carsten Dominik <dominik@science.uva.nl>
+;; Author: Carsten Dominik <carsten.dominik@gmail.com>
 ;; Maintainer: auctex-devel@gnu.org
 ;; Keywords: tex
 
@@ -44,7 +44,7 @@
 ;;
 ;;    https://www.gnu.org/software/auctex/reftex.html
 ;;
-;; RefTeX was written by Carsten Dominik <dominik@science.uva.nl> with
+;; RefTeX was written by Carsten Dominik <carsten.dominik@gmail.com> with
 ;; contributions from Stephen Eglen.  It is currently maintained by
 ;; the AUCTeX project.
 
@@ -133,24 +133,21 @@
   "Keymap for RefTeX mode.")
 
 (defvar reftex-mode-menu nil)
-(defvar reftex-syntax-table nil)
-(defvar reftex-syntax-table-for-bib nil)
+(defvar reftex-syntax-table
+  (let ((st (make-syntax-table)))
+    (modify-syntax-entry ?\( "." st)
+    (modify-syntax-entry ?\) "." st)
+    st))
 
-(defun reftex--prepare-syntax-tables ()
-  (setq reftex-syntax-table (copy-syntax-table))
-  (modify-syntax-entry ?\( "." reftex-syntax-table)
-  (modify-syntax-entry ?\) "." reftex-syntax-table)
-
-  (setq reftex-syntax-table-for-bib (copy-syntax-table))
-  (modify-syntax-entry ?\' "." reftex-syntax-table-for-bib)
-  (modify-syntax-entry ?\" "." reftex-syntax-table-for-bib)
-  (modify-syntax-entry ?\[ "." reftex-syntax-table-for-bib)
-  (modify-syntax-entry ?\] "." reftex-syntax-table-for-bib)
-  (modify-syntax-entry ?\( "." reftex-syntax-table-for-bib)
-  (modify-syntax-entry ?\) "." reftex-syntax-table-for-bib))
-
-(unless (and reftex-syntax-table reftex-syntax-table-for-bib)
-  (reftex--prepare-syntax-tables))
+(defvar reftex-syntax-table-for-bib
+  (let ((st (make-syntax-table)))
+    (modify-syntax-entry ?\' "." st)
+    (modify-syntax-entry ?\" "." st)
+    (modify-syntax-entry ?\[ "." st)
+    (modify-syntax-entry ?\] "." st)
+    (modify-syntax-entry ?\( "." st)
+    (modify-syntax-entry ?\) "." st)
+    st))
 
 ;; The following definitions are out of place, but I need them here
 ;; to make the compilation of reftex-mode not complain.
@@ -212,9 +209,6 @@ on the menu bar.
                (reftex-toggle-auto-toc-recenter))
           (put 'reftex-auto-recenter-toc 'initialized t))
 
-        ;; Prepare the special syntax tables.
-	(reftex--prepare-syntax-tables)
-
         (run-hooks 'reftex-mode-hook))))
 
 (defvar reftex-docstruct-symbol)
@@ -253,6 +247,52 @@ on the menu bar.
 
 ;;; =========================================================================
 ;;;
+;;; Helper functions for handling both file names and buffer objects.
+;;;
+
+(defun reftex--get-buffer-identifier (&optional buffer)
+  "Return the base buffer's file name or buffer identifier.
+For file buffers, returns the file name of the base buffer.
+For non-file buffers, return the base buffer object itself.
+When BUFFER is nil, use the current buffer."
+  (let* ((buffer (or (buffer-base-buffer buffer) buffer (current-buffer))))
+    (or (buffer-local-value 'buffer-file-name buffer)
+        buffer)))
+
+(defun reftex--get-directory (file-or-buffer)
+  "Get the directory associated with FILE-OR-BUFFER.
+FILE-OR-BUFFER can be a file name or a buffer object."
+  (if (bufferp file-or-buffer)
+      (buffer-local-value 'default-directory file-or-buffer)
+    (file-name-directory file-or-buffer)))
+
+(defun reftex--abbreviate-name (file-or-buffer)
+  "Get a nice display name for FILE-OR-BUFFER.
+For files, returns the abbreviated file name.
+For buffers, returns the buffer name."
+  (if (bufferp file-or-buffer)
+      (prin1-to-string file-or-buffer)
+    (abbreviate-file-name file-or-buffer)))
+
+(defun reftex--get-basename (file-or-buffer)
+  "Get the base name (without extension) for FILE-OR-BUFFER.
+For file names, returns the file name without directory and extension.
+For buffer objects, returns a sanitized version of the buffer name
+suitable for use in LaTeX labels."
+  (if (bufferp file-or-buffer)
+      (file-name-base (buffer-name file-or-buffer))
+    (file-name-base file-or-buffer)))
+
+(defun reftex--get-truename (file-or-buffer)
+  "Get the canonical form of FILE-OR-BUFFER's identity.
+For files, returns the result of file-truename.
+For buffer objects, returns the buffer object itself."
+  (if (bufferp file-or-buffer)
+      file-or-buffer
+    (file-truename file-or-buffer)))
+
+;;; =========================================================================
+;;;
 ;;; Multibuffer Variables
 ;;;
 ;; Technical notes: These work as follows: We keep just one list
@@ -273,17 +313,22 @@ on the menu bar.
 (defvar reftex-multifile-index 0)
 
 ;; Variable holding the symbol with the label list of the document.
-(defvar reftex-docstruct-symbol nil)
-(make-variable-buffer-local 'reftex-docstruct-symbol)
+(defvar-local reftex-docstruct-symbol nil)
 
 (defun reftex-next-multifile-index ()
-  ;; Return the next free index for multifile symbols.
-  (cl-incf reftex-multifile-index))
+  "Return the next free index for multifile symbols."
+  (incf reftex-multifile-index))
+
+(defun reftex--remove-buffer-from-master-index ()
+  "Remove current buffer from `reftex-master-index-list'."
+  (setq reftex-master-index-list
+        (assq-delete-all (current-buffer) reftex-master-index-list)))
 
 (defun reftex-tie-multifile-symbols ()
   "Tie the buffer-local symbols to globals connected with the master file.
 If the symbols for the current master file do not exist, they are created."
-  (let* ((master (file-truename (reftex-TeX-master-file)))
+  (let* ((master (reftex-TeX-master-file))
+         (master (reftex--get-truename master))
          (index (assoc master reftex-master-index-list))
          (symlist reftex-multifile-symbols)
          symbol symname newflag)
@@ -294,7 +339,11 @@ If the symbols for the current master file do not exist, they are created."
       ;; Get a new index and add info to the alist.
       (setq index (reftex-next-multifile-index)
             newflag t)
-      (push (cons master index) reftex-master-index-list))
+      (push (cons master index) reftex-master-index-list)
+      (when (bufferp master)
+        (with-current-buffer master
+          (add-hook 'kill-buffer-hook
+                    #'reftex--remove-buffer-from-master-index nil t))))
 
     ;; Get/create symbols and tie them.
     (while symlist
@@ -323,84 +372,87 @@ If the symbols for the current master file do not exist, they are created."
       (set symbol nil))))
 
 (defun reftex-TeX-master-file ()
-  ;; Return the name of the master file associated with the current buffer.
-  ;; When AUCTeX is loaded, we will use it's more sophisticated method.
-  ;; We also support the default TeX and LaTeX modes by checking for a
-  ;; variable tex-main-file.
-  (let
-      ((master
-        (cond
-	 ;; Test if we're in a subfile using the subfiles document
-	 ;; class, e.g., \documentclass[main.tex]{subfiles}.  It's
-	 ;; argument is the main file, however it's not really the
-	 ;; master file in `TeX-master-file' or `tex-main-file's
-	 ;; sense.  It should be used for references but not for
-	 ;; compilation, thus subfiles use a setting of
-	 ;; `TeX-master'/`tex-main-file' being themselves.
-	 ((save-excursion
-            (goto-char (point-min))
-            (re-search-forward
-             "^[[:space:]]*\\\\documentclass\\[\\([^]]+\\)\\]{subfiles}"
-             nil t))
-          (match-string-no-properties 1))
-         ;; AUCTeX is loaded.  Use its mechanism.
-         ((fboundp 'TeX-master-file)
-          (condition-case nil
-              (TeX-master-file t)
-            (error (buffer-file-name))))
-         ;; Emacs LaTeX mode
-         ((fboundp 'tex-main-file) (tex-main-file))
-         ;; Check the `TeX-master' variable.
-         ((boundp 'TeX-master)
+  "Return the name of the master file associated with the current buffer.
+When AUCTeX is loaded, we will use it's more sophisticated method.
+We also support the default TeX and LaTeX modes by checking for a
+variable `tex-main-file'."
+  (with-current-buffer (or (buffer-base-buffer) (current-buffer))
+    (let
+        ;; Set master to a file name (possibly non-existent), or nil:
+        ((master
           (cond
-           ((eq TeX-master t)
-            (buffer-file-name))
-           ((eq TeX-master 'shared)
-            (setq TeX-master (read-file-name "Master file: "
-                                             nil nil t nil)))
-           (TeX-master)
+	   ;; Test if we're in a subfile using the subfiles document
+	   ;; class, e.g., \documentclass[main.tex]{subfiles}.  It's
+	   ;; argument is the main file, however it's not really the
+	   ;; master file in `TeX-master-file' or `tex-main-file's
+	   ;; sense.  It should be used for references but not for
+	   ;; compilation, thus subfiles use a setting of
+	   ;; `TeX-master'/`tex-main-file' being themselves.
+	   ((save-excursion
+              (goto-char (point-min))
+              (re-search-forward
+               "^[[:space:]]*\\\\documentclass\\[\\([^]]+\\)\\]{subfiles}"
+               nil t))
+            (match-string-no-properties 1))
+           ;; AUCTeX is loaded.  Use its mechanism.
+           ((fboundp 'TeX-master-file)
+            (condition-case nil
+                (TeX-master-file t)
+              (error (buffer-file-name))))
+           ;; Emacs LaTeX mode
+           ((fboundp 'tex-main-file)
+            (condition-case nil
+                (tex-main-file)
+              (error (buffer-file-name))))
+           ;; Check the `TeX-master' variable.
+           ((boundp 'TeX-master)
+            (cond
+             ((eq TeX-master t)
+              (buffer-file-name))
+             ((or (stringp TeX-master) (bufferp TeX-master)) TeX-master)
+             (t
+              (setq TeX-master (read-file-name "Master file: "
+                                               nil nil t nil)))))
+           ;; Check the `tex-main-file' variable.
+           ((boundp 'tex-main-file)
+            ;; This is the variable from the default TeX modes.
+            (cond
+             ((stringp tex-main-file)
+              ;; ok, this must be it
+              tex-main-file)
+             (t
+              ;; In this case, the buffer is its own master.
+              (buffer-file-name))))
+           ;; We know nothing about master file.  Assume this is a
+           ;; master file.
            (t
-            (setq TeX-master (read-file-name "Master file: "
-                                             nil nil t nil)))))
-         ;; Check the `tex-main-file' variable.
-         ((boundp 'tex-main-file)
-          ;; This is the variable from the default TeX modes.
-          (cond
-           ((stringp tex-main-file)
-            ;; ok, this must be it
-            tex-main-file)
-           (t
-            ;; In this case, the buffer is its own master.
-            (buffer-file-name))))
-         ;; We know nothing about master file.  Assume this is a
-         ;; master file.
-         (t
-          (buffer-file-name)))))
-    (cond
-     ((null master)
-      (error "Need a filename for this buffer, please save it first"))
-     ((or (file-exists-p (concat master ".tex"))
-          (find-buffer-visiting (concat master ".tex")))
-      ;; Ahh, an extra .tex was missing...
-      (setq master (concat master ".tex")))
-     ((or (file-exists-p master)
-          (find-buffer-visiting master))
-      ;; We either see the file, or have a buffer on it.  OK.
-      )
-     (t
-      ;; Use buffer file name.
-      (setq master (buffer-file-name))))
-    (expand-file-name master)))
+            (buffer-file-name)))))
+      (cond
+       ((not (stringp master)))
+       ((or (file-exists-p (concat master ".tex"))
+            (find-buffer-visiting (concat master ".tex")))
+        ;; Ahh, an extra .tex was missing...
+        (setq master (concat master ".tex")))
+       ((or (file-exists-p master)
+            (find-buffer-visiting master))
+        ;; We either see the file, or have a buffer on it.  OK.
+        )
+       (t
+        ;; Use buffer file name.
+        (setq master (buffer-file-name))))
+      (if (stringp master)
+          (expand-file-name master)
+        (or master (current-buffer))))))
 
 (defun reftex-is-multi ()
-  ;; Tell if this is a multifile document.  When not sure, say yes.
+  "Tell if this is a multifile document.  When not sure, say yes."
   (let ((entry (assq 'is-multi (symbol-value reftex-docstruct-symbol))))
     (if entry
         (nth 1 entry)
       t)))
 
 (defun reftex-set-cite-format (value)
-  "Set the document-local value of `reftex-cite-format'.
+  "Set the document-local VALUE of `reftex-cite-format'.
 When such a value exists, it overwrites the setting given with
 `reftex-cite-format'.  See the documentation of `reftex-cite-format'
 for possible values.  This function should be used from AUCTeX style files."
@@ -411,8 +463,9 @@ for possible values.  This function should be used from AUCTeX style files."
     (put reftex-docstruct-symbol 'reftex-cite-format value)))
 
 (defun reftex-get-cite-format ()
-  ;; Return the current citation format.  Either the document-local value in
-  ;; reftex-cite-format-symbol, or the global value in reftex-cite-format.
+  "Return the current citation format.
+Either the document-local value in `reftex-cite-format-symbol', or the
+global value in `reftex-cite-format'."
   (if (and reftex-docstruct-symbol
            (symbolp reftex-docstruct-symbol)
            (get reftex-docstruct-symbol 'reftex-cite-format))
@@ -645,7 +698,7 @@ will deactivate it."
 ))
 
 (defun reftex-ensure-compiled-variables ()
-  ;; Recompile the label alist when necessary
+  "Recompile the label alist when necessary."
   (let* ((mem reftex-memory)
          (cache (get reftex-docstruct-symbol 'reftex-cache))
          (cmem  (car cache))
@@ -713,7 +766,7 @@ on next use."
 (defun reftex-reset-scanning-information ()
   "Reset the symbols containing information from buffer scanning.
 This enforces rescanning the buffer on next use."
-  (if (string= reftex-last-toc-master (reftex-TeX-master-file))
+  (if (equal reftex-last-toc-master (reftex-TeX-master-file))
       (reftex-erase-buffer "*toc*"))
   (let ((symlist reftex-multifile-symbols)
         symbol)
@@ -725,7 +778,7 @@ This enforces rescanning the buffer on next use."
           (set (symbol-value symbol) nil)))))
 
 (defun reftex-erase-all-selection-and-index-buffers ()
-  ;; Remove all selection buffers associated with current document.
+  "Remove all selection buffers associated with current document."
   (mapc
    (lambda (type)
      (reftex-erase-buffer (reftex-make-selection-buffer-name type)))
@@ -737,8 +790,7 @@ This enforces rescanning the buffer on next use."
    (cdr (assoc 'index-tags (symbol-value reftex-docstruct-symbol)))))
 
 (defun reftex-compile-variables ()
-  ;; Compile the information in reftex-label-alist & Co.
-
+  "Compile the information in reftex-label-alist & Co."
   (message "Compiling label environment definitions...")
 
   ;; Update AUCTeX style information
@@ -938,7 +990,7 @@ This enforces rescanning the buffer on next use."
                          (not (member (aref fmt i) '(?%))))
                (setq word (concat word "\\|" (regexp-quote
                                               (substring fmt 0 (1+ i)))))
-               (cl-incf i))
+               (incf i))
              (cons (concat word "\\)\\=") typekey))
            (nreverse reftex-words-to-typekey-alist)))
 
@@ -991,7 +1043,7 @@ This enforces rescanning the buffer on next use."
            (mapconcat
             (lambda(x)
               (format "[%c] %-20.20s%s" (car x) (nth 1 x)
-                      (if (= 0 (mod (cl-incf i) 3)) "\n" "")))
+                      (if (= 0 (mod (incf i) 3)) "\n" "")))
             reftex-key-to-index-macro-alist "")))
 
     ;; Make the full list of section levels
@@ -1077,15 +1129,15 @@ This enforces rescanning the buffer on next use."
        (mapcar #'symbol-value reftex-cache-variables)))
 
 (defun reftex-parse-args (macro)
-  ;; Return a list of macro name, nargs, arg-nr which is label and a list of
-  ;; optional argument indices.
+  "Return a list of MACRO name, nargs, arg-nr.
+arg-nr is label and a list of optional argument indices."
   (if (string-match "[[{]\\*?[]}]" macro)
       (progn
         (let ((must-match (substring macro 0 (match-beginning 0)))
               (args (substring macro (match-beginning 0)))
               opt-list nlabel (cnt 0))
           (while (string-match "\\`[[{]\\(\\*\\)?[]}]" args)
-            (cl-incf cnt)
+            (incf cnt)
             (when (eq ?\[ (string-to-char args))
               (push cnt opt-list))
             (when (and (match-end 1)
@@ -1100,16 +1152,11 @@ This enforces rescanning the buffer on next use."
 ;;; Accessing the parse information
 
 (defun reftex-access-scan-info (&optional rescan file)
-  "Ensure access to the scanning info for the current file."
-  ;; When the multifile symbols are not yet tied,
-  ;; tie them.  When they are empty or RESCAN is non-nil, scan the document.
-  ;; But, when RESCAN is -1, don't rescan even if docstruct is empty.
-  ;; When FILE is non-nil, parse only from that file.
-
-  ;; Error out in a buffer without a file.
-  (if (and reftex-mode
-	   (not (buffer-file-name)))
-      (error "RefTeX works only in buffers visiting a file"))
+  "Ensure access to the scanning info for the current file.
+When the multifile symbols are not yet tied, tie them.
+When they are empty or RESCAN is non-nil, scan the document.
+But, when RESCAN is -1, don't rescan even if docstruct is empty.
+When FILE is non-nil, parse only from that file."
 
   ;; Make sure we have the symbols tied
   (if (eq reftex-docstruct-symbol nil)
@@ -1149,8 +1196,8 @@ This enforces rescanning the buffer on next use."
        t))
 
 (defun reftex-silence-toc-markers (list n)
-  ;; Set all toc markers in the first N entries in list to nil
-  (while (and list (> (cl-decf n) -1))
+  "Set all toc markers in the first N entries in LIST to nil."
+  (while (and list (> (decf n) -1))
     (and (eq (car (car list)) 'toc)
          (markerp (nth 4 (car list)))
          (set-marker (nth 4 (car list)) nil))
@@ -1158,16 +1205,26 @@ This enforces rescanning the buffer on next use."
 
 (defun reftex-access-parse-file (action)
   "Perform ACTION on the parse file (the .rel file).
-Valid actions are: readable, restore, read, kill, write."
+Valid actions are: readable, restore, read, kill, write.
+For non-file buffers, persistence operations are skipped."
   (let* ((list (symbol-value reftex-docstruct-symbol))
          (docstruct-symbol reftex-docstruct-symbol)
          (master (reftex-TeX-master-file))
          (enable-local-variables nil)
-         (file (if (string-match "\\.[a-zA-Z]+\\'" master)
-                   (concat (substring master 0 (match-beginning 0))
-                           reftex-parse-file-extension)
-                 (concat master reftex-parse-file-extension))))
+         (non-file (bufferp master))
+         (file (if non-file
+                   nil
+                 (if (string-match "\\.[a-zA-Z]+\\'" master)
+                     (concat (substring master 0 (match-beginning 0))
+                             reftex-parse-file-extension)
+                   (concat master reftex-parse-file-extension)))))
     (cond
+     ;; For non-file buffers, skip file operations but allow initialization.
+     (non-file (cond ((eq action 'readable) nil)
+                     ((eq action 'read) nil)
+                     ((eq action 'kill) t)
+                     ((eq action 'restore)
+                      (error "Cannot restore for non-file buffer"))))
      ((eq action 'readable)
       (file-readable-p file))
      ((eq action 'restore)
@@ -1235,13 +1292,15 @@ Valid actions are: readable, restore, read, kill, write."
       t))))
 
 (defun reftex-check-parse-consistency ()
-  ;; Check if parse file is consistent, throw an error if not.
+  "Check if parse file is consistent, throw an error if not."
 
   ;; Check if the master is the same: when moving a document, this will see it.
   (let* ((real-master (reftex-TeX-master-file))
          (parsed-master
           (nth 1 (assq 'bof (symbol-value reftex-docstruct-symbol)))))
-    (unless (string= (file-truename real-master) (file-truename parsed-master))
+    ;; Skip this check for buffer objects.
+    (unless (equal (reftex--get-truename real-master)
+                   (reftex--get-truename parsed-master))
       (message "Master file name in load file is different: %s versus %s"
                parsed-master real-master)
       (error "Master file name error")))
@@ -1257,7 +1316,7 @@ Valid actions are: readable, restore, read, kill, write."
   )
 
 (defun reftex-select-external-document (xr-alist xr-index)
-  ;; Return index of an external document.
+  "Return index of an external document."
   (let* ((len (length xr-alist)) (highest (1- (+ ?0 len)))
          (prompt (format "[%c-%c] Select    TAB: Read prefix with completion"
                          ?0 highest))
@@ -1281,8 +1340,8 @@ Valid actions are: readable, restore, read, kill, write."
                   "SELECT EXTERNAL DOCUMENT\n------------------------\n"
                   (mapconcat
                    (lambda (x)
-                     (format fmt (cl-incf n) (or (car x) "")
-                             (abbreviate-file-name (cdr x))))
+                     (format fmt (incf n) (or (car x) "")
+                             (reftex--abbreviate-name (cdr x))))
                    xr-alist ""))
                  nil t))
           (cond
@@ -1300,8 +1359,11 @@ Valid actions are: readable, restore, read, kill, write."
   "Find FILE of type TYPE in MASTER-DIR or on the path associated with TYPE.
 If the file does not have any of the valid extensions for TYPE,
 try first the default extension and only then the naked file name.
-When DIE is non-nil, throw an error if file not found."
-  (let* ((rec-values (if reftex-search-unrecursed-path-first '(nil t) '(t)))
+When DIE is non-nil, throw an error if file not found.
+When FILE is a buffer object, return that buffer."
+  (if (bufferp file)
+      file
+    (let* ((rec-values (if reftex-search-unrecursed-path-first '(nil t) '(t)))
          (extensions (cdr (assoc type reftex-file-extensions)))
          (def-ext (car extensions))
          (ext-re (concat "\\("
@@ -1336,12 +1398,12 @@ When DIE is non-nil, throw an error if file not found."
 	    (setq file1 (reftex-find-file-on-path f path master-dir)))))))
     (cond (file1 file1)
           (die (error "No such file: %s" file) nil)
-          (t (message "No such file: %s (ignored)" file) nil))))
+          (t (message "No such file: %s (ignored)" file) nil)))))
 
 (defun reftex-find-file-externally (file type &optional master-dir)
-  ;; Use external program to find FILE.
-  ;; The program is taken from `reftex-external-file-finders'.
-  ;; Interpret relative path definitions starting from MASTER-DIR.
+  "Use external program to find FILE.
+The program is taken from `reftex-external-file-finders'.
+Interpret relative path definitions starting from MASTER-DIR."
   (let ((default-directory (or master-dir default-directory))
         (prg (cdr (assoc type reftex-external-file-finders)))
         out)
@@ -1363,13 +1425,13 @@ When DIE is non-nil, throw an error if file not found."
           (apply #'call-process program nil '(t nil) nil args))))))
 
 (defun reftex-access-search-path (type &optional recurse master-dir file)
-  ;; Access path from environment variables.  TYPE is either "tex" or "bib".
-  ;; When RECURSE is t, expand path elements ending in `//' recursively.
-  ;; Relative path elements are left as they are.  However, relative recursive
-  ;; elements are expanded with MASTER-DIR as default directory.
-  ;; The expanded path is cached for the next search.
-  ;; FILE is just for the progress message.
-  ;; Returns the derived path.
+  "Access path from environment variables.  TYPE is either \"tex\" or \"bib\".
+When RECURSE is t, expand path elements ending in `//' recursively.
+Relative path elements are left as they are.  However, relative recursive
+elements are expanded with MASTER-DIR as default directory.
+The expanded path is cached for the next search.
+FILE is just for the progress message.
+Returns the derived path."
   (let* ((pathvar (intern (concat "reftex-" type "-path"))))
     (when (null (get pathvar 'status))
       ;; Get basic path
@@ -1423,8 +1485,8 @@ When DIE is non-nil, throw an error if file not found."
       (symbol-value pathvar))))
 
 (defun reftex-find-file-on-path (file path &optional def-dir)
-  ;; Find FILE along the directory list PATH.
-  ;; DEF-DIR is the default directory for expanding relative path elements.
+   "Find FILE along the directory list PATH.
+DEF-DIR is the default directory for expanding relative path elements."
   (catch 'exit
     (when (file-name-absolute-p file)
       (if (file-regular-p file)
@@ -1441,8 +1503,8 @@ When DIE is non-nil, throw an error if file not found."
       nil)))
 
 (defun reftex-parse-colon-path (path)
-  ;; Like parse-colon-parse, but // or /~ are left alone.
-  ;; Trailing ! or !! will be converted into `//' (emTeX convention)
+  "Like parse-colon-parse, but // or /~ are left alone.
+Trailing ! or !! will be converted into `//' (emTeX convention)"
   (mapcar
    (lambda (dir)
      (if (string-match "\\(//+\\|/*!+\\)\\'" dir)
@@ -1451,8 +1513,8 @@ When DIE is non-nil, throw an error if file not found."
    (delete "" (split-string path (concat path-separator "+")))))
 
 (defun reftex-expand-path (path &optional default-dir)
-  ;; Expand parts of path ending in `//' recursively into directory list.
-  ;; Relative recursive path elements are expanded relative to DEFAULT-DIR.
+  "Expand parts of path ending in `//' recursively into directory list.
+Relative recursive path elements are expanded relative to DEFAULT-DIR."
   (let (path1 dir recursive)
     (while (setq dir (pop path))
       (if (setq recursive (string= (substring dir -2) "//"))
@@ -1468,7 +1530,7 @@ When DIE is non-nil, throw an error if file not found."
     (nreverse path1)))
 
 (defun reftex-recursive-directory-list (dir)
-  ;; Return a list of all directories below DIR, including DIR itself
+  "Return a list of all directories below DIR, including DIR itself."
   (let ((path (list dir)) path1 file files)
     (while (setq dir (pop path))
       (when (file-directory-p dir)
@@ -1484,7 +1546,7 @@ When DIE is non-nil, throw an error if file not found."
 ;;; Some generally useful functions
 
 (defun reftex-typekey-check (typekey conf-variable &optional n)
-  ;; Check if CONF-VARIABLE is true or contains TYPEKEY
+  "Check if CONF-VARIABLE is true or contains TYPEKEY."
   (and n (setq conf-variable (nth n conf-variable)))
   (or (eq conf-variable t)
       (and (stringp conf-variable)
@@ -1492,8 +1554,8 @@ When DIE is non-nil, throw an error if file not found."
              (string-match (concat "[" conf-variable "]") typekey)))))
 
 (defun reftex-check-recursive-edit ()
-  ;; Check if we are already in a recursive edit.  Abort with helpful
-  ;; message if so.
+  "Check if we are already in a recursive edit.
+Abort with helpful message if so."
   (if (marker-position reftex-recursive-edit-marker)
       (error
        (substitute-command-keys
@@ -1514,26 +1576,26 @@ When DIE is non-nil, throw an error if file not found."
 	 pos t)))))
 
 (defun reftex-no-props (string)
-  ;; Return STRING with all text properties removed
+  "Return STRING with all text properties removed."
   (and (stringp string)
        (set-text-properties 0 (length string) nil string))
   string)
 
 (defun reftex-match-string (n)
-  ;; Match string without properties
+  "Match string without properties."
   (when (match-beginning n)
     (buffer-substring-no-properties (match-beginning n) (match-end n))))
 
 (define-obsolete-function-alias 'reftex-region-active-p #'use-region-p "28.1")
 
 (defun reftex-kill-buffer (buffer)
-  ;; Kill buffer if it exists.
+  "Kill BUFFER if it exists."
   (and (setq buffer (get-buffer buffer))
        (kill-buffer buffer)))
 
 (defun reftex-erase-buffer (&optional buffer)
-  ;; Erase BUFFER if it exists.  BUFFER defaults to current buffer.
-  ;; This even erases read-only buffers.
+  "Erase BUFFER if it exists.  BUFFER defaults to current buffer.
+This even erases read-only buffers."
   (cond
    ((null buffer)
     ;; erase current buffer
@@ -1544,7 +1606,7 @@ When DIE is non-nil, throw an error if file not found."
       (let ((inhibit-read-only t)) (erase-buffer))))))
 
 (defun reftex-this-word (&optional class)
-  ;; Grab the word around point.
+  "Grab the word around point."
   (setq class (or class "-a-zA-Z0-9:_/.*;|"))
   (save-excursion
     (buffer-substring-no-properties
@@ -1557,7 +1619,7 @@ When DIE is non-nil, throw an error if file not found."
     ""))
 
 (defun reftex-all-assq (key list)
-  ;; Return a list of all associations of KEY in LIST.  Comparison with eq.
+  "Return a list of all associations of KEY in LIST.  Comparison with eq."
   (let (rtn)
     (while (setq list (memq (assq key list) list))
       (push (car list) rtn)
@@ -1565,7 +1627,7 @@ When DIE is non-nil, throw an error if file not found."
     (nreverse rtn)))
 
 (defun reftex-all-assoc-string (key list)
-  ;; Return a list of all associations of KEY in LIST.  Comparison with string=.
+  "Return a list of all associations of KEY in LIST.  Comparison with string=."
   (let (rtn)
     (while list
       (if (string= (car (car list)) key)
@@ -1574,11 +1636,11 @@ When DIE is non-nil, throw an error if file not found."
     (nreverse rtn)))
 
 (defun reftex-last-assoc-before-elt (key elt list &optional exclusive)
-  ;; Find the last association of KEY in LIST before or at ELT
-  ;; ELT is found in LIST with equal, not eq.
-  ;; Returns nil when either KEY or elt are not found in LIST.
-  ;; When EXCLUSIVE is non-nil, ELT cannot be the return value.
-  ;; On success, returns the association.
+  "Find the last association of KEY in LIST before or at ELT.
+ELT is found in LIST with equal, not eq.
+Returns nil when either KEY or elt are not found in LIST.
+When EXCLUSIVE is non-nil, ELT cannot be the return value.
+On success, returns the association."
   (let* ((elt (car (member elt list))) (ex (not exclusive)) ass last-ass)
     (while (and (setq ass (assoc key list))
                 (setq list (memq ass list))
@@ -1589,10 +1651,9 @@ When DIE is non-nil, throw an error if file not found."
     last-ass))
 
 (defun reftex-sublist-nth (list nth predicate &optional completion)
-  ;; Make a list of the NTH elements of all members of LIST which
-  ;; fulfill PREDICATE.
-  ;; When COMPLETION is non-nil, make all elements of the resulting
-  ;; list also a list, so that the result can be used for completion.
+  "Make a list of the NTH elements of all members of LIST which fulfill PREDICATE.
+When COMPLETION is non-nil, make all elements of the resulting
+list also a list, so that the result can be used for completion."
   (let (rtn)
     (while list
       (if (funcall predicate (car list))
@@ -1604,20 +1665,20 @@ When DIE is non-nil, throw an error if file not found."
     (nreverse rtn)))
 
 (defun reftex-make-selection-buffer-name (type &optional index)
-  ;; Make unique name for a selection buffer.
+  "Make unique name for a selection buffer."
   (format " *RefTeX[%s][%d]*"
           type (or index (get reftex-docstruct-symbol :master-index) 0)))
 
 (defun reftex-make-index-buffer-name (tag &optional cnt)
-  ;; Make unique name for an index buffer.
+  "Make unique name for an index buffer."
   (format "*Index[%s][%d]*"
           tag (or cnt (get reftex-docstruct-symbol :master-index) 0)))
 
 (defun reftex-truncate (string ncols &optional ellipses padding)
-  ;; Truncate STRING to NCOLS characters.
-  ;; When PADDING is non-nil, and string is shorter than NCOLS, fill with
-  ;; white space to NCOLS characters.  When ELLIPSES is non-nil and the
-  ;; string needs to be truncated, replace last 3 characters by dots.
+  "Truncate STRING to NCOLS characters.
+When PADDING is non-nil, and string is shorter than NCOLS, fill with
+white space to NCOLS characters.  When ELLIPSES is non-nil and the
+string needs to be truncated, replace last 3 characters by dots."
   (setq string
         (if (<= (length string) ncols)
             string
@@ -1629,9 +1690,9 @@ When DIE is non-nil, throw an error if file not found."
     string))
 
 (defun reftex-nearest-match (regexp &optional max-length)
-  ;; Find the nearest match of REGEXP.  Set the match data.
-  ;; If POS is given, calculate distances relative to it.
-  ;; Return nil if there is no match.
+  "Find the nearest match of REGEXP.  Set the match data.
+If POS is given, calculate distances relative to it.
+Return nil if there is no match."
   (let ((pos (point))
         (dist (or max-length (length regexp)))
         match1 match2 match)
@@ -1651,8 +1712,8 @@ When DIE is non-nil, throw an error if file not found."
     (if match (progn (set-match-data match) t) nil)))
 
 (defun reftex-auto-mode-alist ()
-  ;; Return an `auto-mode-alist' with only the .gz (etc) thingies.
-  ;; Stolen from gnus nnheader.
+  "Return an `auto-mode-alist' with only the .gz (etc) thingies.
+Stolen from gnus nnheader."
   (let ((alist auto-mode-alist)
         out)
     (while alist
@@ -1662,8 +1723,8 @@ When DIE is non-nil, throw an error if file not found."
     (nreverse out)))
 
 (defun reftex-enlarge-to-fit (buf2 &optional keep-current)
-  ;; Enlarge other window displaying buffer to show whole buffer if possible.
-  ;; If KEEP-CURRENT in non-nil, current buffer must remain visible.
+  "Enlarge other window displaying buffer to show whole buffer if possible.
+If KEEP-CURRENT in non-nil, current buffer must remain visible."
   (let* ((win1 (selected-window))
          (buf1 (current-buffer))
          (win2 (get-buffer-window buf2))) ;; Only on current frame.
@@ -1681,9 +1742,9 @@ When DIE is non-nil, throw an error if file not found."
       (shrink-window (- (window-height) window-min-height))))))
 
 (defun reftex-select-with-char (prompt help-string &optional delay-time scroll)
-  ;; Offer to select something with PROMPT and, after DELAY-TIME seconds,
-  ;; also with HELP-STRING.
-  ;; When SCROLL is non-nil, use SPC and DEL to scroll help window.
+  "Offer to select something with PROMPT.
+After DELAY-TIME seconds, also with HELP-STRING.  When SCROLL is
+non-nil, use \\`SPC' and \\`DEL' to scroll help window."
   (let ((char ?\?))
     (save-window-excursion
       (catch 'exit
@@ -1721,7 +1782,7 @@ When DIE is non-nil, throw an error if file not found."
 
 
 (defun reftex-make-regexp-allow-for-ctrl-m (string)
-  ;; convert STRING into a regexp, allowing ^M for \n and vice versa
+  "Convert STRING into a regexp, allowing ^M for \\n and vice versa."
   (let ((start -2))
     (setq string (regexp-quote string))
     (while (setq start (string-match "[\n\r]" string (+ 3 start)))
@@ -1732,18 +1793,20 @@ When DIE is non-nil, throw an error if file not found."
   #'find-buffer-visiting "28.1")
 
 (defun reftex-visited-files (list)
-  ;; Takes a list of filenames and returns the buffers of those already visited
+  "Takes a list of filenames and returns the buffers of those already visited."
   (delq nil (mapcar (lambda (x) (if (find-buffer-visiting x) x nil))
                     list)))
 
 (defun reftex-get-file-buffer-force (file &optional mark-to-kill)
-  ;; Return a buffer visiting file.  Make one, if necessary.
-  ;; If neither such a buffer nor the file exist, return nil.
-  ;; If MARK-TO-KILL is t and there is no live buffer, visit the file with
-  ;; initializations according to `reftex-initialize-temporary-buffers',
-  ;; and mark the buffer to be killed after use.
+  "Return a buffer visiting file.  Make one, if necessary.
+If neither such a buffer nor the file exist, return nil.
+If MARK-TO-KILL is t and there is no live buffer, visit the file with
+initializations according to `reftex-initialize-temporary-buffers',
+and mark the buffer to be killed after use."
 
-  (let ((buf (find-buffer-visiting file)))
+  (let ((buf (if (bufferp file)
+                 file
+               (find-buffer-visiting file))))
 
     (cond (buf
            ;; We have it already as a buffer - just return it
@@ -1785,7 +1848,7 @@ When DIE is non-nil, throw an error if file not found."
           (t nil))))
 
 (defun reftex-kill-temporary-buffers (&optional buffer)
-  ;; Kill all buffers in the list reftex-kill-temporary-buffers.
+  "Kill all buffers in the list reftex-kill-temporary-buffers."
   (cond
    (buffer
     (when (member buffer reftex-buffers-to-kill)
@@ -1804,8 +1867,8 @@ When DIE is non-nil, throw an error if file not found."
       (pop reftex-buffers-to-kill)))))
 
 (defun reftex-splice-symbols-into-list (list alist)
-  ;; Splice the association in ALIST of any symbols in LIST into the list.
-  ;; Return new list.
+  "Splice the association in ALIST of any symbols in LIST into the list.
+Return new list."
   (let (rtn tmp)
     (while list
       (while (and (not (null (car list)))  ;; keep list elements nil
@@ -1821,8 +1884,8 @@ When DIE is non-nil, throw an error if file not found."
     (nreverse rtn)))
 
 (defun reftex-uniquify (list &optional sort)
-  ;; Return a list of all strings in LIST, but each only once, keeping order
-  ;; unless SORT is set (faster!).
+  "Return a list of all strings in LIST, but each only once.
+Keep order unless SORT is set (faster!)."
   (setq list (copy-sequence list))
   (if sort
       (progn
@@ -1853,9 +1916,9 @@ When DIE is non-nil, throw an error if file not found."
     (delq nil list)))
 
 (defun reftex-uniquify-by-car (alist &optional keep-list sort)
-  ;; Return a list of all elements in ALIST, but each car only once.
-  ;; Elements of KEEP-LIST are not removed even if duplicate.
-  ;; The order is kept unless SORT is set (faster!).
+  "Return a list of all elements in ALIST, but each car only once.
+Elements of KEEP-LIST are not removed even if duplicate.
+The order is kept unless SORT is set (faster!)."
   (setq keep-list (sort (copy-sequence keep-list) #'string<)
 	alist (copy-sequence alist))
   (if sort
@@ -1991,7 +2054,7 @@ IGNORE-WORDS List of words which should be removed from the string."
     string))
 
 (defun reftex-nicify-text (text)
-  ;; Make TEXT nice for inclusion as context into label menu.
+  "Make TEXT nice for inclusion as context into label menu."
   ;; 1. remove line breaks and extra white space
   (while (string-match "[\n\r\t]\\|[ \t][ \t]+" text)
     (setq text (replace-match " " nil t text)))
@@ -2016,7 +2079,7 @@ IGNORE-WORDS List of words which should be removed from the string."
 ;;; Fontification and Highlighting
 
 (defun reftex-refontify ()
-  ;; Return t if we need to refontify context
+  "Return t if we need to refontify context."
   (and reftex-use-fonts
        (or (eq t reftex-refontify-context)
            (and (eq 1 reftex-refontify-context)
@@ -2024,8 +2087,9 @@ IGNORE-WORDS List of words which should be removed from the string."
                 (and (featurep 'x-symbol-tex) (not (boundp 'x-symbol-mode)))))))
 
 (defun reftex-fontify-select-label-buffer (parent-buffer)
-  ;; Fontify the `*RefTeX Select*' buffer.  Buffer is temporarily renamed to
-  ;; start with none-SPC char, because Font-Lock otherwise refuses operation.
+  "Fontify the `*RefTeX Select*' buffer.
+Buffer is temporarily renamed to start with none-SPC char, because
+Font-Lock otherwise refuses operation."
   (run-hook-with-args 'reftex-pre-refontification-functions
                       parent-buffer 'reftex-ref)
   (let* ((oldname (buffer-name))
@@ -2036,14 +2100,14 @@ IGNORE-WORDS List of words which should be removed from the string."
           ;; of font-lock)
           (rename-buffer newname t)
           ;; Good: we have the indirection functions
-          (set (make-local-variable 'font-lock-fontify-region-function)
-               #'reftex-select-font-lock-fontify-region)
+          (setq-local font-lock-fontify-region-function
+                      #'reftex-select-font-lock-fontify-region)
           (let ((major-mode 'latex-mode))
             (font-lock-mode 1)))
       (rename-buffer oldname))))
 
 (defun reftex-select-font-lock-fontify-region (beg end &optional _loudly)
-  ;; Fontify a region, but only lines starting with a dot.
+  "Fontify a region, but only lines starting with a dot."
   (let ((func (if (fboundp 'font-lock-default-fontify-region)
                   'font-lock-default-fontify-region
                 'font-lock-fontify-region))
@@ -2057,10 +2121,10 @@ IGNORE-WORDS List of words which should be removed from the string."
 (defun reftex-select-font-lock-unfontify (&rest _ignore) t)
 
 (defun reftex-verified-face (&rest faces)
-  ;; Return the first valid face in FACES, or nil if none is valid.
-  ;; Also, when finding a nil element in FACES, return nil.  This
-  ;; function is just a safety net to catch name changes of builtin
-  ;; fonts. Currently it is only used for reftex-label-face.
+  "Return the first valid face in FACES, or nil if none is valid.
+Also, when finding a nil element in FACES, return nil.  This
+function is just a safety net to catch name changes of builtin
+fonts.  Currently it is only used for reftex-label-face."
   (let (face)
     (catch 'exit
       (while (setq face (pop faces))
@@ -2095,7 +2159,7 @@ IGNORE-WORDS List of words which should be removed from the string."
   (delete-overlay (aref reftex-highlight-overlays index)))
 
 (defun reftex-highlight-shall-die ()
-  ;; Function used in pre-command-hook to remove highlights.
+  "Function used in pre-command-hook to remove highlights."
   (remove-hook 'pre-command-hook #'reftex-highlight-shall-die)
   (reftex-unhighlight 0))
 
@@ -2116,8 +2180,7 @@ IGNORE-WORDS List of words which should be removed from the string."
 
 ;; Define a menu for the menu bar if Emacs is running under X
 
-(defvar reftex-isearch-minor-mode nil)
-(make-variable-buffer-local 'reftex-isearch-minor-mode)
+(defvar-local reftex-isearch-minor-mode nil)
 
 (easy-menu-define reftex-mode-menu reftex-mode-map
  "Menu used in RefTeX mode."

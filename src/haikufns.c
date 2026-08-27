@@ -1,5 +1,5 @@
 /* Haiku window system support
-   Copyright (C) 2021-2025 Free Software Foundation, Inc.
+   Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -52,10 +52,6 @@ Lisp_Object tip_frame;
 
 /* The X and Y deltas of the last call to `x-show-tip'.  */
 Lisp_Object tip_dx, tip_dy;
-
-/* The window-system window corresponding to the frame of the
-   currently visible tooltip.  */
-static Window tip_window;
 
 /* A timer that hides or deletes the currently visible tooltip when it
    fires.  */
@@ -610,7 +606,7 @@ initial_setup_back_buffer (struct frame *f)
   unblock_input ();
 }
 
-static void
+static Lisp_Object
 unwind_create_frame (Lisp_Object frame)
 {
   struct frame *f = XFRAME (frame);
@@ -619,22 +615,27 @@ unwind_create_frame (Lisp_Object frame)
      display is disconnected after the frame has become official, but
      before x_create_frame removes the unwind protect.  */
   if (!FRAME_LIVE_P (f))
-    return;
+    return Qnil;
 
   /* If frame is ``official'', nothing to do.  */
   if (NILP (Fmemq (frame, Vframe_list)))
     {
       haiku_free_frame_resources (f);
       free_glyphs (f);
+      return Qt;
     }
+
+  return Qnil;
 }
 
 static void
 unwind_create_tip_frame (Lisp_Object frame)
 {
-  unwind_create_frame (frame);
-  tip_window = NULL;
-  tip_frame = Qnil;
+  Lisp_Object deleted;
+
+  deleted = unwind_create_frame (frame);
+  if (deleted)
+    tip_frame = Qnil;
 }
 
 static unsigned long
@@ -671,6 +672,12 @@ haiku_set_foreground_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval
       if (FRAME_VISIBLE_P (f))
         redraw_frame (f);
     }
+}
+
+static void
+do_unwind_create_frame (Lisp_Object frame)
+{
+  unwind_create_frame (frame);
 }
 
 static Lisp_Object
@@ -743,6 +750,8 @@ haiku_create_frame (Lisp_Object parms)
 
   XSETFRAME (frame, f);
 
+  frame_set_id_from_params (f, parms);
+
   f->terminal = dpyinfo->terminal;
 
   f->output_method = output_haiku;
@@ -759,7 +768,7 @@ haiku_create_frame (Lisp_Object parms)
   FRAME_DISPLAY_INFO (f) = dpyinfo;
 
   /* With FRAME_DISPLAY_INFO set up, this unwind-protect is safe.  */
-  record_unwind_protect (unwind_create_frame, frame);
+  record_unwind_protect (do_unwind_create_frame, frame);
 
   /* Set the name; the functions to which we pass f expect the name to
      be set.  */
@@ -931,6 +940,9 @@ haiku_create_frame (Lisp_Object parms)
 			 "alpha", "Alpha", RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qalpha_background, Qnil,
                          "alphaBackground", "AlphaBackground", RES_TYPE_NUMBER);
+  gui_default_parameter (f, parms, Qborders_respect_alpha_background, Qnil,
+                         "bordersRespectAlphaBackground",
+                         "BordersRespectAlphaBackground", RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qfullscreen, Qnil,
 			 "fullscreen", "Fullscreen", RES_TYPE_SYMBOL);
 
@@ -1155,6 +1167,9 @@ haiku_create_tip_frame (Lisp_Object parms)
                          "alpha", "Alpha", RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qalpha_background, Qnil,
                          "alphaBackground", "AlphaBackground", RES_TYPE_NUMBER);
+  gui_default_parameter (f, parms, Qborders_respect_alpha_background, Qnil,
+                         "bordersRespectAlphaBackground",
+                         "BordersRespectAlphaBackground", RES_TYPE_NUMBER);
 
   initial_setup_back_buffer (f);
 
@@ -1196,7 +1211,7 @@ haiku_create_tip_frame (Lisp_Object parms)
   {
     Lisp_Object bg = Fframe_parameter (frame, Qbackground_color);
 
-    call2 (Qface_set_after_frame_default, frame, Qnil);
+    calln (Qface_set_after_frame_default, frame, Qnil);
 
     if (!EQ (bg, Fframe_parameter (frame, Qbackground_color)))
       {
@@ -1309,7 +1324,7 @@ haiku_hide_tip (bool delete)
 
   if (!NILP (tip_timer))
     {
-      call1 (Qcancel_timer, tip_timer);
+      calln (Qcancel_timer, tip_timer);
       tip_timer = Qnil;
     }
 
@@ -2467,7 +2482,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 	  tip_f = XFRAME (tip_frame);
 	  if (!NILP (tip_timer))
 	    {
-	      call1 (Qcancel_timer, tip_timer);
+	      calln (Qcancel_timer, tip_timer);
 	      tip_timer = Qnil;
 	    }
 
@@ -2504,12 +2519,12 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 		      break;
 		    }
 		  else
-		    tip_last_parms =
-		      call2 (Qassq_delete_all, parm, tip_last_parms);
+		    tip_last_parms
+		      = calln (Qassq_delete_all, parm, tip_last_parms);
 		}
 	      else
-		tip_last_parms =
-		  call2 (Qassq_delete_all, parm, tip_last_parms);
+		tip_last_parms
+		  = calln (Qassq_delete_all, parm, tip_last_parms);
 	    }
 
 	  /* Now check if every parameter in what is left of
@@ -2680,7 +2695,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 
  start_timer:
   /* Let the tip disappear after timeout seconds.  */
-  tip_timer = call3 (Qrun_at_time, timeout, Qnil, Qx_hide_tip);
+  tip_timer = calln (Qrun_at_time, timeout, Qnil, Qx_hide_tip);
 
   return unbind_to (count, Qnil);
 }
@@ -3182,6 +3197,7 @@ frame_parm_handler haiku_frame_parm_handlers[] =
     haiku_set_override_redirect,
     gui_set_no_special_glyphs,
     gui_set_alpha_background,
+    gui_set_borders_respect_alpha_background,
     haiku_set_use_frame_synchronization,
   };
 
@@ -3300,7 +3316,7 @@ invalid color.  */);
     int len = sprintf (cairo_version, "%d.%d.%d",
 		       CAIRO_VERSION_MAJOR, CAIRO_VERSION_MINOR,
                        CAIRO_VERSION_MICRO);
-    Vcairo_version_string = make_pure_string (cairo_version, len, len, false);
+    Vcairo_version_string = make_specified_string (cairo_version, len, len, false);
   }
 #endif
 

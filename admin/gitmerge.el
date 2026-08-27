@@ -1,6 +1,6 @@
 ;;; gitmerge.el --- help merge one Emacs branch into another  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2010-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
 ;; Authors: David Engster <deng@randomsample.de>
 ;;          Stefan Monnier <monnier@iro.umontreal.ca>
@@ -95,18 +95,16 @@ If nil, the function `gitmerge-default-branch' guesses.")
 (defvar gitmerge-log-regexp
   "^\\([A-Z ]\\)\\s-*\\([0-9a-f]+\\) \\(.+?\\): \\(.*\\)$")
 
-(defvar gitmerge-mode-map
-  (let ((map (make-keymap)))
-    (define-key map [(l)] #'gitmerge-show-log)
-    (define-key map [(d)] #'gitmerge-show-diff)
-    (define-key map [(f)] #'gitmerge-show-files)
-    (define-key map [(s)] #'gitmerge-toggle-skip)
-    (define-key map [(m)] #'gitmerge-start-merge)
-    ;; For convenience:
-    (define-key map [(n)] #'next-line)
-    (define-key map [(p)] #'previous-line)
-    map)
-  "Keymap for gitmerge major mode.")
+(defvar-keymap gitmerge-mode-map
+  :doc "Keymap for gitmerge major mode."
+  "l" #'gitmerge-show-log
+  "d" #'gitmerge-show-diff
+  "f" #'gitmerge-show-files
+  "s" #'gitmerge-toggle-skip
+  "m" #'gitmerge-start-merge
+  ;; For convenience:
+  "n" #'next-line
+  "p" #'previous-line)
 
 
 (defvar gitmerge-mode-font-lock-keywords

@@ -1,6 +1,6 @@
 ;;; semantic/mru-bookmark.el --- Automatic bookmark tracking  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -197,7 +197,7 @@ The resulting bookmark is then sorted within the ring."
 	    (ring-remove ring idx))
 	(setq idx (1+ idx)))
       ;; Create a new mark
-      (let ((sbm (semantic-bookmark (semantic-tag-name tag)
+      (let ((sbm (semantic-bookmark :object-name (semantic-tag-name tag)
 				    :tag tag)))
 	;; Take the mark, and update it for the current state.
 	(ring-insert ring sbm)

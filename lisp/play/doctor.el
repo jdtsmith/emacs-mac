@@ -1,6 +1,6 @@
 ;;; doctor.el --- psychological help for frustrated users  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1985-2026 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: games
@@ -589,6 +589,7 @@ reads the sentence before point, and prints the Doctor's answer."
 (doctor-put-meaning pc 'mach)
 (doctor-put-meaning gnu 'mach)
 (doctor-put-meaning linux 'mach)
+(doctor-put-meaning llm 'mach)
 (doctor-put-meaning bitching 'foul)
 (doctor-put-meaning shit 'foul)
 (doctor-put-meaning bastard 'foul)
@@ -1605,7 +1606,7 @@ Hack on previous word, setting global variable DOCTOR-OWNER to correct result."
 	 (setq doctor--suicide-flag t)
          (doctor-type '( If you are really suicidal\, you might
                          want to contact the Samaritans via
-                         e-mail: jo@samaritans.org \.
+                         https://www.samaritans.org/how-we-can-help/contact-samaritan/ \.
                          or find a Befrienders crisis center at
                          https://www.befrienders.org/\ \.
                          you can also find other suicide crisis lines at

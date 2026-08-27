@@ -2,13 +2,14 @@
 
 @setfilename ../../info/gnus.info
 @settitle Gnus Manual
+@documentlanguage en
 @include docstyle.texi
 @syncodeindex fn cp
 @syncodeindex vr cp
 @syncodeindex pg cp
 
 @copying
-Copyright @copyright{} 1995--2025 Free Software Foundation, Inc.
+Copyright @copyright{} 1995--2026 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -438,7 +439,6 @@ Starting Gnus
 * Finding the News::            Choosing a method for getting news.
 * The Server is Down::          How can I read my mail then?
 * Child Gnusae::                You can have more than one Gnus active at a time.
-* Fetching a Group::            Starting Gnus just to read a group.
 * New Groups::                  What is Gnus supposed to do with new groups?
 * Changing Servers::            You may want to move from one server to another.
 * Startup Files::               Those pesky startup files---@file{.newsrc}.
@@ -661,7 +661,7 @@ Getting News
 * NNTP::                        Reading news from an @acronym{NNTP} server.
 * News Spool::                  Reading news from the local spool.
 
-@acronym{NNTP}
+NNTP
 
 * Direct Functions::            Connecting directly to the server.
 * Indirect Functions::          Connecting indirectly to the server.
@@ -731,8 +731,8 @@ Document Groups
 
 Virtual Groups
 
-* Selection Groups::            Articles selected from many places.
-* Combined Groups::             Combining multiple  groups.
+* Selection Groups::            Combining articles from many groups.
+* Combined Groups::             Combining multiple groups.
 
 Email Based Diary
 
@@ -838,16 +838,18 @@ Various
 * Mode Lines::                  Displaying information in the mode lines.
 * Highlighting and Menus::      Making buffers look all nice and cozy.
 * Daemons::                     Gnus can do things behind your back.
+* Notifications::               Setting up desktop notifications.
 * Undo::                        Some actions can be undone.
 * Predicate Specifiers::        Specifying predicates.
 * Moderation::                  What to do if you're a moderator.
+* Fetching a Group::            Starting Gnus just to read a group.
 * Image Enhancements::          Emacs can display images.
 * Fuzzy Matching::              What's the big fuzz?
 * Thwarting Email Spam::        Simple ways to avoid unsolicited commercial email.
 * Spam Package::                A package for filtering and processing spam.
 * The Gnus Registry::           A package for tracking messages by Message-ID.
 * The Gnus Cloud::              A package for synchronizing Gnus marks.
-* D-Bus Integration::           Closing Gnus servers on system sleep.
+* System Sleep Integration::    Closing Gnus servers on system sleep.
 * Other modes::                 Interaction with other modes.
 * Various Various::             Things that are really various.
 
@@ -874,7 +876,6 @@ Thwarting Email Spam
 * The problem of spam::         Some background, and some solutions
 * Anti-Spam Basics::            Simple steps to reduce the amount of spam.
 * SpamAssassin::                How to use external anti-spam tools.
-* Hashcash::                    Reduce spam by burning CPU time.
 
 Spam Package
 
@@ -892,7 +893,6 @@ Spam Back Ends
 * Blacklists and Whitelists::
 * BBDB Whitelists::
 * Gmane Spam Reporting::
-* Anti-spam Hashcash Payments::
 * Blackholes::
 * Regular Expressions Header Matching::
 * Bogofilter::
@@ -1889,7 +1889,7 @@ asterisk at the beginning of the line?).
 You can change that format to whatever you want by fiddling with the
 @code{gnus-group-line-format} variable.  This variable works along the
 lines of a @code{format} specification, which is pretty much the same as
-a @code{printf} specifications, for those of you who use (feh!) C@.
+a @code{printf} specification, for those of you who use (feh!)@: C@.
 @xref{Formatting Variables}.
 
 @samp{%M%S%5y:%B%(%g%)\n} is the value that produced those lines above.
@@ -1950,7 +1950,7 @@ renumber all articles from 1, removing all gaps between numbers, hence
 getting a correct total count.  Other backends may support this in the
 future.  In order to keep your total article count relatively up to
 date, you might want to compact your groups (or even directly your
-server) from time to time. @xref{Misc Group Stuff}, @xref{Server Commands}.
+server) from time to time.  @xref{Misc Group Stuff}, @xref{Server Commands}.
 
 @item y
 Number of unread, unticked, non-dormant articles.
@@ -3313,7 +3313,7 @@ following is added to a group parameter
 
 @lisp
 (gnus-summary-prepared-hook
-  (lambda nil (local-set-key "d" (local-key-binding "n"))))
+  (lambda nil (keymap-local-set "d" (local-key-binding "n"))))
 @end lisp
 
 when the group is entered, the 'd' key will not mark the article as
@@ -3861,7 +3861,7 @@ exiting Gnus.
 
 If you read lots and lots of groups, it might be convenient to group
 them hierarchically according to topics.  You put your Emacs groups over
-here, your sex groups over there, and the rest (what, two groups or so?)
+here, your sex groups over there, and the rest (what, two groups or so?)@:
 you put in some misc section that you never bother with anyway.  You can
 even group the Emacs sex groups as a sub-topic to either the Emacs
 groups or the sex groups---or both!  Go wild!
@@ -3891,7 +3891,7 @@ Gnus
 
 @findex gnus-topic-mode
 @kindex t @r{(Group)}
-To get this @emph{fab} functionality you simply turn on (ooh!) the
+To get this @emph{fab} functionality you simply turn on (ooh!)@: the
 @code{gnus-topic} minor mode---type @kbd{t} in the group buffer.  (This
 is a toggling command.)
 
@@ -4531,7 +4531,7 @@ The key @kbd{v} is reserved for users.  You can bind it to some
 command or better use it as a prefix key.  For example:
 
 @lisp
-(define-key gnus-group-mode-map (kbd "v j d")
+(keymap-set gnus-group-mode-map "v j d"
   (lambda ()
     (interactive)
     (gnus-group-jump-to-group "nndraft:drafts")))
@@ -4884,7 +4884,7 @@ customize-apropos @key{RET} gnus-summary-tool-bar}.
 The key @kbd{v} is reserved for users.  You can bind it to some
 command or better use it as a prefix key.  For example:
 @lisp
-(define-key gnus-summary-mode-map (kbd "v -") "LrS") ;; lower subthread
+(keymap-set gnus-summary-mode-map "v -" "LrS") ;; lower subthread
 @end lisp
 
 @menu
@@ -6255,7 +6255,7 @@ Just don't forget to set that up :-)
 There are several marks you can set on an article.
 
 You have marks that decide the @dfn{readedness} (whoo, neato-keano
-neologism ohoy!) of the article.  Alphabetic marks generally mean
+neologism ohoy!)@: of the article.  Alphabetic marks generally mean
 @dfn{read}, while non-alphabetic characters generally mean @dfn{unread}.
 
 In addition, you also have marks that do not affect readedness.
@@ -6656,7 +6656,7 @@ article, you could say something like:
 @group
 (add-hook 'gnus-summary-mode-hook 'my-alter-summary-map)
 (defun my-alter-summary-map ()
-  (local-set-key "!" 'gnus-summary-put-mark-as-ticked-next))
+  (keymap-local-set "!" 'gnus-summary-put-mark-as-ticked-next))
 @end group
 @end lisp
 
@@ -6665,7 +6665,7 @@ or
 
 @lisp
 (defun my-alter-summary-map ()
-  (local-set-key "!" "MM!n"))
+  (keymap-local-set "!" "MM!n"))
 @end lisp
 
 
@@ -9750,14 +9750,14 @@ when the article was sent.
 @item W T u
 @kindex W T u @r{(Summary)}
 @findex gnus-article-date-ut
-Display the date in UT (aka. GMT, aka ZULU)
+Display the date in UT (aka.@: GMT, aka ZULU)
 (@code{gnus-article-date-ut}).
 
 @item W T i
 @kindex W T i @r{(Summary)}
 @findex gnus-article-date-iso8601
 @cindex ISO 8601
-Display the date in international format, aka. ISO 8601
+Display the date in international format, aka.@: ISO 8601
 (@code{gnus-article-date-iso8601}).
 
 @item W T l
@@ -15351,7 +15351,7 @@ symbols in @code{imap-stream-alist}.  Right now, this means
 Which authenticator to use for authenticating to the server, this is
 one of the symbols in @code{imap-authenticator-alist}.  Right now,
 this means @samp{gssapi}, @samp{kerberos4}, @samp{digest-md5},
-@samp{cram-md5}, @samp{anonymous} or the default @samp{login}.
+@samp{cram-md5}, @samp{plain}, @samp{anonymous} or the default @samp{login}.
 
 @item :program
 When using the @samp{shell} :stream, the contents of this variable is
@@ -15597,7 +15597,7 @@ These are two useful hooks executed when treating new incoming
 mail---@code{nnmail-pre-get-new-mail-hook} (is called just before
 starting to handle the new mail) and
 @code{nnmail-post-get-new-mail-hook} (is called when the mail handling
-is done).  Here's and example of using these two hooks to change the
+is done).  Here's an example of using these two hooks to change the
 default file modes the new mail files get:
 
 @lisp
@@ -17111,7 +17111,7 @@ what's where.
 @item nnbabyl
 
 Once upon a time, there was the DEC-10 and DEC-20, running operating
-systems called TOPS and related things, and the usual (only?) mail
+systems called TOPS and related things, and the usual (only?)@: mail
 reading environment was a thing called Babyl.  I don't know what format
 was used for mail landing on the system, but Babyl had its own internal
 format to which mail was converted, primarily involving creating a
@@ -17193,7 +17193,7 @@ mail back ends.
 
 @code{nnmaildir} is largely similar to @code{nnml}, with some notable
 differences.  Each message is stored in a separate file, but the
-filename is unrelated to the article number in Gnus. @code{nnmaildir}
+filename is unrelated to the article number in Gnus.  @code{nnmaildir}
 also stores the equivalent of @code{nnml}'s overview files in one file
 per article, so it uses about twice as many inodes as @code{nnml}.
 (Use @code{df -i} to see how plentiful your inode supply is.)  If this
@@ -17480,8 +17480,7 @@ summary buffer.
       (gnus-summary-scroll-up arg))))
 
 (with-eval-after-load "gnus"
-  (define-key gnus-summary-mode-map
-    (kbd "<RET>") 'browse-nnrss-url))
+  (keymap-set gnus-summary-mode-map "RET" 'browse-nnrss-url))
 (add-to-list 'nnmail-extra-headers nnrss-url-field)
 @end lisp
 
@@ -18245,7 +18244,8 @@ inherited.
 This section describes a special mail back end called @code{nndiary},
 and its companion library @code{gnus-diary}.  It is ``special'' in the
 sense that it is not meant to be one of the standard alternatives for
-reading mail with Gnus.  See @ref{Choosing a Mail Back End} for that.
+reading mail with Gnus.  (@xref{Choosing a Mail Back End}, for
+description of the standard mail back ends.)
 Instead, it is used to treat @emph{some} of your mails in a special way,
 namely, as event reminders.
 
@@ -18393,7 +18393,7 @@ line in your @file{~/.gnus.el} file:
 @item
 You must arrange for diary messages (those containing @code{X-Diary-*}
 headers) to be split in a private folder @emph{before} Gnus treat them.
-Again, this is needed because Gnus cannot (yet ?) properly handle
+Again, this is needed because Gnus cannot (yet ?)@: properly handle
 multiple primary mail back ends.  Getting those messages from a separate
 source will compensate this misfeature to some extent.
 
@@ -19702,7 +19702,7 @@ over and over again.
 @item gnus-agent-max-fetch-size
 @vindex gnus-agent-max-fetch-size
 The agent fetches articles into a temporary buffer prior to parsing
-them into individual files.  To avoid exceeding the max. buffer size,
+them into individual files.  To avoid exceeding the max.@: buffer size,
 the agent alternates between fetching and parsing until all articles
 have been fetched.  @code{gnus-agent-max-fetch-size} provides a size
 limit to control how often the cycling occurs.  A large value improves
@@ -22122,7 +22122,7 @@ mbox = ... your mbox files which should be indexed ...
 @end example
 
 This specifies all your mail folders and mbox files (relative to the
-base directory!) you want to index with mairix.  Note that the
+base directory!)@: you want to index with mairix.  Note that the
 @code{nnml} back end saves mails in MH format, so you have to put those
 directories in the @code{mh} line.  See the example at the end of this
 section and mairixrc's man-page for further details.
@@ -22515,7 +22515,7 @@ I use the following to check for mails:
   (nnmairix-update-groups "mairixsearch" t t)
   (gnus-group-list-groups))
 
-(define-key gnus-group-mode-map "g" 'my-check-mail-mairix-update)
+(keymap-set gnus-group-mode-map "g" 'my-check-mail-mairix-update)
 @end lisp
 
 Instead of @samp{"mairixsearch"} use the name of your @code{nnmairix}
@@ -22701,6 +22701,7 @@ For instance, @code{nnir-notmuch-program} is now
 * Mode Lines::                  Displaying information in the mode lines.
 * Highlighting and Menus::      Making buffers look all nice and cozy.
 * Daemons::                     Gnus can do things behind your back.
+* Notifications::               Setting up desktop notifications.
 * Undo::                        Some actions can be undone.
 * Predicate Specifiers::        Specifying predicates.
 * Moderation::                  What to do if you're a moderator.
@@ -22711,7 +22712,7 @@ For instance, @code{nnir-notmuch-program} is now
 * Spam Package::                A package for filtering and processing spam.
 * The Gnus Registry::           A package for tracking messages by Message-ID.
 * The Gnus Cloud::              A package for synchronizing Gnus marks.
-* D-Bus Integration::           Closing Gnus servers on system sleep.
+* System Sleep Integration::    Closing Gnus servers on system sleep.
 * Other modes::                 Interaction with other modes.
 * Various Various::             Things that are really various.
 @end menu
@@ -23750,6 +23751,36 @@ functions that scan all news and mail from all servers every two seconds
 is a sure-fire way of getting booted off any respectable system.  So
 behave.
 
+@node Notifications
+@section Notifications
+@cindex notifications, desktop
+@cindex desktop notifications
+
+Gnus provides the @code{gnus-notifications} package that, combined with
+a @code{gnus-demon} handler, can be used to notify you when fresh news
+or mails arrive via desktop notifications.  Here's a basic configuration
+to put in your @file{~/.gnus.el} file:
+
+@lisp
+(require 'gnus-notifications)
+(add-hook 'gnus-after-getting-new-news-hook #'gnus-notifications)
+(gnus-demon-add-handler #'gnus-demon-scan-news 15 3) ;every 15 minutes
+@end lisp
+
+@noindent
+The above will produce notifications for new arrivals when the
+@code{gnus-after-getting-new-news-hook} hook runs, which is triggered
+after retrieving news and mails with the @code{gnus-demon-scan-news}
+procedure.  The demon handler is configured to scan news every fifteen
+minutes, once Emacs has been idle for three minutes.
+
+@quotation Important
+@code{gnus-notifications} will only emit notifications for groups whose
+level is equal or lower than @var{gnus-notifications-minimum-level},
+which defaults to @code{1}, so make sure to set the level of the groups
+you want to be notified for to @code{1}, or adjust the value of
+@var{gnus-notifications-minimum-level} to your needs.
+@end quotation
 
 @node Undo
 @section Undo
@@ -24333,7 +24364,6 @@ This is annoying.  Here's what you can do about it.
 * The problem of spam::         Some background, and some solutions
 * Anti-Spam Basics::            Simple steps to reduce the amount of spam.
 * SpamAssassin::                How to use external anti-spam tools.
-* Hashcash::                    Reduce spam by burning CPU time.
 @end menu
 
 @node The problem of spam
@@ -24555,81 +24585,6 @@ spam.  And here is the nifty function:
   (gnus-summary-mark-as-expirable 1))
 @end lisp
 
-@node Hashcash
-@subsection Hashcash
-@cindex hashcash
-
-One technique to fight spam is to require senders to do something
-costly and demonstrably unique for each message they send.  This has
-the obvious drawback that you cannot rely on everyone in the world
-using this technique, since it is not part of the Internet standards,
-but it may be useful in smaller communities.
-
-While the tools in the previous section work well in practice, they
-work only because the tools are constantly maintained and updated as
-new form of spam appears.  This means that a small percentage of spam
-will always get through.  It also means that somewhere, someone needs
-to read lots of spam to update these tools.  Hashcash avoids that, but
-instead prefers that everyone you contact through e-mail supports the
-scheme.  You can view the two approaches as pragmatic vs dogmatic.
-The approaches have their own advantages and disadvantages, but as
-often in the real world, a combination of them is stronger than either
-one of them separately.
-
-@cindex X-Hashcash
-The ``something costly'' is to burn CPU time, more specifically to
-compute a hash collision up to a certain number of bits.  The
-resulting hashcash cookie is inserted in a @samp{X-Hashcash:} header.
-For more details, and for the external application @code{hashcash} you
-need to install to use this feature, see
-@uref{http://www.hashcash.org/}.
-
-If you wish to generate hashcash for each message you send, you can
-customize @code{message-generate-hashcash} (@pxref{Mail Headers, ,Mail
-Headers,message, The Message Manual}), as in:
-
-@lisp
-(setq message-generate-hashcash t)
-@end lisp
-
-You will need to set up some additional variables as well:
-
-@table @code
-
-@item hashcash-default-payment
-@vindex hashcash-default-payment
-This variable indicates the default number of bits the hash collision
-should consist of.  By default this is 20.  Suggested useful values
-include 17 to 29.
-
-@item hashcash-payment-alist
-@vindex hashcash-payment-alist
-Some receivers may require you to spend burn more CPU time than the
-default.  This variable contains a list of @samp{(@var{addr}
-@var{amount})} cells, where @var{addr} is the receiver (email address
-or newsgroup) and @var{amount} is the number of bits in the collision
-that is needed.  It can also contain @samp{(@var{addr} @var{string}
-@var{amount})} cells, where the @var{string} is the string to use
-(normally the email address or newsgroup name is used).
-
-@item hashcash-program
-@vindex hashcash-program
-Where the @code{hashcash} binary is installed.  This variable should
-be automatically set by @code{executable-find}, but if it's @code{nil}
-(usually because the @code{hashcash} binary is not in your path)
-you'll get a warning when you check hashcash payments and an error
-when you generate hashcash payments.
-
-@end table
-
-Gnus can verify hashcash cookies, although this can also be done by
-hand customized mail filtering scripts.  To verify a hashcash cookie
-in a message, use the @code{mail-check-payment} function in the
-@code{hashcash.el} library.  You can also use the @code{spam.el}
-package with the @code{spam-use-hashcash} back end to validate hashcash
-cookies in incoming mail and filter mail accordingly (@pxref{Anti-spam
-Hashcash Payments}).
-
 @node Spam Package
 @section Spam Package
 @cindex spam filtering
@@ -24700,7 +24655,7 @@ Groups}.
 @cindex spam back ends
 In either case, you have to tell the Spam package what method to use
 to detect spam messages.  There are several methods, or @dfn{spam back
-ends} (not to be confused with Gnus back ends!) to choose from: spam
+ends} (not to be confused with Gnus back ends!)@: to choose from: spam
 ``blacklists'' and ``whitelists'', dictionary-based filters, and so
 forth.  @xref{Spam Back Ends}.
 
@@ -25260,7 +25215,6 @@ Processors}).
 * Blacklists and Whitelists::
 * BBDB Whitelists::
 * Gmane Spam Reporting::
-* Anti-spam Hashcash Payments::
 * Blackholes::
 * Regular Expressions Header Matching::
 * Bogofilter::
@@ -25453,23 +25407,6 @@ numbers don't correspond to the Gmane article numbers.  When
 Mail address exposed in the User-Agent spam reports to Gmane.  It allows
 the Gmane administrators to contact you in case of misreports.  The
 default is @code{user-mail-address}.
-
-@end defvar
-
-@node Anti-spam Hashcash Payments
-@subsubsection Anti-spam Hashcash Payments
-@cindex spam filtering
-@cindex hashcash, spam filtering
-@cindex spam
-
-@defvar spam-use-hashcash
-
-Similar to @code{spam-use-whitelist} (@pxref{Blacklists and
-Whitelists}), but uses hashcash tokens for whitelisting messages
-instead of the sender address.  Messages without a hashcash payment
-token will be sent to the next spam-split rule.  This is an explicit
-filter, meaning that unless a hashcash token is found, the messages
-are not assumed to be spam or ham.
 
 @end defvar
 
@@ -26023,8 +25960,7 @@ such a back end.
 
 This function will install a back end that can only check incoming mail
 for spam contents.  It can't register or unregister messages.
-@code{spam-use-blackholes} and @code{spam-use-hashcash} are such
-back ends.
+@code{spam-use-blackholes} is such a back end.
 
 @item
 @code{spam-install-statistical-checkonly-backend}
@@ -26384,7 +26320,7 @@ etc.@: backends.
 @item
 Store arbitrary data
 
-Through a simple ELisp API, the registry can remember any data for a
+Through a simple Lisp API, the registry can remember any data for a
 message.  A built-in inverse map, when activated, allows quick lookups
 of all messages matching a particular set of criteria.
 @end enumerate
@@ -26684,7 +26620,7 @@ Setting up the Gnus Cloud takes less than a minute.  From the Group
 buffer:
 
 Press @kbd{^} to go to the Server buffer.  Here you'll see all the
-servers that Gnus knows. @xref{Server Buffer}.
+servers that Gnus knows.  @xref{Server Buffer}.
 
 Then press @kbd{i} to mark any servers as cloud-synchronized (their marks are synchronized).
 
@@ -26744,11 +26680,11 @@ CloudSynchronizationDataPack(TM)s.  It's easiest to set this from the
 Server buffer (@pxref{Gnus Cloud Setup}).
 @end defvar
 
-@node D-Bus Integration
-@section D-Bus Integration
-@cindex dbus
-@cindex D-Bus
-@cindex gnus-dbus
+@c Section name changed from this in Emacs 31.  @c
+@c This anchor allows old links to continue working.  @c
+@anchor{D-Bus Integration}
+@node System Sleep Integration
+@section System Sleep Integration
 @cindex system sleep
 @cindex closing servers automatically
 @cindex hung connections
@@ -26756,13 +26692,10 @@ Server buffer (@pxref{Gnus Cloud Setup}).
 When using laptops or other systems that have a sleep or hibernate
 functionality, it's possible for long-running server connections to
 become ``hung'', requiring the user to manually close and re-open the
-connections after the system resumes.  On systems compiled with D-Bus
-support (check the value of @code{(featurep 'dbusbind)}), Gnus can
-register a D-Bus signal to automatically close all server connections
-before the system goes to sleep.  To enable this, set
-@code{gnus-dbus-close-on-sleep} to a non-@code{nil} value.
-
-For more information about D-Bus and Emacs, @pxref{Top,,, dbus, D-Bus integration in Emacs}.
+connections after the system resumes.  Using the system sleep library,
+Gnus can automatically close all server connections before the system
+goes to sleep.  To enable this, set @code{gnus-close-on-sleep} to a
+non-@code{nil} value.
 
 @node Other modes
 @section Interaction with other modes
@@ -26980,7 +26913,7 @@ but at the common table.@*
 '94, Lars Magne Ingebrigtsen grew bored and decided to rewrite Gnus.
 
 If you want to investigate the person responsible for this outrage,
-you can point your (feh!) web browser to
+you can point your (feh!)@: web browser to
 @uref{https://quimby.gnus.org/}.  This used to be the primary
 distribution point for the new and spiffy versions of Gnus, and was
 known as The Site That Destroys Newsrcs And Drives People Mad, but
@@ -27023,7 +26956,7 @@ The first ``proper'' release of Gnus 5 was done in November 1995 when it
 was included in the Emacs 19.30 distribution (132 (ding) Gnus releases
 plus 15 Gnus 5.0 releases).
 
-In May 1996 the next Gnus generation (aka. ``September Gnus'' (after 99
+In May 1996 the next Gnus generation (aka.@: ``September Gnus'' (after 99
 releases)) was released under the name ``Gnus 5.2'' (40 releases).
 
 On July 28th 1996 work on Red Gnus was begun, and it was released on
@@ -27154,14 +27087,15 @@ Gnus supports both encoding and decoding.
 @item S/MIME---RFC 2633
 RFC 2633 describes the @acronym{S/MIME} format.
 
-@item IMAP---RFC 1730/2060, RFC 2195, RFC 2086, RFC 2359, RFC 2595, RFC 1731
+@item IMAP---RFC 1730/2060, RFC 2195/4616, RFC 2086, RFC 2359, RFC 2595, RFC 1731
 RFC 1730 is @acronym{IMAP} version 4, updated somewhat by RFC 2060
 (@acronym{IMAP} 4 revision 1).  RFC 2195 describes CRAM-MD5
 authentication for @acronym{IMAP}.  RFC 2086 describes access control
 lists (ACLs) for @acronym{IMAP}.  RFC 2359 describes a @acronym{IMAP}
 protocol enhancement.  RFC 2595 describes the proper @acronym{TLS}
 integration (STARTTLS) with @acronym{IMAP}.  RFC 1731 describes the
-GSSAPI/Kerberos4 mechanisms for @acronym{IMAP}.
+GSSAPI/Kerberos4 mechanisms for @acronym{IMAP}.  RFC 4616 describes
+AUTH=PLAIN authentication for @acronym{IMAP}.
 
 @end table
 
@@ -27183,7 +27117,7 @@ type>, yup, I'll release it right away <ship off> no wait, that doesn't
 work at all <type type>, yup, I'll ship that one off right away <ship
 off> no, wait, that absolutely does not work'' policy for releases.
 Micro$oft---bah.  Amateurs.  I'm @emph{much} worse.  (Or is that
-``worser''? ``much worser''?  ``worsest''?)
+``worser''?  ``much worser''?  ``worsest''?)
 
 I would like to take this opportunity to thank the Academy for@dots{}  oops,
 wrong show.
@@ -28636,8 +28570,7 @@ enjoy the power of @acronym{MML}.
 
 The line below enables BBDB in resending a message:
 @lisp
-(define-key message-minibuffer-local-map [(tab)]
-  'bbdb-complete-name)
+(keymap-set message-minibuffer-local-map "TAB" 'bbdb-complete-name)
 @end lisp
 
 @item
@@ -29075,8 +29008,6 @@ that are accessible from the article buffer.
 nnfolder archives.
 
 @item Gnus now supports the ``hashcash'' client puzzle anti-spam mechanism.
-Use @code{(setq message-generate-hashcash t)} to enable.
-@xref{Hashcash}.
 
 @item You can now drag and drop attachments to the Message buffer.
 See @code{mml-dnd-protocol-alist} and @code{mml-dnd-attach-options}.
@@ -30090,7 +30021,7 @@ In the examples and definitions I will refer to the imaginary back end
 
 @table @code
 
-@item (nnchoke-retrieve-headers ARTICLES &optional GROUP SERVER FETCH-OLD)
+@item (nnchoke-retrieve-headers @var{articles} &optional @var{group} @var{server} @var{fetch-old})
 
 @var{articles} is either a range of article numbers or a list of
 @code{Message-ID}s.  Current back ends do not fully support either---only
@@ -30159,7 +30090,7 @@ For a closer look at what should be in those fields,
 @pxref{Headers}.
 
 
-@item (nnchoke-open-server SERVER &optional DEFINITIONS)
+@item (nnchoke-open-server @var{server} &optional @var{definitions})
 
 @var{server} is here the virtual server name.  @var{definitions} is a
 list of @code{(VARIABLE VALUE)} pairs that define this virtual server.
@@ -30172,7 +30103,7 @@ If the server is opened already, this function should return a
 non-@code{nil} value.  There should be no data returned.
 
 
-@item (nnchoke-close-server &optional SERVER)
+@item (nnchoke-close-server &optional @var{server})
 
 Close connection to @var{server} and free all resources connected
 to it.  Return @code{nil} if the server couldn't be closed for some
@@ -30191,7 +30122,7 @@ function is generally only called when Gnus is shutting down.
 There should be no data returned.
 
 
-@item (nnchoke-server-opened &optional SERVER)
+@item (nnchoke-server-opened &optional @var{server})
 
 If @var{server} is the current virtual server, and the connection to the
 physical server is alive, then this function should return a
@@ -30201,14 +30132,14 @@ attempt to reconnect to a server we have lost connection to.
 There should be no data returned.
 
 
-@item (nnchoke-status-message &optional SERVER)
+@item (nnchoke-status-message &optional @var{server})
 
 This function should return the last error message from @var{server}.
 
 There should be no data returned.
 
 
-@item (nnchoke-request-article ARTICLE &optional GROUP SERVER TO-BUFFER)
+@item (nnchoke-request-article @var{article} &optional @var{group} @var{server} @var{to-buffer})
 
 The result data from this function should be the article specified by
 @var{article}.  This might either be a @code{Message-ID} or a number.
@@ -30229,7 +30160,7 @@ group and article numbers are when fetching articles by
 on successful article retrieval.
 
 
-@item (nnchoke-request-group GROUP &optional SERVER FAST INFO)
+@item (nnchoke-request-group @var{group} &optional @var{server} @var{fast} @var{info})
 
 Get data on @var{group}.  This function also has the side effect of
 making @var{group} the current group.
@@ -30264,7 +30195,7 @@ info         = "211 " 3* [ <number> " " ] <string>
 @end example
 
 
-@item (nnchoke-close-group GROUP &optional SERVER)
+@item (nnchoke-close-group @var{group} &optional @var{server})
 
 Close @var{group} and free any resources connected to it.  This will be
 a no-op on most back ends.
@@ -30272,7 +30203,7 @@ a no-op on most back ends.
 There should be no data returned.
 
 
-@item (nnchoke-request-list &optional SERVER)
+@item (nnchoke-request-list &optional @var{server})
 
 Return a list of all groups available on @var{server}.  And that means
 @emph{all}.
@@ -30301,7 +30232,7 @@ The flag says whether the group is read-only (@samp{n}), is moderated
 (@samp{=other-group}) or none of the above (@samp{y}).
 
 
-@item (nnchoke-request-post &optional SERVER)
+@item (nnchoke-request-post &optional @var{server})
 
 This function should post the current buffer.  It might return whether
 the posting was successful or not, but that's not required.  If, for
@@ -30320,7 +30251,7 @@ There should be no result data from this function.
 
 @table @code
 
-@item (nnchoke-retrieve-groups GROUPS &optional SERVER)
+@item (nnchoke-retrieve-groups @var{groups} &optional @var{server})
 
 @var{groups} is a list of groups, and this function should request data
 on all those groups.  How it does it is of no concern to Gnus, but it
@@ -30336,8 +30267,20 @@ in the same format as @code{nnchoke-request-group} gives.
 group-buffer = *active-line / *group-status
 @end example
 
+@item (nnchoke-retrieve-group-data-early @var{server} &optional @var{infos})
 
-@item (nnchoke-request-update-info GROUP INFO &optional SERVER)
+This is for starting an early async retrieval from @var{server} to
+update @var{infos}, its current group info structure list.  The return
+value is a token for the corresponding
+@code{nnchoke-finish-retrieve-group-infos}.
+
+@item (nnchoke-finish-retrieve-group-infos @var{server} @var{infos} @var{data})
+
+This will be called later to conclude the async retrieval of
+@code{nnchoke-retrieve-group-data-early} -- whose token is passed as
+@var{data} -- and should update @var{infos}.
+
+@item (nnchoke-request-update-info @var{group} @var{info} &optional @var{server})
 
 A Gnus group info (@pxref{Group Info}) is handed to the back end for
 alterations.  This comes in handy if the back end really carries all
@@ -30350,7 +30293,7 @@ the network resources).
 There should be no result data from this function.
 
 
-@item (nnchoke-request-type GROUP &optional ARTICLE)
+@item (nnchoke-request-type @var{group} &optional @var{article})
 
 When the user issues commands for ``sending news'' (@kbd{F} in the
 summary buffer, for instance), Gnus has to know whether the article the
@@ -30364,7 +30307,7 @@ and @var{article} may be @code{nil}.
 There should be no result data from this function.
 
 
-@item (nnchoke-request-set-mark GROUP ACTION &optional SERVER)
+@item (nnchoke-request-set-mark @var{group} @var{action} &optional @var{server})
 
 Set/remove/add marks on articles.  Normally Gnus handles the article
 marks (such as read, ticked, expired etc.)@: internally, and store them in
@@ -30375,7 +30318,7 @@ propagate the mark information to the server.
 @var{action} is a list of mark setting requests, having this format:
 
 @example
-(RANGE ACTION MARK)
+(@code{range} @code{action} @code{mark})
 @end example
 
 @var{range} is a range of articles you wish to update marks on.
@@ -30405,7 +30348,7 @@ mark on (currently not used for anything).
 
 There should be no result data from this function.
 
-@item (nnchoke-request-update-mark GROUP ARTICLE MARK)
+@item (nnchoke-request-update-mark @var{group} @var{article} @var{mark})
 
 If the user tries to set a mark that the back end doesn't like, this
 function may change the mark.  Gnus will use whatever this function
@@ -30421,7 +30364,7 @@ expirable.
 There should be no result data from this function.
 
 
-@item (nnchoke-request-scan &optional GROUP SERVER)
+@item (nnchoke-request-scan &optional @var{group} @var{server})
 
 This function may be called at any time (by Gnus or anything else) to
 request that the back end check for incoming articles, in one way or
@@ -30435,7 +30378,7 @@ local if that's practical.
 There should be no result data from this function.
 
 
-@item (nnchoke-request-group-description GROUP &optional SERVER)
+@item (nnchoke-request-group-description @var{group} &optional @var{server})
 
 The result data from this function should be a description of
 @var{group}.
@@ -30446,7 +30389,7 @@ name             = <string>
 description      = <text>
 @end example
 
-@item (nnchoke-request-list-newsgroups &optional SERVER)
+@item (nnchoke-request-list-newsgroups &optional @var{server})
 
 The result data from this function should be the description of all
 groups available on the server.
@@ -30456,7 +30399,7 @@ description-buffer = *description-line
 @end example
 
 
-@item (nnchoke-request-newgroups DATE &optional SERVER)
+@item (nnchoke-request-newgroups @var{date} &optional @var{server})
 
 The result data from this function should be all groups that were
 created after @samp{date}, which is in normal human-readable date format
@@ -30473,14 +30416,14 @@ back ends like @code{nntp}, where the groups have been created by the
 server, it is quite likely that there can be many groups.
 
 
-@item (nnchoke-request-create-group GROUP &optional SERVER)
+@item (nnchoke-request-create-group @var{group} &optional @var{server})
 
 This function should create an empty group with name @var{group}.
 
 There should be no return data.
 
 
-@item (nnchoke-request-expire-articles ARTICLES &optional GROUP SERVER FORCE)
+@item (nnchoke-request-expire-articles @var{articles} &optional @var{group} @var{server} @var{force})
 
 This function should run the expiry process on all articles in the
 @var{articles} range (which is currently a simple list of article
@@ -30495,7 +30438,7 @@ able to delete.
 There should be no result data returned.
 
 
-@item (nnchoke-request-move-article ARTICLE GROUP SERVER ACCEPT-FORM &optional LAST)
+@item (nnchoke-request-move-article @var{article} @var{group} @var{server} @var{accept-form} &optional @var{last})
 
 This function should move @var{article} (which is a number) from
 @var{group} by calling @var{accept-form}.
@@ -30517,7 +30460,7 @@ the @code{cdr} is the article number that the article was entered as.
 There should be no data returned.
 
 
-@item (nnchoke-request-accept-article GROUP &optional SERVER LAST)
+@item (nnchoke-request-accept-article @var{group} &optional @var{server} @var{last})
 
 This function takes the current buffer and inserts it into @var{group}.
 If @var{last} in @code{nil}, that means that there will be more calls to
@@ -30532,7 +30475,7 @@ article for that group.
 There should be no data returned.
 
 
-@item (nnchoke-request-replace-article ARTICLE GROUP BUFFER)
+@item (nnchoke-request-replace-article @var{article} @var{group} @var{buffer})
 
 This function should remove @var{article} (which is a number) from
 @var{group} and insert @var{buffer} there instead.
@@ -30540,7 +30483,7 @@ This function should remove @var{article} (which is a number) from
 There should be no data returned.
 
 
-@item (nnchoke-request-delete-group GROUP FORCE &optional SERVER)
+@item (nnchoke-request-delete-group @var{group} @var{force} &optional @var{server})
 
 This function should delete @var{group}.  If @var{force}, it should
 really delete all the articles in the group, and then delete the group
@@ -30549,7 +30492,7 @@ itself.  (If there is such a thing as ``the group itself''.)
 There should be no data returned.
 
 
-@item (nnchoke-request-rename-group GROUP NEW-NAME &optional SERVER)
+@item (nnchoke-request-rename-group @var{group} @var{new-name} &optional @var{server})
 
 This function should rename @var{group} into @var{new-name}.  All
 articles in @var{group} should move to @var{new-name}.

@@ -1,6 +1,6 @@
 ;;; webjump.el --- programmable Web hotlist  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1996-1997, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1997, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author:     Neil W. Van Dyke <nwv@acm.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -41,13 +41,13 @@
 
 ;; You may wish to add something like the following to your init file:
 ;;
-;;   (global-set-key "\C-cj" 'webjump)
-;;   (setq webjump-sites
-;;         (append '(
-;;                   ("My Home Page" . "www.someisp.net/users/joebobjr/")
-;;                   ("Pop's Site"   . "www.joebob-and-son.com/")
-;;                   )
-;;                 webjump-sample-sites))
+;;   (keymap-global-set "C-c j" #'webjump)
+;;   (setopt webjump-sites
+;;           (append '(
+;;                     ("My Home Page" . "www.someisp.net/users/joebobjr/")
+;;                     ("Pop's Site"   . "www.joebob-and-son.com/")
+;;                     )
+;;                   webjump-sample-sites))
 ;;
 ;; The above loads this package, binds `C-c j' to invoke WebJump, and adds your
 ;; personal favorite sites to the hotlist.
@@ -94,53 +94,34 @@ external browser like IceCat."
      ;; GNU FTP Mirror List from https://www.gnu.org/order/ftp.html
      [mirrors "https://ftp.gnu.org/pub/gnu/"
               "https://ftpmirror.gnu.org"])
-    ("GNU Project Website" . "www.gnu.org")
+    ("GNU Project Website" . "https://www.gnu.org")
 
     ;; Emacs.
     ("Emacs Website" .
-     "www.gnu.org/software/emacs/emacs.html")
+     "https://www.gnu.org/software/emacs/emacs.html")
     ("Savannah Emacs page" .
-     "savannah.gnu.org/projects/emacs")
-    ("Emacs Lisp List" .
-     "www.damtp.cam.ac.uk/user/eglen/emacs/ell.html")
+     "https://savannah.gnu.org/projects/emacs")
     ("Emacs Wiki" .
-     [simple-query "www.emacswiki.org"
-		   "www.emacswiki.org/cgi-bin/wiki/" ""])
+     [simple-query "https://www.emacswiki.org"
+		   "https://www.emacswiki.org/cgi-bin/wiki/" ""])
 
     ;; Internet search engines.
     ("DuckDuckGo" .
-     [simple-query "duckduckgo.com"
-		   "duckduckgo.com/?q=" ""])
-    ("Google Groups" .
-     [simple-query "groups.google.com"
-		   "groups.google.com/groups?q=" ""])
-    ("Yahoo" .
-     [simple-query "www.yahoo.com" "search.yahoo.com/search?p=" ""])
-    ("Yahoo: Reference" . "www.yahoo.com/Reference/")
+     [simple-query "https://duckduckgo.com"
+		   "https://duckduckgo.com/?q=" ""])
     ("Wikipedia" .
-     [simple-query "wikipedia.org" "wikipedia.org/wiki/" ""])
-
-    ;; Misc. general interest.
-    ("National Weather Service" . webjump-to-iwin)
-    ("Usenet FAQs" .
-     "http://www.faqs.org/faqs/")
-    ("RTFM Usenet FAQs by Group" .
-     "ftp://rtfm.mit.edu/pub/usenet-by-group/")
-    ("RTFM Usenet FAQs by Hierarchy" .
-     "ftp://rtfm.mit.edu/pub/usenet-by-hierarchy/")
-    ("X Consortium Archive" . "ftp.x.org")
+     [simple-query "https://wikipedia.org" "https://wikipedia.org/wiki/" ""])
 
     ;; Computer social issues, privacy, professionalism.
-    ("Association for Computing Machinery" . "www.acm.org")
+    ("Association for Computing Machinery" . "https://www.acm.org")
     ("Computer Professionals for Social Responsibility" . "http://www.cpsr.org")
-    ("Electronic Frontier Foundation" . "www.eff.org")
-    ("IEEE Computer Society" . "www.computer.org")
+    ("Electronic Frontier Foundation" . "https://www.eff.org")
+    ("IEEE Computer Society" . "https://www.computer.org")
     ("Risks Digest" . webjump-to-risks)
 
     ;; More.
     ("Supplemental Web site list for webjump" .
-     "www.neilvandyke.org/webjump/")
-
+     "https://www.neilvandyke.org/webjump/")
     )
   "Sample hotlist for WebJump.
 See the documentation for `webjump' and `webjump-sites'.")
@@ -162,6 +143,7 @@ See the documentation for `webjump' and `webjump-sites'.")
     ("Utah" . "ut") ("Vermont" . "vt") ("Virginia" . "va")
     ("Washington" . "wa") ("West Virginia" . "wv") ("Wisconsin" . "wi")
     ("Wyoming" . "wy")))
+(make-obsolete-variable 'webjump-state-to-postal-alist nil "31.1")
 
 ;;------------------------------------------------------------ Option Variables
 
@@ -210,6 +192,7 @@ submitting the URL."
 ;;------------------------------------------------------- Sample Site Functions
 
 (defun webjump-to-iwin (name)
+  (declare (obsolete nil "31.1"))
   (let* ((prefix "http://www.nws.noaa.gov/view/")
          (state (webjump-read-choice name "state"
                                      (append '(("Puerto Rico" . "pr")

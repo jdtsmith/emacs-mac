@@ -1,9 +1,10 @@
 # largefile.m4
-# serial 1
-dnl Copyright 1992-1996, 1998-2025 Free Software Foundation, Inc.
+# serial 4
+dnl Copyright 1992-1996, 1998-2026 Free Software Foundation, Inc.
 dnl This file is free software; the Free Software Foundation
 dnl gives unlimited permission to copy and/or distribute it,
 dnl with or without modifications, as long as this notice is preserved.
+dnl This file is offered as-is, without any warranty.
 
 # Enable large files on systems where this is not the default.
 # Enable support for files on Linux file systems with 64-bit inode numbers.
@@ -88,7 +89,7 @@ m4_define([_AC_SYS_YEAR2038_OPTIONS], m4_normalize(
 # If you change this macro you may also need to change
 # _AC_SYS_YEAR2038_OPTIONS.
 AC_DEFUN([_AC_SYS_YEAR2038_PROBE],
-[AC_CACHE_CHECK([for $CPPFLAGS option for timestamps after 2038],
+[AC_CACHE_CHECK([for $CC option to support timestamps after 2038],
   [ac_cv_sys_year2038_opts],
   [ac_save_CPPFLAGS="$CPPFLAGS"
   ac_opt_found=no
@@ -234,7 +235,7 @@ m4_define([_AC_SYS_LARGEFILE_OPTIONS], m4_normalize(
 # If you change this macro you may also need to change
 # _AC_SYS_LARGEFILE_OPTIONS.
 AC_DEFUN([_AC_SYS_LARGEFILE_PROBE],
-[AC_CACHE_CHECK([for $CPPFLAGS option for large files],
+[AC_CACHE_CHECK([for $CC option to support large files],
   [ac_cv_sys_largefile_opts],
   [ac_save_CPPFLAGS=$CPPFLAGS
   ac_opt_found=no
@@ -294,7 +295,7 @@ AC_CONFIG_COMMANDS_PRE([_AC_SYS_YEAR2038_ENABLE])])
 # By default, many hosts won't let programs access large files;
 # one must use special compiler options to get large-file access to work.
 # For more details about this brain damage please see:
-# http://www.unix.org/version2/whatsnew/lfs20mar.html
+# https://www.unix.org/version2/whatsnew/lfs20mar.html
 # Additionally, on Linux file systems with 64-bit inodes a file that happens
 # to have a 64-bit inode number cannot be accessed by 32-bit applications on
 # Linux x86/x86_64.  This can occur with file systems such as XFS and NFS.
@@ -354,8 +355,7 @@ AC_DEFUN([gl_LARGEFILE],
     *)
       dnl Nothing to do on gnulib's side.
       dnl A 64-bit off_t is
-      dnl   - already the default on Mac OS X, FreeBSD, NetBSD, OpenBSD, IRIX,
-      dnl     OSF/1, Cygwin,
+      dnl   - already the default on Mac OS X, FreeBSD, NetBSD, OpenBSD, Cygwin,
       dnl   - enabled by _FILE_OFFSET_BITS=64 (ensured by AC_SYS_LARGEFILE) on
       dnl     glibc, HP-UX, Solaris,
       dnl   - enabled by _LARGE_FILES=1 (ensured by AC_SYS_LARGEFILE) on AIX,

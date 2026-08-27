@@ -1,6 +1,6 @@
 ;;; erc-scenarios-base-compat-rename-bouncer.el --- Compat-rename scenarios -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -43,6 +43,7 @@
        (chan-buf-foo (format "#chan@127.0.0.1:%d" port))
        (chan-buf-bar (format "#chan@127.0.0.1:%d<2>" port))
        (expect (erc-d-t-make-expecter))
+       (erc-server-reconnect-function #'erc-server-delayed-reconnect)
        (erc-server-auto-reconnect auto)
        erc-server-buffer-foo erc-server-process-foo
        erc-server-buffer-bar erc-server-process-bar)
@@ -75,7 +76,7 @@
                                            :full-name "tester"
                                            :id nil))
         (setq erc-server-process-bar erc-server-process)
-        (erc-d-t-wait-for 3 (eq (erc-network) 'barnet))
+        (erc-d-t-wait-for 10 (eq (erc-network) 'barnet))
         (erc-d-t-wait-for 3 "Final buffer name determined"
           (string= (buffer-name) (format "127.0.0.1:%d<2>" port)))
         (funcall expect 5 "barnet")))

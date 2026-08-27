@@ -1,6 +1,6 @@
 ;;; url-history.el --- Global history tracking for URL package  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-1999, 2004-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1999, 2004-2026 Free Software Foundation, Inc.
 
 ;; Keywords: comm, data, processes, hypermedia
 
@@ -154,7 +154,7 @@ user for what type to save as."
 
 (defun url-have-visited-url (url)
   (url-do-setup)
-  (gethash url url-history-hash-table nil))
+  (gethash url url-history-hash-table))
 
 (defun url-completion-function (string predicate function)
   (declare (obsolete url-history-hash-table "26.1"))

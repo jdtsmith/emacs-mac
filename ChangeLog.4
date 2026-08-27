@@ -4161,7 +4161,7 @@
 
 2024-07-15  Michael Albinus  <michael.albinus@gmx.de>
 
-	Adapt tressitter tests on EMBA
+	Adapt treesitter tests on EMBA
 
 	* test/infra/Makefile.in (TREE-SITTER-FILES): Simplify.
 
@@ -22242,7 +22242,7 @@
 
 2024-03-10  Andreas Schwab  <schwab@linux-m68k.org>
 
-	Avoid dependency on nonexisting target in lispref makefile
+	Avoid dependency on nonexistent target in lispref makefile
 
 	* doc/lispref/Makefile.in (auxfiles): Change target into a
 	variable.
@@ -31670,7 +31670,7 @@
 	Slight funcall_subr optimization
 
 	* src/eval.c (funcall_subr): Help the compiler by reducing aliasing
-	problems, and compensate for a missed-optimisation bug in LLVM where
+	problems, and compensate for a missed-optimization bug in LLVM where
 	switches sometimes forget to use variable range information (reported
 	in https://github.com/llvm/llvm-project/issues/76085).
 
@@ -41085,7 +41085,7 @@
 
 2023-09-27  Wilhelm H Kirschbaum  <wkirschbaum@gmail.com>
 
-	Fix treesit-langauge-at-point for elixir-ts-mode.
+	Fix treesit-language-at-point for elixir-ts-mode.
 
 	The treesit-language-at-point function is only suppose to query the
 	host language.
@@ -63312,7 +63312,7 @@
 
 	Use memcpy for loading unaligned words on platforms where this can be
 	done efficiently.  This guards against problems arising from future
-	compiler autovectorisation improvements that might cause instructions
+	compiler autovectorization improvements that might cause instructions
 	that require aligned addresses to be emitted, and should also work
 	with an address sanitizer enabled.
 
@@ -75655,7 +75655,7 @@
 
 	but never did so because of a coding mistake (eq instead of equal),
 	found by a recently added warning.  They weren't actually needed
-	thanks to the optimiser's fixpoint iteration: we eventually get the
+	thanks to the optimizer's fixpoint iteration: we eventually get the
 	same results through
 
 	    (if X nil t) -> (if (not X) t nil) -> (if (not X) t) -> (not X)
@@ -75904,7 +75904,7 @@
 
 	but never did so because of a coding mistake (eq instead of equal),
 	found by a recently added warning.  They weren't actually needed
-	thanks to the optimiser's fixpoint iteration: we eventually get the
+	thanks to the optimizer's fixpoint iteration: we eventually get the
 	same results through
 
 	    (if X nil t) -> (if (not X) t nil) -> (if (not X) t) -> (not X)
@@ -83524,7 +83524,7 @@
 
 2023-12-04  Philipp Stephani  <p.stephani2@gmail.com>
 
-	Don't claim to signal an error when deleting a nonexisting file.
+	Don't claim to signal an error when deleting a nonexistent file.
 
 	The behavior has changed in commit
 	1a65afb7ecc2a52127d6164bad19313440237f9d to no longer signal an error
@@ -98166,7 +98166,7 @@
 
 	but never did so because of a coding mistake (eq instead of equal),
 	found by a recently added warning.  They weren't actually needed
-	thanks to the optimiser's fixpoint iteration: we eventually get the
+	thanks to the optimizer's fixpoint iteration: we eventually get the
 	same results through
 
 	    (if X nil t) -> (if (not X) t nil) -> (if (not X) t) -> (not X)
@@ -99787,7 +99787,7 @@
 	Replace `|` with `||` to explicitly introduce sequence points since
 	the variables, `length` and `nskip`, are mutated more than once.
 
-	The `|` was just a weak attempt at micro-optimisation in any case;
+	The `|` was just a weak attempt at micro-optimization in any case;
 	sorry about that.
 
 2022-12-05  Yuan Fu  <casouri@gmail.com>
@@ -105719,7 +105719,7 @@
 
 	* src/treesit.c (treesit_find_override_name)
 	(treesit_load_language_push_for_each_suffix, treesit_load_language)
-	(Ftreesit_langauge_available_p, treesit_record_change)
+	(Ftreesit_language_available_p, treesit_record_change)
 	(make_treesit_parser, make_treesit_node, make_treesit_query)
 	(Ftreesit_parser_create, Ftreesit_parser_delete, Ftreesit_parser_list)
 	(treesit_check_range_argument, Ftreesit_parser_included_ranges)
@@ -110037,7 +110037,7 @@
 	Better signal data for treesit-load-language-error
 
 	* src/treesit.c (ts_load_language): Better formatted signal data,
-	(Ftreesit_langauge_available_p): Optionally return the signal data if
+	(Ftreesit_language_available_p): Optionally return the signal data if
 	language not available.
 	* doc/lispref/parsing.texi: Document the signal data in detail.
 
@@ -110153,7 +110153,7 @@
 	* src/treesit.h (struct Lisp_TS_Query): Add two new field.
 	* src/treesit.c (ts_load_language): Return signal symbol and data
 	rather than signaling itself.
-	(Ftreesit_langauge_available_p)
+	(Ftreesit_language_available_p)
 	(Ftreesit_parser_create): Update usage of ts_load_language
 
 	(make_ts_query): Now returns a lisp object.
@@ -140625,7 +140625,7 @@
 
 	Fix drag-and-drop of files with multibyte filenames
 
-	* lisp/dired.el (dired-mouse-drag): Fix re-signalling of errors.
+	* lisp/dired.el (dired-mouse-drag): Fix re-signaling of errors.
 
 	* lisp/select.el (xselect-convert-to-filename):
 	(xselect-convert-to-text-uri-list):
@@ -150001,7 +150001,7 @@
 
 2022-04-27  Lars Ingebrigtsen  <larsi@gnus.org>
 
-	Give better error message in dired-toggle-read-only on nonexisting dirs
+	Give better error message in dired-toggle-read-only on nonexistent dirs
 
 	* lisp/dired.el (dired-toggle-read-only): Refuse to edit
 	non-existent directories (bug#23276).
@@ -154980,7 +154980,7 @@
 
 	* doc/misc/ses.texi (The Basics): Document that ses-jump may be
 	customized.
-	(Customizing @acronym{SES}): Document new customisations for ses-jump.
+	(Customizing @acronym{SES}): Document new customizations for ses-jump.
 
 	* lisp/ses.el (ses-jump-cell-name-function)
 	(ses-jump-prefix-function): New defcustoms.
@@ -157179,7 +157179,7 @@
 	Make eshell link faces more distinctive on 8-color displays
 
 	* lisp/eshell/em-ls.el (eshell-ls-directory):
-	(eshell-ls-symlink): Make the faces be distinctive on 8-colour
+	(eshell-ls-symlink): Make the faces be distinctive on 8-color
 	displays (bug#43615).
 
 2022-03-22  dickmao  <dick.r.chiang@gmail.com>
@@ -167362,7 +167362,7 @@
 
 2022-01-24  Mattias Engdegård  <mattiase@acm.org>
 
-	Byte code arity check micro-optimisation
+	Byte code arity check micro-optimization
 
 	* src/bytecode.c (exec_byte_code): Slight simplification.
 
@@ -185159,7 +185159,7 @@
 	(gen-clean): Delete it.
 
 	* admin/unidata/README (https): Note the source for the Unicode
-	file that has emoji categorisations.
+	file that has emoji categorizations.
 
 	* admin/unidata/emoji-test.txt: Import another Unicode file.
 
@@ -193726,7 +193726,7 @@
 	use-package--foo--pre-config-hook
 	use-package--foo--post-config-hook
 
-	This should make config customisations more predictable (for example, spacemacs
+	This should make config customizations more predictable (for example, spacemacs
 	uses these hooks extensively to allow 'layers' to be customized).
 
 	I got rid of the "special" default value for :config, because it doesn't seem to
@@ -199850,7 +199850,7 @@
 
 	Instead of testing the length of each form passed to :custom-face,
 	the sanity check would test the number of forms passed to :custom-face,
-	causing it to fail when more than 2 face customisations are used.
+	causing it to fail when more than 2 face customizations are used.
 
 	Fixes https://github.com/jwiegley/use-package/issues/600.
 
@@ -203628,7 +203628,7 @@ See ChangeLog.3 for earlier changes.
 ;; coding: utf-8
 ;; End:
 
-  Copyright (C) 2022-2025 Free Software Foundation, Inc.
+  Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
   This file is part of GNU Emacs.
 

@@ -1,6 +1,6 @@
 ;;; mh-search.el --- MH-Search mode  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993, 1995, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1993, 1995, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Indexed search by Satyaki Das <satyaki@theforce.stanford.edu>
 ;; Maintainer: Bill Wohler <wohler@newt.com>
@@ -287,7 +287,7 @@ folder containing the index search results."
                                           "-sequence"
                                           "cur" (format "%s" cur)))
                      (cl-loop for msg in msgs
-                              do (cl-incf result-count)
+                              do (incf result-count)
                               (setf (gethash result-count origin-map)
                                     (cons folder msg)))))
                  folder-results-map)

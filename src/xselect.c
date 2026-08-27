@@ -1,5 +1,5 @@
 /* X Selection processing for Emacs.
-   Copyright (C) 1993-1997, 2000-2025 Free Software Foundation, Inc.
+   Copyright (C) 1993-1997, 2000-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -299,10 +299,17 @@ x_own_selection (Lisp_Object selection_name, Lisp_Object selection_value,
     Lisp_Object selection_data;
     Lisp_Object prev_value;
 
+    prev_value = LOCAL_SELECTION (selection_name, dpyinfo);
+
+    /* If the previous value contains alternative data for responding to
+       programs that do not understand a specialized drag-and-drop
+       protocol and DND_DATA is unset, transfer it to the new value.  */
+    if (NILP (dnd_data) && !NILP (prev_value))
+      dnd_data = XCAR (XCDR (XCDR (XCDR (XCDR (prev_value)))));
+
     selection_data = list5 (selection_name, selection_value,
 			    INT_TO_INTEGER (timestamp), frame,
 			    dnd_data);
-    prev_value = LOCAL_SELECTION (selection_name, dpyinfo);
 
     tset_selection_alist
       (dpyinfo->terminal,
@@ -396,7 +403,7 @@ x_get_local_selection (Lisp_Object selection_symbol, Lisp_Object target_type,
 	}
 
       if (!NILP (handler_fn))
-	value = call3 (handler_fn, selection_symbol,
+	value = calln (handler_fn, selection_symbol,
 		       ((local_request
 			 && NILP (Vx_treat_local_requests_remotely))
 			? Qnil
@@ -1617,15 +1624,22 @@ static void
 x_display_selection_waiting_message (struct atimer *timer)
 {
   Lisp_Object val;
+  struct atimer **atimerp = timer->client_data;
 
   val = build_string ("Waiting for reply from selection owner...");
   message3_nolog (val);
+  *atimerp = NULL;
 }
 
 static void
-x_cancel_atimer (void *atimer)
+x_cancel_atimer (void *atimerp)
 {
-  cancel_atimer (atimer);
+  struct atimer **atimer = atimerp;
+  if (*atimer)
+    {
+      cancel_atimer (*atimer);
+      *atimer = NULL;
+    }
 }
 
 
@@ -1694,8 +1708,8 @@ x_get_foreign_selection (Lisp_Object selection_symbol, Lisp_Object target_type,
   message_interval = make_timespec (1, 0);
   delayed_message = start_atimer (ATIMER_RELATIVE, message_interval,
 				  x_display_selection_waiting_message,
-				  NULL);
-  record_unwind_protect_ptr (x_cancel_atimer, delayed_message);
+				  &delayed_message);
+  record_unwind_protect_ptr (x_cancel_atimer, &delayed_message);
 
   /* This allows quits.  Also, don't wait forever.  */
   intmax_t timeout = max (0, x_selection_timeout);

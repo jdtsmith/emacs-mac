@@ -1,6 +1,6 @@
 ;;; srecode/cpp.el --- C++ specific handlers for Semantic Recoder  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2007, 2009-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007, 2009-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;;         Jan Moringen <scymtym@users.sourceforge.net>
@@ -146,8 +146,7 @@ specified in a C file."
 	    (value-dict (srecode-dictionary-add-section-dictionary
 			 dict "VALUE")))
 	(srecode-semantic-apply-tag-to-dict
-	 (srecode-semantic-tag (semantic-tag-name value-tag)
-			       :prime value-tag)
+	 (srecode-semantic-tag :prime value-tag)
 	 value-dict))
 
       ;; Discriminate using statements referring to namespaces and
@@ -224,8 +223,7 @@ specified in a C file."
 	(let ((template-dict (srecode-dictionary-add-section-dictionary
 			      templates-dict "ARGS")))
 	  (srecode-semantic-apply-tag-to-dict
-	   (srecode-semantic-tag (semantic-tag-name template)
-				 :prime template)
+	   (srecode-semantic-tag :prime template)
 	   template-dict)))))
   )
 

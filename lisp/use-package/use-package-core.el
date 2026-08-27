@@ -1,6 +1,6 @@
 ;;; use-package-core.el --- A configuration macro for simplifying your .emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2012-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@newartisans.com>
 ;; Maintainer: John Wiegley <johnw@newartisans.com>
@@ -69,7 +69,9 @@
   "This version of `use-package'.")
 
 (defcustom use-package-keywords
-  '(:disabled
+  '(:pin
+    :ensure
+    :disabled
     :load-path
     :requires
     :defines
@@ -101,7 +103,9 @@
     :load
     ;; This must occur almost last; the only forms which should appear after
     ;; are those that must happen directly after the config forms.
-    :config)
+    :config
+    :diminish
+    :delight)
   "The set of valid keywords, in the order they are processed in.
 The order of this list is *very important*, so it is only
 advisable to insert new keywords, never to delete or reorder
@@ -115,7 +119,7 @@ nothing at all to happen, even if the rest of the `use-package'
 declaration is incorrect."
   :type '(repeat symbol)
   :group 'use-package
-  :version "29.1")
+  :version "31.1")
 
 (defcustom use-package-deferring-keywords
   '(:bind-keymap
@@ -197,7 +201,12 @@ See also `use-package-defaults', which uses this value."
              (lambda (name args)
                (and use-package-always-demand
                     (not (plist-member args :defer))
-                    (not (plist-member args :demand))))))
+                    (not (plist-member args :demand)))))
+    (:ensure (list use-package-always-ensure)
+             (lambda (name args)
+               (and use-package-always-ensure
+                    (not (plist-member args :load-path)))))
+    (:pin use-package-always-pin use-package-always-pin))
   "Default values for specified `use-package' keywords.
 Each entry in the alist is a list of three elements:
 The first element is the `use-package' keyword.
@@ -223,7 +232,7 @@ attempted."
                 (choice :tag "Default value" sexp function)
                 (choice :tag "Enable if non-nil" sexp function)))
   :group 'use-package
-  :version "29.1")
+  :version "31.1")
 
 (defcustom use-package-merge-key-alist
   '((:if    . (lambda (new old) `(and ,new ,old)))
@@ -376,6 +385,36 @@ stability issues."
   :type 'boolean
   :version "30.1"
   :group 'use-package)
+
+(defcustom use-package-always-ensure nil
+  "Treat every package as though it had specified using `:ensure SEXP'.
+See also `use-package-defaults', which uses this value."
+  :type 'sexp
+  :version "29.1")
+
+(defcustom use-package-always-pin nil
+  "Treat every package as though it had specified using `:pin SYM'.
+See also `use-package-defaults', which uses this value."
+  :type 'symbol
+  :version "29.1")
+
+(defcustom use-package-ensure-function 'use-package-ensure-elpa
+  "Function that ensures a package is installed.
+This function is called with three arguments: the name of the
+package declared in the `use-package' form; the arguments passed
+to all `:ensure' keywords (always a list, even if only one); and
+the current `state' plist created by previous handlers.
+
+Note that this function is called whenever `:ensure' is provided,
+even if it is nil.  It is up to the function to decide on the
+semantics of the various values for `:ensure'.
+
+This function should return non-nil if the package is installed.
+
+The default value uses package.el to install the package."
+  :type '(choice (const :tag "package.el" use-package-ensure-elpa)
+                 (function :tag "Custom"))
+  :version "29.1")
 
 (defvar use-package-statistics (make-hash-table))
 
@@ -1584,7 +1623,11 @@ no keyword implies `:all'."
 (defun use-package-handler/:custom-face (name _keyword args rest state)
   "Generate use-package custom-face keyword code."
   (use-package-concat
-   (mapcar #'(lambda (def) `(apply #'face-spec-set (backquote ,def))) args)
+   (mapcar #'(lambda (def)
+               `(progn
+                  (apply #'face-spec-set (append (backquote ,def) '(face-defface-spec)))
+                  (put ',(car def) 'face-modified t)))
+           args)
    (use-package-process-keywords name rest state)))
 
 ;;;; :init
@@ -1657,7 +1700,10 @@ remote host, call `package-vc-install' instead."
                (spec (if opts (cons name opts) name)))
     (unless (package-installed-p name)
       (if local-path
-          (package-vc-install-from-checkout local-path (symbol-name name))
+          (with-suppressed-warnings ((obsolete package-vc-install-from-checkout))
+            (warn "Support for :vc with :load-path is obsolete.  \
+Use the User Lisp directory instead.")
+            (package-vc-install-from-checkout local-path (symbol-name name)))
         (package-vc-install spec rev)))))
 
 (defun use-package-handler/:vc (name _keyword arg rest state)
@@ -1750,7 +1796,7 @@ node `(use-package) Creating an extension'."
     (pcase arg
       ((or 'nil 't) (list name))                 ; guess name
       ((pred symbolp) (list arg))                ; use this name
-      ((pred stringp) (list name arg))           ; version string + guess name
+      ((pred stringp) (list name (list :url arg))) ; URL + guess name
       (`(,(pred keywordp) . ,(pred listp))       ; list + guess name
        (use-package-normalize--vc-arg (cons name arg)))
       (`(,(pred symbolp) . ,(or (pred listp)     ; list/version string + name
@@ -1845,15 +1891,24 @@ Usage:
 :load-path       Add to the `load-path' before attempting to load the package.
 :diminish        Support for diminish.el (if installed).
 :delight         Support for delight.el (if installed).
-:custom          Call `Custom-set' or `set-default' with each variable
+:custom          Call `customize-set-variable' on each variable
                  definition without modifying the Emacs `custom-file'.
                  (compare with `custom-set-variables').
-:custom-face     Call `custom-set-faces' with each face definition.
+:custom-face     Call `face-spec-set' with each face definition.
 :ensure          Loads the package using package.el if necessary.
 :pin             Pin the package to an archive.
 :vc              Install the package directly from a version control system
                  (using `package-vc.el')."
   (declare (indent defun))
+  (when (stringp name)
+    (user-error "String where there should be a symbol.  \
+Try this instead: `(use-package %s ...)'"
+                name))
+  (when (and (consp name) (eq (car name) 'quote))
+    (user-error "Quoted symbol where it should be unquoted.  \
+Try this instead: `(use-package %s ...)'"
+                (symbol-name (cadr name))))
+  (cl-check-type name symbol)
   (unless (memq :disabled args)
     (macroexp-progn
      (use-package-concat

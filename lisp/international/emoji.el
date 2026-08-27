@@ -1,6 +1,6 @@
 ;;; emoji.el --- Inserting emojis  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: fun
@@ -28,7 +28,6 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'cl-extra)
 (require 'transient)
 (require 'multisession)
 (require 'generate-lisp-file)
@@ -71,7 +70,7 @@ representing names.  For instance:
 (define-multisession-variable emoji--recent (list "😀" "😖"))
 (defvar emoji--insert-buffer)
 
-;;;###autoload (autoload 'emoji-insert "emoji" nil t)
+;;;###autoload
 (transient-define-prefix emoji-insert ()
   "Choose and insert an emoji glyph."
   :variable-pitch t
@@ -84,7 +83,7 @@ representing names.  For instance:
                        `(("Recent" ,@(multisession-value emoji--recent))
                          ,@emoji--labels)))
 
-;;;###autoload (autoload 'emoji-recent "emoji" nil t)
+;;;###autoload
 (transient-define-prefix emoji-recent ()
   "Choose and insert one of the recently-used emoji glyphs."
   :variable-pitch t
@@ -96,7 +95,7 @@ representing names.  For instance:
   (emoji--setup-prefix 'emoji-recent "Recent" t
                        (multisession-value emoji--recent)))
 
-;;;###autoload (autoload 'emoji-search "emoji" nil t)
+;;;###autoload
 (transient-define-prefix emoji-search (glyph derived)
   "Choose and insert an emoji glyph by typing its Unicode name.
 This command prompts for an emoji name, with completion, and
@@ -156,22 +155,26 @@ and also consults the `emoji-alternate-names' alist."
 
 ;;;###autoload
 (defun emoji-list ()
-  "List emojis and allow selecting and inserting one of them.
+  "List Emoji and allow selecting and inserting one of them.
+If you are displaying Emoji on a text-only terminal, and some
+of them look incorrect, or there are display artifacts when
+scrolling the display, turn off `auto-composition-mode'.
+
 Select the emoji by typing \\<emoji-list-mode-map>\\[emoji-list-select] on its picture.
-The glyph will be inserted into the buffer that was current
+The selected glyph will be inserted into the buffer that was current
 when the command was invoked."
   (interactive)
   (let ((buf (current-buffer)))
     (emoji--init)
     (switch-to-buffer (get-buffer-create "*Emoji*"))
-    (setq-local emoji--insert-buffer buf)
     ;; Don't regenerate the buffer if it already exists -- this will
     ;; leave point where it was the last time it was used.
     (when (zerop (buffer-size))
       (let ((inhibit-read-only t))
         (emoji-list-mode)
         (emoji--list-generate nil (cons nil emoji--labels))
-        (goto-char (point-min))))))
+        (goto-char (point-min))))
+    (setq-local emoji--insert-buffer buf)))
 
 ;;;###autoload
 (defun emoji-describe (glyph &optional interactive)
@@ -222,7 +225,7 @@ the name is not known."
       (cl-loop for i from 0
                for glyph in alist
                do
-               (when (and (cl-plusp i)
+               (when (and (plusp i)
                           (zerop (mod i width)))
                  (insert "\n"))
                (insert
@@ -258,7 +261,7 @@ the name is not known."
   :interactive nil
   (setq-local truncate-lines t))
 
-;;;###autoload (autoload 'emoji-list-select "emoji" nil t)
+;;;###autoload
 (transient-define-prefix emoji-list-select (event)
   "Select the emoji under point."
   :variable-pitch t
@@ -328,14 +331,14 @@ the name is not known."
       (let ((glyph (cadr alist)))
         ;; Store all the emojis for later retrieval by
         ;; the search feature.
-        (when-let ((name (emoji--name glyph)))
+        (when-let* ((name (emoji--name glyph)))
           (setf (gethash (downcase name) emoji--all-bases) glyph))
         (if (display-graphic-p)
             ;; Remove glyphs we don't have in graphical displays.
             (if (let ((char (elt glyph 0)))
                   (if emoji--font
                       (font-has-char-p emoji--font char)
-                    (when-let ((font (car (internal-char-font nil char))))
+                    (when-let* ((font (car (internal-char-font nil char))))
                       (setq emoji--font font))))
                 (setq alist (cdr alist))
               ;; Remove the element.
@@ -575,7 +578,7 @@ the name is not known."
     (setq recent (delete glyph recent))
     (push glyph recent)
     ;; Shorten the list.
-    (when-let ((tail (nthcdr 30 recent)))
+    (when-let* ((tail (nthcdr 30 recent)))
       (setcdr tail nil))
     (setf (multisession-value emoji--recent) recent)))
 
@@ -663,27 +666,24 @@ We prefer the earliest unique letter."
          (name
           (completing-read
            "Insert emoji: "
-           (lambda (string pred action)
-	     (if (eq action 'metadata)
-		 (list 'metadata
-		       (cons
-                        'affixation-function
-                        ;; Add the glyphs to the start of the displayed
-                        ;; strings when TAB-ing.
-                        (lambda (strings)
-                          (mapcar
-                           (lambda (name)
-                             (if emoji-alternate-names
-                                 (list name "" "")
-                               (list name
-                                     (concat
-                                      (or (gethash name emoji--all-bases) " ")
-                                      "\t")
-                                     "")))
-                           strings))))
-	       (complete-with-action action table string pred)))
+           (completion-table-with-metadata
+            table
+            `((affixation-function
+               ;; Add the glyphs to the start of the displayed
+               ;; strings when TAB-ing.
+               . ,(lambda (strings)
+                    (mapcar
+                     (lambda (name)
+                       (if emoji-alternate-names
+                           (list name "" "")
+                         (list name
+                               (concat
+                                (or (gethash name emoji--all-bases) " ")
+                                "\t")
+                               "")))
+                     strings)))))
            nil t)))
-    (if (cl-plusp (length name))
+    (if (plusp (length name))
         (let ((glyph (if emoji-alternate-names
                          (cadr (split-string name "\t"))
                        (gethash name emoji--all-bases))))

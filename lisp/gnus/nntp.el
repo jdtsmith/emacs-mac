@@ -1,6 +1,6 @@
 ;;; nntp.el --- nntp access for Gnus  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1987-1990, 1992-1998, 2000-2025 Free Software
+;; Copyright (C) 1987-1990, 1992-1998, 2000-2026 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
@@ -683,7 +683,7 @@ command whose response triggered the error."
                      ;; `articles' is either a list of article numbers
                      ;; or a list of article IDs.
                      article))
-           (cl-incf count)
+           (incf count)
            ;; Every 400 requests we have to read the stream in
            ;; order to avoid deadlocks.
            (when (or (null articles)    ;All requests have been sent.
@@ -695,7 +695,7 @@ command whose response triggered the error."
                       ;; Count replies.
                       (while (nntp-next-result-arrived-p)
                         (setq last-point (point))
-                        (cl-incf received))
+                        (incf received))
                       (< received count))
                ;; If number of headers is greater than 100, give
                ;;  informative messages.
@@ -768,7 +768,7 @@ command whose response triggered the error."
 				    "^[.]"
 				  "^[0-9]")
 				nil t)
-			  (cl-incf received))
+                          (incf received))
 			(setq last-point (point))
 			(< received count)))
 	    (nntp-accept-response))
@@ -833,7 +833,7 @@ command whose response triggered the error."
                (throw 'done nil))
              ;; Send the command to the server.
              (nntp-send-command nil command (pop groups))
-             (cl-incf count)
+             (incf count)
              ;; Every 400 requests we have to read the stream in
              ;; order to avoid deadlocks.
              (when (or (null groups)    ;All requests have been sent.
@@ -847,7 +847,7 @@ command whose response triggered the error."
                              (goto-char last-point)
                              ;; Count replies.
                              (while (re-search-forward "^[0-9]" nil t)
-                               (cl-incf received))
+                               (incf received))
                              (setq last-point (point))
                              (< received count)))
                  (nntp-accept-response))))
@@ -919,7 +919,7 @@ command whose response triggered the error."
                       ;; `articles' is either a list of article numbers
                       ;; or a list of article IDs.
                       article))
-         (cl-incf count)
+         (incf count)
          ;; Every 400 requests we have to read the stream in
          ;; order to avoid deadlocks.
          (when (or (null articles)	;All requests have been sent.
@@ -932,7 +932,7 @@ command whose response triggered the error."
                     (while (nntp-next-result-arrived-p)
                       (aset map received (cons (aref map received) (point)))
                       (setq last-point (point))
-                      (cl-incf received))
+                      (incf received))
                     (< received count))
              ;; If number of headers is greater than 100, give
              ;;  informative messages.
@@ -1545,7 +1545,7 @@ If SEND-IF-FORCE, only send authinfo to the server if the
 		     ;; Count replies.
 		     (while (re-search-forward "^\\([0-9][0-9][0-9]\\) .*\n"
 					       nil t)
-		       (cl-incf received)
+                       (incf received)
 		       (setq status (match-string 1))
 		       (if (string-match "^[45]" status)
 			   (setq status 'error)

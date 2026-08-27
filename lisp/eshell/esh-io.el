@@ -1,6 +1,6 @@
 ;;; esh-io.el --- I/O management  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -75,6 +75,7 @@
   (require 'cl-lib))
 
 (declare-function eshell-interactive-print "esh-mode" (string))
+(declare-function eshell-term-as-value "esh-cmd" (term))
 
 (defgroup eshell-io nil
   "Eshell's I/O management code provides a scheme for treating many
@@ -200,12 +201,6 @@ describing the mode, e.g. for using with `eshell-get-target'.")
 
 (defvar eshell-current-handles nil)
 
-(defvar-local eshell-last-command-status 0
-  "The exit code from the last command.  0 if successful.")
-
-(defvar eshell-last-command-result nil
-  "The result of the last command.  Not related to success.")
-
 (defvar eshell-output-file-buffer nil
   "If non-nil, the current buffer is a file output buffer.")
 
@@ -307,8 +302,8 @@ describing the mode, e.g. for using with `eshell-get-target'.")
         (unless (cdr tt)
           (error "Missing redirection target"))
         (nconc eshell-current-redirections
-               (list (list 'ignore
-                           (append (car tt) (list (cadr tt))))))
+               `((ignore ,(append (car tt)
+                                  (list (eshell-term-as-value (cadr tt)))))))
         (setcdr tl (cddr tt))
         (setq tt (cddr tt)))
        (t
@@ -350,7 +345,7 @@ calling this function)."
           (if stderr
               (let ((target (eshell-get-target stderr error-mode)))
                 (cons (when target (list target)) 1))
-            (cl-incf (cdr output-target))
+            (incf (cdr output-target))
             output-target)))
     (aset handles eshell-output-handle (list output-target t))
     (aset handles eshell-error-handle (list error-target t))
@@ -359,46 +354,50 @@ calling this function)."
 (defun eshell-duplicate-handles (handles &optional steal-p)
   "Create a duplicate of the file handles in HANDLES.
 This uses the targets of each handle in HANDLES, incrementing its
-reference count by one (unless STEAL-P is non-nil).  These
-targets are shared between the original set of handles and the
-new one, so the targets are only closed when the reference count
-drops to 0 (see `eshell-close-handles').
+reference count by one.  These targets are shared between the original
+set of handles and the new one, so the targets are only closed when the
+reference count drops to 0 (see `eshell-close-handles').
 
 This function also sets the DEFAULT field for each handle to
 t (see `eshell-create-handles').  Unlike the targets, this value
 is not shared with the original handles."
+  (declare (advertised-calling-convention (handles) "31.1"))
   (let ((dup-handles (make-vector eshell-number-of-handles nil)))
     (dotimes (idx eshell-number-of-handles)
-      (when-let ((handle (aref handles idx)))
+      (when-let* ((handle (aref handles idx)))
         (unless steal-p
-          (cl-incf (cdar handle)))
+          (incf (cdar handle)))
         (aset dup-handles idx (list (car handle) t))))
     dup-handles))
 
 (defun eshell-protect-handles (handles)
   "Protect the handles in HANDLES from a being closed."
   (dotimes (idx eshell-number-of-handles)
-    (when-let ((handle (aref handles idx)))
-      (cl-incf (cdar handle))))
+    (when-let* ((handle (aref handles idx)))
+      (incf (cdar handle))))
   handles)
 
-(defun eshell-close-handles (&optional exit-code result handles)
+(declare-function eshell-exit-success-p "esh-cmd")
+
+(defun eshell-close-handles (&optional handles obsolete-1 obsolete-2)
   "Close all of the current HANDLES, taking refcounts into account.
-If HANDLES is nil, use `eshell-current-handles'.
+If HANDLES is nil, use `eshell-current-handles'."
+  (declare (advertised-calling-convention (&optional handles) "31.1"))
+  (when (or obsolete-1 obsolete-2 (numberp handles))
+    (declare-function eshell-set-exit-info "esh-cmd"
+                      (&optional exit-code result))
+    ;; In addition to setting the advertised calling convention, warn
+    ;; if we get here.  A caller may have called with the right number
+    ;; of arguments but the wrong type.
+    (display-warning '(eshell close-handles)
+                     "Called `eshell-close-handles' with obsolete arguments")
+    ;; Here, HANDLES is really the exit code.
+    (when (or handles obsolete-1)
+      (eshell-set-exit-info (or handles 0) (cadr obsolete-1)))
+    (setq handles obsolete-2))
 
-EXIT-CODE is the process exit code (zero, if the command
-completed successfully).  If nil, then use the exit code already
-set in `eshell-last-command-status'.
-
-RESULT is the quoted value of the last command.  If nil, then use
-the value already set in `eshell-last-command-result'."
-  (when exit-code
-    (setq eshell-last-command-status exit-code))
-  (when result
-    (cl-assert (eq (car result) 'quote))
-    (setq eshell-last-command-result (cadr result)))
   (let ((handles (or handles eshell-current-handles))
-        (succeeded (= eshell-last-command-status 0)))
+        (succeeded (eshell-exit-success-p)))
     (dotimes (idx eshell-number-of-handles)
       (eshell-close-handle (aref handles idx) succeeded))))
 
@@ -410,7 +409,7 @@ be a non-nil value on successful termination."
     (cl-assert (> (cdar handle) 0)
                "Attempted to close a handle with 0 references")
     (when (and (> (cdar handle) 0)
-               (= (cl-decf (cdar handle)) 0))
+               (= (decf (cdar handle)) 0))
       (dolist (target (caar handle))
         (eshell-close-target target status))
       (setcar (car handle) nil))))
@@ -429,7 +428,7 @@ current list of targets."
                        (aset handles index (list (cons nil 1) nil))))
            (defaultp (cadr handle)))
       (when defaultp
-        (cl-decf (cdar handle))
+        (decf (cdar handle))
         (setcar handle (cons nil 1)))
       (let ((current (caar handle))
             (where (eshell-get-target target mode)))
@@ -443,7 +442,7 @@ If HANDLES is nil, use `eshell-current-handles'."
   (let* ((handles (or handles eshell-current-handles))
          (handle-to-copy (car (aref handles index-to-copy))))
     (when handle-to-copy
-      (cl-incf (cdr handle-to-copy)))
+      (incf (cdr handle-to-copy)))
     (eshell-close-handle (aref handles index) nil)
     (setcar (aref handles index) handle-to-copy)))
 
@@ -528,8 +527,8 @@ When the buffer exceeds `eshell-buffered-print-size' in characters, this
 will flush it using `eshell-flush' (which see)."
   (setq eshell--buffered-print-queue
         (nconc eshell--buffered-print-queue strings))
-  (cl-incf eshell--buffered-print-current-size
-           (apply #'+ (mapcar #'length strings)))
+  (incf eshell--buffered-print-current-size
+        (apply #'+ (mapcar #'length strings)))
   (when (> eshell--buffered-print-current-size eshell-buffered-print-size)
     (eshell-flush)))
 
@@ -609,7 +608,7 @@ If TARGET is a virtual target (see `eshell-virtual-targets'),
 return an `eshell-generic-target' instance; otherwise, return a
 marker for a file named TARGET."
   (setq mode (or mode 'insert))
-  (if-let ((redir (assoc raw-target eshell-virtual-targets)))
+  (if-let* ((redir (assoc raw-target eshell-virtual-targets)))
       (let (target)
         (catch 'eshell-null-device
           (setq target (if (nth 2 redir)
@@ -700,7 +699,7 @@ If status is nil, prompt before killing."
 
 (cl-defmethod eshell-close-target ((target eshell-function-target) status)
   "Close an Eshell function TARGET."
-  (when-let ((close-function (eshell-function-target-close-function target)))
+  (when-let* ((close-function (eshell-function-target-close-function target)))
     (funcall close-function status)))
 
 (cl-defgeneric eshell-output-object-to-target (object target)
@@ -752,7 +751,7 @@ Returns what was actually sent, or nil if nothing was sent.")
      ;; here.  Maybe `process-send-string' should handle SIGPIPE even
      ;; in batch mode (bug#66186).
      (if (process-live-p target)
-         (signal (car err) (cdr err))
+         (signal err)
        (signal 'eshell-pipe-broken (list target)))))
   object)
 

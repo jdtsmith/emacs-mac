@@ -1,6 +1,6 @@
 /* Support for embedding graphical components in a buffer.
 
-Copyright (C) 2011-2025 Free Software Foundation, Inc.
+Copyright (C) 2011-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -361,13 +361,26 @@ fails.  */)
 	      g_signal_connect (G_OBJECT (ctx),
 				"download-started",
 				G_CALLBACK (webkit_download_cb), xw);
+	      /* In process.c:init_process_emacs(), we determine whether GLib
+		 overrides Emacs' SIGCHLD handler (based on Glib version
+		 and kernel; see process.c for details).
 
-	      webkit_web_view_load_uri (WEBKIT_WEB_VIEW (xw->widget_osr),
-					"about:blank");
-	      /* webkitgtk uses GSubprocess which sets sigaction causing
-		 Emacs to not catch SIGCHLD with its usual handle setup in
-		 'catch_child_signal'.  This resets the SIGCHLD sigaction.  */
-	      catch_child_signal ();
+		 webkit_web_view_load_uri() is potentially affected by this
+		 (through GSubProcess), so as a workaround we load a minimal
+		 about:blank url and restore the SIGCHLD handler afterward.
+
+		 With PGTK, this workaround has the unfortunate side-effect of
+		 making the first load of an URI not work immediately (it needs
+		 a refresh), so avoid the workaround when we can.
+
+		 See thread
+		 <https://lists.gnu.org/archive/html/emacs-devel/2026-04/msg00810.html>.  */
+	      if (glib_installs_sigchld_handler)
+		{
+		  webkit_web_view_load_uri (WEBKIT_WEB_VIEW (xw->widget_osr),
+					  "about:blank");
+		  catch_child_signal ();
+		}
 	    }
 	  else
 	    {
@@ -380,6 +393,14 @@ fails.  */)
 	  g_object_set (G_OBJECT (settings), "enable-developer-extras", TRUE, NULL);
 	  g_object_set (G_OBJECT (settings), "enable-javascript",
 		        (gboolean) (!xwidget_webkit_disable_javascript), NULL);
+#if WEBKIT_CHECK_VERSION (2, 16, 0)
+	  /* The webkit view is created on an *offscreen* window, on
+	     which hardware acceleration is not supported; we need to
+	     tell webkitgtk _not_ to try that, since it will fail & abort
+	     with recent versions.  */
+	  webkit_settings_set_hardware_acceleration_policy
+	    (settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER);
+#endif
 	}
 
       gtk_widget_set_size_request (GTK_WIDGET (xw->widget_osr), xw->width,
@@ -489,9 +510,8 @@ On X11, modifier keys will not be processed if FRAME is nil and the
 selected frame is not an X-Windows frame.  */)
   (Lisp_Object xwidget, Lisp_Object event, Lisp_Object frame)
 {
-  struct frame *f = NULL;
-
 #ifdef USE_GTK
+  struct frame *f = NULL;
   GdkEvent *xg_event;
   GtkContainerClass *klass;
   GtkWidget *widget;
@@ -504,12 +524,12 @@ selected frame is not an X-Windows frame.  */)
 
   CHECK_LIVE_XWIDGET (xwidget);
 
+#ifdef USE_GTK
   if (!NILP (frame))
     f = decode_window_system_frame (frame);
   else if (FRAME_WINDOW_P (SELECTED_FRAME ()))
     f = SELECTED_FRAME ();
 
-#ifdef USE_GTK
   int character = -1, keycode = -1;
   int modifiers = 0;
   struct xwidget *xw = XXWIDGET (xwidget);
@@ -525,7 +545,7 @@ selected frame is not an X-Windows frame.  */)
 
   gdk_offscreen_window_set_embedder (osw, embedder);
   unblock_input ();
-#endif
+#endif	/* HAVE_XINPUT2 */
   widget = gtk_window_get_focus (GTK_WINDOW (xw->widgetwindow_osr));
 
   if (!widget)
@@ -559,7 +579,7 @@ selected frame is not an X-Windows frame.  */)
 	modifiers = pgtk_emacs_to_gtk_modifiers (FRAME_DISPLAY_INFO (f), modifiers);
       else
 	modifiers = 0;
-#endif
+#endif	/* HAVE_PGTK */
     }
   else if (SYMBOLP (event))
     {
@@ -593,7 +613,7 @@ selected frame is not an X-Windows frame.  */)
 						 XFIXNUM (XCAR (XCDR (decoded))));
       else
 	modifiers = 0;
-#endif
+#endif	/* HAVE_PGTK */
 
       if (found)
 	keycode = off + 0xff00;
@@ -608,7 +628,7 @@ selected frame is not an X-Windows frame.  */)
       else
 	gdk_offscreen_window_set_embedder (osw, NULL);
       unblock_input ();
-#endif
+#endif	/* HAVE_XINPUT2 */
       return Qnil;
     }
 
@@ -627,7 +647,7 @@ selected frame is not an X-Windows frame.  */)
   if (f)
     xg_event->key.state = xw_translate_x_modifiers (FRAME_DISPLAY_INFO (f),
 						    modifiers);
-#endif
+#endif	/* !HAVE_X_WINDOWS */
 
   if (keycode > -1)
     {
@@ -666,9 +686,9 @@ selected frame is not an X-Windows frame.  */)
     record_osr_embedder (xw->embedder_view);
   else
     gdk_offscreen_window_set_embedder (osw, NULL);
-#endif
+#endif	/* HAVE_XINPUT2 */
   unblock_input ();
-#endif
+#endif	/* USE_GTK */
 
   return Qnil;
 }

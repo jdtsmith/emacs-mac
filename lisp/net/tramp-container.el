@@ -1,6 +1,6 @@
 ;;; tramp-container.el --- Tramp integration for Docker-like containers  -*- lexical-binding: t; -*-
 
-;; Copyright © 2022-2025 Free Software Foundation, Inc.
+;; Copyright © 2022-2026 Free Software Foundation, Inc.
 
 ;; Author: Brian Cully <bjc@kublai.com>
 ;; Maintainer: Michael Albinus <michael.albinus@gmx.de>
@@ -50,18 +50,14 @@
 ;;
 ;; Open file in a Kubernetes container:
 ;;
-;;     C-x C-f /kubernetes:[CONTAINER.]POD:/path/to/file
+;;     C-x C-f /kubernetes:[CONTAINER.]POD[%NAMESPACE]:/path/to/file
 ;;
 ;; Where:
 ;;     POD           is the pod to connect to.
 ;;     CONTAINER     is the container to connect to (optional).
 ;;		     By default, the first container in that pod will
 ;;		     be used.
-;;
-;; Completion for POD and accessing it operate in the current
-;; namespace, use this command to change it:
-;;
-;; "kubectl config set-context --current --namespace=<name>"
+;;     NAMESPACE     is the namespace to be used (optional).
 ;;
 ;;
 ;;
@@ -125,7 +121,8 @@
   :group 'tramp
   :version "29.1"
   :type '(choice (const "docker")
-                 (string)))
+                 (string))
+  :link '(tramp-info-link :tag "Tramp manual" tramp-docker-program))
 
 ;;;###tramp-autoload
 (defcustom tramp-podman-program "podman"
@@ -133,7 +130,8 @@
   :group 'tramp
   :version "29.1"
   :type '(choice (const "podman")
-                 (string)))
+                 (string))
+  :link '(tramp-info-link :tag "Tramp manual" tramp-podman-program))
 
 ;;;###tramp-autoload
 (defcustom tramp-kubernetes-program "kubectl"
@@ -141,7 +139,8 @@
   :group 'tramp
   :version "29.1"
   :type '(choice (const "kubectl")
-                 (string)))
+                 (string))
+  :link '(tramp-info-link :tag "Tramp manual" tramp-kubernetes-program))
 
 (defcustom tramp-kubernetes-context nil
   "Context of Kubernetes.
@@ -149,13 +148,18 @@ If it is nil, the default context will be used."
   :group 'tramp
   :version "30.1"
   :type '(choice (const :tag "Use default" nil)
-                 (string)))
+                 (string))
+  :link '(info-link :tag "Tramp manual" "(tramp) Kubernetes setup"))
 
-(defcustom tramp-kubernetes-namespace "default"
-  "Namespace of Kubernetes."
+(defcustom tramp-kubernetes-namespace nil
+  "Namespace of Kubernetes.
+If it is nil, the current namespace will be used.  An explicit NAMESPACE
+in the remote file name host part will override it."
   :group 'tramp
-  :version "30.1"
-  :type 'string)
+  :version "31.1"
+  :type '(choice (const :tag "Use default" nil)
+                 (string))
+  :link '(info-link :tag "Tramp manual" "(tramp) Kubernetes setup"))
 
 ;;;###tramp-autoload
 (defcustom tramp-toolbox-program "toolbox"
@@ -163,7 +167,8 @@ If it is nil, the default context will be used."
   :group 'tramp
   :version "30.1"
   :type '(choice (const "toolbox")
-                 (string)))
+                 (string))
+  :link '(tramp-info-link :tag "Tramp manual" tramp-toolbox-program))
 
 ;;;###tramp-autoload
 (defcustom tramp-distrobox-program "distrobox"
@@ -171,7 +176,8 @@ If it is nil, the default context will be used."
   :group 'tramp
   :version "30.1"
   :type '(choice (const "distrobox")
-                 (string)))
+                 (string))
+  :link '(tramp-info-link :tag "Tramp manual" tramp-distrobox-program))
 
 ;;;###tramp-autoload
 (defcustom tramp-flatpak-program "flatpak"
@@ -179,7 +185,8 @@ If it is nil, the default context will be used."
   :group 'tramp
   :version "30.1"
   :type '(choice (const "flatpak")
-                 (string)))
+                 (string))
+  :link '(tramp-info-link :tag "Tramp manual" tramp-flatpak-program))
 
 ;;;###tramp-autoload
 (defcustom tramp-apptainer-program "apptainer"
@@ -187,14 +194,16 @@ If it is nil, the default context will be used."
   :group 'tramp
   :version "30.1"
   :type '(choice (const "apptainer")
-                 (string)))
+                 (string))
+  :link '(tramp-info-link :tag "Tramp manual" tramp-apptainer-program))
 
 (defcustom tramp-nspawn-program "machinectl"
   "Name of the machinectl program."
   :group 'tramp
   :version "30.1"
   :type '(choice (const "machinectl")
-                 (string)))
+                 (string))
+  :link '(tramp-info-link :tag "Tramp manual" tramp-nspawn-program))
 
 ;;;###tramp-autoload
 (defconst tramp-docker-method "docker"
@@ -257,7 +266,7 @@ BODY is the backend specific code."
 		    tramp--last-hop-directory)
 	       tramp-compat-temporary-file-directory))
 	  (program (let ((tramp-verbose 0))
-		     (tramp-get-method-parameter
+		     (tramp-expand-args
 		      (make-tramp-file-name :method ,method)
 		      'tramp-login-program)))
 	  (vec (when (tramp-tramp-file-p default-directory)
@@ -281,14 +290,14 @@ see its function help for a description of the format."
   (tramp-skeleton-completion-function method
     (when-let* ((raw-list
 		 (shell-command-to-string
-		  (concat program " ps --format '{{.ID}}\t{{.Names}}'")))
+		  (concat program " ps --format '{{.ID}}<>{{.Names}}'")))
 		(lines (split-string raw-list "\n" 'omit))
 		(names
 		 (tramp-compat-seq-keep
 		  (lambda (line)
 		    (when (string-match
 			   (rx bol (group (1+ nonl))
-			       "\t" (? (group (1+ nonl))) eol)
+			       "<>" (? (group (1+ nonl))) eol)
 			   line)
 		      (or (match-string 2 line) (match-string 1 line))))
 		  lines)))
@@ -324,26 +333,43 @@ see its function help for a description of the format."
 	    (push (concat elt "." (car line)) names)))
 	(mapcar (lambda (name) (list nil name)) (delq nil names))))))
 
+;; <https://kubernetes.io/docs/concepts/overview/working-with-objects/names/>
+;; `lower' could also match non-ascii letters.  But since this regexp
+;; is only used for strings matching `tramp-host-regexp', this doesn't
+;; hurt.
+(defconst tramp-kubernetes--name-regexp (rx (** 1 63 (any lower digit "-")))
+  "Regexp matching kubernetes names.")
+
 (defconst tramp-kubernetes--host-name-regexp
-  (rx (? (group (regexp tramp-host-regexp)) ".")
-      (group (regexp tramp-host-regexp)))
-  "The CONTAINER.POD syntax of kubernetes host names in Tramp.")
+  (rx bos (? (group (regexp tramp-kubernetes--name-regexp)) ".")
+      (group (regexp tramp-kubernetes--name-regexp))
+      (? "%" (group (regexp tramp-kubernetes--name-regexp))) eos)
+  "The CONTAINER.POD%NAMESPACE syntax of kubernetes host names in Tramp.")
 
 ;;;###tramp-autoload
 (defun tramp-kubernetes--container (vec)
   "Extract the container name from a kubernetes host name in VEC."
-  (or (let ((host (tramp-file-name-host vec)))
-	(and (string-match tramp-kubernetes--host-name-regexp host)
-	     (match-string 1 host)))
+  (or (when-let* ((host (and vec (tramp-file-name-host vec)))
+		  ((string-match tramp-kubernetes--host-name-regexp host)))
+	(match-string 1 host))
       ""))
 
 ;;;###tramp-autoload
 (defun tramp-kubernetes--pod (vec)
   "Extract the pod name from a kubernetes host name in VEC."
-  (or (let ((host (tramp-file-name-host vec)))
-	(and (string-match tramp-kubernetes--host-name-regexp host)
-	     (match-string 2 host)))
+  (or (when-let* ((host (and vec (tramp-file-name-host vec)))
+		  ((string-match tramp-kubernetes--host-name-regexp host)))
+	(match-string 2 host))
       ""))
+
+;;;###tramp-autoload
+(defun tramp-kubernetes--namespace (vec)
+  "Extract the namespace from a kubernetes host name in VEC.
+Use `tramp-kubernetes-namespace' otherwise."
+  (or (when-let* ((host (and vec (tramp-file-name-host vec)))
+		  ((string-match tramp-kubernetes--host-name-regexp host)))
+	(match-string 3 host))
+      tramp-kubernetes-namespace))
 
 ;; We must change `vec' and `default-directory' to the previous hop,
 ;; in order to run `process-file' in a proper environment.
@@ -355,6 +381,11 @@ BODY is the backend specific code."
 	   (cond
 	    ((null ,vec) tramp-null-hop)
 	    ((equal (tramp-file-name-method ,vec) tramp-kubernetes-method)
+	     ;; Sanity check.  We don't support `user' or `port' in
+	     ;; Kubernetes file names.
+	     (when (or (tramp-file-name-user-domain ,vec)
+		       (tramp-file-name-port ,vec))
+	       (tramp-user-error ,vec "Wrong kubernetes file name syntax"))
 	     (if (tramp-file-name-hop ,vec)
 		 (tramp-dissect-hop-name (tramp-file-name-hop ,vec))
 	       tramp-null-hop))
@@ -396,12 +427,12 @@ Obey `tramp-kubernetes-context'"
 ;;;###tramp-autoload
 (defun tramp-kubernetes--context-namespace (vec)
   "The kubectl options for context and namespace as string."
-  (mapconcat
-   #'identity
-   `(,(when-let* ((context (tramp-kubernetes--current-context vec)))
-	(format "--context=%s" context))
-     ,(when tramp-kubernetes-namespace
-	(format "--namespace=%s" tramp-kubernetes-namespace)))
+  (string-join
+   (delq nil
+	 `(,(when-let* ((context (tramp-kubernetes--current-context vec)))
+	      (format "--context=%s" context))
+	   ,(when-let* ((namespace (tramp-kubernetes--namespace vec)))
+	      (format "--namespace=%s" namespace))))
    " "))
 
 ;;;###tramp-autoload
@@ -519,12 +550,14 @@ see its function help for a description of the format."
                 (tramp-login-args (("exec")
                                    ("-it")
                                    ("-u" "%u")
+				   ("-e" ,(format "TERM=%s" tramp-terminal-type))
                                    ("%h")
 			           ("%l")))
 		(tramp-direct-async (,tramp-default-remote-shell "-c"))
                 (tramp-remote-shell ,tramp-default-remote-shell)
                 (tramp-remote-shell-login ("-l"))
-                (tramp-remote-shell-args ("-i" "-c"))))
+                (tramp-remote-shell-args ("-i" "-c"))
+		(tramp-completion-use-cache nil)))
 
  (add-to-list 'tramp-methods
               `(,tramp-dockercp-method
@@ -532,6 +565,7 @@ see its function help for a description of the format."
                 (tramp-login-args (("exec")
                                    ("-it")
                                    ("-u" "%u")
+				   ("-e" ,(format "TERM=%s" tramp-terminal-type))
                                    ("%h")
 			           ("%l")))
 		(tramp-direct-async (,tramp-default-remote-shell "-c"))
@@ -541,7 +575,8 @@ see its function help for a description of the format."
 		(tramp-copy-program ,tramp-docker-program)
 		(tramp-copy-args (("cp")))
 		(tramp-copy-file-name (("%h" ":") ("%f")))
-                (tramp-copy-recursive t)))
+                (tramp-copy-recursive t)
+		(tramp-completion-use-cache nil)))
 
  (add-to-list 'tramp-methods
               `(,tramp-podman-method
@@ -549,12 +584,14 @@ see its function help for a description of the format."
                 (tramp-login-args (("exec")
                                    ("-it")
                                    ("-u" "%u")
+				   ("-e" ,(format "TERM=%s" tramp-terminal-type))
                                    ("%h")
 			           ("%l")))
 		(tramp-direct-async (,tramp-default-remote-shell "-c"))
                 (tramp-remote-shell ,tramp-default-remote-shell)
                 (tramp-remote-shell-login ("-l"))
-                (tramp-remote-shell-args ("-i" "-c"))))
+                (tramp-remote-shell-args ("-i" "-c"))
+		(tramp-completion-use-cache nil)))
 
  (add-to-list 'tramp-methods
               `(,tramp-podmancp-method
@@ -562,6 +599,7 @@ see its function help for a description of the format."
                 (tramp-login-args (("exec")
                                    ("-it")
                                    ("-u" "%u")
+				   ("-e" ,(format "TERM=%s" tramp-terminal-type))
                                    ("%h")
 			           ("%l")))
 		(tramp-direct-async (,tramp-default-remote-shell "-c"))
@@ -571,7 +609,8 @@ see its function help for a description of the format."
 		(tramp-copy-program ,tramp-podman-program)
 		(tramp-copy-args (("cp")))
 		(tramp-copy-file-name (("%h" ":") ("%f")))
-                (tramp-copy-recursive t)))
+                (tramp-copy-recursive t)
+		(tramp-completion-use-cache nil)))
 
  (add-to-list 'tramp-methods
               `(,tramp-kubernetes-method
@@ -586,7 +625,8 @@ see its function help for a description of the format."
 		(tramp-direct-async (,tramp-default-remote-shell "-c"))
                 (tramp-remote-shell ,tramp-default-remote-shell)
                 (tramp-remote-shell-login ("-l"))
-                (tramp-remote-shell-args ("-i" "-c"))))
+                (tramp-remote-shell-args ("-i" "-c"))
+		(tramp-completion-use-cache nil)))
 
  (add-to-list 'tramp-completion-multi-hop-methods tramp-docker-method)
  (add-to-list 'tramp-completion-multi-hop-methods tramp-podman-method)
@@ -616,10 +656,9 @@ see its function help for a description of the format."
    '((tramp-config-check . tramp-kubernetes--current-context-data)
      ;; This variable will be eval'ed in `tramp-expand-args'.
      (tramp-extra-expand-args
-      . (?a (tramp-kubernetes--container (car tramp-current-connection))
-	    ?h (tramp-kubernetes--pod (car tramp-current-connection))
-	    ?x (tramp-kubernetes--context-namespace
-		(car tramp-current-connection)))))
+      ?a (tramp-kubernetes--container (car tramp-current-connection))
+      ?h (tramp-kubernetes--pod (car tramp-current-connection))
+      ?x (tramp-kubernetes--context-namespace (car tramp-current-connection))))
    "Default connection-local variables for remote kubernetes connections.")
 
  (connection-local-set-profile-variables
@@ -642,7 +681,8 @@ see its function help for a description of the format."
 		 (tramp-direct-async (,tramp-default-remote-shell "-c"))
 		 (tramp-remote-shell ,tramp-default-remote-shell)
 		 (tramp-remote-shell-login ("-l"))
-		 (tramp-remote-shell-args ("-c"))))
+		 (tramp-remote-shell-args ("-c"))
+		 (tramp-completion-use-cache nil)))
 
   (add-to-list 'tramp-default-host-alist `(,tramp-toolbox-method nil ""))
   (add-to-list 'tramp-completion-multi-hop-methods tramp-toolbox-method)
@@ -659,11 +699,12 @@ see its function help for a description of the format."
 		 (tramp-login-program ,tramp-distrobox-program)
 		 (tramp-login-args (("enter")
 				    ("-n" "%h")
-				    ("--" "%l")))
-		 ;(tramp-direct-async (,tramp-default-remote-shell "-c"))
+				    ("--") ("%l")))
+		 (tramp-direct-async (,tramp-default-remote-shell "-c"))
 		 (tramp-remote-shell ,tramp-default-remote-shell)
 		 (tramp-remote-shell-login ("-l"))
-		 (tramp-remote-shell-args ("-c"))))
+		 (tramp-remote-shell-args ("-c"))
+		 (tramp-completion-use-cache nil)))
 
   (add-to-list 'tramp-completion-multi-hop-methods tramp-distrobox-method)
 
@@ -687,7 +728,8 @@ see its function help for a description of the format."
 		 (tramp-direct-async (,tramp-default-remote-shell "-c"))
 		 (tramp-remote-shell ,tramp-default-remote-shell)
 		 (tramp-remote-shell-login ("-l"))
-		 (tramp-remote-shell-args ("-c"))))
+		 (tramp-remote-shell-args ("-c"))
+		 (tramp-completion-use-cache nil)))
 
   (add-to-list 'tramp-completion-multi-hop-methods tramp-flatpak-method)
 
@@ -714,11 +756,21 @@ see its function help for a description of the format."
 	       `(,tramp-apptainer-method
 		 (tramp-login-program ,tramp-apptainer-program)
 		 (tramp-login-args (("shell")
+				    ("--env"
+				     ,(format "TERM=%s" tramp-terminal-type))
 				    ("instance://%h")
-				    ("%h"))) ; Needed for multi-hop check.
+				    ;; Needed for multi-hop check,
+				    ;; ignored by the "shell" command.
+				    ("%h")))
+		 ;; `tramp-direct-async' must be used *instead* of `tramp-login-args'.
+		 ;; (tramp-direct-async (("exec")
+		 ;; 		      ("--env"
+		 ;; 		       ,(format "TERM=%s" tramp-terminal-type))
+		 ;; 		      ("instance://%h"))
 		 (tramp-remote-shell ,tramp-default-remote-shell)
 		 (tramp-remote-shell-login ("-l"))
-		 (tramp-remote-shell-args ("-c"))))
+		 (tramp-remote-shell-args ("-c"))
+		 (tramp-completion-use-cache nil)))
 
   (add-to-list 'tramp-completion-multi-hop-methods tramp-apptainer-method)
 
@@ -736,10 +788,13 @@ see its function help for a description of the format."
 		 (tramp-login-args (("shell")
 				    ("-q")
 				    ("--uid" "%u")
+				    ("-E"
+				     ,(format "TERM=%s" tramp-terminal-type))
 				    ("%h")))
 		 (tramp-remote-shell ,tramp-default-remote-shell)
 		 (tramp-remote-shell-login ("-l"))
-		 (tramp-remote-shell-args ("-i" "-c"))))
+		 (tramp-remote-shell-args ("-i" "-c"))
+		 (tramp-completion-use-cache nil)))
 
   (add-to-list 'tramp-default-host-alist `(,tramp-nspawn-method nil ".host"))
   (add-to-list 'tramp-completion-multi-hop-methods tramp-nspawn-method)

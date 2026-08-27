@@ -1,5 +1,5 @@
 /* Android window system support.
-   Copyright (C) 2023-2025 Free Software Foundation, Inc.
+   Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -216,8 +216,6 @@ struct android_swap_info
 };
 
 #define NativeRectangle			Emacs_Rectangle
-#define CONVERT_TO_NATIVE_RECT(xr, nr)	((xr) = (nr))
-#define CONVERT_FROM_EMACS_RECT(xr, nr) ((nr) = (xr))
 
 #define STORE_NATIVE_RECT(nr, rx, ry, rwidth, rheight)	\
   ((nr).x = (rx), (nr).y = (ry),			\
@@ -290,6 +288,7 @@ enum android_event_type
     ANDROID_DND_TEXT_EVENT,
     ANDROID_NOTIFICATION_DELETED,
     ANDROID_NOTIFICATION_ACTION,
+    ANDROID_CONFIGURATION_CHANGED,
   };
 
 struct android_any_event
@@ -597,6 +596,47 @@ struct android_notification_event
   size_t length;
 };
 
+enum android_configuration_change_type
+  {
+    ANDROID_PIXEL_DENSITY_CHANGED,
+    ANDROID_UI_MODE_CHANGED,
+  };
+
+#define UI_MODE_NIGHT_MASK	0x00000030
+#define UI_MODE_NIGHT_NO	0x00000010
+#define UI_MODE_NIGHT_YES	0x00000020
+#define UI_MODE_NIGHT_UNDEFINED 0x00000000
+
+struct android_configuration_changed_event
+{
+  /* Type of the event.  */
+  enum android_event_type type;
+
+  /* The event serial.  */
+  unsigned long serial;
+
+  /* The window that gave rise to the event (None).  */
+  android_window window;
+
+  /* What type of change this event represents.  */
+  enum android_configuration_change_type detail;
+
+  union {
+    struct {
+      /* The density of the display along the horizontal and vertical
+	 axes.  */
+      double dpi_x, dpi_y;
+
+      /* The density to take into account when converting between point
+	 and pixel dimensions.  */
+      double dpi_scaled;
+    } pixel_density;
+
+    /* A change in the reported user interface UI mode.  */
+    int ui_mode;
+  } u;
+};
+
 union android_event
 {
   enum android_event_type type;
@@ -637,6 +677,11 @@ union android_event
   /* X provides no equivalent interface for displaying
      notifications.  */
   struct android_notification_event notification;
+
+  /* The equivalent under X is provided through XSettings, which is a
+     byzantine protocol that extends client messages and is therefore
+     not worthwhile to emulate.  */
+  struct android_configuration_changed_event config;
 };
 
 enum

@@ -1,6 +1,6 @@
 ;;; semantic/sort.el --- Utilities for sorting and re-arranging tag tables.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Keywords: syntax
@@ -243,7 +243,7 @@ unmodified as components of their parent tags."
 ;; table, and reorganize them into buckets based on class.
 ;;
 (defvar semantic-bucketize-tag-class
-  ;; Must use lambda because `semantic-tag-class' is a macro.
+  ;; Must use lambda because `semantic-tag-class' is a defsubst.
   (lambda (tok) (semantic-tag-class tok))
   "Function used to get a symbol describing the class of a tag.
 This function must take one argument of a semantic tag.
@@ -401,6 +401,7 @@ buckets with the bucket function."
 		      ;; get embedded types to scan and make copies
 		      ;; of them.
 		      (mapcar
+                       ;; Must use lambda because `semantic-tag-clone' is a defsubst.
 		       (lambda (tok) (semantic-tag-clone tok))
 		       (semantic-find-tags-by-class 'type
 			(semantic-tag-type-members (car decent-list)))))

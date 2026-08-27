@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--1999, 2001--2025 Free Software
+@c Copyright (C) 1990--1995, 1998--1999, 2001--2026 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Command Loop
@@ -122,14 +122,13 @@ serves as a flag, telling the Emacs command loop that the function can
 be called interactively.  The argument of the @code{interactive} form
 specifies how the arguments for an interactive call should be read.
 
-@cindex @code{interactive-form} property
   Alternatively, an @code{interactive} form may be specified in a
 function symbol's @code{interactive-form} property.  A non-@code{nil}
 value for this property takes precedence over any @code{interactive}
 form in the function body itself.  This feature is seldom used.
 
 @anchor{The interactive-only property}
-@cindex @code{interactive-only} property
+@cindex @code{interactive-only} (symbol property)
   Sometimes, a function is only intended to be called interactively,
 never directly from Lisp.  In that case, give the function a
 non-@code{nil} @code{interactive-only} property, either directly
@@ -174,7 +173,7 @@ A command may be called from Lisp programs like any other function, but
 then the caller supplies the arguments and @var{arg-descriptor} has no
 effect.
 
-@cindex @code{interactive-form}, symbol property
+@cindex @code{interactive-form} (symbol property)
 The @code{interactive} form must be located at top-level in the
 function body, or in the function symbol's @code{interactive-form}
 property (@pxref{Symbol Properties}).  It has its effect because the
@@ -185,7 +184,7 @@ occurs within the body, the form simply returns @code{nil} without
 even evaluating its argument.
 
 The @var{modes} list allows specifying which modes the command is
-meant to be used in.  See @ref{Command Modes} for more details about
+meant to be used in.  @xref{Command Modes}, for more details about
 the effect of specifying @var{modes}, and when to use it.
 
 By convention, you should put the @code{interactive} form in the
@@ -389,7 +388,18 @@ It is a single, isolated character.
 
 @table @samp
 @item *
-Signal an error if the current buffer is read-only.  Special.
+Signal an error if the current buffer is read-only.  Special.  Note that
+many Emacs primitives will signal an error if a command attempts to
+modify text of a read-only buffer, even if the command's interactive
+spec does not include @samp{*}.  So this character is for when you want
+to forcibly signal an error even if the command's implementation doesn't
+invoke any primitives which modify the buffer, or if you want to avoid
+processing or side effects of a command that will fail later due to
+buffer modifications.  For example, a command that binds
+@code{inhibit-read-only} non-@code{nil} (because it affects more than
+just read-only buffers), or a command which, depending on the
+conditions, might end up not modifying the buffer, but you want it to
+signal this error anyway.
 
 @item @@
 Select the window mentioned in the first mouse event in the key
@@ -518,13 +528,23 @@ I/O.
 
 @item r
 @cindex region argument
-Point and the mark, as two numeric arguments, smallest first.  This is
-the only code letter that specifies two successive arguments rather than
-one.  This will signal an error if the mark is not set in the buffer
-which is current when the command is invoked.  If Transient Mark mode
-is turned on (@pxref{The Mark}) --- as it is by default --- and user
-option @code{mark-even-if-inactive} is @code{nil}, Emacs will signal
-an error even if the mark @emph{is} set, but is inactive.  No I/O.
+Point and the mark, as two numeric arguments, smallest first.  This and
+the following are the only code letters that specify two successive
+arguments rather than one.  @samp{r} will signal an error if the mark is
+not set in the buffer which is current when the command is invoked.  If
+Transient Mark mode is turned on (@pxref{The Mark}) --- as it is by
+default --- and user option @code{mark-even-if-inactive} is @code{nil},
+Emacs will signal an error even if the mark @emph{is} set, but is
+inactive.  No I/O.
+
+@item R
+Point and the mark, as two numeric arguments, smallest first, but only
+if the region is active and it is appropriate to act on it, in the sense
+of @code{use-region-p} (@pxref{The Region}).  Otherwise supplies
+@code{nil} twice, for each of the successive arguments.  This code
+letter never signals an error because if the mark is not set,
+@code{use-region-p} just returns nil.  Use this code letter instead of
+@samp{r} for commands which act specially on an active region.  No I/O.
 
 @item s
 Arbitrary text, read in the minibuffer and returned as a string
@@ -1676,8 +1696,8 @@ The buffer position of the character clicked on in the text area; or,
 if the event was outside the text area, the window area where it
 occurred.  It is one of the symbols @code{mode-line},
 @code{header-line}, @code{tab-line}, @code{vertical-line},
-@code{left-margin}, @code{right-margin}, @code{left-fringe}, or
-@code{right-fringe}.
+@code{left-margin}, @code{right-margin}, @code{left-fringe},
+or @code{right-fringe}.
 
 In one special case, @var{pos-or-area} is a list containing a symbol
 (one of the symbols listed above) instead of just the symbol.  This
@@ -2135,11 +2155,11 @@ been intercepted by another program.)  This is dubbed ``simple
 translation'', and produces a simple correspondence between touchpoint
 motion and mouse motion.
 
-@cindex @code{ignored-mouse-command}, a symbol property
+@cindex @code{ignored-mouse-command} (symbol property)
 However, some commands bound to
 @code{down-mouse-1}--@code{mouse-drag-region}, for example--either
 conflict with defined touch screen gestures (such as ``long-press to
-drag''), or with user expectations for touch input, and shouldn't
+drag''), or with user expectations for touch input, and should not
 subject the touch sequence to simple translation.  If a command whose
 name contains the property (@pxref{Symbol Properties})
 @code{ignored-mouse-command} is encountered or there is no command
@@ -2157,15 +2177,22 @@ compromise for packages which assume @code{mouse-drag-region} has
 already set point to the location of any mouse click and selected the
 window where it took place.
 
-To prevent unwanted @code{mouse-1} events arriving after a mouse menu
-is dismissed (@pxref{Mouse Menus}), Emacs also avoids simple
+To prevent unwanted @code{mouse-1} events from arriving after a mouse
+menu is dismissed (@pxref{Mouse Menus}), Emacs also disables simple
 translation if @code{down-mouse-1} is bound to a keymap, making it a
 prefix key.  In lieu of simple translation, it translates the closing
-@code{touchscreen-end} to a @code{down-mouse-1} event with the
-starting position of the touch sequence, consequently displaying
-the mouse menu.
+@code{touchscreen-end} to a @code{down-mouse-1} event with the starting
+position of the touch sequence, consequently displaying the mouse menu.
 
-@cindex @code{mouse-1-menu-command}, a symbol property
+@vindex @code{touch-screen-simple-mouse-conversion}
+Simple conversion will be enabled without regard to the existence of
+command or menu bindings if the variable
+@code{touch-screen-simple-mouse-conversion} is bound or set to a
+non-@code{nil} value, as, for example, it may be by a caller of
+@code{read-key} expecting to receive @code{mouse-movement} and
+@code{drag-mouse-1} events.
+
+@cindex @code{mouse-1-menu-command} (symbol property)
 Since certain commands are also bound to @code{down-mouse-1} for the
 purpose of displaying pop-up menus, Emacs additionally behaves as
 illustrated in the last paragraph if @code{down-mouse-1} is bound to a
@@ -2760,6 +2787,14 @@ To test the signal handler, you can make Emacs send a signal to itself:
 @smallexample
 (signal-process (emacs-pid) 'sigusr1)
 @end smallexample
+
+@cindex @code{sleep-event} event
+@item (sleep-event @var{state})
+This event is injected when the device Emacs is running on is about to
+enter a sleep state, or has just awoken from one.  @var{state} will be
+the symbol @code{pre-sleep} or @code{post-wake}.
+
+This is implemented on GNU/Linux, macOS, and MS-Windows.
 
 @cindex @code{language-change} event
 @item language-change
@@ -3654,14 +3689,17 @@ character, or for keyboard-quit.
 @end defun
 
 @defun read-multiple-choice prompt choices &optional help-string show-help long-form
-Ask user a multiple choice question.  @var{prompt} should be a string
-that will be displayed as the prompt.
+Ask user a multiple-choice question and return user's choice.
+@var{prompt} should be a string to display as the prompt.
 
 @var{choices} is an alist where the first element in each entry is a
-character to be entered, the second element is a short name for the
+character the user can type, the second element is a short name for the
 entry to be displayed while prompting (if there's room, it might be
 shortened), and the third, optional entry is a longer explanation that
 will be displayed in a help buffer if the user requests more help.
+
+The return value is the entry from @var{choices} that matches the
+character the user types.
 
 If optional argument @var{help-string} is non-@code{nil}, it should be
 a string with a more detailed description of all choices.  It will be
@@ -3677,7 +3715,10 @@ will have to type in long-form answers (using @code{completing-read})
 instead of hitting a single key.  The answers must be among the second
 elements of the values in the @var{choices} list.
 
-The return value is the matching value from @var{choices}.
+By default, this function uses @code{read-from-minibuffer} (@pxref{Text
+from Minibuffer}) to read user input, but if the variable
+@code{read-char-choice-use-read-key} is non-@code{nil}, it uses
+@code{read-key} instead.
 
 @lisp
 (read-multiple-choice
@@ -3747,14 +3788,15 @@ supplied to input methods (@pxref{Input Methods}).  Use
 if you want to translate characters after input methods operate.
 @end defvar
 
-@defun key-translate from to
-This function modifies @code{keyboard-translate-table} to translate
-character code @var{from} into character code @var{to}.  It creates the
+@deffn Command key-translate from to
+This command modifies @code{keyboard-translate-table} to translate
+character code @var{from} into character code @var{to}.  Interactively,
+it prompts for @var{from} and @var{to}.  It creates the
 keyboard translate table if necessary.  Both @var{from} and @var{to}
 should be strings that satisfy @code{key-valid-p} (@pxref{Key
 Sequences}).  If @var{to} is @code{nil}, the function removes any
 existing translation for @var{from}.
-@end defun
+@end deffn
 
   Here's an example of using the @code{keyboard-translate-table} to
 make @kbd{C-x}, @kbd{C-c} and @kbd{C-v} perform the cut, copy and paste
@@ -3781,6 +3823,12 @@ at the level of @code{read-key-sequence}.  If you need to translate
 input events that are not characters (i.e., @code{characterp} returns
 @code{nil} for them), you must use the event translation mechanism
 described there.
+
+@deffn Command key-translate-remove from
+This command prompts for a key @var{from} and its translation, and
+removes the translation from the translation table.  When calling from
+Lisp, specify just the key @var{from}, without its translation.
+@end deffn
 
 @node Invoking the Input Method
 @subsection Invoking the Input Method
@@ -4032,7 +4080,32 @@ definition to find the actual event.
 user signals like @code{sigusr1} are normally handled in this way.
 The keymap which defines how to handle special events---and which
 events are special---is in the variable @code{special-event-map}
-(@pxref{Controlling Active Maps}).
+(@pxref{Controlling Active Maps}).  @xref{Misc Events}, for more details
+about these and other special events.
+
+@defun insert-special-event event
+@cindex inserting special events
+This function inserts the special @var{event} into the input event
+queue.  Only event types which are contained in the
+@code{special-event-map} keymap are accepted.  As a result, the handler
+specified in the keymap is invoked.
+
+The function returns @code{nil}.  Example:
+
+@example
+(defun my-event-handler (event)
+  (interactive "e")
+  (message "Event arrived: %S" event))
+@result{} my-event-handler
+
+(keymap-set special-event-map "<sleep-event>" #'my-event-handler)
+@result{} my-event-handler
+
+(insert-special-event '(sleep-event pre-sleep))
+@result{} nil
+@result{} "Event arrived: (sleep-event pre-sleep)"
+@end example
+@end defun
 
 @node Waiting
 @section Waiting for Elapsed Time or Input
@@ -4492,7 +4565,7 @@ confirmation before it can be executed.  Disabling is used for commands
 which might be confusing to beginning users, to prevent them from using
 the commands by accident.
 
-@kindex disabled
+@cindex @code{disabled} (symbol property)
   The low-level mechanism for disabling a command is to put a
 non-@code{nil} @code{disabled} property on the Lisp symbol for the
 command.  These properties are normally set up by the user's

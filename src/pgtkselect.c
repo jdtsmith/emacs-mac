@@ -1,5 +1,5 @@
 /* Gtk selection processing for emacs.
-   Copyright (C) 1993-1994, 2005-2006, 2008-2025 Free Software
+   Copyright (C) 1993-1994, 2005-2006, 2008-2026 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -17,8 +17,6 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
-/* This should be the first include, as it may set up #defines affecting
-   interpretation of even the system includes.  */
 #include <config.h>
 
 #include "lisp.h"
@@ -56,6 +54,17 @@ static void lisp_data_to_selection_data (struct pgtk_display_info *, Lisp_Object
 					 struct selection_data *);
 static Lisp_Object pgtk_get_local_selection (Lisp_Object, Lisp_Object,
 					     bool, struct pgtk_display_info *);
+
+/* Allocate an array of NITEMS items, each of positive size ITEM_SIZE.
+   Make room for an extra byte at the end, as GDK sometimes needs that.  */
+
+static void *
+pgtk_nalloc (ptrdiff_t nitems, ptrdiff_t item_size)
+{
+  /* To pacify gcc --Wanalyzer-allocation-size, make room for an extra
+     item at the end instead of just the extra byte GDK sometimes needs.  */
+  return xnmalloc (nitems + 1, item_size);
+}
 
 /* From a Lisp_Object, return a suitable frame for selection
    operations.  OBJECT may be a frame, a terminal object, or nil
@@ -266,10 +275,8 @@ pgtk_get_local_selection (Lisp_Object selection_symbol, Lisp_Object target_type,
 	}
 
       if (!NILP (handler_fn))
-	value = call3 (handler_fn, selection_symbol,
-		       (local_request
-			? Qnil
-			: target_type),
+	value = calln (handler_fn, selection_symbol,
+		       (local_request ? Qnil : target_type),
 		       tem);
       else
 	value = Qnil;
@@ -457,7 +464,6 @@ pgtk_reply_selection_request (struct selection_input_event *event,
 {
   GdkDisplay *display = SELECTION_EVENT_DISPLAY (event);
   GdkWindow *window = SELECTION_EVENT_REQUESTOR (event);
-  ptrdiff_t bytes_remaining;
   struct selection_data *cs;
   struct pgtk_selection_request *frame;
 
@@ -473,9 +479,6 @@ pgtk_reply_selection_request (struct selection_input_event *event,
     {
       if (cs->property == GDK_NONE)
 	continue;
-
-      bytes_remaining = cs->size;
-      bytes_remaining *= cs->format >> 3;
 
       gdk_property_change (window, cs->property,
 			   cs->type, cs->format,
@@ -498,16 +501,11 @@ pgtk_reply_selection_request (struct selection_input_event *event,
   for (cs = frame->converted_selections; cs; cs = cs->next)
     if (cs->wait_object)
       {
-	int format_bytes = cs->format / 8;
-
         /* Must set this inside block_input ().  unblock_input may read
            events and setting property_change_reply in
            wait_for_property_change is then too late.  */
         set_property_change_object (cs->wait_object);
 	unblock_input ();
-
-	bytes_remaining = cs->size;
-	bytes_remaining *= format_bytes;
 
 	/* Wait for the requestor to ack by deleting the property.
 	   This can run Lisp code (process handlers) or signal.  */
@@ -983,15 +981,22 @@ static void
 pgtk_display_selection_waiting_message (struct atimer *timer)
 {
   Lisp_Object val;
+  struct atimer **atimerp = timer->client_data;
 
   val = build_string ("Waiting for reply from selection owner...");
   message3_nolog (val);
+  *atimerp = NULL;
 }
 
 static void
-pgtk_cancel_atimer (void *atimer)
+pgtk_cancel_atimer (void *atimerp)
 {
-  cancel_atimer (atimer);
+  struct atimer **atimer = atimerp;
+  if (*atimer)
+    {
+      cancel_atimer (*atimer);
+      *atimer = NULL;
+    }
 }
 
 
@@ -1046,8 +1051,8 @@ pgtk_get_foreign_selection (Lisp_Object selection_symbol, Lisp_Object target_typ
   message_interval = make_timespec (1, 0);
   delayed_message = start_atimer (ATIMER_RELATIVE, message_interval,
 				  pgtk_display_selection_waiting_message,
-				  NULL);
-  record_unwind_protect_ptr (pgtk_cancel_atimer, delayed_message);
+				  &delayed_message);
+  record_unwind_protect_ptr (pgtk_cancel_atimer, &delayed_message);
 
   /* This allows quits.  Also, don't wait forever.  */
   intmax_t timeout = max (0, pgtk_selection_timeout);
@@ -1131,7 +1136,7 @@ pgtk_get_window_property (GdkWindow *window, unsigned char **data_ret,
       eassert (actual_format == 32);
 
       length = length / sizeof (GdkAtom);
-      xdata = xmalloc (sizeof (GdkAtom) * length + 1);
+      xdata = pgtk_nalloc (length, sizeof (GdkAtom));
       memcpy (xdata, data, 1 + length * sizeof (GdkAtom));
 
       g_free (data);
@@ -1147,10 +1152,7 @@ pgtk_get_window_property (GdkWindow *window, unsigned char **data_ret,
 
   element_size = pgtk_size_for_format (actual_format);
   length = length / element_size;
-
-  /* Add an extra byte on the end.  GDK guarantees that it is
-     NULL.  */
-  xdata = xmalloc (1 + element_size * length);
+  xdata = pgtk_nalloc (length, element_size);
   memcpy (xdata, data, 1 + element_size * length);
 
   if (actual_format == 32 && LONG_WIDTH > 32)
@@ -1439,7 +1441,7 @@ lisp_data_to_selection_data (struct pgtk_display_info *dpyinfo,
     }
   else if (SYMBOLP (obj))
     {
-      void *data = xmalloc (sizeof (GdkAtom) + 1);
+      void *data = pgtk_nalloc (1, sizeof (GdkAtom));
       GdkAtom *x_atom_ptr = data;
       cs->data = data;
       cs->format = 32;
@@ -1450,7 +1452,7 @@ lisp_data_to_selection_data (struct pgtk_display_info *dpyinfo,
     }
   else if (RANGED_FIXNUMP (SHRT_MIN, obj, SHRT_MAX))
     {
-      void *data = xmalloc (sizeof (short) + 1);
+      void *data = pgtk_nalloc (1, sizeof (short));
       short *short_ptr = data;
       cs->data = data;
       cs->format = 16;
@@ -1465,7 +1467,7 @@ lisp_data_to_selection_data (struct pgtk_display_info *dpyinfo,
 		   || (CONSP (XCDR (obj))
 		       && FIXNUMP (XCAR (XCDR (obj)))))))
     {
-      void *data = xmalloc (sizeof (unsigned long) + 1);
+      void *data = pgtk_nalloc (1, sizeof (unsigned long));
       unsigned long *x_long_ptr = data;
       cs->data = data;
       cs->format = 32;
@@ -1822,7 +1824,7 @@ targets) that can be dropped on top of FRAME.  */)
   CHECK_LIST (targets);
   length = list_length (targets);
   n = 0;
-  entries = SAFE_ALLOCA (sizeof *entries * length);
+  SAFE_NALLOCA (entries, 1, length);
   memset (entries, 0, sizeof *entries * length);
   tem = targets;
 

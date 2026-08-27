@@ -1,6 +1,6 @@
 ;;; rfc2047.el --- functions for encoding and decoding rfc2047 messages  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;;	MORIOKA Tomohiko <morioka@jaist.ac.jp>
@@ -26,7 +26,6 @@
 
 ;;; Code:
 
-(eval-when-compile (require 'cl-lib))
 (defvar message-posting-charset)
 
 (require 'mm-util)
@@ -157,7 +156,7 @@ This is either `base64' or `quoted-printable'."
       (goto-char (point-min))
       (skip-chars-forward "\x20-\x7f\r\n\t" limit)
       (while (< (point) limit)
-	(cl-incf n8bit)
+        (incf n8bit)
 	(forward-char 1)
 	(skip-chars-forward "\x20-\x7f\r\n\t" limit))
       (if (or (< (* 6 n8bit) (- limit (point-min)))
@@ -265,7 +264,8 @@ Should be called narrowed to the head of the message."
 		 (if (= (length charsets) 1)
 		     (cons (mm-charset-to-coding-system (car charsets))
 			   mm-coding-system-priorities)
-		   mm-coding-system-priorities)))
+		   mm-coding-system-priorities))
+                (case-fold-search t))
 	    (while (setq elem (pop alist))
 	      (when (or (and (stringp (car elem))
 			     (looking-at (car elem)))
@@ -543,7 +543,7 @@ Dynamically bind `rfc2047-encoding-type' to change that."
 		    (setq last-encoded nil)))))
 	    (error
 	     (if (or debug-on-quit debug-on-error)
-		 (signal (car err) (cdr err))
+		 (signal err)
 	       (error "Invalid data for rfc2047 encoding: %s"
 		      (replace-regexp-in-string "[ \t\n]+" " " orig-text))))))))
     (unless dont-fold
@@ -1076,7 +1076,7 @@ other than `\"' and `\\' in quoted strings."
 		(while (search-forward "\"" end t)
 		  (when (prog2
 			    (backward-char)
-			    (zerop (% (skip-chars-backward "\\\\") 2))
+			    (evenp (skip-chars-backward "\\\\"))
 			  (goto-char (match-beginning 0)))
 		    (insert "\\"))
 		  (forward-char))

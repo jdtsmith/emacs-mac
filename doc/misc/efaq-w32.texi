@@ -1,6 +1,7 @@
 \input texinfo    @c -*-coding:utf-8 -*-
 @setfilename ../../info/efaq-w32.info
 @settitle GNU Emacs FAQ For MS Windows
+@documentlanguage en
 @include docstyle.texi
 @setchapternewpage odd
 @syncodeindex pg cp
@@ -15,7 +16,7 @@ Answers to Frequently asked Questions about using Emacs on Microsoft Windows.
 @include emacsver.texi
 
 @copying
-Copyright @copyright{} 2008, 2010--2025 Free Software Foundation, Inc.
+Copyright @copyright{} 2008, 2010--2026 Free Software Foundation, Inc.
 
 @quotation
 This list of frequently asked questions about GNU Emacs on MS Windows

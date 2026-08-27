@@ -1,6 +1,6 @@
 ;;; files-x.el --- extended file handling commands  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2009-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
 ;; Author: Juri Linkov <juri@jurta.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -582,7 +582,7 @@ Returns the filename, expanded."
      (read-file-name
       "File: "
       (cond (dir)
-            ((when-let ((proj (and (featurep 'project) (project-current))))
+            ((when-let* ((proj (and (featurep 'project) (project-current))))
                (project-root proj))))
       nil
       (lambda (fname)
@@ -814,8 +814,8 @@ whose elements are of the form (VAR . VALUE).
 Unlike `connection-local-set-profile-variables' (which see), this
 function preserves the values of any existing variable
 definitions that aren't listed in VARIABLES."
-  (when-let ((existing-variables
-              (nreverse (connection-local-get-profile-variables profile))))
+  (when-let* ((existing-variables
+               (nreverse (connection-local-get-profile-variables profile))))
     (dolist (var variables)
       (setf (alist-get (car var) existing-variables) (cdr var)))
     (setq variables (nreverse existing-variables)))
@@ -877,7 +877,7 @@ If APPLICATION is nil, `connection-local-default-application' is used."
 (defmacro with-connection-local-variables (&rest body)
   "Apply connection-local variables according to `default-directory'.
 Execute BODY, and unwind connection-local variables."
-  (declare (debug t))
+  (declare (debug t) (indent 0))
   `(with-connection-local-variables-1 (lambda () ,@body)))
 
 ;;;###autoload
@@ -936,7 +936,7 @@ earlier in the `setq-connection-local'.  The return value of the
 
 \(fn [VARIABLE VALUE]...)"
   (declare (debug setq))
-  (unless (zerop (mod (length pairs) 2))
+  (unless (evenp (length pairs))
     (error "PAIRS must have an even number of variable/value members"))
   (let ((set-expr nil)
         (profile-vars nil))
@@ -989,7 +989,7 @@ value is the default binding of the variable."
      (if (not criteria)
          ,variable
        (hack-connection-local-variables criteria)
-       (if-let ((result (assq ',variable connection-local-variables-alist)))
+       (if-let* ((result (assq ',variable connection-local-variables-alist)))
            (cdr result)
          ,variable))))
 
@@ -1002,6 +1002,11 @@ value is the default binding of the variable."
 (defun null-device ()
   "The connection-local value of `null-device'."
   (connection-local-value null-device))
+
+;;;###autoload
+(defun exec-suffixes ()
+  "The connection-local value of `exec-suffixes'."
+  (connection-local-value exec-suffixes))
 
 
 (provide 'files-x)

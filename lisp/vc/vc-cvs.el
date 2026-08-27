@@ -1,6 +1,6 @@
 ;;; vc-cvs.el --- non-resident support for CVS version-control  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1995, 1998-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1995, 1998-2026 Free Software Foundation, Inc.
 
 ;; Author: FSF (see vc.el for full credits)
 ;; Package: vc
@@ -546,7 +546,7 @@ Will fail unless you have administrative privileges on the repo."
 ;;;
 
 ;; Follows vc-cvs-command, which uses vc-do-command from vc-dispatcher.
-(declare-function vc-exec-after "vc-dispatcher" (code &optional success))
+(declare-function vc-exec-after "vc-dispatcher" (code &optional okstatus proc))
 
 (defun vc-cvs-print-log (files buffer &optional _shortlog _start-revision limit)
   "Print commit log associated with FILES into specified BUFFER.
@@ -790,7 +790,7 @@ and that it passes `vc-cvs-global-switches' to it before FLAGS."
 If FILE is a list of files, return non-nil if any of them
 individually should stay local."
   (if (listp file)
-      (delq nil (mapcar (lambda (arg) (vc-cvs-stay-local-p arg)) file))
+      (delq nil (mapcar #'vc-cvs-stay-local-p file))
     (let ((stay-local vc-cvs-stay-local))
       (if (symbolp stay-local) stay-local
        (let ((dirname (if (file-directory-p file)
@@ -1086,6 +1086,7 @@ Query all files in DIR if files is nil."
     (vc-cvs-command (current-buffer) 'async
                     files
                     "-f" "-n" "-q" "update")
+    ;; FIXME: Consider `vc-run-delayed-success'.
     (vc-run-delayed
       (vc-cvs-after-dir-status update-function))))
 
@@ -1093,9 +1094,8 @@ Query all files in DIR if files is nil."
   "Read the content of FILE and return it as a string."
   (condition-case nil
       (with-temp-buffer
-	(insert-file-contents file)
-	(goto-char (point-min))
-	(buffer-substring (point) (point-max)))
+        (insert-file-contents file)
+        (buffer-string))
     (file-error nil)))
 
 (defun vc-cvs-dir-extra-headers (_dir)

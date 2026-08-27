@@ -1,6 +1,6 @@
 ;;; whitespace-tests.el --- Test suite for whitespace -*- lexical-binding: t -*-
 
-;; Copyright (C) 2016-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -8,7 +8,6 @@
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
 ;; (at your option) any later version.
-
 ;; GNU Emacs is distributed in the hope that it will be useful,
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -20,7 +19,6 @@
 ;;; Code:
 
 (require 'ert)
-(require 'ert-x)
 (require 'faceup)
 (require 'whitespace)
 
@@ -31,7 +29,7 @@ The buffer is displayed in `selected-window', and
 nil, `whitespace-mode' is left disabled."
   (declare (debug ((style form) def-body))
            (indent 1))
-  `(ert-with-test-buffer-selected ()
+  `(ert-with-test-buffer (:selected t)
      ;; In case global-*-mode is enabled.
      (whitespace-mode -1)
      (font-lock-mode -1)
@@ -64,7 +62,7 @@ buffer's content."
     (unwind-protect
         (progn
           (global-whitespace-mode 1)
-          (ert-with-test-buffer-selected ()
+          (ert-with-test-buffer (:selected t)
             (normal-mode)
             (should whitespace-mode)
             (global-whitespace-mode -1)
@@ -94,6 +92,20 @@ buffer's content."
     (should (equal (whitespace-tests--cleanup-string "a  \n\t \n\n")
                    "a  \n"))))
 
+(ert-deftest whitespace-cleanup-missing-newline-at-eof ()
+  (let ((whitespace-style '(empty missing-newline-at-eof)))
+    (should (equal (whitespace-tests--cleanup-string "")
+                   ""))
+    (should (equal (whitespace-tests--cleanup-string "a")
+                   "a\n"))
+    (should (equal (whitespace-tests--cleanup-string "a\n\t")
+                   "a\n"))
+    (should (equal (whitespace-tests--cleanup-string "a\n\t ")
+                   "a\n"))
+    (should (equal (whitespace-tests--cleanup-string "a\n\t ")
+                   "a\n"))
+    (should (equal (whitespace-tests--cleanup-string "\n\t")
+                   ""))))
 
 ;; We cannot call whitespace-mode because it will do nothing in batch
 ;; mode.  So we call its innards instead.

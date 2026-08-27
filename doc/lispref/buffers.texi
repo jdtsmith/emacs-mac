@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--1999, 2001--2025 Free Software
+@c Copyright (C) 1990--1995, 1998--1999, 2001--2026 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Buffers
@@ -391,7 +391,7 @@ the buffer name are distinct and can be set independently.
 @xref{Visiting Files}.
 
 @defun buffer-file-name &optional buffer
-This function returns the absolute file name of the file that
+This function returns the fully-expanded absolute file name of the file that
 @var{buffer} is visiting.  If @var{buffer} is not visiting any file,
 @code{buffer-file-name} returns @code{nil}.  If @var{buffer} is not
 supplied, it defaults to the current buffer.
@@ -405,10 +405,11 @@ supplied, it defaults to the current buffer.
 @end defun
 
 @defvar buffer-file-name
-This buffer-local variable contains the name of the file being visited
+This buffer-local variable contains the absolute name of the file being visited
 in the current buffer, or @code{nil} if it is not visiting a file.  It
 is a permanent local variable, unaffected by
-@code{kill-all-local-variables}.
+@code{kill-all-local-variables}.  The value is identical to the one
+which the @code{buffer-file-name} function returns.
 
 @example
 @group
@@ -991,10 +992,13 @@ Satisfied if @emph{any} condition in @var{conds} satisfies
 Satisfied if @emph{all} the conditions in @var{conds} satisfy
 @code{buffer-match-p}, with the same buffer and @code{args}.
 @item derived-mode
-Satisfied if the buffer's major mode derives from @var{expr}.  Note
-that this condition might fail to report a match if
-@code{buffer-match-p} is invoked before the major mode of the buffer
-has been established.
+Satisfied if the buffer's major mode derives from @var{expr}.
+The value of @var{expr} can be either a single mode symbol
+or a list of mode symbols as accepted by the function
+@code{provided-mode-derived-p} (@pxref{Derived Modes}).
+Note that this condition might fail to report a match if
+@code{buffer-match-p} is invoked before the major mode of
+the buffer has been established.
 @item major-mode
 Satisfied if the buffer's major mode is equal to @var{expr}.  Prefer
 using @code{derived-mode} instead, when both can work.  Note that this
@@ -1006,6 +1010,13 @@ This is pertinent only when this function is called by
 satisfied if the action alist with which @code{display-buffer} was
 called includes @w{@code{(category . @var{expr})}} in the value of its
 @var{action} argument.  @xref{Buffer Display Action Alists}.
+@item this-command
+@vindex this-command@r{, a buffer display condition entry}
+This too is pertinent only when this function is called by
+@code{display-buffer} (@pxref{Buffer Display Action Alists}), and is
+satisfied when the command now being executed is equal to @var{expr}, or
+if @var{expr} is a list, when the command now being executed is a member
+of that list.
 @end table
 @item t
 Satisfied by any buffer.  A convenient alternative to @code{""} (empty

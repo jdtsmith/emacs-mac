@@ -1,6 +1,6 @@
 ;;; bookmark-tests.el --- Tests for bookmark.el  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2019-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
 ;; Author: Stefan Kangas <stefankangas@gmail.com>
 
@@ -193,9 +193,12 @@ the lexically-bound variable `buffer'."
       (should (equal (bookmark-prop-get bmk 'filename) "prop")))))
 
 (ert-deftest bookmark-tests-maybe-historicize-string ()
-  (let ((bookmark-history))
+  (let ((bookmark-history)
+        (history-delete-duplicates t))
     (bookmark-maybe-historicize-string "foo")
-    (should (equal (car bookmark-history) "foo"))))
+    (bookmark-maybe-historicize-string "foo")
+    (should (equal (car bookmark-history) "foo"))
+    (should (= 1 (length bookmark-history)))))
 
 (defun bookmark-remove-last-modified (bmk)
   (assoc-delete-all 'last-modified bmk))

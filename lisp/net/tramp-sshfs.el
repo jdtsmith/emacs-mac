@@ -1,6 +1,6 @@
 ;;; tramp-sshfs.el --- Tramp access functions via sshfs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
@@ -44,7 +44,8 @@
   "The sshfs mount command."
   :group 'tramp
   :version "28.1"
-  :type 'string)
+  :type 'string
+  :link '(info-link :tag "Tramp manual" "(tramp) Setup of sshfs method"))
 
 ;;;###tramp-autoload
 (defvar tramp-default-remote-shell) ;; Silence byte compiler.
@@ -61,6 +62,8 @@
                 (tramp-login-program        "ssh")
                 (tramp-login-args           (("-q") ("-l" "%u") ("-p" "%p")
 				             ("-e" "none") ("%a" "%a")
+				             ("-o" ,(format "SetEnv=\"TERM=%s\""
+							    tramp-terminal-type))
 					     ("%h") ("%l")))
                 (tramp-direct-async         t)
                 (tramp-remote-shell         ,tramp-default-remote-shell)
@@ -250,23 +253,23 @@ arguments to pass to the OPERATION."
 (defun tramp-sshfs-handle-process-file
   (program &optional infile destination display &rest args)
   "Like `process-file' for Tramp files."
-  ;; STDERR is not impelmemted.
+  ;; STDERR is not implemented.
   (when (consp destination)
     (setcdr destination `(,tramp-cache-undefined)))
   (tramp-skeleton-process-file program infile destination display args
     (let ((coding-system-for-read 'utf-8-dos)) ; Is this correct?
 
       (setq command
-	   (format
-	    "cd %s && exec %s"
-	    (tramp-unquote-shell-quote-argument localname)
-	    (mapconcat #'tramp-shell-quote-argument (cons program args) " ")))
+	    (format
+	     "cd %s && exec %s"
+	     (tramp-unquote-shell-quote-argument localname)
+	     (mapconcat #'tramp-shell-quote-argument (cons program args) " ")))
       (when input (setq command (format "%s <%s" command input)))
 
       (setq ret
 	    (apply
 	     #'tramp-call-process
-	     v (tramp-get-method-parameter v 'tramp-login-program)
+	     v (tramp-expand-args v 'tramp-login-program)
 	     nil outbuf display
 	     (tramp-expand-args
 	      v 'tramp-login-args nil
@@ -297,15 +300,13 @@ arguments to pass to the OPERATION."
   "Like `set-file-modes' for Tramp files."
   (unless (and (eq flag 'nofollow) (file-symlink-p filename))
     (tramp-skeleton-set-file-modes-times-uid-gid filename
-      (tramp-compat-set-file-modes
-       (tramp-fuse-local-file-name filename) mode flag))))
+      (set-file-modes (tramp-fuse-local-file-name filename) mode flag))))
 
 (defun tramp-sshfs-handle-set-file-times (filename &optional timestamp flag)
   "Like `set-file-times' for Tramp files."
   (unless (and (eq flag 'nofollow) (file-symlink-p filename))
     (tramp-skeleton-set-file-modes-times-uid-gid filename
-      (tramp-compat-set-file-times
-       (tramp-fuse-local-file-name filename) timestamp flag))))
+      (set-file-times (tramp-fuse-local-file-name filename) timestamp flag))))
 
 (defun tramp-sshfs-handle-write-region
   (start end filename &optional append visit lockname mustbenew)
@@ -358,7 +359,7 @@ connection if a previous connection has died for some reason."
 		 vec 'tramp-mount-args nil
 		 ?p (or (tramp-file-name-port vec) ""))))))
       (tramp-error
-       vec 'file-error "Error mounting %s" (tramp-fuse-mount-spec vec)))
+       vec 'remote-file-error "Error mounting %s" (tramp-fuse-mount-spec vec)))
 
     ;; Mark it as connected.
     (add-to-list 'tramp-fuse-mount-points (tramp-file-name-unify vec))

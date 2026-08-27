@@ -1,6 +1,6 @@
 /* Like <fcntl.h>, but with non-working flags defined to 0.
 
-   Copyright (C) 2006-2025 Free Software Foundation, Inc.
+   Copyright (C) 2006-2026 Free Software Foundation, Inc.
 
    This file is free software: you can redistribute it and/or modify
    it under the terms of the GNU Lesser General Public License as
@@ -22,8 +22,12 @@
 #endif
 @PRAGMA_COLUMNS@
 
-#if defined __need_system_fcntl_h
-/* Special invocation convention.  */
+#if defined __need_system_fcntl_h || defined _@GUARD_PREFIX@_ALREADY_INCLUDING_FCNTL_H
+/* Special invocation convention:
+   - On Haiku we have a sequence of nested includes
+       <fcntl.h> -> <unistd.h> -> <fcntl.h>
+     In this situation, GNULIB_defined_O_NONBLOCK gets defined before the
+     system's definition of O_NONBLOCK is processed.  */
 
 /* Needed before <sys/stat.h>.
    May also define off_t to a 64-bit type on native Windows.  */
@@ -50,6 +54,8 @@
 
 #ifndef _@GUARD_PREFIX@_FCNTL_H
 
+#define _@GUARD_PREFIX@_ALREADY_INCLUDING_FCNTL_H
+
 /* Needed before <sys/stat.h>.
    May also define off_t to a 64-bit type on native Windows.
    Also defines off64_t on macOS, NetBSD, OpenBSD, MSVC, Cygwin, Haiku.  */
@@ -71,6 +77,8 @@
     && (defined _WIN32 && ! defined __CYGWIN__)
 # include <io.h>
 #endif
+
+#undef _@GUARD_PREFIX@_ALREADY_INCLUDING_FCNTL_H
 
 #ifndef _@GUARD_PREFIX@_FCNTL_H
 #define _@GUARD_PREFIX@_FCNTL_H
@@ -100,7 +108,7 @@
 #   undef creat
 #   define creat rpl_creat
 #  endif
-_GL_FUNCDECL_RPL (creat, int, (const char *filename, mode_t mode)
+_GL_FUNCDECL_RPL (creat, int, (const char *filename, mode_t mode),
                              _GL_ARG_NONNULL ((1)));
 _GL_CXXALIAS_RPL (creat, int, (const char *filename, mode_t mode));
 # elif defined _WIN32 && !defined __CYGWIN__
@@ -114,7 +122,6 @@ _GL_CXXALIAS_SYS (creat, int, (const char *filename, mode_t mode));
 # endif
 _GL_CXXALIASWARN (creat);
 #elif defined GNULIB_POSIXCHECK
-# undef creat
 /* Assume creat is always declared.  */
 _GL_WARN_ON_USE (creat, "creat is not always POSIX compliant - "
                  "use gnulib module creat for portability");
@@ -141,14 +148,14 @@ _GL_CXXALIASWARN (creat);
 #   undef fcntl
 #   define fcntl rpl_fcntl
 #  endif
-_GL_FUNCDECL_RPL (fcntl, int, (int fd, int action, ...));
+_GL_FUNCDECL_RPL (fcntl, int, (int fd, int action, ...), );
 _GL_CXXALIAS_RPL (fcntl, int, (int fd, int action, ...));
 #  if !GNULIB_defined_rpl_fcntl
 #   define GNULIB_defined_rpl_fcntl 1
 #  endif
 # else
 #  if !@HAVE_FCNTL@
-_GL_FUNCDECL_SYS (fcntl, int, (int fd, int action, ...));
+_GL_FUNCDECL_SYS (fcntl, int, (int fd, int action, ...), );
 #   if !GNULIB_defined_fcntl
 #    define GNULIB_defined_fcntl 1
 #   endif
@@ -157,7 +164,6 @@ _GL_CXXALIAS_SYS (fcntl, int, (int fd, int action, ...));
 # endif
 _GL_CXXALIASWARN (fcntl);
 #elif defined GNULIB_POSIXCHECK
-# undef fcntl
 # if HAVE_RAW_DECL_FCNTL
 _GL_WARN_ON_USE (fcntl, "fcntl is not always POSIX compliant - "
                  "use gnulib module fcntl for portability");
@@ -170,7 +176,7 @@ _GL_WARN_ON_USE (fcntl, "fcntl is not always POSIX compliant - "
 #   undef open
 #   define open rpl_open
 #  endif
-_GL_FUNCDECL_RPL (open, int, (const char *filename, int flags, ...)
+_GL_FUNCDECL_RPL (open, int, (const char *filename, int flags, ...),
                              _GL_ARG_NONNULL ((1)));
 _GL_CXXALIAS_RPL (open, int, (const char *filename, int flags, ...));
 # elif defined _WIN32 && !defined __CYGWIN__
@@ -188,7 +194,6 @@ _GL_CXXALIAS_SYS (open, int, (const char *filename, int flags, ...));
 _GL_CXXALIASWARN (open);
 # endif
 #elif defined GNULIB_POSIXCHECK
-# undef open
 /* Assume open is always declared.  */
 _GL_WARN_ON_USE (open, "open is not always POSIX compliant - "
                  "use gnulib module open for portability");
@@ -201,7 +206,9 @@ _GL_WARN_ON_USE (open, "open is not always POSIX compliant - "
 #   undef open
 #   define open _open
 #  endif
-_GL_CXXALIAS_MDA (open, int, (const char *filename, int flags, ...));
+/* Need to cast, because in MSVC the parameter list of _open as a C++ function
+   is (const char *, int, int = 0).  */
+_GL_CXXALIAS_MDA_CAST (open, int, (const char *filename, int flags, ...));
 # else
 _GL_CXXALIAS_SYS (open, int, (const char *filename, int flags, ...));
 # endif
@@ -217,14 +224,14 @@ _GL_CXXALIASWARN (open);
 #   define openat rpl_openat
 #  endif
 _GL_FUNCDECL_RPL (openat, int,
-                  (int fd, char const *file, int flags, /* mode_t mode */ ...)
+                  (int fd, char const *file, int flags, /* mode_t mode */ ...),
                   _GL_ARG_NONNULL ((2)));
 _GL_CXXALIAS_RPL (openat, int,
                   (int fd, char const *file, int flags, /* mode_t mode */ ...));
 # else
 #  if !@HAVE_OPENAT@
 _GL_FUNCDECL_SYS (openat, int,
-                  (int fd, char const *file, int flags, /* mode_t mode */ ...)
+                  (int fd, char const *file, int flags, /* mode_t mode */ ...),
                   _GL_ARG_NONNULL ((2)));
 #  endif
 _GL_CXXALIAS_SYS (openat, int,
@@ -232,13 +239,51 @@ _GL_CXXALIAS_SYS (openat, int,
 # endif
 _GL_CXXALIASWARN (openat);
 #elif defined GNULIB_POSIXCHECK
-# undef openat
 # if HAVE_RAW_DECL_OPENAT
 _GL_WARN_ON_USE (openat, "openat is not portable - "
                  "use gnulib module openat for portability");
 # endif
 #endif
 
+#if @GNULIB_OPENAT2@
+# if !defined RESOLVE_NO_XDEV && defined __has_include
+#  if __has_include (<linux/openat2.h>)
+#   include <linux/openat2.h>
+#  endif
+# endif
+# ifndef RESOLVE_NO_XDEV
+struct open_how
+{
+#  ifdef __UINT64_TYPE__
+  __UINT64_TYPE__ flags, mode, resolve;
+#  else
+  unsigned long long int flags, mode, resolve;
+#  endif
+};
+#  define RESOLVE_NO_XDEV	0x01
+#  define RESOLVE_NO_MAGICLINKS	0x02
+#  define RESOLVE_NO_SYMLINKS	0x04
+#  define RESOLVE_BENEATH	0x08
+#  define RESOLVE_IN_ROOT	0x10
+#  define RESOLVE_CACHED	0x20
+# endif
+
+# if !@HAVE_OPENAT2@
+_GL_FUNCDECL_SYS (openat2, int,
+                  (int fd, char const *file, struct open_how const *how,
+                   size_t size),
+                  _GL_ARG_NONNULL ((2, 3)));
+# endif
+_GL_CXXALIAS_SYS (openat2, int,
+                  (int fd, char const *file, struct open_how const *how,
+                   size_t size));
+_GL_CXXALIASWARN (openat2);
+#elif defined GNULIB_POSIXCHECK
+# if HAVE_RAW_DECL_OPENAT2
+_GL_WARN_ON_USE (openat2, "openat2 is not portable - "
+                 "use gnulib module openat2 for portability");
+# endif
+#endif
 
 /* Fix up the FD_* macros, only known to be missing on mingw.  */
 
@@ -283,11 +328,6 @@ _GL_WARN_ON_USE (openat, "openat is not portable - "
 # endif
 #endif
 
-#if !defined O_DIRECT && defined O_DIRECTIO
-/* Tru64 spells it 'O_DIRECTIO'.  */
-# define O_DIRECT O_DIRECTIO
-#endif
-
 #if !defined O_CLOEXEC && defined O_NOINHERIT
 /* Mingw spells it 'O_NOINHERIT'.  */
 # define O_CLOEXEC O_NOINHERIT
@@ -305,7 +345,7 @@ _GL_WARN_ON_USE (openat, "openat is not portable - "
 #endif
 
 #ifndef O_DIRECTORY
-# define O_DIRECTORY 0
+# define O_DIRECTORY 0x20000000 /* Try to not collide with system O_* flags.  */
 #endif
 
 #ifndef O_DSYNC
@@ -369,8 +409,12 @@ _GL_WARN_ON_USE (openat, "openat is not portable - "
 # define O_RSYNC 0
 #endif
 
+#if defined O_SEARCH && defined O_PATH && O_SEARCH == O_PATH
+# undef O_SEARCH /* musl mistakenly #defines O_SEARCH to O_PATH.  */
+#endif
+
 #ifndef O_SEARCH
-# define O_SEARCH O_RDONLY /* This is often close enough in older systems.  */
+# define O_SEARCH O_RDONLY /* Often close enough in non-POSIX systems.  */
 #endif
 
 #ifndef O_SYNC
@@ -444,6 +488,15 @@ _GL_WARN_ON_USE (openat, "openat is not portable - "
 /* Ignore this flag if not supported.  */
 #ifndef AT_NO_AUTOMOUNT
 # define AT_NO_AUTOMOUNT 0
+#endif
+
+/* errno when openat+O_NOFOLLOW fails because the file is a symlink.  */
+#if defined __FreeBSD__ || defined __FreeBSD_kernel__ || defined __DragonFly__
+# define _GL_OPENAT_ESYMLINK EMLINK
+#elif defined __NetBSD__
+# define _GL_OPENAT_ESYMLINK EFTYPE
+#else
+# define _GL_OPENAT_ESYMLINK ELOOP
 #endif
 
 #endif /* _@GUARD_PREFIX@_FCNTL_H */

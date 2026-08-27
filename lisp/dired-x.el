@@ -1,6 +1,6 @@
 ;;; dired-x.el --- extra Dired functionality  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1993-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1993-2026 Free Software Foundation, Inc.
 
 ;; Author: Sebastian Kremer <sk@thp.uni-koeln.de>
 ;;	Lawrence R. Dodd <dodd@roebling.poly.edu>
@@ -132,7 +132,7 @@ option value:
           (restricted-sexp
            :tag "Variable with regexp value (default: `dired-re-exe')"
            :match-alternatives
-           ((lambda (obj) (and (symbolp obj) (boundp obj))))
+           (,(lambda (obj) (and (symbolp obj) (boundp obj))))
            :value dired-re-exe))
   :group 'dired-x)
 
@@ -216,7 +216,7 @@ buffer for the same directory, \\[dired] will toggle between those two."
 
 ;;; Menu bindings
 
-(when-let ((menu (lookup-key dired-mode-map [menu-bar])))
+(when-let* ((menu (lookup-key dired-mode-map [menu-bar])))
   (easy-menu-add-item menu '("Operate")
                       ["Find Files" dired-do-find-marked-files
                        :help "Find current or marked files"]
@@ -473,7 +473,9 @@ status message."
                  nil)))
       (let ((omit-re (or regexp (dired-omit-regexp)))
             (old-modified-p (buffer-modified-p))
-            (count (or init-count 0)))
+            (count (or init-count 0))
+            (dired-omit-verbose
+             (and dired-omit-verbose (not auto-revert-buffer-in-progress))))
         (unless (string= omit-re "")
           (let ((dired-marker-char dired-omit-marker-char))
             (when dired-omit-verbose (message "Omitting..."))
@@ -496,8 +498,10 @@ status message."
                                nil
                                (if dired-omit-verbose
                                    (format "Omitted %%d line%%s in %s"
-                                           (abbreviate-file-name
-                                            dired-directory))
+                                           (replace-regexp-in-string
+                                            "%" "%%"
+                                            (abbreviate-file-name
+                                             dired-directory)))
                                  "")
                                init-count)))
               (force-mode-line-update))))
@@ -548,6 +552,7 @@ files in the active region if `dired-mark-region' is non-nil."
   (let ((dired-marker-char (if unflag-p ?\s dired-marker-char)))
     (dired-mark-if
      (and
+      (not (dired--hidden-p))
       (if unflag-p
           ;; Already marked.
           (not (= (following-char) ?\s))

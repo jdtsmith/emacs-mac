@@ -1,10 +1,10 @@
 ;;; which-key.el --- Display available keybindings in popup  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2017-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
 ;; Author: Justin Burkett <justin@burkett.cc>
 ;; Maintainer: Justin Burkett <justin@burkett.cc>
-;; Version: 3.6.0
+;; Version: 3.6.1
 ;; Package-Requires: ((emacs "25.1"))
 
 ;; This file is part of GNU Emacs.
@@ -82,7 +82,7 @@ This only applies if `which-key-popup-type' is minibuffer or
 `which-key-show-prefix' is echo.  It needs to be less than
 `which-key-idle-delay' or else the keystroke echo will erase the
 which-key popup."
-  :type 'float
+  :type 'number
   :package-version '(which-key . "1.0") :version "30.1")
 
 (defcustom which-key-max-description-length 27
@@ -332,14 +332,14 @@ the right of) the middle slot.  The default is zero."
   "Maximum width of which-key popup when type is side-window.
 This variable can also be a number between 0 and 1. In that case,
 it denotes a percentage out of the frame's width."
-  :type 'float
+  :type 'number
   :package-version '(which-key . "1.0") :version "30.1")
 
 (defcustom which-key-side-window-max-height 0.25
   "Maximum height of which-key popup when type is side-window.
 This variable can also be a number between 0 and 1. In that case, it denotes
 a percentage out of the frame's height."
-  :type 'float
+  :type 'number
   :package-version '(which-key . "1.0") :version "30.1")
 
 (defcustom which-key-frame-max-width 60
@@ -2213,7 +2213,8 @@ Actual lines: %s"
   (let* ((paging-key (concat prefix-keys " " which-key-paging-key))
          (paging-key-bound (eq 'which-key-C-h-dispatch
                                (key-binding (kbd paging-key))))
-         (key (key-description (vector help-char)))
+         (key (if (fboundp 'help-key) (help-key) ; 29.1
+                (key-description (vector help-char))))
          (key (if paging-key-bound
                   (concat key " or " which-key-paging-key)
                 key)))
@@ -2347,10 +2348,7 @@ enough space based on your settings and frame size." prefix-keys)
           (when (cdr page-echo) (funcall (cdr page-echo)))
           (which-key--show-popup (cons height width)))))
     ;; used for paging at top-level
-    (if (fboundp 'set-transient-map)
-        (set-transient-map (which-key--get-popup-map))
-      (with-no-warnings
-        (set-temporary-overlay-map (which-key--get-popup-map))))))
+    (set-transient-map (which-key--get-popup-map))))
 
 ;;; Paging functions
 

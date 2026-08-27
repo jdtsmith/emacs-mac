@@ -1,6 +1,6 @@
 ;;; vcursor.el --- manipulate an alternative ("virtual") cursor  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1994-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1994-2026 Free Software Foundation, Inc.
 
 ;; Author: Peter Stephenson <pws@ibmth.df.unipi.it>
 ;; Maintainer: emacs-devel@gnu.org
@@ -250,7 +250,7 @@
 ;; In addition to any other bindings, vcursor-map contains key definitions
 ;; for handling the vcursor.  You should assign this to a prefix key
 ;; in the usual way, e.g.
-;;      (global-set-key [f14] vcursor-map)
+;;      (keymap-global-set "<f14>" vcursor-map)
 ;; and also as usual \C-h in this map will list the key definitions, which
 ;; are designed to be easy to remember.
 ;;
@@ -467,6 +467,10 @@ scrolling set this.  It is used by the `vcursor-auto-disable' code.")
 
 (defvar-keymap vcursor-map
   :doc "Keymap for vcursor command."
+  ;; This seems unused but was done previously (Emacs 24), so is kept
+  ;; for now.
+  :prefix t
+
   "t"   #'vcursor-use-vcursor-map
 
   "C-p" #'vcursor-previous-line
@@ -495,9 +499,6 @@ scrolling set this.  It is used by the `vcursor-auto-disable' code.")
   "c"   #'vcursor-compare-windows
   "k"   #'vcursor-execute-key
   "M-x" #'vcursor-execute-command)
-;; This seems unused, but it was done as part of define-prefix-command,
-;; so let's keep it for now.
-(fset 'vcursor-map vcursor-map)
 
 ;; If vcursor-key-bindings is already set on loading, bind the keys now.
 ;; This hybrid way of doing it retains compatibility while allowing

@@ -1,6 +1,6 @@
 ;;; info-xref.el --- check external references in an Info document -*- lexical-binding: t -*-
 
-;; Copyright (C) 2003-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
 ;; Author: Kevin Ryde <user42@zip.com.au>
 ;; Keywords: docs
@@ -45,7 +45,6 @@
 ;;; Code:
 
 (require 'info)
-(eval-when-compile (require 'cl-lib))   ; for `cl-incf'
 
 (defgroup info-xref nil
   "Check external cross-references in Info documents."
@@ -259,11 +258,11 @@ buffer's line and column of point."
 
         ;; if the file exists, try the node
         (cond ((not (cdr (assoc file info-xref-xfile-alist)))
-               (cl-incf info-xref-unavail))
+               (incf info-xref-unavail))
               ((info-xref-goto-node-p node)
-               (cl-incf info-xref-good))
+               (incf info-xref-good))
               (t
-               (cl-incf info-xref-bad)
+               (incf info-xref-bad)
                (info-xref-output-error "No such node: %s" node)))))))
 
 
@@ -482,8 +481,8 @@ and can take a long time."
           (if (eq :tag (cadr link))
               (setq link (cddr link)))
           (if (info-xref-goto-node-p (cadr link))
-              (cl-incf info-xref-good)
-            (cl-incf info-xref-bad)
+              (incf info-xref-good)
+            (incf info-xref-bad)
             ;; symbol-file gives nil for preloaded variables, would need
             ;; to copy what describe-variable does to show the right place
             (info-xref-output "Symbol `%s' (file %s): cannot goto node: %s"

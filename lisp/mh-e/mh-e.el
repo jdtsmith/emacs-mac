@@ -1,6 +1,6 @@
 ;;; mh-e.el --- GNU Emacs interface to the MH mail system  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1988, 1990, 1992-1995, 1997, 1999-2025 Free
+;; Copyright (C) 1985-1988, 1990, 1992-1995, 1997, 1999-2026 Free
 ;; Software Foundation, Inc.
 
 ;; Author: Bill Wohler <wohler@newt.com>
@@ -44,9 +44,9 @@
 ;;   M-x mh-smail to send mail.  From within the mail reader, "s" works, too.
 
 ;; Your .emacs might benefit from these bindings:
-;;   (global-set-key "\C-cr" 'mh-rmail)
-;;   (global-set-key "\C-xm" 'mh-smail)
-;;   (global-set-key "\C-x4m" 'mh-smail-other-window)
+;;   (keymap-global-set "C-c r" #'mh-rmail)
+;;   (keymap-global-set "C-x m" #'mh-smail)
+;;   (keymap-global-set "C-x 4 m" #'mh-smail-other-window)
 
 ;; Mailing Lists:
 ;;   mh-e-users@lists.sourceforge.net
@@ -145,6 +145,10 @@ This directory contains, among other things, the mhl program.")
 
 ;;;###autoload
 (put 'mh-lib-progs 'risky-local-variable t)
+
+(defvar mh-default-directory "~/"
+  "Default directory for MH-E folder buffers.
+Set to nil to have MH-E buffers inherit default-directory.")
 
 ;; Profile Components
 
@@ -440,6 +444,12 @@ gnus-version)
              (error "Bad element: %s" element))))
     new-list))
 
+(defun mh-set-default-directory ()
+  "Set `default-directory' to `mh-default-directory' unless it is nil."
+  (when (stringp mh-default-directory)
+    (setq default-directory (file-name-as-directory
+                             (expand-file-name mh-default-directory)))))
+
 
 
 ;;; MH-E Process Support
@@ -465,7 +475,7 @@ all the strings have been used."
               (push (buffer-substring-no-properties (point)
                                                     (line-end-position))
                     arg-list)
-              (cl-incf count)
+              (incf count)
               (forward-line))
             (apply #'call-process cmd nil (list out nil) nil
                    (nreverse arg-list))))
@@ -880,7 +890,7 @@ finally GNU mailutils MH."
     (sit-for 5)
     (setq variant (concat "gnu-mh" (substring variant (match-end 0)))))
 
-  (let ((valid-list (mapcar (lambda (x) (car x)) (mh-variants))))
+  (let ((valid-list (mapcar #'car (mh-variants))))
     (cond
      ((eq variant 'none))
      ((eq variant 'autodetect)
@@ -2010,9 +2020,9 @@ absolute pathname, it is assumed to be in the `mh-progs'
 directory. You may link another program to `scan' (see
 \"mh-profile(5)\") to produce a different type of listing."
   :type 'string
+  :local t
   :group 'mh-scan-line-formats
   :package-version '(MH-E . "6.0"))
-(make-variable-buffer-local 'mh-scan-prog)
 
 ;;; Searching (:group 'mh-search)
 
@@ -2758,12 +2768,6 @@ here that you would like to be displayed in
 Real definition, below, uses variables that aren't defined yet."
       nil)))
 
-(defvar mh-delay-invisible-header-generation-flag t
-  "Non-nil means to delay the generation of invisible header fields.
-Because the function `mh-invisible-headers' uses both
-`mh-invisible-header-fields' and `mh-invisible-header-fields', it
-cannot be run until both variables have been initialized.")
-
 (defcustom mh-invisible-header-fields nil
   "Additional header fields to hide.
 
@@ -3320,7 +3324,7 @@ sequence."
       (((class color) (background dark))
        (:foreground "LightGoldenRod"))
       (t
-       (:bold t))))
+       (:weight bold))))
     (mh-folder-msg-number
      ((((class color) (min-colors 64) (background light))
        (:foreground "snow4"))
@@ -3338,18 +3342,18 @@ sequence."
       (((class color))
        (:foreground "yellow" :weight light))
       (((class grayscale) (background light))
-       (:foreground "Gray90" :bold t :italic t))
+       (:foreground "Gray90" :weight bold :slant italic))
       (((class grayscale) (background dark))
-       (:foreground "DimGray" :bold t :italic t))
+       (:foreground "DimGray" :weight bold :slant italic))
       (t
-       (:bold t :italic t))))
+       (:weight bold :slant italic))))
     (mh-folder-subject
      ((((class color) (background light))
        (:foreground "blue4"))
       (((class color) (background dark))
        (:foreground "yellow"))
       (t
-       (:bold t))))
+       (:weight bold))))
     (mh-folder-tick
      ((((class color) (background light))
        (:background "#dddf7e"))
@@ -3365,25 +3369,25 @@ sequence."
       (((class color))
        (:foreground "green"))
       (((class grayscale) (background light))
-       (:foreground "DimGray" :italic t))
+       (:foreground "DimGray" :slant italic))
       (((class grayscale) (background dark))
-       (:foreground "LightGray" :italic t))
+       (:foreground "LightGray" :slant italic))
       (t
-       (:italic t))))
+       (:slant italic))))
     (mh-letter-header-field
      ((((class color) (background light))
        (:background "gray90"))
       (((class color) (background dark))
        (:background "gray10"))
       (t
-       (:bold t))))
+       (:weight bold))))
     (mh-search-folder
      ((((class color) (background light))
-       (:foreground "dark green" :bold t))
+       (:foreground "dark green" :weight bold))
       (((class color) (background dark))
-       (:foreground "indian red" :bold t))
+       (:foreground "indian red" :weight bold))
       (t
-       (:bold t))))
+       (:weight bold))))
     (mh-show-cc
      ((((class color) (min-colors 64) (background light))
        (:foreground "DarkGoldenrod"))
@@ -3392,11 +3396,11 @@ sequence."
       (((class color))
        (:foreground "yellow" :weight light))
       (((class grayscale) (background light))
-       (:foreground "Gray90" :bold t :italic t))
+       (:foreground "Gray90" :weight bold :slant italic))
       (((class grayscale) (background dark))
-       (:foreground "DimGray" :bold t :italic t))
+       (:foreground "DimGray" :weight bold :slant italic))
       (t
-       (:bold t :italic t))))
+       (:weight bold :slant italic))))
     (mh-show-date
      ((((class color) (min-colors 64) (background light))
        (:foreground "ForestGreen"))
@@ -3405,18 +3409,18 @@ sequence."
       (((class color))
        (:foreground "green"))
       (((class grayscale) (background light))
-       (:foreground "Gray90" :bold t))
+       (:foreground "Gray90" :weight bold))
       (((class grayscale) (background dark))
-       (:foreground "DimGray" :bold t))
+       (:foreground "DimGray" :weight bold))
       (t
-       (:bold t :underline t))))
+       (:weight bold :underline t))))
     (mh-show-from
      ((((class color) (background light))
        (:foreground "red3"))
       (((class color) (background dark))
        (:foreground "cyan"))
       (t
-       (:bold t))))
+       (:weight bold))))
     (mh-show-header
      ((((class color) (min-colors 64) (background light))
        (:foreground "RosyBrown"))
@@ -3425,15 +3429,15 @@ sequence."
       (((class color))
        (:foreground "green"))
       (((class grayscale) (background light))
-       (:foreground "DimGray" :italic t))
+       (:foreground "DimGray" :slant italic))
       (((class grayscale) (background dark))
-       (:foreground "LightGray" :italic t))
+       (:foreground "LightGray" :slant italic))
       (t
-       (:italic t))))
-    (mh-show-pgg-bad ((t (:bold t :foreground "DeepPink1"))))
-    (mh-show-pgg-good ((t (:bold t :foreground "LimeGreen"))))
-    (mh-show-pgg-unknown ((t (:bold t :foreground "DarkGoldenrod2"))))
-    (mh-show-signature ((t (:italic t))))
+       (:slant italic))))
+    (mh-show-pgg-bad ((t (:weight bold :foreground "DeepPink1"))))
+    (mh-show-pgg-good ((t (:weight bold :foreground "LimeGreen"))))
+    (mh-show-pgg-unknown ((t (:weight bold :foreground "DarkGoldenrod2"))))
+    (mh-show-signature ((t (:slant italic))))
     (mh-show-to
      ((((class color) (background light))
        (:foreground "SaddleBrown"))
@@ -3503,7 +3507,7 @@ not added to the returned spec."
                 '((((class color))
                    (:inherit mh-folder-msg-number))
                   (t
-                   (:inherit mh-folder-msg-number :italic t))))
+                   (:inherit mh-folder-msg-number :slant italic))))
   "Body text face."
   :group 'mh-faces
   :group 'mh-folder
@@ -3511,7 +3515,7 @@ not added to the returned spec."
 
 (defface mh-folder-cur-msg-number
   (mh-face-data 'mh-folder-msg-number
-                '((t (:inherit mh-folder-msg-number :bold t))))
+                '((t (:inherit mh-folder-msg-number :weight bold))))
   "Current message number face."
   :group 'mh-faces
   :group 'mh-folder
@@ -3683,7 +3687,7 @@ The background and foreground are used in the image."
 
 (defface mh-speedbar-folder-with-unseen-messages
   (mh-face-data 'mh-speedbar-folder
-                '((t (:inherit mh-speedbar-folder :bold t))))
+                '((t (:inherit mh-speedbar-folder :weight bold))))
   "Folder face when folder contains unread messages."
   :group 'mh-faces
   :group 'mh-speedbar
@@ -3698,7 +3702,7 @@ The background and foreground are used in the image."
 
 (defface mh-speedbar-selected-folder-with-unseen-messages
   (mh-face-data 'mh-speedbar-selected-folder
-                '((t (:inherit mh-speedbar-selected-folder :bold t))))
+                '((t (:inherit mh-speedbar-selected-folder :weight bold))))
   "Selected folder face when folder contains unread messages."
   :group 'mh-faces
   :group 'mh-speedbar

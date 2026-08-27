@@ -1,8 +1,8 @@
 ;;; reftex-sel.el --- the selection modes for RefTeX  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2026 Free Software Foundation, Inc.
 
-;; Author: Carsten Dominik <dominik@science.uva.nl>
+;; Author: Carsten Dominik <carsten.dominik@gmail.com>
 ;; Maintainer: auctex-devel@gnu.org
 
 ;; This file is part of GNU Emacs.
@@ -23,8 +23,6 @@
 ;;; Commentary:
 
 ;;; Code:
-
-(eval-when-compile (require 'cl-lib))
 
 (require 'reftex)
 
@@ -97,7 +95,13 @@ Press `?' for a summary of important key bindings.
 During a selection process, these are the local bindings.
 
 \\{reftex-select-label-mode-map}"
-  (set (make-local-variable 'reftex-select-marked) nil)
+  (setq-local reftex-select-marked nil)
+  (setq truncate-lines t)
+  (setq mode-line-format
+        (list "----  " 'mode-line-buffer-identification
+              "  " 'global-mode-string "   (" mode-name ")"
+              "  S<" 'reftex-refstyle ">"
+              " -%-"))
   (when (syntax-table-p reftex-latex-syntax-table)
     (set-syntax-table reftex-latex-syntax-table))
   ;; We do not set a local map - reftex-select-item does this.
@@ -136,7 +140,7 @@ Press `?' for a summary of important key bindings.
 During a selection process, these are the local bindings.
 
 \\{reftex-select-label-mode-map}"
-  (set (make-local-variable 'reftex-select-marked) nil)
+  (setq-local reftex-select-marked nil)
   ;; We do not set a local map - reftex-select-item does this.
   )
 
@@ -234,17 +238,17 @@ During a selection process, these are the local bindings.
             reftex-active-toc nil
             master-dir-re
             (concat "\\`" (regexp-quote
-                           (file-name-directory (reftex-TeX-master-file))))))
+                           (reftex--get-directory (reftex-TeX-master-file))))))
 
-    (set (make-local-variable 'reftex-docstruct-symbol) docstruct-symbol)
-    (set (make-local-variable 'reftex-prefix)
-         (cdr (assoc labels reftex-typekey-to-prefix-alist)))
+    (setq-local reftex-docstruct-symbol docstruct-symbol)
+    (setq-local reftex-prefix
+                (cdr (assoc labels reftex-typekey-to-prefix-alist)))
     (if (equal reftex-prefix " ") (setq reftex-prefix nil))
 
     ;; Walk the docstruct and insert the appropriate stuff
     (while (setq cell (pop all))
 
-      (cl-incf index)
+      (incf index)
       (setq from (point))
 
       (cond
@@ -314,7 +318,7 @@ During a selection process, these are the local bindings.
                    (or show-commented (null comment)))
 
           ;; Yes we want this one
-          (cl-incf cnt)
+          (incf cnt)
           (setq prev-inserted cell)
 ;         (if (eq offset 'attention) (setq offset cell))
 
@@ -459,7 +463,7 @@ During a selection process, these are the local bindings.
               (reftex-find-start-point
                (point-min) offset reftex-last-data reftex-last-line)
               (beginning-of-line 1)
-              (set (make-local-variable 'reftex-last-follow-point) (point))
+              (setq-local reftex-last-follow-point (point))
 
       (unwind-protect
           (progn
@@ -480,9 +484,9 @@ During a selection process, these are the local bindings.
         (mapc (lambda (c) (delete-overlay (nth 1 c)))
               reftex-select-marked)))))
 
-    (set (make-local-variable 'reftex-last-line)
-         (+ (count-lines (point-min) (point)) (if (bolp) 1 0)))
-    (set (make-local-variable 'reftex-last-data) reftex--last-data)
+    (setq-local reftex-last-line
+                (+ (count-lines (point-min) (point)) (if (bolp) 1 0)))
+    (setq-local reftex-last-data reftex--last-data)
     (reftex-kill-buffer "*RefTeX Help*")
     (setq reftex-callback-fwd (not reftex-callback-fwd)) ;; ;-)))
     (message "")
@@ -705,8 +709,8 @@ Cycle in reverse order if optional argument REVERSE is non-nil."
             (setq sep (nth 2 c))
             (overlay-put (nth 1 c) 'before-string
                          (if sep
-                             (format "*%c%d* " sep (cl-decf cnt))
-                           (format "*%d*  " (cl-decf cnt)))))
+                             (format "*%c%d* " sep (decf cnt))
+                           (format "*%d*  " (decf cnt)))))
           reftex-select-marked)
     (message "Entry no longer marked")))
 

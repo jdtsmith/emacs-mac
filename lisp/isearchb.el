@@ -1,6 +1,6 @@
 ;;; isearchb.el --- a marriage between iswitchb and isearch  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2004-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -41,7 +41,7 @@
 ;; mode, just like with isearch.  I use C-z for this.  The binding in
 ;; my .emacs looks like:
 ;;
-;;   (define-key global-map [(control ?z)] 'isearchb-activate)
+;;   (keymap-global-set "C-z" 'isearchb-activate)
 ;;
 ;; Now, after pressing C-z (for example), each self-inserting
 ;; character thereafter will search for a buffer containing those

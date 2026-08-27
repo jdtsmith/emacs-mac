@@ -1,6 +1,6 @@
 ;;; ielm.el --- interaction mode for Emacs Lisp  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1994, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1994, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: David Smith <maa036@lancaster.ac.uk>
 ;; Maintainer: emacs-devel@gnu.org
@@ -60,11 +60,10 @@ narrowing in effect.  This way you will be certain that none of
 the remaining prompts will be accidentally messed up.  You may
 wish to put something like the following in your init file:
 
-\(add-hook \\='ielm-mode-hook
-          (lambda ()
-             (define-key ielm-map \"\\C-w\" \\='comint-kill-region)
-             (define-key ielm-map [C-S-backspace]
-               \\='comint-kill-whole-line)))
+    (with-eval-after-load \\='ielm
+      (keymap-set ielm-map \"C-w\" \\='comint-kill-region)
+      (keymap-set ielm-map \"C-S-<backspace>\"
+        \\='comint-kill-whole-line))
 
 If you set `comint-prompt-read-only' to t, you might wish to use
 `comint-mode-hook' and `comint-mode-map' instead of
@@ -98,9 +97,27 @@ customizes `ielm-prompt'.")
 
 (defcustom ielm-dynamic-return t
   "Controls whether \\<ielm-map>\\[ielm-return] has intelligent behavior in IELM.
-If non-nil, \\[ielm-return] evaluates input for complete sexps, or inserts a newline
-and indents for incomplete sexps.  If nil, always inserts newlines."
-  :type 'boolean)
+
+If nil, always insert newlines.
+
+If `point', insert newline if the point is in the middle of an sexp,
+otherwise evaluate input.  This is useful if you have
+`electric-pair-mode', or a similar mode, enabled.
+
+If any other non-nil value, insert newline for incomplete sexp input and
+evaluate input for complete sexps.  This is similar to the behavior in
+text shells."
+  :type
+  '(radio
+    (const :tag "Always insert newline" nil)
+    (const
+     :tag
+     "Insert newline if point is in middle of sexp, otherwise evaluate input"
+     point)
+    (const
+     :tag
+     "Insert newline for incomplete sexp, otherwise evaluate input"
+     t)))
 
 (defcustom ielm-dynamic-multiline-inputs t
   "Force multiline inputs to start from column zero?
@@ -249,14 +266,16 @@ simply inserts a newline."
   (if ielm-dynamic-return
       (let ((state
              (save-excursion
-               (end-of-line)
+               (unless (eq ielm-dynamic-return 'point)
+                 (end-of-line))
                (parse-partial-sexp (ielm-pm)
                                    (point)))))
         (if (and (< (car state) 1) (not (nth 3 state)))
             (ielm-send-input for-effect)
           (when (and ielm-dynamic-multiline-inputs
                      (save-excursion
-                       (beginning-of-line)
+                       (let ((inhibit-field-text-motion t))
+                         (beginning-of-line))
                        (looking-at-p comint-prompt-regexp)))
             (save-excursion
               (goto-char (ielm-pm))
@@ -521,6 +540,12 @@ behavior of the indirect buffer."
     (with-current-buffer buf
       (comint-write-input-ring))))
 
+(defun ielm--write-history-on-interrupt (_proc _group)
+  "Save the IELM input history when the process is interrupted."
+  (funcall (ielm--input-history-writer (current-buffer)))
+  ;; Let the rest of the hook functions run as well.
+  nil)
+
 ;;; Major mode
 
 (define-derived-mode inferior-emacs-lisp-mode comint-mode "IELM"
@@ -658,7 +683,10 @@ Customized bindings may be defined in `ielm-map', which currently contains:
          '(rear-nonsticky t field output inhibit-line-move-field-capture t))))
     (comint-output-filter (ielm-process) ielm-prompt-internal)
     (set-marker comint-last-input-start (ielm-pm))
-    (set-process-filter (get-buffer-process (current-buffer)) 'comint-output-filter)))
+    (set-process-filter (get-buffer-process (current-buffer))
+                        'comint-output-filter)
+    (add-hook 'interrupt-process-functions
+              #'ielm--write-history-on-interrupt -1 t)))
 
 (defun ielm-get-old-input nil
   ;; Return the previous input surrounding point

@@ -4204,18 +4204,19 @@ mac_focus_frame (struct frame *f, bool noactivate)
 void
 mac_handle_visibility_change (struct frame *f)
 {
-  int visible = 0;
-  bool iconified = false;
+  bool visible = false;
+  bool iconified = false, obscured = false;
   struct input_event buf;
 
   if (mac_is_frame_window_visible (f))
     {
       if (mac_is_frame_window_collapsed (f))
 	iconified = true;
-      else if (mac_is_frame_window_drawable (f))
-	visible = 1;
       else
-	visible = 2;
+	{
+	  visible = true;
+	  obscured = !mac_is_frame_window_drawable (f);
+	}
     }
 
   if (!FRAME_VISIBLE_P (f) && visible)
@@ -4232,7 +4233,7 @@ mac_handle_visibility_change (struct frame *f)
 	  kbd_buffer_store_event (&buf);
 	}
     }
-  else if (FRAME_OBSCURED_P (f) && visible == 1)
+  else if (FRAME_OBSCURED_P (f) && visible && !obscured)
     SET_FRAME_GARBAGED (f);
   else if (FRAME_VISIBLE_P (f) && !visible)
     if (iconified)
@@ -4244,6 +4245,7 @@ mac_handle_visibility_change (struct frame *f)
 	kbd_buffer_store_event (&buf);
       }
 
+  f->obscured = obscured;
   SET_FRAME_VISIBLE (f, visible);
   /* Avoid unnecessary gui_consider_frame_title in
      SET_FRAME_ICONIFIED.  */

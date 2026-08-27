@@ -1,6 +1,6 @@
 ;;; project-tests.el --- tests for project.el -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Keywords:
 
@@ -32,6 +32,8 @@
 (require 'ert-x) ; ert-with-temp-directory
 (require 'grep)
 (require 'xref)
+
+(declare-function vc-git--program-version "vc-git")
 
 (ert-deftest project/quoted-directory ()
   "Check that `project-files' and `project-find-regexp' deal with
@@ -148,14 +150,50 @@ When `project-ignores' includes a name matching project dir."
   "Check that it picks up dir-locals settings from somewhere else."
   (skip-unless (eq (vc-responsible-backend default-directory) 'Git))
   (let* ((dir (ert-resource-directory))
-         (_ (vc-file-clearprops dir))
+         (_ (project--clear-cache))
          (project-vc-extra-root-markers '(".dir-locals.el"))
          (project (project-current nil dir)))
     (should-not (null project))
     (should (string-match-p "/test/lisp/progmodes/project-resources/\\'" (project-root project)))
     (should (member "etc" (project-ignores project dir)))
-    (should (equal '(".dir-locals.el" "foo")
+    (should (equal `(,@(when (version<= "2.13" (vc-git--program-version))
+                         (list ".dir-locals.el"))
+                     "foo")
                    (mapcar #'file-name-nondirectory (project-files project))))))
+
+(ert-deftest project-vc-supports-files-in-subdirectory ()
+  "Check that it lists only files from a repo's subdirectory."
+  (skip-unless (eq (vc-responsible-backend default-directory) 'Git))
+  (let* ((dir (ert-resource-directory))
+         (_ (vc-file-clearprops dir))
+         (project-vc-extra-root-markers '("project-tests.el"))
+         (project (project-current nil dir)))
+    (should-not (null project))
+    (should (string-match-p "/test/lisp/progmodes/\\'" (project-root project)))
+    (should (equal `(,@(when (version<= "2.13" (vc-git--program-version))
+                         (list ".dir-locals.el"))
+                     "foo")
+                   (mapcar #'file-name-nondirectory
+                           (project-files project
+                                          (list dir)))))))
+
+(ert-deftest project-vc-ignores-in-external-directory ()
+  "Check that it applies project-vc-ignores when DIR is external to root."
+  (skip-unless (eq (vc-responsible-backend default-directory) 'Git))
+  (let* ((dir (ert-resource-directory))
+         (_ (project--clear-cache))
+         ;; Do not detect VC backend.
+         (project-vc-backend-markers-alist nil)
+         (project-vc-extra-root-markers '("configure.ac"))
+         (project (project-current nil (expand-file-name "../autoconf-resources/" dir))))
+    (should-not (null project))
+    (should (string-match-p "/test/lisp/progmodes/autoconf-resources/\\'" (project-root project)))
+    (should (equal `(,@(when (version<= "2.13" (vc-git--program-version))
+                         (list ".dir-locals.el"))
+                     "foo")
+                   (mapcar #'file-name-nondirectory
+                           (project-files project
+                                          (list dir)))))))
 
 (ert-deftest project-vc-nonexistent-directory-no-error ()
   "Check that is doesn't error out when the current dir does not exist."
@@ -220,5 +258,80 @@ When `project-ignores' includes a name matching project dir."
                      '(".dir-locals" "etc")))
       (should (equal (sort (mapcar #'xref-item-summary matches) #'string<)
                      '("((nil . ((project-vc-ignores . (\"etc\")))))" "etc"))))))
+
+(ert-deftest project-try-vc-uses-cache ()
+  "Check that it reuses the value that's already cached."
+  (skip-unless (eq (vc-responsible-backend default-directory) 'Git))
+  ;; Prepare
+  (let* ((dir (file-name-directory project-tests--this-file))
+         (_ (project--clear-cache))
+         (project-vc-extra-root-markers '("files-x-tests.*"))
+         (project (project-current nil dir)))
+    (should (nth 1 project))
+    (should (string-match-p "/test/lisp/\\'" (project-root project)))
+    (let* ((project-vc-extra-root-markers nil)
+           (project-vc-non-essential-cache-timeout 0.1)
+           (project-cached (project-current nil dir)))
+      (should (equal project project-cached)))))
+
+(ert-deftest project-try-vc-invalidates-cache ()
+  "Check that it invalidates the cached value that's too old."
+  (skip-unless (eq (vc-responsible-backend default-directory) 'Git))
+  ;; Prepare
+  (let* ((dir (file-name-directory project-tests--this-file))
+         (_ (project--clear-cache))
+         (project-vc-extra-root-markers '("files-x-tests.*"))
+         (project (project-current nil dir)))
+    (should (nth 1 project))
+    (should (string-match-p "/test/lisp/\\'" (project-root project)))
+    (let* ((project-vc-extra-root-markers nil)
+           (project-vc-non-essential-cache-timeout 0.0)
+           (project-fresh (project-current nil dir)))
+      (should (file-equal-p
+               (project-root project-fresh)
+               (expand-file-name "../../../" dir))))))
+
+(ert-deftest project-name-<vc>-reuses-cache ()
+  "Check that it reuses the cached value."
+  (skip-unless (eq (vc-responsible-backend default-directory) 'Git))
+  (project--clear-cache)
+  (ert-with-temp-directory dir
+    (write-region "((nil . ((project-vc-name . \"barbaz\"))))"
+                  nil
+                  (expand-file-name ".dir-locals.el" dir))
+    (write-region "" nil (expand-file-name "project-marker" dir))
+    (let* ((project-vc-extra-root-markers '("project-marker"))
+           (project (project-current nil dir)))
+      (should (equal (project-name project)
+                     "barbaz"))
+      (let* ((project-vc-extra-root-markers nil)
+             (project-vc-non-essential-cache-timeout 0))
+        ;; No change, even if the corresponding cache expired.
+        (should (equal (project-name project)
+                       "barbaz"))))))
+
+(ert-deftest project-name-<vc>-obeys-cache-invalidation ()
+  "Check that project-name cache obeys invalidation in project-try-vc."
+  (skip-unless (eq (vc-responsible-backend default-directory) 'Git))
+  (project--clear-cache)
+  (ert-with-temp-directory dir
+    (write-region "((nil . ((project-vc-name . \"barbaz\"))))"
+                  nil
+                  (expand-file-name ".dir-locals.el" dir))
+    (write-region "" nil (expand-file-name "project-marker" dir))
+    (let* ((project-vc-extra-root-markers '("project-marker"))
+           (project (project-current nil dir)))
+      (should (equal (project-name project)
+                     "barbaz"))
+      (delete-file (expand-file-name ".dir-locals.el" dir))
+      (let* ((project-vc-non-essential-cache-timeout 0)
+             (project-fresh (project-current nil dir)))
+        ;; Same project root.
+        (should (equal project project-fresh))
+        ;; But the name is refreshed.
+        (should (not (equal (project-name project) "barbaz")))
+        (should (equal (project-name project)
+                       (file-name-nondirectory
+                        (directory-file-name dir))))))))
 
 ;;; project-tests.el ends here

@@ -2,4 +2,5 @@
 If:
     PathMatch: "*.[ch]"
 CompileFlags:
-    Add: [-Wno-unused-macros, -include=src/config.h]
+    Add: [-Wno-unused-macros, -include=src/config.h, -fstrict-flex-arrays=3]
+    Remove: [-fstrict-flex-arrays]

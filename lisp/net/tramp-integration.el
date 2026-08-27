@@ -1,6 +1,6 @@
 ;;; tramp-integration.el --- Tramp integration into other packages  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2019-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
@@ -275,6 +275,33 @@ NAME must be equal to `tramp-current-connection'."
 		  (delete (info-lookup->mode-cache 'symbol ',mode)
 			  (info-lookup->topic-cache 'symbol))))))))
 
+;;; Integration of new `:link' type in `defcustom':
+
+(define-widget 'tramp-info-link 'link
+  "A link to the Tramp info file."
+  :action 'tramp-widget-info-link-action)
+
+(defun tramp-widget-info-link-action (widget &optional _event)
+  "Open the info node specified by WIDGET.
+It's value must be a Tramp user option, indexed in the Tramp manual via
+`@vindex'."
+  (let* ((topic (widget-value widget))
+	 (pattern
+	  (rx "\n*" (1+ " ") (0+ nonl)
+	      (literal (if (stringp topic) topic (symbol-name topic)))
+	      (0+ nonl) ":" (1+ (any "\t "))
+	      (group (0+ nonl))
+	      "." (0+ (any "\t\n ")) "(line" (1+ " ")
+	      (group (1+ digit))
+	      ")")))
+    (info "(tramp) Variable Index")
+    (goto-char (point-min))
+    (when (re-search-forward pattern nil t)
+      (let ((nodename (concat "(tramp) " (match-string-no-properties 1)))
+	    (line (string-to-number (match-string 2))))
+	(info nodename)
+	(forward-line (- line 2))))))
+
 ;;; Integration of shortdoc.el:
 
 (tramp--with-startup
@@ -332,16 +359,13 @@ NAME must be equal to `tramp-current-connection'."
 
 (defconst tramp-connection-local-default-system-variables
   '((path-separator . ":")
-    (null-device . "/dev/null"))
+    (null-device . "/dev/null")
+    (exec-suffixes . ("")))
   "Default connection-local system variables for remote connections.")
 
 (connection-local-set-profile-variables
  'tramp-connection-local-default-system-profile
  tramp-connection-local-default-system-variables)
-
-(connection-local-set-profiles
- '(:application tramp)
- 'tramp-connection-local-default-system-profile)
 
 (defconst tramp-connection-local-default-shell-variables
   '((shell-file-name . "/bin/sh")
@@ -352,10 +376,10 @@ NAME must be equal to `tramp-current-connection'."
  'tramp-connection-local-default-shell-profile
  tramp-connection-local-default-shell-variables)
 
-(with-eval-after-load 'shell
-  (connection-local-set-profiles
-   '(:application tramp)
-   'tramp-connection-local-default-shell-profile))
+(connection-local-set-profiles
+ '(:application tramp)
+ 'tramp-connection-local-default-system-profile
+ 'tramp-connection-local-default-shell-profile)
 
 ;; Tested with FreeBSD 12.2.
 (defconst tramp-bsd-process-attributes-ps-args
@@ -558,12 +582,10 @@ See `tramp-process-attributes-ps-format'.")
 		    'tramp-connection-local-darwin-ps-profile)
 		   ;; ... Add other system types here.
 		   )))
-  (connection-local-set-profiles
-   `(:application tramp :machine ,(system-name))
-   local-profile)
-  (connection-local-set-profiles
-   '(:application tramp :machine "localhost")
-   local-profile))
+  (dolist (local-host tramp-local-host-names)
+    (connection-local-set-profiles
+     `(:application tramp :machine ,local-host)
+     local-profile)))
 
 ;; Set connection-local variables for buffers visiting a file.
 

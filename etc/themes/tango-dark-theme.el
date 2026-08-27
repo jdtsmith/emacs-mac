@@ -1,6 +1,6 @@
 ;;; tango-dark-theme.el --- Tango-based custom theme for faces  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2010-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
 ;; Authors: Chong Yidong <cyd@stupidchicken>
 ;;          Jan Moringen <jan.moringen@uni-bielefeld.de>
@@ -135,7 +135,7 @@ Semantic, and Ansi-Color faces are included."
    `(message-cited-text ((,class (:foreground ,cham-1))))
    `(message-separator ((,class (:foreground ,plum-1))))
    ;; SMerge faces
-   `(smerge-refined-change ((,class (:background ,blue-3))))
+   `(smerge-refined-changed ((,class (:background ,blue-3))))
    ;; Ediff faces
    `(ediff-current-diff-A ((,class (:background ,alum-5))))
    `(ediff-fine-diff-A ((,class (:background ,blue-3))))

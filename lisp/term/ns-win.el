@@ -1,6 +1,6 @@
 ;;; ns-win.el --- lisp side of interface with NeXT/Open/GNUstep/macOS window system  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993-1994, 2005-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1994, 2005-2026 Free Software Foundation, Inc.
 
 ;; Authors: Carl Edman
 ;;	Christian Limpach
@@ -168,6 +168,27 @@ The properties returned may include `top', `left', `height', and `width'."
 (define-key global-map [S-mouse-1] 'mouse-save-then-kill)
 (global-unset-key [S-down-mouse-1])
 
+;; Moved here from common-win.el because they need to work in a -nw
+;; invocation of a (featurep 'ns) => true build (Bug#74619).
+(defun ns-setup-special-keys ()
+  (setq system-key-alist
+        (list
+         ;; These are special "keys" used to pass events from C to lisp.
+         (cons  1 (make-non-key-event 'ns-power-off))
+         (cons  2 (make-non-key-event 'ns-open-file))
+         (cons  3 (make-non-key-event 'ns-open-temp-file))
+         (cons  4 (make-non-key-event 'ns-drag-file))
+         (cons  5 (make-non-key-event 'ns-drag-color))
+         (cons  6 (make-non-key-event 'ns-drag-text))
+         (cons  8 (make-non-key-event 'ns-open-file-line))
+;;;            (cons  9 (make-non-key-event 'ns-insert-working-text))
+;;;            (cons 10 (make-non-key-event 'ns-delete-working-text))
+         (cons 11 (make-non-key-event 'ns-spi-service-call))
+         (cons 12 (make-non-key-event 'ns-new-frame))
+         (cons 13 (make-non-key-event 'ns-toggle-toolbar))
+         (cons 14 (make-non-key-event 'ns-show-prefs)))))
+(ns-setup-special-keys)
+
 ;; Special Nextstep-generated events are converted to function keys.  Here
 ;; are the bindings for them.  Note, these keys are actually declared in
 ;; x-setup-function-keys in common-win.
@@ -193,6 +214,7 @@ The properties returned may include `top', `left', `height', and `width'."
 (defvaralias 'mac-right-option-modifier 'ns-right-option-modifier)
 (defvaralias 'mac-function-modifier 'ns-function-modifier)
 (declare-function ns-do-applescript "nsfns.m" (script))
+(declare-function ns-send-items "nsfns.m" (items))
 (defalias 'do-applescript 'ns-do-applescript)
 
 ;;;; Services
@@ -809,15 +831,15 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
 	(setq menu-bar-final-items '(buffer services hide-app quit))
 
 	;; If running under GNUstep, "Help" is moved and renamed "Info".
-	(bindings--define-key global-map [menu-bar help-menu]
+        (define-key global-map [menu-bar help-menu]
 	  (cons "Info" menu-bar-help-menu))
-	(bindings--define-key global-map [menu-bar quit]
+        (define-key global-map [menu-bar quit]
 	  '(menu-item "Quit" save-buffers-kill-emacs
 		      :help "Save unsaved buffers, then exit"))
-	(bindings--define-key global-map [menu-bar hide-app]
+        (define-key global-map [menu-bar hide-app]
 	  '(menu-item "Hide" ns-do-hide-emacs
 		      :help "Hide Emacs"))
-	(bindings--define-key global-map [menu-bar services]
+        (define-key global-map [menu-bar services]
 	  (cons "Services" (make-sparse-keymap "Services")))))
 
 

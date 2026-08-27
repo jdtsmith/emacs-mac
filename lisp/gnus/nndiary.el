@@ -1,6 +1,6 @@
 ;;; nndiary.el --- A diary back end for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
 ;; Author:        Didier Verna <didier@didierverna.net>
 ;; Created:       Fri Jul 16 18:55:42 1999
@@ -1353,9 +1353,9 @@ all.  This may very well take some time.")
 		       (max (cond ((= month 2)
 				   (if (date-leap-year-p year) 29 28))
 				  ((<= month 7)
-				   (if (zerop (% month 2)) 30 31))
+				   (if (evenp month) 30 31))
 				  (t
-				   (if (zerop (% month 2)) 31 30))))
+				   (if (evenp month) 31 30))))
 		       (doms dom-list)
 		       (dows dow-list)
 		       day days)
@@ -1456,9 +1456,9 @@ all.  This may very well take some time.")
 		       (max (cond ((= month 2)
 				   (if (date-leap-year-p year) 29 28))
 				  ((<= month 7)
-				   (if (zerop (% month 2)) 30 31))
+				   (if (evenp month) 30 31))
 				  (t
-				   (if (zerop (% month 2)) 31 30))))
+				   (if (evenp month) 31 30))))
 		       (doms dom-list)
 		       (dows dow-list)
 		       day days)

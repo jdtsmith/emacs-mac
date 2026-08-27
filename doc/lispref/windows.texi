@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--1999, 2001--2025 Free Software
+@c Copyright (C) 1990--1995, 1998--1999, 2001--2026 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Windows
@@ -22,6 +22,8 @@ is displayed in windows.
 * Deleting Windows::        Removing a window from its frame.
 * Recombining Windows::     Preserving the frame layout when splitting and
                               deleting windows.
+* Resurrecting Windows::    Restoring deleted windows.
+* Changing Window Layouts::  Transposing windows in an orderly manner.
 * Cyclic Window Ordering::  Moving around the existing windows.
 * Buffers and Windows::     Each window displays the contents of a buffer.
 * Switching Buffers::       Higher-level functions for switching to a buffer.
@@ -76,14 +78,19 @@ disambiguation, we use the term @dfn{window-system window} when we mean
 the window-system window corresponding to an Emacs frame.
 
 @cindex tiled windows
+@cindex window layout
   Unlike X windows, Emacs windows are @dfn{tiled}; they never overlap
 within the area of their frame.  When a window is created, resized, or
 deleted, the change in window space is taken from or given to other
 windows on the same frame, so that the total area of the frame is
-unchanged.
+unchanged.  The @dfn{window layout} of a frame is the result of all
+tiling operations for that frame.
 
+@cindex window object
+@cindex window identity
 In Emacs Lisp, windows are represented by a special Lisp object type
-(@pxref{Window Type}).
+(@pxref{Window Type}).  Two windows are identical if and only if they are
+represented by the same Lisp object.
 
 @defun windowp object
 This function returns @code{t} if @var{object} is a window (whether or
@@ -421,19 +428,20 @@ appears right below @var{window}.
 @cindex window in direction
 @defun window-in-direction direction &optional window ignore sign wrap minibuf
 This function returns the nearest live window in direction
-@var{direction} as seen from the position of @code{window-point} in
-window @var{window}.  The argument @var{direction} must be one of
+@var{direction} as seen from the position of @var{window}'s point
+(@pxref{Window Point}).  The argument @var{direction} must be one of
 @code{above}, @code{below}, @code{left} or @code{right}.  The optional
 argument @var{window} must denote a live window and defaults to the
 selected one.
 
-This function does not return a window whose @code{no-other-window}
-parameter is non-@code{nil} (@pxref{Window Parameters}).  If the nearest
-window's @code{no-other-window} parameter is non-@code{nil}, this
-function tries to find another window in the indicated direction whose
-@code{no-other-window} parameter is @code{nil}.  If the optional
-argument @var{ignore} is non-@code{nil}, a window may be returned even
-if its @code{no-other-window} parameter is non-@code{nil}.
+This function does not return a window for which
+@code{window-no-other-p} (@pxref{Cyclic Window Ordering}) returns
+non-@code{nil}.  If the nearest window's @code{no-other-window}
+parameter is non-@code{nil}, this function tries to find another window
+in the indicated direction whose @code{no-other-window} parameter is
+@code{nil}.  However, if the optional argument @var{ignore} is
+non-@code{nil}, a window may be returned even if its
+@code{no-other-window} parameter is non-@code{nil}.
 
 If the optional argument @var{sign} is a negative number, it means to
 use the right or bottom edge of @var{window} as reference position
@@ -701,10 +709,10 @@ in the group).
 
 Emacs provides miscellaneous functions for finding the height and width
 of a window.  The return value of many of these functions can be
-specified either in units of pixels or in units of lines and columns.
-On a graphical display, the latter actually correspond to the height and
-width of a default character specified by the frame's default font as
-returned by @code{frame-char-height} and @code{frame-char-width}
+specified either in units of pixels or in units of canonical lines and
+columns.  On a graphical display, the latter actually correspond to the
+height and width of a default character specified by the frame's default
+font as returned by @code{frame-char-height} and @code{frame-char-width}
 (@pxref{Frame Font}).  Thus, if a window is displaying text with a
 different font or size, the reported line height and column width for
 that window may differ from the actual number of text lines or columns
@@ -717,10 +725,10 @@ displayed within it.
 its body and its top and bottom decorations (@pxref{Basic Windows}).
 
 @defun window-total-height &optional window round
-This function returns the total height, in lines, of the window
-@var{window}.  If @var{window} is omitted or @code{nil}, it defaults to
-the selected window.  If @var{window} is an internal window, the return
-value is the total height occupied by its descendant windows.
+This function returns the total height, in canonical lines, of the
+window @var{window}.  If @var{window} is omitted or @code{nil}, it
+defaults to the selected window.  If @var{window} is an internal window,
+the return value is the total height occupied by its descendant windows.
 
   If a window's pixel height is not an integral multiple of its frame's
 default character height, the number of lines occupied by the window is
@@ -728,16 +736,16 @@ rounded internally.  This is done in a way such that, if the window is a
 parent window, the sum of the total heights of all its child windows
 internally equals the total height of their parent.  This means that
 although two windows have the same pixel height, their internal total
-heights may differ by one line.  This means also, that if window is
+heights may differ by one line.  This means also, that if a window is
 vertically combined and has a next sibling, the topmost row of that
 sibling can be calculated as the sum of this window's topmost row and
 total height (@pxref{Coordinates and Windows})
 
-  If the optional argument @var{round} is @code{ceiling}, this
-function returns the smallest integer larger than @var{window}'s pixel
-height divided by the character height of its frame; if it is
+  If the optional argument @var{round} is @code{ceiling}, this function
+returns the smallest integer larger than @var{window}'s pixel height
+divided by the canonical character height of its frame; if it is
 @code{floor}, it returns the largest integer smaller than said value;
-with any other @var{round} it returns the internal value of
+with any other value of @var{round} it returns the internal value of
 @var{windows}'s total height.
 @end defun
 
@@ -748,19 +756,19 @@ The @dfn{total width} of a window is the number of columns comprising its
 body and its left and right decorations (@pxref{Basic Windows}).
 
 @defun window-total-width &optional window round
-This function returns the total width, in columns, of the window
-@var{window}.  If @var{window} is omitted or @code{nil}, it defaults to
-the selected window.  If @var{window} is internal, the return value is
-the total width occupied by its descendant windows.
+This function returns the total width, in canonical columns, of the
+window @var{window}.  If @var{window} is omitted or @code{nil}, it
+defaults to the selected window.  If @var{window} is internal, the
+return value is the total width occupied by its descendant windows.
 
   If a window's pixel width is not an integral multiple of its frame's
-character width, the number of columns occupied by the window is rounded
-internally.  This is done in a way such that, if the window is a parent
-window, the sum of the total widths of all its children internally
-equals the total width of their parent.  This means that although two
-windows have the same pixel width, their internal total widths may
-differ by one column.  This means also, that if this window is
-horizontally combined and has a next sibling, the leftmost column of
+canonical character width, the number of columns occupied by the window
+is rounded internally.  This is done in a way such that, if the window
+is a parent window, the sum of the total widths of all its children
+internally equals the total width of their parent.  This means that
+although two windows have the same pixel width, their internal total
+widths may differ by one column.  This means also, that if this window
+is horizontally combined and has a next sibling, the leftmost column of
 that sibling can be calculated as the sum of this window's leftmost
 column and total width (@pxref{Coordinates and Windows}).  The optional
 argument @var{round} behaves as it does for @code{window-total-height}.
@@ -832,17 +840,17 @@ does not include any of its top or bottom decorations (@pxref{Basic
 Windows}).
 
 @defun window-body-height &optional window pixelwise
-This function returns the height, in lines, of the body of window
-@var{window}.  If @var{window} is omitted or @code{nil}, it defaults to
-the selected window; otherwise it must be a live window.
+This function returns the height, in canonical lines, of the body of
+window @var{window}.  If @var{window} is omitted or @code{nil}, it
+defaults to the selected window; otherwise it must be a live window.
 
 The optional argument @var{pixelwise} defines the units to use for the
 height.  If @code{nil}, return the body height of @var{window} in
-characters, rounded down to the nearest integer, if necessary.  This
-means that if a line at the bottom of the text area is only partially
-visible, that line is not counted.  It also means that the height of a
-window's body can never exceed its total height as returned by
-@code{window-total-height}.
+canonical characters, rounded down to the nearest integer, if necessary.
+This means that if a line at the bottom of the text area is only
+partially visible, that line is not counted.  It also means that the
+height of a window's body can never exceed its total height as returned
+by @code{window-total-height}.
 
 If @var{pixelwise} is @code{remap} and the default face is remapped
 (@pxref{Face Remapping}), use the remapped face to determine the
@@ -864,16 +872,16 @@ glyphs, which leaves 2 columns less for text display.  (The function
 peculiarity into account.)
 
 @defun window-body-width &optional window pixelwise
-This function returns the width, in columns, of the body of window
-@var{window}.  If @var{window} is omitted or @code{nil}, it defaults to
-the selected window; otherwise it must be a live window.
+This function returns the width, in canonical columns, of the body of
+window @var{window}.  If @var{window} is omitted or @code{nil}, it
+defaults to the selected window; otherwise it must be a live window.
 
 The optional argument @var{pixelwise} defines the units to use for the
 width.  If @code{nil}, return the body width of @var{window} in
-characters, rounded down to the nearest integer, if necessary.  This
-means that if a column on the right of the text area is only partially
-visible, that column is not counted.  It also means that the width of
-a window's body can never exceed its total width as returned by
+canonical characters, rounded down to the nearest integer, if necessary.
+This means that if a column on the right of the text area is only
+partially visible, that column is not counted.  It also means that the
+width of a window's body can never exceed its total width as returned by
 @code{window-total-width}.
 
 If @var{pixelwise} is @code{remap} and the default face is remapped
@@ -1165,7 +1173,9 @@ frame to its buffer using the command @code{fit-frame-to-buffer}.
 This command adjusts the size of @var{frame} to display the contents of
 its buffer exactly.  @var{frame} can be any live frame and defaults to
 the selected one.  Fitting is done only if @var{frame}'s root window is
-live.
+a live window.  On window systems that use size hints, exact fitting can
+be often achieved if and only if @code{frame-resize-pixelwise}
+(@pxref{Frame Size}) is non-@code{nil}.
 
 The arguments @var{max-height}, @var{min-height}, @var{max-width} and
 @var{min-width}, if non-@code{nil}, specify bounds on the new body size
@@ -1354,7 +1364,7 @@ the sense that these functions may fail to split them as described here.
 Examples of such windows are side windows (@pxref{Side Windows}) and
 atomic windows (@pxref{Atomic Windows}).
 
-@defun split-window &optional window size side pixelwise
+@defun split-window &optional window size side pixelwise refer
 This function creates a new live window next to the window
 @var{window}.  If @var{window} is omitted or @code{nil}, it defaults
 to the selected window.  That window is split, and reduced in
@@ -1398,14 +1408,62 @@ the right of @var{window}.  If @var{side} is @code{left}, the new
 window is placed on the left of @var{window}.  In both these cases,
 @var{size} specifies a total window width, in columns.
 
+As a rule, if @var{window} already forms a combination (@pxref{Windows
+and Frames}) that matches @var{side} (a horizontal combination matches
+@var{side} if it is @code{left} or @code{right}, a vertical combination
+matches @var{side} if it is @code{above} or @code{below}) and
+@code{window-combination-limit} (@pxref{Recombining Windows}) is
+@code{nil}, this function reuses @var{window}'s parent in the window
+tree as parent of the new window.
+
+However, if @var{window} is in a combination that does not match
+@var{side} or if @code{window-combination-limit} is non-@code{nil}, this
+function makes a new parent window that replaces @var{window} in the
+window tree and makes @var{window} and the new window its sole child
+windows.  This standard behavior can be overridden via the @var{refer}
+argument.
+
 The optional fourth argument @var{pixelwise}, if non-@code{nil}, means
 to interpret @var{size} in units of pixels, instead of lines and
 columns.
 
-If @var{window} is a live window, the new window inherits various
-properties from it, including margins and scroll bars.  If
-@var{window} is an internal window, the new window inherits the
-properties of the window selected within @var{window}'s frame.
+If the optional fifth argument @var{refer} is non-@code{nil}, it
+specifies a reference window used for setting up properties of the new
+window.  If non-@code{nil}, @var{refer} can be either a window or a cons
+cell of two windows.
+
+If @var{refer} is a cons cell, its @sc{car} has to specify a deleted,
+former live window -- a window that has shown a buffer before -- on the
+same frame as @var{window}.  That buffer must be still live.  The
+@sc{cdr} has to specify a deleted window that was, before its deletion,
+a parent window on the same frame as @var{window}.  In this case, rather
+then making new windows, this function replaces @var{window} with the
+@sc{cdr} of @var{refer} in the window tree and makes @var{window} and
+@var{refer}'s @sc{car} its new child windows.  Buffer, start and point
+positions of @var{refer}'s @sc{car} are set to the values they had
+immediately before @var{refer}'s @sc{car} was deleted the last time.
+Decorations and parameters remain unaltered from their values before
+@var{refer}'s @sc{car} and @sc{cdr} were deleted.
+
+Alternatively, @var{refer} may specify a deleted, former live window -- a
+window that has shown a buffer before -- on the same frame as
+@var{window}.  That buffer must be still live.  In this case, this
+function does not make a new window but rather makes @var{refer} live
+again and inserts it into the window tree at the position and with the
+sizes the new window would have been given.  Buffer, start and point
+positions of @var{refer} are set to the values they had immediately
+before @var{refer} was deleted the last time.  Decorations and
+parameters remain unaltered from their values before @var{refer} was
+deleted.  The parent of @var{refer} is then determined as if it were a
+window created anew.
+
+In any other case, @var{refer} must specify a live window.  Then the new
+window will inherit properties like buffer, start and point positions
+and some decorations from @var{refer}.  If @var{refer} is @code{nil} or
+omitted, then if @var{window} is live, the new window inherits these
+properties from @var{window}.  If, however, @var{window} is an internal
+window, the new window will inherit these properties from the window
+selected on @var{window}'s frame.
 
 The behavior of this function may be altered by the window parameters
 of @var{window}, so long as the variable
@@ -1574,20 +1632,24 @@ selected one.  Possible choices are
 
 @itemize
 @item @code{mru}
-(the default) choose the most recently used window on that frame.
+(the default) means to choose the most recently used window
+(@pxref{Cyclic Window Ordering}) other than the selected one on that
+frame.
 
 @item @code{pos}
-choose the window comprising the frame coordinates of point of the
-previously selected window on that frame.
+means to choose the window comprising the position of
+@code{window-point} (@pxref{Window Point}) of the previously selected
+window on that frame.
 
 @item @code{nil}
-choose the first window (the window returned by
-@code{frame-first-window}) on that frame.
+means to choose the first window (the window returned by
+@code{frame-first-window}, @pxref{Windows and Frames}) on that frame.
 @end itemize
 
-A window with a non-@code{nil} @code{no-other-window} parameter is
-chosen only if all other windows on that frame have that parameter set
-to a non-@code{nil} value too.
+A window for which @code{window-no-other-p} (@pxref{Cyclic Window
+Ordering}) returns non-@code{nil} is chosen only if all other windows on
+that frame have their @code{no-other-window} parameter set to a
+non-@code{nil} value too.
 @end defopt
 
 @deffn Command delete-other-windows &optional window
@@ -1646,6 +1708,45 @@ functions which scan all live windows (@pxref{Cyclic Window
 Ordering}).  Specifically, the meanings of @code{t} and @code{nil} here
 are the opposite of what they are in those other functions.
 @end deffn
+
+@cindex implicit deletion of windows
+@cindex deleting windows implicitly
+
+  The above commands delete windows explicitly.  However, Emacs may also
+delete a window implicitly when it thinks that it's more intuitive to
+eliminate it rather than showing some unrelated buffer in it.  Functions
+that may delete windows implicitly are @code{kill-buffer}
+(@pxref{Killing Buffers}), @code{quit-restore-window} (@pxref{Quitting
+Windows}) and @code{bury-buffer} (@pxref{Buffer List}).  Some of these
+delete a window if and only if that window is dedicated to its buffer
+(@pxref{Dedicated Windows}).  Others delete a window when that window
+has been created by @code{display-buffer} (@pxref{Displaying Buffers}).
+Some will also try to delete a window's frame together with the window,
+provided there are other frames on the same terminal and the frame does
+not host the active minibuffer window.
+
+  The hook described next can be used to avoid that a window gets
+deleted by these functions.
+
+@defopt window-deletable-functions
+This is an abnormal hook that can be used to avoid that a window gets
+deleted implicitly.  The value should be a list of functions that take
+two arguments.  The first argument is the window about to be deleted.
+The second argument, if non-@code{nil}, means that the window is the
+only window on its frame and would be deleted together with its frame.
+The window's buffer is current when running this hook.
+
+If any of these functions returns @code{nil}, the window will not be
+deleted and another buffer will be shown in it.  This hook is run
+(indirectly) by the functions @code{quit-restore-window},
+@code{kill-buffer} and @code{bury-buffer}.  It is not run by functions
+that delete windows explicitly like @code{delete-window},
+@code{delete-other-windows} or @code{delete-windows-on}.
+
+The purpose of this hook is to give its clients a chance to save a
+window or its frame from deletion because they might still want to use
+that window or frame for their own purposes.
+@end defopt
 
 
 @node Recombining Windows
@@ -1927,6 +2028,13 @@ combination.
 The default is @code{nil}.  Other values are reserved for future use.  A
 specific split operation may ignore the value of this variable if it is
 affected by a non-@code{nil} value of @code{window-combination-limit}.
+
+If you plan to use a sequence of @code{split-window} calls to produce a
+specific, predefined layout of windows on a frame, bind this variable
+temporarily to @code{nil}.  @code{window-state-put} (@pxref{Window
+Configurations}) and the functions which change window layouts
+(@pxref{Changing Window Layouts}) do that in order to restore a previous
+or systematically changed layout of a frame.
 @end defopt
 
   To illustrate the effect of @code{window-combination-resize}, consider
@@ -2005,6 +2113,379 @@ height:
 Deleting any of the live windows @var{W2}, @var{W3} or @var{W4} will
 distribute its space proportionally among the two remaining live
 windows.
+
+The following two functions allow to expressly make a new parent window
+for several adjacent windows and to undo that operation.
+
+@cindex combining windows
+@defun combine-windows first last
+This function combines the windows from @var{first} to @var{last}
+inclusive.  @var{first} and @var{last} must be valid windows in the same
+combination, that is, windows with the same parent window.  If neither
+@var{first} has a previous nor @var{last} has a next sibling, it returns
+that parent window.  Otherwise, it makes a new parent window whose first
+child window becomes @var{first} and whose last child window becomes
+@var{last}, inserts that parent window in the window tree in lieu of the
+windows starting with @var{first} and ending with @var{last} and returns
+the new parent window.
+
+This function is useful to operate on several siblings of the same
+parent window as a whole.  Consider three sibling windows @var{w1},
+@var{w2} and @var{w3} aligned side by side.  To create a window below
+@var{w1} and @var{w2} but not below @var{w3}, first combine @var{w1} and
+@var{w2} using this function, and then split the window it returned.  You
+can also call @code{window-state-get} (@pxref{Window Configurations}) on
+the return value of @code{combine-windows} to obtain the combined state
+of @var{w1} and @var{w2}.
+@end defun
+
+@cindex uncombining windows
+@defun uncombine-window window
+This function uncombines the specified @var{window}.  @var{window}
+should be an internal window whose parent window is an internal window
+of the same type.  This means that @var{window} and its parent should
+be either both horizontal or both vertical window combinations.  If this
+is the case, the function makes the child windows of @var{window} become
+child windows of @var{window}'s parent, and returns @code{t}.
+Otherwise, it leaves the current configuration of @var{window}'s frame
+unchanged and returns @code{nil}.
+
+This function is useful to undo the effect of @code{combine-windows}.
+For example, to calculate the state of two adjacent windows @var{w1} and
+@var{w2}, proceed as follows: first, call @code{combine-windows} with @var{w1}
+and @var{w2} as arguments, and store the result in @var{w}.  Then call
+@code{window-state-get} with the argument @var{w}.  Finally, call
+@code{uncombine-window} with @var{w} as its argument to obtain the
+window configuration that existed before the call to @code{combine-windows}.
+@end defun
+
+
+@node Resurrecting Windows
+@section Resurrecting Windows
+@cindex resurrecting deleted windows
+@cindex restoring deleted windows
+
+After a window has been deleted (@pxref{Deleting Windows}) it cannot be
+used any more by functions that require a valid window as their argument
+even if some Lisp variable still references that window.  When the last
+reference to a window has ceased to exist, the window's Lisp object will
+be eventually recycled by the garbage collector (@pxref{Garbage
+Collection}).
+
+There are two ways to resurrect a deleted window whose object has not
+been yet recycled by the collector: The first is to keep a reference to
+that window in a saved window configuration (@pxref{Window
+Configurations}) and then call @code{set-window-configuration} with that
+configuration as argument.  The second one is to keep a reference to
+that window in a variable or let-bind it and then use that reference as
+@var{refer} argument in @code{split-window} (@pxref{Splitting Windows}).
+
+The major difference between these two is that
+@code{set-window-configuration} restores the frame layout as it existed
+before deleting the window.  The @code{split-window} approach, on the
+other hand, allows for arbitrary variations of the layout.
+
+Consider the following example starting with a frame containing a single
+window showing the buffer @file{*scratch*}:
+
+@example
+@group
+(let* ((old (selected-window))
+       (new (split-window old nil 'right))
+       overlay)
+  (with-current-buffer (get-buffer-create "*Messages*")
+    (set-window-buffer new (current-buffer))
+    (setq overlay (make-overlay (point-min) (point-max)))
+    (overlay-put overlay 'face 'highlight)
+    (overlay-put overlay 'window new)
+    (message "new %s parent %s" new (window-parent new))
+    (sit-for 3))
+  (delete-window new)
+  (setq new (split-window old nil 'left))
+  (set-window-buffer new (get-buffer-create "*Messages*"))
+  (format "new %s parent %s" new (window-parent new)))
+@end group
+@end example
+
+When you run that code in @file{*scratch*} it will first split the
+window showing @file{*scratch*} to display @file{*Messages*} in a new
+window on the right.  It also sets up an overlay with a window property
+to highlight the text of @file{*Messages*} in the new window and
+displays a message showing the new window and its parent in the window
+tree.  It then deletes the new window and resurrects it on the left of
+the @file{*scratch*} window again displaying a message showing the new
+window and its parent in the window tree.
+
+Note that both, new window and its parent have changed after moving the
+@file{*Messages*} window to the left.  Also, the highlighting disappears
+because any properties set up for the new window on the right are lost
+when the new window is re-created on the left.
+
+The following code uses the @var{refer} argument of @code{split-window}
+instead.
+
+@example
+@group
+(let* ((old (selected-window))
+       (new (split-window old nil 'right))
+       overlay)
+  (with-current-buffer (get-buffer-create "*Messages*")
+    (set-window-buffer new (current-buffer))
+    (setq overlay (make-overlay (point-min) (point-max)))
+    (overlay-put overlay 'face 'highlight)
+    (overlay-put overlay 'window new)
+    (message "new %s parent %s" new (window-parent new))
+    (sit-for 3))
+  (delete-window new)
+  (split-window old nil 'left nil new)
+  (format "new %s parent %s" new (window-parent new)))
+@end group
+@end example
+
+Note that all properties of the resurrected window like its decorations,
+parameters as well as any overlays with a window property are preserved
+as if that window had never been deleted.  The only things that changed
+are its position in the window tree and consequently the values returned
+by @code{window-left-child} of its parent window as well as the values
+returned by @code{window-prev-sibling} and @code{window-next-sibling} of
+the window and its sibling.
+
+The following code passes both, the new window on the right and its
+parent, via the @var{refer} argument to @code{split-window} instead.
+
+@example
+@group
+(let* ((old (selected-window))
+       (new (split-window old nil 'right))
+       (parent (window-parent new))
+       overlay)
+  (with-current-buffer (get-buffer-create "*Messages*")
+    (set-window-buffer new (current-buffer))
+    (setq overlay (make-overlay (point-min) (point-max)))
+    (overlay-put overlay 'face 'highlight)
+    (overlay-put overlay 'window new)
+    (message "new %s parent %s" new (window-parent new))
+    (sit-for 3))
+  (delete-window new)
+  (split-window old nil 'left nil (cons new parent))
+  (format "new %s parent %s" new (window-parent new)))
+@end group
+@end example
+
+Note that the parent window has been resurrected along with the new
+window.
+
+Resurrecting dead windows is useful to preserve the identity of windows
+in actions that are supposed to do that like moving windows around on a
+frame or hiding them temporarily.  Any properties of such a window like
+its decorations, the buffer it has shown previously, that buffer's start
+and point position in the window, the window's dedicated status or its
+cursor type are left untouched and there's no need to recreate them from
+scratch.  For internal windows, the value of that window's combination
+limit is preserved which means that the window can be recombined
+(@pxref{Recombining Windows}) as before.
+
+
+@node Changing Window Layouts
+@section Changing Window Layouts
+
+Sometimes it can be useful to change the layout of windows such that two
+or more windows occupy the locations of each other.  The commands
+described in this section do that in an orderly manner.  Conceptually,
+these commands affect a rectangular subset of the windows on a frame.
+As a rule, they neither affect the location of a frame's minibuffer
+window nor of any of its side windows (@pxref{Side Windows}).
+
+   Common to all these commands is that they preserve the identity of
+windows by deleting them first and resurrecting them
+(@pxref{Resurrecting Windows}) in their new locations afterwards.  No
+window gets lost and no window is added or duplicated.  Where possible,
+these commands try to preserve the relative size of windows as well as
+all other non-geometric properties including parameters.  These commands
+will signal an error if windows about to change their locations are
+atomic or of fixed size.  The option @code{transpose-dedicated-windows}
+described below decides whether dedicated windows may change their
+locations.
+
+   The @var{window} argument of all functions described in this section
+must specify a valid parent window (@pxref{Windows and Frames}).  If it
+is @code{nil}, it stands for the main window (@pxref{Side Windows}) of
+the selected frame.  Interactively, a prefix argument means to operate
+on the parent window of the selected window.  In the examples given
+below, we shall always assume that the windows displayed constitute
+their frame's main window and the @var{window} argument is @code{nil}
+unless stated otherwise.
+
+@cindex rotate window layout
+   The first two commands @dfn{rotate a window layout} either clockwise
+or counterclockwise.
+
+@deffn Command window-layout-rotate-clockwise &optional window
+This command rotates the window layout clockwise by 90 degrees.  Imagine
+a layout with three live windows @var{A}, @var{B} and @var{C} as
+depicted on the left below.  Then this command will produce the layout
+on the right.
+
+@smallexample
+@group
+     ___________       ___________
+    |           |     |     |     |
+    |     A     |     |  B  |     |
+    |___________| --> |_____|  A  |
+    |     |     |     |     |     |
+    |  B  |  C  |     |  C  |     |
+    |_____|_____|     |_____|_____|
+
+@end group
+@end smallexample
+@end deffn
+
+@deffn Command window-layout-rotate-anticlockwise &optional window
+This is like @code{window-layout-rotate-clockwise} but rotates the
+layout in the opposite direction as demonstrated in the example below.
+
+@smallexample
+@group
+     ___________       ___________
+    |           |     |     |     |
+    |     A     |     |     |  C  |
+    |___________| --> |  A  |_____|
+    |     |     |     |     |     |
+    |  B  |  C  |     |     |  B  |
+    |_____|_____|     |_____|_____|
+
+@end group
+@end smallexample
+@end deffn
+
+@cindex flip window layout
+The next two commands @dfn{flip the window layout}---rotate it around an
+imaginary horizontal or vertical axis.  If the number of windows to be
+flipped is odd, the window in the middle remains in its original place.
+
+@deffn Command window-layout-flip-topdown &optional window
+This command flips windows such that windows on the bottom become
+windows on the top and vice-versa as in the example below.
+
+@smallexample
+@group
+     ___________       ___________
+    |           |     |     |     |
+    |     A     |     |  B  |  C  |
+    |___________| --> |_____|_____|
+    |     |     |     |           |
+    |  B  |  C  |     |     A     |
+    |_____|_____|     |___________|
+
+@end group
+@end smallexample
+@end deffn
+
+@deffn Command window-layout-flip-leftright &optional window
+This command rearranges window in a way that the windows on the right
+become the windows on the left, and vice-versa.
+
+@smallexample
+@group
+     ___________        ___________
+    |           |     |           |
+    |     A     |     |     A     |
+    |___________| --> |___________|
+    |     |     |     |     |     |
+    |  B  |  C  |     |  C  |  B  |
+    |_____|_____|     |_____|_____|
+
+@end group
+@end smallexample
+@end deffn
+
+The next command can be used to @dfn{transpose windows}---changing
+horizontal splits to vertical ones and vice-versa.
+@cindex transposing windows
+
+@deffn Command window-layout-transpose &optional window
+This command reorganizes windows such that every horizontal split
+becomes a vertical split and vice versa.
+
+@smallexample
+@group
+     ___________       ___________
+    |           |     |     |     |
+    |     A     |     |     |  B  |
+    |___________| --> |  A  |_____|
+    |     |     |     |     |     |
+    |  B  |  C  |     |     |  C  |
+    |_____|_____|     |_____|_____|
+
+@end group
+@end smallexample
+@end deffn
+
+@cindex rotating windows
+The final two commands can be used to @dfn{rotate windows} within the
+existing layout.  They are like the commands that rotate the layout but
+leave the underlying structure of the layout unchanged.  What actually
+changes are the positions of windows within the existing layout.  This
+happens in a way that the space formerly occupied by any window will be
+occupied by the window preceding (following if @var{reverse} is
+non-@code{nil}) it in the cyclic ordering of windows (@pxref{Cyclic
+Window Ordering}) on @var{window}'s frame.
+
+@deffn Command rotate-windows &optional window reverse
+This command rotates @var{window}'s child windows in cyclic ordering.
+The optional argument @var{reverse} means to rotate windows backwards,
+in reverse cyclic order.
+
+@smallexample
+@group
+     ___________        ___________
+    |           |      |           |
+    |     A     |      |     C     |
+    |___________| -->  |___________|
+    |     |     |      |     |     |
+    |  B  |  C  |      |  A  |  B  |
+    |_____|_____|      |_____|_____|
+
+@end group
+@end smallexample
+@end deffn
+
+@deffn Command rotate-windows-back &optional window
+This command rotates @var{window}'s child windows backwards in cyclic
+ordering.
+
+@smallexample
+@group
+     ___________        ___________
+    |           |      |           |
+    |     A     |      |     B     |
+    |___________| -->  |___________|
+    |     |     |      |     |     |
+    |  B  |  C  |      |  C  |  A  |
+    |_____|_____|      |_____|_____|
+
+@end group
+@end smallexample
+@end deffn
+
+All commands described above are subject to the following option.
+
+@defopt transpose-dedicated-windows
+If this is @code{nil}, the functions described in this section will
+report an error when they encounter a dedicated window (@pxref{Dedicated
+Windows}).  If this is @code{t}, they handle dedicated windows like
+non-dedicated ones.
+@end defopt
+
+The last two commands are subject to the following option.
+
+@defopt rotate-windows-change-selected
+If this is @code{nil}, the selected window will remain unaffected by
+@code{rotate-windows} and @code{rotate-windows-back}.  If this is
+@code{t} (the default), the selected window will change to the window
+that appears at the location of the window selected before any of these
+commands were invoked.
+@end defopt
 
 
 @node Cyclic Window Ordering
@@ -2092,15 +2573,32 @@ The optional argument @var{all-frames} has the same meaning as in
 always @code{nil}, so only windows on the selected frame can be
 selected.
 
-This function does not select a window that has a non-@code{nil}
-@code{no-other-window} window parameter (@pxref{Window Parameters}),
-provided that @code{ignore-window-parameters} is @code{nil}.
-
 If the @code{other-window} parameter of the selected window is a
 function, and @code{ignore-window-parameters} is @code{nil}, that
 function will be called with the arguments @var{count} and
 @var{all-frames} instead of the normal operation of this function.
+
+Otherwise, this function does not select a window for which the function
+@code{window-no-other-p} (see next) returns @code{nil}.
 @end deffn
+
+@defun window-no-other-p &optional window
+This function returns non-@code{nil} if @var{window} should not be used
+as ``other'' window by commands like @code{other-window} or functions
+like @code{get-lru-window} (see below).  It's also called when deleting
+the selected window (@pxref{Deleting Windows}) and a new selected window
+has to be chosen.
+
+More precisely, this function returns non-@code{nil} if the
+@code{no-other-window} parameter of @var{window} is non-@code{nil} and
+@code{ignore-window-parameters} is @code{nil}.  It returns @code{nil} in
+any other case.
+
+Note that if this function returns @code{nil}, this does not necessarily
+mean that @var{window} can be selected.  A tooltip window (@pxref{Basic
+Windows}), for example, has its @code{no-other-window} parameter set to
+@code{t} by default but cannot be selected.
+@end defun
 
 @defun walk-windows fun &optional minibuf all-frames
 This function calls the function @var{fun} once for each live window,
@@ -2149,8 +2647,9 @@ optional argument @var{dedicated} is non-@code{nil}.  The selected
 window is never returned, unless it is the only candidate.  However, if
 the optional argument @var{not-selected} is non-@code{nil}, this
 function returns @code{nil} in that case.  The optional argument
-@var{no-other}, if non-@code{nil}, means to never return a window whose
-@code{no-other-window} parameter is non-@code{nil}.
+@var{no-other}, if non-@code{nil}, means to never return a window for
+which @code{window-no-other-p} (@pxref{Cyclic Window Ordering}) returns
+non-@code{nil}.
 @end defun
 
 @cindex most recently used window
@@ -2279,7 +2778,37 @@ Ordering}).  This function may be changed in a future version of Emacs
 to eliminate this discrepancy.
 @end defun
 
-@defun get-buffer-window-list &optional buffer-or-name minibuf all-frames
+The following function can tell for a specific window whether its buffer
+shares the text of some other buffer (@pxref{Indirect Buffers}).
+
+@defun window-indirect-buffer-p &optional window buffer-or-name
+This function returns non-@code{nil} if @var{window} is indirectly
+related to @var{buffer-or-name}.  @var{window} must be a live window and
+defaults to the selected window.  @var{buffer-or-name} may be a buffer
+or the name of an existing buffer and defaults to the current buffer.
+
+@var{window} is indirectly related to @var{buffer-or-name} if one of the
+following conditions hold:
+
+@itemize @bullet
+@item
+@var{buffer-or-name} specifies an indirect buffer and @var{window}'s
+buffer is its base buffer.
+
+@item
+@var{window}'s buffer is an indirect buffer whose base buffer is the
+buffer specified by @var{buffer-or-name}.
+
+@item
+Both, @var{window}'s buffer and the buffer specified by
+@var{buffer-or-name}, are indirect buffer's sharing the same base
+buffer.
+@end itemize
+
+It returns @code{nil} if none of the above holds.
+@end defun
+
+@defun get-buffer-window-list &optional buffer-or-name minibuf all-frames indirect
 This function returns a list of all windows currently displaying
 @var{buffer-or-name}.  @var{buffer-or-name} should be a buffer or the
 name of an existing buffer.  If omitted or @code{nil}, it defaults to
@@ -2291,6 +2820,13 @@ The arguments @var{minibuf} and @var{all-frames} have the same
 meanings as in the function @code{next-window} (@pxref{Cyclic Window
 Ordering}).  Note that the @var{all-frames} argument does @emph{not}
 behave exactly like in @code{get-buffer-window}.
+
+The optional argument @var{indirect} non-@code{nil} means to append to
+the list of windows showing @var{buffer-or-name} a list of all windows
+that are indirectly related to @var{buffer-or-name}, that is, windows
+for which @code{window-indirect-buffer-p} (see above) with the window
+and the buffer specified by @var{buffer-or-name} as arguments returns
+non-@code{nil}.
 @end defun
 
 @deffn Command replace-buffer-in-windows &optional buffer-or-name
@@ -2299,15 +2835,46 @@ all windows displaying it.  @var{buffer-or-name} should be a buffer, or
 the name of an existing buffer; if omitted or @code{nil}, it defaults to
 the current buffer.
 
-The replacement buffer in each window is chosen via
+The replacement buffer in each window is usually chosen via
 @code{switch-to-prev-buffer} (@pxref{Window History}).  With the
 exception of side windows (@pxref{Side Windows}), any dedicated window
 displaying @var{buffer-or-name} is deleted if possible (@pxref{Dedicated
 Windows}).  If such a window is the only window on its frame and there
-are other frames on the same terminal, the frame is deleted as well.
-If the dedicated window is the only window on the only frame on its
+are other frames on the same terminal, the frame is deleted as well.  If
+the dedicated window is the only window on the only frame on its
 terminal, the buffer is replaced anyway.
+
+The main purpose of this function is to decide what to do with windows
+whose buffers are about to be killed by @code{kill-buffer}
+(@pxref{Killing Buffers}).  It will, however, also remove the buffer
+specified by @var{buffer-or-name} from the lists of previous and next
+buffers (@pxref{Window History}) of all windows (including dead windows
+that are only referenced by window configurations) and remove any
+@code{quit-restore} or @code{quit-restore-prev} parameters
+(@pxref{Window Parameters}) referencing that buffer.
+
+This function does not replace the buffer specified by
+@var{buffer-or-name} in any minibuffer window showing it, nor does it
+delete minibuffer windows or minibuffer frames.  It removes, however,
+that buffer from the lists of previous and next buffers of all
+minibuffer windows.
 @end deffn
+
+By default, @code{replace-buffer-in-windows} deletes only windows
+dedicated to their buffers and ignores any @code{quit-restore} or
+@code{quit-restore-prev} parameters of the windows it works on.  The
+following option is useful for circumventing these restrictions.
+
+@defopt kill-buffer-quit-windows
+If this option is @code{nil}, @code{kill-buffer} (and in consequence
+@code{replace-buffer-in-windows}) may only delete windows that are
+dedicated to the buffer about to be killed.  If this is non-@code{nil},
+@code{replace-buffer-in-windows} has @code{quit-restore-window}
+(@pxref{Quitting Windows}) deal with any such window.  That function may
+delete such a window even if it's not dedicated to its buffer.  Also,
+@code{delete-windows-on} will use @code{quit-restore-window} as fallback
+when a window cannot be deleted and another buffer must be shown in it.
+@end defopt
 
 
 @node Switching Buffers
@@ -2411,7 +2978,9 @@ buffer.
 @defopt switch-to-buffer-obey-display-actions
 If this variable is non-@code{nil}, @code{switch-to-buffer} respects
 display actions specified by @code{display-buffer-overriding-action},
-@code{display-buffer-alist} and other display related variables.
+@code{display-buffer-alist} (@pxref{Buffer Display Action Functions})
+and other buffer display related variables (@pxref{Buffer Display Action
+Alists}).
 @end defopt
 
 The next two commands are similar to @code{switch-to-buffer}, except for
@@ -2666,6 +3235,26 @@ as a symbol @code{comint}.  Then @code{display-buffer-alist} matches
 this category for all buffers displayed with the same category.
 This avoids the need to construct a complex regular expression
 that matches a buffer name.
+
+You can also match on the command now being executed.  This is useful
+when different commands display buffers with the same name, but you want
+different command's buffers to be displayed differently.  For example:
+
+@example
+@group
+(add-to-list 'display-buffer-alist
+             '((and "^\\*vc-diff\\*"
+                    (not (this-command . vc-root-diff)))
+	       nil
+	       (post-command-select-window . nil)))
+@end group
+@end example
+
+This means that windows displaying VC diffs, such as those generated by
+@kbd{C-x v =} (@code{vc-diff}, @pxref{Old Revisions,,, emacs, the Emacs
+Manual}) are not left selected, except for windows displaying buffers
+generated by @kbd{C-x v D} (@code{vc-root-diff}), which are left
+selected.
 @end defopt
 
 @defopt display-buffer-base-action
@@ -2716,6 +3305,17 @@ searches just the selected frame.
 If this function chooses a window on another frame, it makes that
 frame visible and, unless @var{alist} contains an
 @code{inhibit-switch-frame} entry, raises that frame if necessary.
+
+If @var{alist} has a non-@code{nil} @code{reuse-indirect} entry and no
+window showing @var{buffer} has been found, this function tries to find
+a window that is indirectly related to @var{buffer}---a window for which
+@code{window-indirect-buffer-p} (@pxref{Buffers and Windows}) with the
+window and @var{buffer} as arguments returns non-@code{nil}.  If such a
+window has been found and the @sc{cdr} of the @code{reuse-indirect}
+entry equals the symbol @code{buffer}, it does not replace the buffer of
+that window with @var{buffer} but returns the window with its old buffer
+in place.  Otherwise, it puts @var{buffer} into that window and returns
+that window.
 @end defun
 
 @defun display-buffer-reuse-mode-window buffer alist
@@ -2928,9 +3528,9 @@ must also provide an appropriate @code{window-height} entry.
 This function tries to display @var{buffer} in a window at the bottom
 of the selected frame.
 
-This either tries to split the window at the bottom of the frame or
-the frame's root window, or to reuse an existing window at the bottom
-of the selected frame.
+This either tries to split the window at the bottom of the frame or the
+frame's main window, or to reuse an existing window at the bottom of the
+selected frame.
 @end defun
 
 @defun display-buffer-pop-up-frame buffer alist
@@ -2983,6 +3583,72 @@ default predicate.
 If @var{alist} has a non-@code{nil} @code{inhibit-same-window} entry,
 the selected window is not used; thus if the selected frame has a
 single window, it is not used.
+@end defun
+
+@defun display-buffer-in-new-tab buffer alist
+This function tries to display @var{buffer} in a new tab.
+
+If @var{alist} contains a non-@code{nil} @code{tab-name} entry (which
+may be a string or a function), the buffer is displayed in a new tab
+with that name.  If the @code{tab-name} entry is a function, it is
+called with two arguments (@var{buffer} and @var{alist}), and should
+return the tab name.
+
+If the @code{tab-name} entry is omitted or @code{nil}, a new tab is
+created without an explicit name.
+
+If @var{alist} contains a non-@code{nil} @code{tab-group} entry, this
+defines the tab group, overriding user option
+@code{tab-bar-new-tab-group}.  This entry may again be a string or a
+function which is called in the same manner as @code{tab-name}.
+@end defun
+
+@defun display-buffer-in-tab buffer alist
+This function tries to display @var{buffer} in a new or existing tab.
+
+If @var{alist} contains a non-@code{nil} @code{reusable-frames} entry
+then the frames indicated by its value are searched for an existing tab
+which already displays the buffer.  The possible values of
+@code{reusable-frames} are:
+
+@itemize @bullet
+@item @code{t}
+means consider all existing frames.
+@item @code{visible}
+means consider all visible frames.
+@item 0
+means consider all frames on the current terminal.
+@item A frame
+means consider that frame only.
+@item Any other non-@code{nil} value
+means consider the selected frame.
+@item @code{nil}
+means do not search any frames (equivalent to omitting the entry).  Note
+that this is different to the typical meaning of the value @code{nil}
+for a @code{reusable-frames} entry in a buffer display action alist.
+@end itemize
+
+If @var{alist} contains a non-@code{nil} @code{ignore-current-tab}
+entry, then the current tab is skipped when searching for a reusable
+tab.  Otherwise the current tab is used by preference if it already
+displays the buffer.
+
+If a window displaying the buffer is located in any reusable tab then
+that tab and window are selected.
+
+If no such window is located, the buffer is displayed in a new or
+existing tab based on the @var{alist} entry @code{tab-name} (which may
+be a string or a function).  If a tab with this name already exists then
+that tab is selected, otherwise a new tab with that name is created.  If
+the @code{tab-name} entry is a function, it is called with two arguments
+(@var{buffer} and @var{alist}), and should return the tab name.  If the
+@code{tab-name} entry is omitted or @code{nil}, a new tab is created
+without an explicit name.
+
+If a new tab is created and @var{alist} contains a non-@code{nil}
+@code{tab-group} entry, this defines the tab group, overriding user
+option @code{tab-bar-new-tab-group}.  This entry may again be a string
+or a function which is called in the same manner as @code{tab-name}.
 @end defun
 
 @defun display-buffer-no-window buffer alist
@@ -3096,6 +3762,10 @@ other action functions that try to reuse a window are affected as
 well.  @code{display-buffer-in-previous-window} consults it when
 searching for a window that previously displayed the buffer on another
 frame.
+
+The action function @code{display-buffer-in-tab} searches the tabs of
+the frame(s) identified by this entry, and also interprets the value
+@code{nil} differently.
 
 @vindex inhibit-switch-frame@r{, a buffer display action alist entry}
 @item inhibit-switch-frame
@@ -3258,12 +3928,16 @@ specified right below this list.
 
 @vindex dedicated@r{, a buffer display action alist entry}
 @item dedicated
-If non-@code{nil}, such an entry tells @code{display-buffer} to mark
-any window it creates as dedicated to its buffer (@pxref{Dedicated
+If non-@code{nil}, such an entry tells @code{display-buffer} to mark any
+window it creates as dedicated to its buffer (@pxref{Dedicated
 Windows}).  It does that by calling @code{set-window-dedicated-p} with
 the chosen window as first argument and the entry's value as second.
 Side windows are by default dedicated with the value @code{side}
-(@pxref{Side Window Options and Functions}).
+(@pxref{Side Window Options and Functions}).  Windows that are reused
+are not marked as dedicated regardless of whether they already showed
+the buffer before or not.  If a window dedicated to its buffer gets
+reused for showing the same buffer again, its dedicated flag is left
+alone.
 
 @vindex preserve-size@r{, a buffer display action alist entry}
 @item preserve-size
@@ -3417,6 +4091,19 @@ List, @code{buffer-match-p}}.  Thus, if a Lisp program uses a particular
 @var{symbol} as the category when calling @code{display-buffer}, users
 can customize how these buffers will be displayed by including such an
 entry in @code{display-buffer-alist}.
+
+@vindex tab-name@r{, a buffer display action alist entry}
+@item tab-name
+The value names the tab in which the buffer should be displayed.  This
+entry is used by @code{display-buffer-in-new-tab} and (conditionally) by
+@code{display-buffer-in-tab}.
+
+@vindex tab-group@r{, a buffer display action alist entry}
+@vindex tab-bar-new-tab-group@r{, override for buffer display actions}
+@item tab-group
+The value names the tab group to use when creating a new tab, overriding
+user option @code{tab-bar-new-tab-group}.  This entry is used by
+@code{display-buffer-in-new-tab} and @code{display-buffer-in-tab}.
 @end table
 
 By convention, the entries @code{window-height}, @code{window-width}
@@ -3475,16 +4162,19 @@ window.  If @var{window} cannot be split, it returns @code{nil}.  If
 @var{window} is omitted or @code{nil}, it defaults to the selected
 window.
 
-This function obeys the usual rules that determine when a window may
-be split (@pxref{Splitting Windows}).  It first tries to split by
-placing the new window below, subject to the restriction imposed by
-@code{split-height-threshold} (see below), in addition to any other
-restrictions.  If that fails, it tries to split by placing the new
-window to the right, subject to @code{split-width-threshold} (see
-below).  If that also fails, and the window is the only window on its
-frame, this function again tries to split and place the new window
-below, disregarding @code{split-height-threshold}.  If this fails as
-well, this function gives up and returns @code{nil}.
+This function obeys the usual rules that determine when a window may be
+split (@pxref{Splitting Windows}).  It first tries either a vertical
+split by placing the new window below, subject to the restriction
+imposed by @code{split-height-threshold} (see below), or a horizontal
+split that places the new window to the right, subject to
+@code{split-width-threshold}, in addition to any other restrictions.
+Whether it tries first to split vertically or horizontally depends on
+the value of the user option @code{split-window-preferred-direction}.
+If splitting along the first dimension fails, it tries to split along
+the other dimension.  If that also fails, and the window is the only
+window on its frame, this function again tries to split and place the
+new window below, disregarding @code{split-height-threshold}.  If this
+fails as well, this function gives up and returns @code{nil}.
 @end defun
 
 @defopt split-height-threshold
@@ -3501,6 +4191,18 @@ allowed to split the window placing the new window to the right.  If
 the value is an integer, that means to split only if the original
 window has at least that many columns.  If the value is @code{nil},
 that means not to split this way.
+@end defopt
+
+@defopt split-window-preferred-direction
+This variable determines the first dimension along which
+@code{split-window-sensibly} tries to split the window, if the window
+could be split both vertically and horizontally, as determined by the
+values of @code{split-height-threshold} and
+@code{split-width-threshold}.  The default value is @code{longest},
+which means to split vertically if the height of the window's frame is
+greater or equal to its width, and horizontally otherwise.  The values
+@code{vertical} and @code{horizontal} specify the direction in which to
+attempt the first split.
 @end defopt
 
 @defopt even-window-sizes
@@ -4260,14 +4962,19 @@ window and defaults to the selected one.
 
 Each list element has the form @code{(@var{buffer} @var{window-start}
 @var{window-pos})}, where @var{buffer} is a buffer previously shown in
-the window, @var{window-start} is the window start position
-(@pxref{Window Start and End}) when that buffer was last shown, and
-@var{window-pos} is the point position (@pxref{Window Point}) when
-that buffer was last shown in @var{window}.
+the window, @var{window-start} is a marker that gives the window start
+position (@pxref{Window Start and End}) when that buffer was last shown,
+and @var{window-pos} is a marker that gives the window point position
+(@pxref{Window Point}) when that buffer was last shown in @var{window}.
 
 The list is ordered so that earlier elements correspond to more
 recently-shown buffers, and the first element usually corresponds to the
 buffer most recently removed from the window.
+
+As a rule, elements are removed from this list when their buffer gets
+killed.  In rare cases, however, elements may have survived the killing
+of their buffer.  It's a good idea therefore to always check buffers for
+liveness when processing the return value of this function.
 @end defun
 
 @defun set-window-prev-buffers window prev-buffers
@@ -4497,18 +5204,37 @@ To enable @code{quit-window} to do the right thing,
 window's @code{quit-restore} parameter (@pxref{Window Parameters}).
 
 @deffn Command quit-window &optional kill window
-This command quits @var{window} and buries its buffer.  The argument
-@var{window} must be a live window and defaults to the selected one.
-With prefix argument @var{kill} non-@code{nil}, it kills the buffer
-instead of burying it.
+This command quits @var{window} and buries its buffer.  (It could also
+kill the buffer, subject to @code{quit-window-kill-buffer}, see below.)
+The argument @var{window} must be a live window and defaults to the
+selected one.  With prefix argument @var{kill} non-@code{nil}, it kills
+the buffer instead of burying it.
 
 @vindex quit-window-hook
 The function @code{quit-window} first runs @code{quit-window-hook}.
-Then it calls the function @code{quit-restore-window}, described next,
+Then it calls the function @code{quit-restore-window}, described below,
 which does the hard work.
 @end deffn
 
-You can get more control by calling @code{quit-restore-window} instead.
+The following option tells @code{quit-window} whether it should kill or
+bury @var{window}'s buffer when the @var{kill} argument is @code{nil}.
+
+@defopt quit-window-kill-buffer
+This variable controls whether @code{quit-window} kills the buffer of
+its @var{window} argument.  If the value is @code{nil} (the default)
+@code{quit-window} will kill @var{window}'s buffer only if the
+@var{kill} argument is non-@code{nil}.  If this is @code{t},
+@code{quit-window} will try to kill @var{window}'s buffer regardless of
+the value of the @var{kill} argument.  Otherwise, this should be a list
+of major modes; @code{quit-window} will kill the buffer of @var{window}
+regardless of the value of @var{kill} if that buffer's major mode is
+either a member of this list or is derived from a member of this list.
+In any other case, @code{quit-window} will kill the buffer only if
+@var{kill} is non-@code{nil} and bury it otherwise.
+@end defopt
+
+You can get more control by calling @code{quit-restore-window} instead
+of @code{quit-window}.
 
 @defun quit-restore-window &optional window bury-or-kill
 This function handles @var{window} and its buffer after quitting.  The
@@ -4541,6 +5267,15 @@ this buffer again, short of killing the buffer.
 
 @item kill
 This means to kill @var{window}'s buffer.
+
+@item killing
+This is handled like @code{kill} but assumes that @var{window}'s buffer
+gets killed elsewhere.  This value is used by
+@code{replace-buffer-in-windows} and @code{quit-windows-on}.
+
+@item burying
+This is handled like @code{bury} but assumes that @var{window}'s buffer
+gets buried elsewhere.  This value is used by @code{quit-windows-on}.
 @end table
 
 The argument @var{bury-or-kill} also specifies what to do with
@@ -4550,14 +5285,18 @@ terminal.  If @var{bury-or-kill} equals @code{kill}, it means to
 delete the frame.  Otherwise, the fate of the frame is determined by
 calling @code{frame-auto-hide-function} (see below) with that frame as
 sole argument.
-
-This function always sets @var{window}'s @code{quit-restore} parameter
-to @code{nil} unless it deletes the window.
 @end defun
 
-The window @var{window}'s @code{quit-restore} parameter (@pxref{Window
-Parameters}) should be @code{nil} or a list of four elements:
-@c FIXME: describe what quit-restore-window does if this is nil.
+  A window's @code{quit-restore} and @code{quit-restore-prev} parameters
+(@pxref{Window Parameters}) guide @code{quit-restore-window} through its
+process of dealing with its @var{window} argument.  If such a parameter
+is absent or @code{nil}, this usually means that the window has been
+created by a command like @code{split-window-below} or
+@code{split-window-right} (@pxref{Split Window,,, emacs, The GNU Emacs
+Manual}) and @code{quit-restore-window} will delete the window only if
+it was dedicated to its buffer.
+
+  If non-@code{nil}, any such parameter is a list of four elements:
 
 @lisp
 (@var{method} @var{obuffer} @var{owindow} @var{this-buffer})
@@ -4595,17 +5334,17 @@ just before the displaying was done.  If quitting deletes
 @var{window}, it tries to select @var{owindow}.
 
 The fourth element, @var{this-buffer}, is the buffer whose displaying
-set the @code{quit-restore} parameter.  Quitting @var{window} may delete
-that window only if it still shows that buffer.
+set the @code{quit-restore} parameter.  Quitting @var{window} will use
+the information stored by that parameter if and only if it still shows
+that buffer.
 
-Quitting @var{window} tries to delete it if and only if (1)
-@var{method} is either @code{window} or @code{frame}, (2) the window
-has no history of previously-displayed buffers and (3)
-@var{this-buffer} equals the buffer currently displayed in
-@var{window}.  If @var{window} is part of an atomic window
-(@pxref{Atomic Windows}), quitting will try to delete the root of that
-atomic window instead.  In either case, it tries to avoid signaling an
-error when @var{window} cannot be deleted.
+@code{quit-restore-window} tries to delete its @var{window} if (1)
+@var{method} is either @code{window} or @code{frame}, (2) the window has
+no history of previously-displayed buffers and (3) @var{this-buffer}
+equals the buffer currently displayed in @var{window}.  If @var{window}
+is part of an atomic window (@pxref{Atomic Windows}), it will try to
+delete the root of that atomic window instead.  In either case, it tries
+to avoid signaling an error when @var{window} cannot be deleted.
 
 If @var{obuffer} is a list, and @var{prev-buffer} is still live,
 quitting displays @var{prev-buffer} in @var{window} according to the
@@ -4616,6 +5355,58 @@ window to @var{height} if it was temporarily resized to display
 Otherwise, if @var{window} was previously used for displaying other
 buffers (@pxref{Window History}), the most recent buffer in that
 history will be displayed.
+
+  Conceptually, the @code{quit-restore} parameter is used for undoing
+the first buffer display operation for a specific window.  The
+@code{quit-restore-prev} parameter is used for undoing the last buffer
+display operation in a row of such operations for a specific window.
+Any buffer display operation for that window that happened in between,
+is undone by displaying the buffer previously shown in that window.
+
+  @code{display-buffer} sets up the @code{quit-restore} parameter of any
+window it uses when that window has been either created by it or has no
+non-@code{nil} @code{quit-restore} parameter.  If the window already has
+a @code{quit-restore} parameter, @code{display-buffer} adds a
+@code{quit-restore-prev} parameter whose @var{method} element is either
+@code{same} or @code{other}.  In either case, if the window already has
+a @code{quit-restore-prev} or @code{quit-restore} parameter, it may
+update that parameter's contents.
+
+  @code{quit-restore-window} now first tries to find a suitable
+@code{quit-restore-prev} parameter for its window telling which buffer
+to show instead.  If it doesn't find one, it will look for a suitable
+@code{quit-restore} parameter to either delete the window or show
+another buffer in it.
+
+  Once it has used one of these parameters, @code{quit-restore-window}
+resets it to @code{nil}.  Parameters it did not use are left alone.  Any
+of these parameters are also reset by @code{replace-buffer-in-windows}
+(@pxref{Buffers and Windows}) when they reference a buffer that is about
+to be killed, either as the buffer specified by @var{prev-buffer} or as
+the buffer specified by @var{this-buffer}.
+
+  All operations on these parameters are supposed to preserve the
+following invariant: If a window has a non-@code{nil}
+@code{quit-restore-prev} parameter, it also has a non-@code{nil}
+@code{quit-restore} parameter.
+
+The following option allows @code{quit-restore-window} to delete its
+window more aggressively.
+
+@defopt quit-restore-window-no-switch
+If this option is @code{nil}, @code{quit-restore-window} will always
+call @code{switch-to-prev-buffer} unless the window has been made by
+@code{display-buffer}.  If this is @code{t}, @code{quit-restore-window}
+will try hard to switch only to buffers previously shown in that window.
+If this is the symbol @code{skip-first}, it will switch to a previous
+buffer if and only the window has at least two previous buffers.
+
+In either case, if @code{quit-restore-window} doesn't switch to a
+previous buffer, it will try to delete the window (and maybe its
+frame) instead.  Note also that if a window is dedicated,
+@code{quit-restore-window} will usually not switch to a previous
+buffer in it either.
+@end defopt
 
 @ignore
 @c FIXME: Should we document display-buffer-reuse-window?
@@ -5126,8 +5917,8 @@ makes it useful to have multiple windows showing one buffer.
 
 @itemize @bullet
 @item
-The window point is established when a window is first created; it is
-initialized from the buffer's point, or from the window point of another
+Window point is established when a window is first created; it is
+initialized from the buffer's point, or from window point of another
 window opened on the buffer if such a window exists.
 
 @item
@@ -5141,6 +5932,18 @@ the other windows are stored in those windows.
 @item
 As long as the selected window displays the current buffer, the window's
 point and the buffer's point always move together; they remain equal.
+
+@item
+Many Emacs functions temporarily select a window in order to operate on
+its contents.  This will move point (@pxref{Point}) of that
+window's buffer to the position of window point of that window and
+not restore buffer point to its previous position when terminating
+the temporary selection.  This means that when one and the same buffer
+is simultaneously displayed in more than one window, its buffer point
+may change in unpredictable ways to the position of window point of any
+of these windows as a side-effect of things like redisplay, calling
+@code{with-selected-window} (@pxref{Selecting Windows}) or running
+@code{window-configuration-change-hook} (@pxref{Window Hooks}).
 @end itemize
 
 @cindex cursor
@@ -5194,6 +5997,40 @@ function persists across buffers shown in @var{window}, so
 @defun window-cursor-type &optional window
 This function returns the cursor type of @var{window}, defaulting to the
 selected window.
+@end defun
+
+@defun window-cursor-info &optional window
+This function returns information about the cursor of @var{window},
+defaulting to the selected window.
+
+The value returned by the function is a vector of the form
+@w{@code{[@var{type} @var{x} @var{y} @var{width} @var{height}
+@var{ascent}]}}.  Here's the description of each components of this
+vector:
+
+@table @var
+@item type
+The type of the cursor, a symbol.  This is the same value returned by
+@code{window-cursor-type}.
+
+@item x
+@itemx y
+The pixel coordinates of the cursor's top-left corner, relative to the
+top-left corner of @var{window}'s text area.
+
+@item width
+@itemx height
+The pixel dimensions of the cursor.
+
+@item ascent
+The number of pixels the cursor extends above the baseline.
+@end table
+
+If the cursor is not currently displayed for @var{window}, this function
+returns @code{nil}.
+
+Any element except the first one in the returned vector may be
+@code{-1}, meaning the actual value is currently unavailable.
 @end defun
 
 @node Window Start and End
@@ -6420,25 +7257,37 @@ not use markers for sampling positions like @code{window-point} or
 @code{window-start}.  This argument should be non-@code{nil} when the
 state will be written to disk and read back in another session.
 
-Together, the argument @var{writable} and the variable
+Together, @var{writable} and the variable
 @code{window-persistent-parameters} specify which window parameters are
-saved by this function.  @xref{Window Parameters}.
+saved by this function.  The default is to save the @code{clone-of}
+parameter if @var{writable} is @code{nil}.  @xref{Window Parameters}.
+
+@vindex window-state-normalize-buffer-name
+Bind @code{window-state-normalize-buffer-name} to non-@code{nil} to
+normalize buffer names under @file{uniquify} management by removing its
+prefixes and suffixes.  This helps restore window buffers across Emacs
+sessions.  @xref{Uniquify,,, emacs, The GNU Emacs Manual}.
 @end defun
 
 The value returned by @code{window-state-get} can be used in the same
-session to make a clone of a window in another window.  It can be also
-written to disk and read back in another session.  In either case, use
-the following function to restore the state of the window.
+session to clone a window (see below).  It can be also written to disk
+and read back in another session.  In either case, use the following
+function to restore the state of the window.
 
 @defun window-state-put state &optional window ignore
-This function puts the window state @var{state} into @var{window}.
-The argument @var{state} should be the state of a window returned by
-an earlier invocation of @code{window-state-get}, see above.  The
-optional argument @var{window} can be either a live window or an
-internal window (@pxref{Windows and Frames}).  If @var{window} is not
-a live window, it is replaced by a new live window created on the same
-frame before putting @var{state} into it.  If @var{window} is @code{nil},
-it puts the window state into a new window.
+This function puts the window state @var{state} into @var{window}.  The
+argument @var{state} should be the state of a window returned by an
+earlier invocation of @code{window-state-get}, see above.  The optional
+argument @var{window} can be either a live window or an internal window
+(@pxref{Windows and Frames}).  If @var{window} is not a live window, it
+is replaced by a new live window created on the same frame before
+putting @var{state} into it.  If @var{window} is @code{nil}, it puts the
+window state into a new window.
+
+This function assigns all window parameters that have been stored in
+@var{state}.  By default, this is the @code{clone-of} parameter provided
+@var{state} was obtained from an invocation of @code{window-state-get}
+with the argument @var{writable} @code{nil}.  @xref{Window Parameters}.
 
 This function consults the variable
 @code{window-restore-killed-buffer-windows} (see below) when it tries to
@@ -6450,11 +7299,27 @@ is @code{safe}, this means windows can get as small as one line
 and/or two columns.
 @end defun
 
+@cindex window clone
+@cindex clone of window
+In the context of window states, the @dfn{clone of a window} is a window
+that has the same decorations and contents as the window whose state was
+used to produce it, but is actually represented by another window
+object.  Hence it does not have the same identity as the original
+window.  Operating on the original or the clone of a window does not
+affect the other in any way.
+
+Note that while @code{set-window-configuration} always restores the
+identity of the windows it puts back into their frame,
+@code{window-state-put} never does that.  Note also that while
+@code{window-state-get} clones existing windows, these clones are not
+yet valid windows.  They become valid only after @code{window-state-put}
+has put them into a live frame.
+
 By default, @code{set-window-configuration} and @code{window-state-put}
-may delete a window from the restored configuration when they find out
-that its buffer was killed since the corresponding configuration or
-state has been recorded.  The variable described next can be used to
-fine-tune that behavior.
+may delete a window from the restored configuration or state when they
+find out that its buffer was killed since the corresponding
+configuration or state has been recorded.  The variable described next
+can be used to fine-tune that behavior.
 
 @cindex restoring windows whose buffers have been killed
 @defvar window-restore-killed-buffer-windows
@@ -6514,8 +7379,8 @@ function may also delete windows which were found live by
 
 Each entry in the list that is passed as the second argument to the
 function is itself a list of six values: the window whose buffer was
-found dead, the dead buffer or its name, the positions of window-start
-(@pxref{Window Start and End}) and window-point (@pxref{Window Point})
+found dead, the dead buffer or its name, the positions of window start
+(@pxref{Window Start and End}) and window point (@pxref{Window Point})
 of the buffer in that window, the dedicated state of the window as
 previously reported by @code{window-dedicated-p} and a flag that is
 @code{t} if the window has been found to be alive by
@@ -6658,13 +7523,17 @@ This parameter affects the execution of @code{other-window}
 @item no-other-window
 @vindex no-other-window@r{, a window parameter}
 This parameter marks the window as not selectable by @code{other-window}
-(@pxref{Cyclic Window Ordering}).
+(@pxref{Cyclic Window Ordering}).  It is by default @code{t} for tooltip
+windows (@pxref{Basic Windows}).  Use @code{window-no-other-p}
+(@pxref{Cyclic Window Ordering}) to check whether it applies to a
+specific window.
 
 @item clone-of
 @vindex clone-of@r{, a window parameter}
-This parameter specifies the window that this one has been cloned
-from.  It is installed by @code{window-state-get} (@pxref{Window
-Configurations}).
+This parameter specifies the window that this one has been cloned from.
+It is persistent by default and as such gets saved by
+@code{window-state-get} and installed by @code{window-state-put}
+(@pxref{Window Configurations}).
 
 @item window-preserved-size
 @vindex window-preserved-size@r{, a window parameter}
@@ -6677,12 +7546,14 @@ parameter is installed and updated by the function
 @code{window-preserve-size} (@pxref{Preserving Window Sizes}).
 
 @item quit-restore
+@item quit-restore-prev
 @vindex quit-restore@r{, a window parameter}
-This parameter is installed by the buffer display functions
+@vindex quit-restore-prev@r{, a window parameter}
+These parameters are installed by the buffer display functions
 (@pxref{Choosing Window}) and consulted by @code{quit-restore-window}
-(@pxref{Quitting Windows}).  It is a list of four elements, see the
-description of @code{quit-restore-window} in @ref{Quitting Windows}
-for details.
+(@pxref{Quitting Windows}).  They are lists of four elements, see the
+description of @code{quit-restore-window} in @ref{Quitting Windows} for
+details.
 
 @item window-side
 @itemx window-slot
@@ -6727,7 +7598,7 @@ affected.
 @vindex min-margins@r{, a window parameter}
 The value of this parameter is a cons cell whose @sc{car} and
 @sc{cdr}, if non-@code{nil}, specify the minimum values (in columns)
-for the left and right margin of this window (@pxref{Display Margins}.
+for the left and right margin of this window (@pxref{Display Margins}).
 When present, Emacs will use these values instead of the actual margin
 widths for determining whether a window can be split or shrunk
 horizontally.
@@ -6801,10 +7672,35 @@ This variable specifies functions called during redisplay when window
 buffers have changed.  The value should be a list of functions that
 take one argument.
 
-Functions specified buffer-locally are called for any window showing
-the corresponding buffer if that window has been created or assigned
-that buffer since the last time window change functions were run.  In
-this case the window is passed as argument.
+Functions specified buffer-locally are called for each window showing
+the corresponding buffer if and only if that window has been added or
+changed its buffer since the last redisplay.  Note that functions may be
+run twice for such a window: Once for the buffer shown in the window at
+the time of the last redisplay (provided that buffer is still live) and
+once for the buffer currently shown in the window.  In either case the
+window is passed as argument and the respective buffer is made
+temporarily current.
+
+If you are using the buffer-local version of this hook, you may want to
+discern the case where the buffer was removed from a window from the
+case where the buffer is now shown in that window.  If @var{window}
+denotes the window argument passed to a function on this hook, then to
+detect the case where the buffer was removed from @var{window} use the
+idiom
+
+@example
+(eq (window-old-buffer @var{window}) (current-buffer))
+@end example
+
+@noindent
+while to detect whether the buffer is now shown in @var{window} use
+
+@example
+(eq (window-buffer @var{window}) (current-buffer))
+@end example
+
+@noindent
+instead.
 
 Functions specified by the default value are called for a frame if at
 least one window on that frame has been added, deleted or assigned
@@ -6822,11 +7718,11 @@ This variable specifies functions called during redisplay when a
 window size change occurred.  The value should be a list of functions
 that take one argument.
 
-Functions specified buffer-locally are called for any window showing
-the corresponding buffer if that window has been added or assigned
-another buffer or changed its total or body size since the last time
-window change functions were run.  In this case the window is passed
-as argument.
+Functions specified buffer-locally are called for any window showing the
+corresponding buffer if that window has been added or assigned another
+buffer or changed its total or body size since the last time window
+change functions were run.  In this case the window is passed as
+argument and the respective buffer is temporarily made current.
 
 Functions specified by the default value are called for a frame if at
 least one window on that frame has been added or assigned another
@@ -6844,11 +7740,12 @@ This variable specifies functions called during redisplay when the
 selected window or a frame's selected window has changed.  The value
 should be a list of functions that take one argument.
 
-Functions specified buffer-locally are called for any window showing
-the corresponding buffer if that window has been selected or
-deselected (among all windows or among all windows on its frame) since
-the last time window change functions were run.  In this case the
-window is passed as argument.
+Functions specified buffer-locally are called for any window showing the
+corresponding buffer if that window has been selected or deselected
+(among all windows or among all windows on its frame) since the last
+time window change functions were run.  In this case the window is
+passed as argument and the respective buffer is temporarily made
+current.
 
 Functions specified by the default value are called for a frame if
 that frame has been selected or deselected or the frame's selected
@@ -6867,12 +7764,13 @@ window buffer or size change occurred or the selected window or a
 frame's selected window has changed.  The value should be a list of
 functions that take one argument.
 
-Functions specified buffer-locally are called for any window showing
-the corresponding buffer if that window has been added or assigned
-another buffer, changed its total or body size or has been selected or
+Functions specified buffer-locally are called for any window showing the
+corresponding buffer if that window has been added or assigned another
+buffer, changed its total or body size or has been selected or
 deselected (among all windows or among all windows on its frame) since
-the last time window change functions were run.  In this case the
-window is passed as argument.
+the last time window change functions were run.  In this case the window
+is passed as argument and the respective buffer is temporarily made
+current.
 
 Functions specified by the default value are called for a frame if at
 least one window on that frame has been added, deleted or assigned
@@ -6975,13 +7873,16 @@ live window as single, optional argument, defaulting to the selected
 window.
 
 @defun window-old-buffer &optional window
-This function returns the buffer shown in @var{window} at the last
-time window change functions were run for @var{window}'s frame.  If it
-returns @code{nil}, @var{window} has been created after that.  If it
-returns @code{t}, @var{window} was not shown at that time but has been
-restored from a previously saved window configuration afterwards.
-Otherwise, the return value is the buffer shown by @var{window} at
-that time.
+This function returns the buffer shown in @var{window} at the last time
+window change functions were run for @var{window}'s frame.  If it
+returns @code{nil}, @var{window} is either an internal window or has
+been created after that.  If it returns @code{t}, @var{window} was not
+shown at that time but has been restored from a previously saved window
+configuration afterwards.  Otherwise, the return value is the buffer
+shown by @var{window} at that time.  As a special case, if @var{window}
+has been deleted, this function returns the last buffer @var{window} had
+shown at that time.  @var{window} can be any window and defaults to the
+selected one.
 @end defun
 
 @defun window-old-pixel-width &optional window

@@ -1,6 +1,6 @@
 ;;; cc-menus.el --- imenu support for CC Mode -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985, 1987, 1992-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1985, 1987, 1992-2026 Free Software Foundation, Inc.
 
 ;; Authors:    1998- Martin Stjernholm
 ;;             1992-1999 Barry A. Warsaw
@@ -85,13 +85,13 @@ A sample value might look like: `\\(_P\\|_PROTO\\)'.")
     ;; work by backtracking from the end of the definition.
     (nil
      ,(concat
-       "^\\<.*"
-       "[^" c-alnum "_:<>~]"                  ; match any non-identifier char
-                                              ; (note: this can be `\n')
+       "^\\_<.*"
+       "[^" c-alnum "_:<>~]"		      ; match any non-identifier char
+					      ; (note: this can be `\n')
        "\\("
 	  "\\([" c-alnum "_:<>~]*::\\)?"      ; match an operator
-          "operator\\>[ \t]*"
-          "\\(()\\|[^(]*\\)"                  ; special case for `()' operator
+	  "operator\\_>[ \t]*"
+	  "\\(()\\|[^(]*\\)"		      ; special case for `()' operator
        "\\)"
 
        "[ \t]*([^)]*)[ \t]*[^ \t;]"           ; followed by ws, arg list,
@@ -116,7 +116,7 @@ A sample value might look like: `\\(_P\\|_PROTO\\)'.")
     ;; General function name regexp
     (nil
      ,(concat
-       "^\\<"                                 ; line MUST start with word char
+       "^\\_<"                                ; line MUST start with symbol char
        ;; \n added to prevent overflow in regexp matcher.
        ;; https://lists.gnu.org/r/emacs-pretest-bug/2007-02/msg00021.html
        "[^()\n]*"                             ; no parentheses before
@@ -136,7 +136,7 @@ A sample value might look like: `\\(_P\\|_PROTO\\)'.")
     ,@(if cc-imenu-c-prototype-macro-regexp
             `((nil
                  ,(concat
-                   "^\\<.*"                   ; line MUST start with word char
+                   "^\\_<.*"                  ; line MUST start with symbol char
 		   "[^" c-alnum "_]"          ; match any non-identifier char
 		   "\\([" c-alpha "_][" c-alnum "_]*\\)" ; match function name
                    "[ \t]*"                   ; whitespace before macro name

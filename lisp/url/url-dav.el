@@ -1,6 +1,6 @@
 ;;; url-dav.el --- WebDAV support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001, 2004-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2004-2026 Free Software Foundation, Inc.
 
 ;; Author: Bill Perry <wmperry@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -26,8 +26,6 @@
 ;;; Commentary:
 
 ;;; Code:
-
-(eval-when-compile (require 'cl-lib))
 
 (require 'xml)
 (require 'url-util)
@@ -865,7 +863,7 @@ Returns nil if URL contains no name starting with FILE."
 		(setq failed t)))
 	  (if failed
 	      (setq searching nil)
-	    (cl-incf n)))
+            (incf n)))
 	(substring (car matches) 0 n))))))
 
 (defun url-dav-register-handler (op)

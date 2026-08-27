@@ -1,6 +1,6 @@
 /* Font backend for the Microsoft W32 Uniscribe API.
    Windows-specific parts of the HarfBuzz font backend.
-   Copyright (C) 2008-2025 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -44,18 +44,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "pdumper.h"
 #include "w32common.h"
 
-/* Extension of w32font_info used by Uniscribe and HarfBuzz backends.  */
-struct uniscribe_font_info
-{
-  struct w32font_info w32_font;
-  /* This is used by the Uniscribe backend as a pointer to the script
-     cache, and by the HarfBuzz backend as a pointer to a hb_font_t
-     object.  */
-  void *cache;
-  /* This is used by the HarfBuzz backend to store the font scale.  */
-  double scale;
-};
-
+extern int uniscribe_available;
 int uniscribe_available = 0;
 
 /* EnumFontFamiliesEx callback.  */
@@ -65,6 +54,7 @@ static int CALLBACK ALIGN_STACK add_opentype_font_name_to_list (ENUMLOGFONTEX *,
 #ifdef HAVE_HARFBUZZ
 
 struct font_driver harfbuzz_font_driver;
+extern int harfbuzz_available;
 int harfbuzz_available = 0;
 
 /* Typedefs for HarfBuzz functions which we call through function
@@ -99,14 +89,6 @@ DEF_DLL_FN (void, hb_ot_font_set_funcs, (hb_font_t *));
 
 /* Used by uniscribe_otf_capability.  */
 static Lisp_Object otf_features (HDC context, const char *table);
-
-static int
-memq_no_quit (Lisp_Object elt, Lisp_Object list)
-{
-  while (CONSP (list) && ! EQ (XCAR (list), elt))
-    list = XCDR (list);
-  return (CONSP (list));
-}
 
 
 /* Uniscribe function pointers.  */
@@ -200,6 +182,8 @@ uniscribe_open (struct frame *f, Lisp_Object font_entity, int pixel_size)
 
   /* Initialize the cache for this font.  */
   uniscribe_font->cache = NULL;
+  uniscribe_font->dwrite_cache = NULL;
+  uniscribe_font->dwrite_skip_font = false;
 
   /* Uniscribe and HarfBuzz backends use glyph indices.  */
   uniscribe_font->w32_font.glyph_idx = ETO_GLYPH_INDEX;
@@ -221,6 +205,8 @@ uniscribe_close (struct font *font)
     = (struct uniscribe_font_info *) font;
 
 #ifdef HAVE_HARFBUZZ
+  w32_dwrite_free_cached_face (uniscribe_font->dwrite_cache);
+  uniscribe_font->dwrite_cache = NULL;
   if (uniscribe_font->w32_font.font.driver == &harfbuzz_font_driver
       && uniscribe_font->cache)
     hb_font_destroy ((hb_font_t *) uniscribe_font->cache);
@@ -775,7 +761,7 @@ add_opentype_font_name_to_list (ENUMLOGFONTEX *logical_font,
     return 1;
 
   family = intern_font_name (logical_font->elfLogFont.lfFaceName);
-  if (! memq_no_quit (family, *list))
+  if (NILP (memq_no_quit (family, *list)))
     *list = Fcons (family, *list);
 
   return 1;
@@ -827,9 +813,9 @@ typedef HRESULT (WINAPI *ScriptGetFontLanguageTags_Proc)
 typedef HRESULT (WINAPI *ScriptGetFontFeatureTags_Proc)
   (HDC, SCRIPT_CACHE *, SCRIPT_ANALYSIS *, OPENTYPE_TAG, OPENTYPE_TAG, int, OPENTYPE_TAG *, int *);
 
-ScriptGetFontScriptTags_Proc script_get_font_scripts_fn;
-ScriptGetFontLanguageTags_Proc script_get_font_languages_fn;
-ScriptGetFontFeatureTags_Proc script_get_font_features_fn;
+static ScriptGetFontScriptTags_Proc script_get_font_scripts_fn;
+static ScriptGetFontLanguageTags_Proc script_get_font_languages_fn;
+static ScriptGetFontFeatureTags_Proc script_get_font_features_fn;
 
 static bool uniscribe_new_apis;
 
@@ -895,7 +881,7 @@ uniscribe_check_otf_1 (HDC context, Lisp_Object script, Lisp_Object lang,
 		       Lisp_Object features[2], int *retval)
 {
   SCRIPT_CACHE cache = NULL;
-  OPENTYPE_TAG tags[32], script_tag, lang_tag;
+  OPENTYPE_TAG tags[128], script_tag, lang_tag;
   int max_tags = ARRAYELTS (tags);
   int ntags, i, ret = 0;
   HRESULT rslt;
@@ -1372,6 +1358,17 @@ w32hb_encode_char (struct font *font, int c)
   struct uniscribe_font_info *uniscribe_font
     = (struct uniscribe_font_info *) font;
   eassert (uniscribe_font->w32_font.font.driver == &harfbuzz_font_driver);
+
+  if (w32_use_direct_write (&uniscribe_font->w32_font))
+    {
+      unsigned encoded = w32_dwrite_encode_char (font, c);
+
+      /* The call to w32_dwrite_encode_char may fail, disabling
+	 DirectWrite for this font.  So check again.  */
+      if (w32_use_direct_write (&uniscribe_font->w32_font))
+	return encoded;
+    }
+
   hb_font_t *hb_font = uniscribe_font->cache;
 
   /* First time we use this font with HarfBuzz, create the hb_font_t
@@ -1624,5 +1621,8 @@ syms_of_w32uniscribe_for_pdumper (void)
   harfbuzz_font_driver.combining_capability = hbfont_combining_capability;
   harfbuzz_font_driver.begin_hb_font = w32hb_begin_font;
   register_font_driver (&harfbuzz_font_driver, NULL);
+
+  w32_initialize_direct_write ();
+
 #endif	/* HAVE_HARFBUZZ */
 }

@@ -1,6 +1,6 @@
 ;;; semantic/grammar.el --- Major mode framework for Semantic grammars  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2005, 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2005, 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: David Ponce <david@dponce.com>
 
@@ -1174,16 +1174,12 @@ END is the limit of the search."
 
 (defvar semantic-grammar-mode-keywords-2
   (append semantic-grammar-mode-keywords-1
-	  (if (boundp 'lisp-font-lock-keywords-1)
-	      lisp-font-lock-keywords-1
-	    lisp-el-font-lock-keywords-1))
+	  lisp-el-font-lock-keywords-1)
   "Font Lock keywords used to highlight Semantic grammar buffers.")
 
 (defvar semantic-grammar-mode-keywords-3
   (append semantic-grammar-mode-keywords-1
-	  (if (boundp 'lisp-font-lock-keywords-2)
-	      lisp-font-lock-keywords-2
-	    lisp-el-font-lock-keywords-2))
+	  lisp-el-font-lock-keywords-2)
   "Font Lock keywords used to highlight Semantic grammar buffers.")
 
 (defvar semantic-grammar-mode-keywords

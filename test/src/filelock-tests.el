@@ -1,6 +1,6 @@
 ;;; filelock-tests.el --- test file locking -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -123,10 +123,7 @@ the case)."
   (filelock-tests--fixture
    (filelock-tests--spoil-lock-file buffer-file-truename)
    (let ((err (should-error (file-locked-p (buffer-file-name)))))
-     (should (equal (seq-subseq err 0 2)
-                    (if (eq system-type 'windows-nt)
-                        '(permission-denied "Testing file lock")
-                      '(file-error "Testing file lock")))))))
+     (should (equal (seq-subseq err 0 2) '(file-error "Testing file lock"))))))
 
 (ert-deftest filelock-tests-unlock-spoiled ()
   "Check that `unlock-buffer' fails if the lockfile is \"spoiled\"."
@@ -140,13 +137,9 @@ the case)."
 
    ;; Errors from `unlock-buffer' should call
    ;; `userlock--handle-unlock-error' (bug#46397).
-   (cl-letf (((symbol-function 'userlock--handle-unlock-error)
-              (lambda (err) (signal (car err) (cdr err)))))
-     (should (equal
-              (if (eq system-type 'windows-nt)
-                  '(permission-denied "Unlocking file")
-                '(file-error "Unlocking file"))
-              (seq-subseq (should-error (unlock-buffer)) 0 2))))))
+   (cl-letf (((symbol-function 'userlock--handle-unlock-error) #'signal))
+     (should (equal '(file-error "Unlocking file")
+                    (seq-subseq (should-error (unlock-buffer)) 0 2))))))
 
 (ert-deftest filelock-tests-kill-buffer-spoiled ()
   "Check that `kill-buffer' fails if a lockfile is \"spoiled\"."
@@ -166,13 +159,9 @@ the case)."
    ;; File errors from unlocking files should call
    ;; `userlock--handle-unlock-error' (bug#46397).
    (cl-letf (((symbol-function 'yes-or-no-p) #'always)
-             ((symbol-function 'userlock--handle-unlock-error)
-              (lambda (err) (signal (car err) (cdr err)))))
-     (should (equal
-              (if (eq system-type 'windows-nt)
-                  '(permission-denied "Unlocking file")
-                '(file-error "Unlocking file"))
-              (seq-subseq (should-error (kill-buffer)) 0 2))))))
+             ((symbol-function 'userlock--handle-unlock-error) #'signal))
+     (should (equal '(file-error "Unlocking file")
+                    (seq-subseq (should-error (kill-buffer)) 0 2))))))
 
 (ert-deftest filelock-tests-detect-external-change ()
   "Check that an external file modification is reported."

@@ -1,6 +1,6 @@
 ;;; gnus-srvr.el --- virtual server support for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1995-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1995-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news
@@ -24,8 +24,6 @@
 
 ;;; Code:
 
-(eval-when-compile (require 'cl-lib))
-
 (require 'gnus)
 (require 'gnus-start)
 (require 'gnus-spec)
@@ -33,6 +31,7 @@
 (require 'gnus-int)
 (require 'gnus-range)
 (require 'gnus-cloud)
+(require 'gnus-sum)
 
 (autoload 'gnus-group-read-ephemeral-search-group "nnselect")
 
@@ -182,52 +181,52 @@ If nil, a faster, but more primitive, buffer is used instead."
     (gnus-run-hooks 'gnus-server-menu-hook)))
 
 (defface gnus-server-agent
-  '((((class color) (background light)) (:foreground "PaleTurquoise" :bold t))
-    (((class color) (background dark)) (:foreground "PaleTurquoise" :bold t))
-    (t (:bold t)))
+  '((((class color) (background light)) (:foreground "PaleTurquoise" :weight bold))
+    (((class color) (background dark)) (:foreground "PaleTurquoise" :weight bold))
+    (t (:weight bold)))
   "Face used for displaying AGENTIZED servers."
   :group 'gnus-server-visual)
 
 (defface gnus-server-cloud
-  '((((class color) (background light)) (:foreground "ForestGreen" :bold t))
-    (((class color) (background dark)) (:foreground "PaleGreen" :bold t))
-    (t (:bold t)))
+  '((((class color) (background light)) (:foreground "ForestGreen" :weight bold))
+    (((class color) (background dark)) (:foreground "PaleGreen" :weight bold))
+    (t (:weight bold)))
   "Face used for displaying Cloud-synced servers."
   :group 'gnus-server-visual)
 
 (defface gnus-server-cloud-host
-  '((((class color) (background light)) (:foreground "ForestGreen" :inverse-video t :italic t))
-    (((class color) (background dark)) (:foreground "PaleGreen" :inverse-video t :italic t))
-    (t (:inverse-video t :italic t)))
+  '((((class color) (background light)) (:foreground "ForestGreen" :inverse-video t :slant italic))
+    (((class color) (background dark)) (:foreground "PaleGreen" :inverse-video t :slant italic))
+    (t (:inverse-video t :slant italic)))
   "Face used for displaying the Cloud Host."
   :group 'gnus-server-visual)
 
 (defface gnus-server-opened
-  '((((class color) (background light)) (:foreground "Green3" :bold t))
-    (((class color) (background dark)) (:foreground "Green1" :bold t))
-    (t (:bold t)))
+  '((((class color) (background light)) (:foreground "Green3" :weight bold))
+    (((class color) (background dark)) (:foreground "Green1" :weight bold))
+    (t (:weight bold)))
   "Face used for displaying OPENED servers."
   :group 'gnus-server-visual)
 
 (defface gnus-server-closed
-  '((((class color) (background light)) (:foreground "Steel Blue" :italic t))
+  '((((class color) (background light)) (:foreground "Steel Blue" :slant italic))
     (((class color) (background dark))
-     (:foreground "LightBlue" :italic t))
-    (t (:italic t)))
+     (:foreground "LightBlue" :slant italic))
+    (t (:slant italic)))
   "Face used for displaying CLOSED servers."
   :group 'gnus-server-visual)
 
 (defface gnus-server-denied
-  '((((class color) (background light)) (:foreground "Red" :bold t))
-    (((class color) (background dark)) (:foreground "Pink" :bold t))
-    (t (:inverse-video t :bold t)))
+  '((((class color) (background light)) (:foreground "Red" :weight bold))
+    (((class color) (background dark)) (:foreground "Pink" :weight bold))
+    (t (:inverse-video t :weight bold)))
   "Face used for displaying DENIED servers."
   :group 'gnus-server-visual)
 
 (defface gnus-server-offline
-  '((((class color) (background light)) (:foreground "Orange" :bold t))
-    (((class color) (background dark)) (:foreground "Yellow" :bold t))
-    (t (:inverse-video t :bold t)))
+  '((((class color) (background light)) (:foreground "Orange" :weight bold))
+    (((class color) (background dark)) (:foreground "Yellow" :weight bold))
+    (t (:inverse-video t :weight bold)))
   "Face used for displaying OFFLINE servers."
   :group 'gnus-server-visual)
 
@@ -252,6 +251,8 @@ The following commands are available:
 \\{gnus-server-mode-map}"
   (when (gnus-visual-p 'server-menu 'menu)
     (gnus-server-make-menu-bar))
+  (gnus-update-format-specifications nil 'server 'server-mode)
+  (gnus-set-mode-line 'server)
   (gnus-simplify-mode-line)
   (gnus-set-default-directory)
   (setq mode-line-process nil)
@@ -940,7 +941,7 @@ how new groups will be entered into the group buffer."
 		(not (eobp))
 		(gnus-browse-toggle-subscription)
 		(zerop (gnus-browse-next-group ward)))
-      (cl-decf arg))
+      (decf arg))
     (gnus-group-position-point)
     (when (/= 0 arg)
       (gnus-message 7 "No more newsgroups"))

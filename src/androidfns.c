@@ -1,6 +1,6 @@
 /* Communication module for Android terminals.
 
-Copyright (C) 2023-2025 Free Software Foundation, Inc.
+Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -858,6 +858,8 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 
   XSETFRAME (frame, f);
 
+  frame_set_id_from_params (f, parms);
+
   f->terminal = dpyinfo->terminal;
 
   f->output_method = output_android;
@@ -1110,6 +1112,9 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
                          "alpha", "Alpha", RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qalpha_background, Qnil,
                          "alphaBackground", "AlphaBackground", RES_TYPE_NUMBER);
+  gui_default_parameter (f, parms, Qborders_respect_alpha_background, Qnil,
+                         "bordersRespectAlphaBackground",
+                         "BordersRespectAlphaBackground", RES_TYPE_NUMBER);
 
   if (!NILP (parent_frame))
     {
@@ -1271,8 +1276,7 @@ DEFUN ("x-display-grayscale-p", Fx_display_grayscale_p,
   struct android_display_info *dpyinfo;
 
   dpyinfo = check_android_display_info (terminal);
-  return (dpyinfo->n_planes > 1 && dpyinfo->n_planes <= 8
-	  ? Qt : Qnil);
+  return dpyinfo->n_planes > 1 ? Qt : Qnil;
 }
 
 DEFUN ("x-display-pixel-width", Fx_display_pixel_width,
@@ -2098,6 +2102,9 @@ android_create_tip_frame (struct android_display_info *dpyinfo,
                          "alpha", "Alpha", RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qalpha_background, Qnil,
                          "alphaBackground", "AlphaBackground", RES_TYPE_NUMBER);
+  gui_default_parameter (f, parms, Qborders_respect_alpha_background, Qnil,
+                         "bordersRespectAlphaBackground",
+                         "BordersRespectAlphaBackground", RES_TYPE_NUMBER);
 
   /* Add `tooltip' frame parameter's default value. */
   if (NILP (Fframe_parameter (frame, Qtooltip)))
@@ -2127,7 +2134,7 @@ android_create_tip_frame (struct android_display_info *dpyinfo,
   {
     Lisp_Object bg = Fframe_parameter (frame, Qbackground_color);
 
-    call2 (Qface_set_after_frame_default, frame, Qnil);
+    calln (Qface_set_after_frame_default, frame, Qnil);
 
     if (!EQ (bg, Fframe_parameter (frame, Qbackground_color)))
       {
@@ -2166,7 +2173,7 @@ android_hide_tip (bool delete)
 {
   if (!NILP (tip_timer))
     {
-      call1 (Qcancel_timer, tip_timer);
+      calln (Qcancel_timer, tip_timer);
       tip_timer = Qnil;
     }
 
@@ -2350,7 +2357,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 	  tip_f = XFRAME (tip_frame);
 	  if (!NILP (tip_timer))
 	    {
-	      call1 (Qcancel_timer, tip_timer);
+	      calln (Qcancel_timer, tip_timer);
 	      tip_timer = Qnil;
 	    }
 
@@ -2389,11 +2396,11 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 		    }
 		  else
 		    tip_last_parms
-		      = call2 (Qassq_delete_all, parm, tip_last_parms);
+		      = calln (Qassq_delete_all, parm, tip_last_parms);
 		}
 	      else
 		tip_last_parms
-		  = call2 (Qassq_delete_all, parm, tip_last_parms);
+		  = calln (Qassq_delete_all, parm, tip_last_parms);
 	    }
 
 	  /* Now check if every parameter in what is left of
@@ -2449,6 +2456,8 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 	/* Creating the tip frame failed.  */
 	return unbind_to (count, Qnil);
     }
+  else
+    tip_window = FRAME_ANDROID_WINDOW (XFRAME (tip_frame));
 
   tip_f = XFRAME (tip_frame);
   window = FRAME_ROOT_WINDOW (tip_f);
@@ -2567,8 +2576,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 
  start_timer:
   /* Let the tip disappear after timeout seconds.  */
-  tip_timer = call3 (Qrun_at_time, timeout, Qnil,
-		     Qx_hide_tip);
+  tip_timer = calln (Qrun_at_time, timeout, Qnil, Qx_hide_tip);
 
   return unbind_to (count, Qnil);
 #endif
@@ -3182,6 +3190,7 @@ frame_parm_handler android_frame_parm_handlers[] =
   NULL,
   gui_set_no_special_glyphs,
   NULL,
+  gui_set_borders_respect_alpha_background,
   NULL,
 };
 
@@ -3219,14 +3228,14 @@ for more details about these values.  */)
   if (android_query_battery (&state))
     return Qnil;
 
-  return listn (8, make_int (state.capacity),
-		make_fixnum (state.charge_counter),
-		make_int (state.current_average),
-		make_int (state.current_now),
-		make_fixnum (state.status),
-		make_int (state.remaining),
-		make_fixnum (state.plugged),
-		make_fixnum (state.temperature));
+  return list (make_int (state.capacity),
+	       make_fixnum (state.charge_counter),
+	       make_int (state.current_average),
+	       make_int (state.current_now),
+	       make_fixnum (state.status),
+	       make_int (state.remaining),
+	       make_fixnum (state.plugged),
+	       make_fixnum (state.temperature));
 }
 
 

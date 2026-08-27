@@ -1,6 +1,6 @@
 /* sound.c -- sound support.
 
-Copyright (C) 1998-1999, 2001-2025 Free Software Foundation, Inc.
+Copyright (C) 1998-1999, 2001-2026 Free Software Foundation, Inc.
 
 Author: Gerd Moellmann <gerd@gnu.org>
 
@@ -26,14 +26,12 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
   implementation of the play-sound specification for Windows.
 
   Notes:
-  In the Windows implementation of play-sound-internal only the
-  :file and :volume keywords are supported.  The :device keyword,
-  if present, is ignored.  The :data keyword, if present, will
-  cause an error to be generated.
+  In the Windows implementation of play-sound-internal the :device
+  keyword, if present, is ignored.
 
   The Windows implementation of play-sound is implemented via the
-  Windows API functions mciSendString, waveOutGetVolume, and
-  waveOutSetVolume which are exported by Winmm.dll.
+  Windows API functions mciSendString, waveOutGetVolume,
+  waveOutSetVolume and PlaySound which are exported by Winmm.dll.
 */
 
 #include <config.h>
@@ -91,6 +89,11 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "w32.h"
 /* END: Windows Specific Includes */
 
+/* Missing in mingw32.  */
+#ifndef SND_SENTRY
+#define SND_SENTRY 0x00080000
+#endif
+
 #else /* HAVE_MACGUI */
 #include "blockinput.h"
 #include "macterm.h"
@@ -139,7 +142,7 @@ struct wav_header
   u_int32_t data_length;
 };
 
-/* The file header of Sun adio files (*.au).  Files are always in
+/* The file header of Sun audio files (*.au).  Files are always in
    big-endian byte-order.  */
 
 struct au_header
@@ -281,7 +284,7 @@ static void au_play (struct sound *, struct sound_device *);
 #elif defined WINDOWSNT
 
 /* BEGIN: Windows Specific Definitions */
-static int do_play_sound (const char *, unsigned long);
+static int do_play_sound (const char *, unsigned long, bool);
 /*
   END: Windows Specific Definitions */
 #endif /* WINDOWSNT */
@@ -359,9 +362,11 @@ sound_warning (const char *msg)
 static bool
 parse_sound (Lisp_Object sound, Lisp_Object *attrs)
 {
-  /* SOUND must be a list starting with the symbol `sound'.  */
+  /* SOUND must be a list starting with the symbol `sound' followed by a
+     number of keyword/value argument pairs.  */
   if (!CONSP (sound) || !EQ (XCAR (sound), Qsound))
     return 0;
+  CHECK_KEYWORD_ARGS (list_length (sound) - 1);
 
   sound = XCDR (sound);
   attrs[SOUND_FILE] = plist_get (sound, QCfile);
@@ -369,21 +374,10 @@ parse_sound (Lisp_Object sound, Lisp_Object *attrs)
   attrs[SOUND_DEVICE] = plist_get (sound, QCdevice);
   attrs[SOUND_VOLUME] = plist_get (sound, QCvolume);
 
-#ifndef WINDOWSNT
   /* File name or data must be specified.  */
   if (!STRINGP (attrs[SOUND_FILE])
       && !STRINGP (attrs[SOUND_DATA]))
     return 0;
-#else /* WINDOWSNT */
-  /*
-    Data is not supported in Windows.  Therefore a
-    File name MUST be supplied.
-  */
-  if (!STRINGP (attrs[SOUND_FILE]))
-    {
-      return 0;
-    }
-#endif /* WINDOWSNT */
 
   /* Volume must be in the range 0..100 or unspecified.  */
   if (!NILP (attrs[SOUND_VOLUME]))
@@ -1228,7 +1222,7 @@ alsa_init (struct sound_device *sd)
   } while (0)
 
 static int
-do_play_sound (const char *psz_file, unsigned long ui_volume)
+do_play_sound (const char *psz_file_or_data, unsigned long ui_volume, bool in_memory)
 {
   int i_result = 0;
   MCIERROR mci_error = 0;
@@ -1239,65 +1233,7 @@ do_play_sound (const char *psz_file, unsigned long ui_volume)
   BOOL b_reset_volume = FALSE;
   char warn_text[560];
 
-  /* Since UNICOWS.DLL includes only a stub for mciSendStringW, we
-     need to encode the file in the ANSI codepage on Windows 9X even
-     if w32_unicode_filenames is non-zero.  */
-  if (w32_major_version <= 4 || !w32_unicode_filenames)
-    {
-      char fname_a[MAX_PATH], shortname[MAX_PATH], *fname_to_use;
-
-      filename_to_ansi (psz_file, fname_a);
-      fname_to_use = fname_a;
-      /* If the file name is not encodable in ANSI, try its short 8+3
-	 alias.  This will only work if w32_unicode_filenames is
-	 non-zero.  */
-      if (_mbspbrk ((const unsigned char *)fname_a,
-		    (const unsigned char *)"?"))
-	{
-	  if (w32_get_short_filename (psz_file, shortname, MAX_PATH))
-	    fname_to_use = shortname;
-	  else
-	    mci_error = MCIERR_FILE_NOT_FOUND;
-	}
-
-      if (!mci_error)
-	{
-	  memset (sz_cmd_buf_a, 0, sizeof (sz_cmd_buf_a));
-	  memset (sz_ret_buf_a, 0, sizeof (sz_ret_buf_a));
-	  sprintf (sz_cmd_buf_a,
-		   "open \"%s\" alias GNUEmacs_PlaySound_Device wait",
-		   fname_to_use);
-	  mci_error = mciSendStringA (sz_cmd_buf_a,
-				      sz_ret_buf_a, sizeof (sz_ret_buf_a), NULL);
-	}
-    }
-  else
-    {
-      wchar_t sz_cmd_buf_w[520];
-      wchar_t sz_ret_buf_w[520];
-      wchar_t fname_w[MAX_PATH];
-
-      filename_to_utf16 (psz_file, fname_w);
-      memset (sz_cmd_buf_w, 0, sizeof (sz_cmd_buf_w));
-      memset (sz_ret_buf_w, 0, sizeof (sz_ret_buf_w));
-      /* _swprintf is not available on Windows 9X, so we construct the
-	 UTF-16 command string by hand.  */
-      wcscpy (sz_cmd_buf_w, L"open \"");
-      wcscat (sz_cmd_buf_w, fname_w);
-      wcscat (sz_cmd_buf_w, L"\" alias GNUEmacs_PlaySound_Device wait");
-      mci_error = mciSendStringW (sz_cmd_buf_w,
-				  sz_ret_buf_w, ARRAYELTS (sz_ret_buf_w) , NULL);
-    }
-  if (mci_error != 0)
-    {
-      strcpy (warn_text,
-	      "mciSendString: 'open' command failed to open sound file ");
-      strcat (warn_text, psz_file);
-      SOUND_WARNING (mciGetErrorString, mci_error, warn_text);
-      i_result = (int) mci_error;
-      return i_result;
-    }
-  if ((ui_volume > 0) && (ui_volume != UINT_MAX))
+  if (ui_volume > 0)
     {
       mm_result = waveOutGetVolume ((HWAVEOUT) WAVE_MAPPER, &ui_volume_org);
       if (mm_result == MMSYSERR_NOERROR)
@@ -1322,35 +1258,170 @@ do_play_sound (const char *psz_file, unsigned long ui_volume)
                          " not be used.");
         }
     }
-  memset (sz_cmd_buf_a, 0, sizeof (sz_cmd_buf_a));
-  memset (sz_ret_buf_a, 0, sizeof (sz_ret_buf_a));
-  strcpy (sz_cmd_buf_a, "play GNUEmacs_PlaySound_Device wait");
-  mci_error = mciSendStringA (sz_cmd_buf_a, sz_ret_buf_a, sizeof (sz_ret_buf_a),
-			      NULL);
-  if (mci_error != 0)
+
+  if (in_memory)
     {
-      strcpy (warn_text,
-	      "mciSendString: 'play' command failed to play sound file ");
-      strcat (warn_text, psz_file);
-      SOUND_WARNING (mciGetErrorString, mci_error, warn_text);
-      i_result = (int) mci_error;
+      int flags = SND_MEMORY;
+      if (w32_major_version >= 6) /* Vista and later */
+	flags |= SND_SENTRY;
+      i_result = !PlaySound (psz_file_or_data, NULL, flags);
     }
-  memset (sz_cmd_buf_a, 0, sizeof (sz_cmd_buf_a));
-  memset (sz_ret_buf_a, 0, sizeof (sz_ret_buf_a));
-  strcpy (sz_cmd_buf_a, "close GNUEmacs_PlaySound_Device wait");
-  mci_error = mciSendStringA (sz_cmd_buf_a, sz_ret_buf_a, sizeof (sz_ret_buf_a),
-			      NULL);
+  else
+    {
+      /* Since UNICOWS.DLL includes only a stub for mciSendStringW, we
+	 need to encode the file in the ANSI codepage on Windows 9X even
+	 if w32_unicode_filenames is non-zero.  */
+      if (w32_major_version <= 4 || !w32_unicode_filenames)
+	{
+	  char fname_a[MAX_PATH], shortname[MAX_PATH], *fname_to_use;
+
+	  filename_to_ansi (psz_file_or_data, fname_a);
+	  fname_to_use = fname_a;
+	  /* If the file name is not encodable in ANSI, try its short 8+3
+	     alias.  This will only work if w32_unicode_filenames is
+	     non-zero.  */
+	  if (_mbspbrk ((const unsigned char *)fname_a,
+			(const unsigned char *)"?"))
+	    {
+	      if (w32_get_short_filename (psz_file_or_data, shortname, MAX_PATH))
+		fname_to_use = shortname;
+	      else
+		mci_error = MCIERR_FILE_NOT_FOUND;
+	    }
+
+	  if (!mci_error)
+	    {
+	      memset (sz_cmd_buf_a, 0, sizeof (sz_cmd_buf_a));
+	      memset (sz_ret_buf_a, 0, sizeof (sz_ret_buf_a));
+	      sprintf (sz_cmd_buf_a,
+		       "open \"%s\" alias GNUEmacs_PlaySound_Device wait",
+		       fname_to_use);
+	      mci_error = mciSendStringA (sz_cmd_buf_a,
+					  sz_ret_buf_a, sizeof (sz_ret_buf_a), NULL);
+	    }
+	}
+      else
+	{
+	  wchar_t sz_cmd_buf_w[520];
+	  wchar_t sz_ret_buf_w[520];
+	  wchar_t fname_w[MAX_PATH];
+
+	  filename_to_utf16 (psz_file_or_data, fname_w);
+	  memset (sz_cmd_buf_w, 0, sizeof (sz_cmd_buf_w));
+	  memset (sz_ret_buf_w, 0, sizeof (sz_ret_buf_w));
+	  /* _swprintf is not available on Windows 9X, so we construct the
+	     UTF-16 command string by hand.  */
+	  wcscpy (sz_cmd_buf_w, L"open \"");
+	  wcscat (sz_cmd_buf_w, fname_w);
+	  wcscat (sz_cmd_buf_w, L"\" alias GNUEmacs_PlaySound_Device wait");
+	  mci_error = mciSendStringW (sz_cmd_buf_w,
+				      sz_ret_buf_w, ARRAYELTS (sz_ret_buf_w) , NULL);
+	}
+      if (mci_error != 0)
+	{
+	  strcpy (warn_text,
+		  "mciSendString: 'open' command failed to open sound file ");
+	  strcat (warn_text, psz_file_or_data);
+	  SOUND_WARNING (mciGetErrorString, mci_error, warn_text);
+	  i_result = (int) mci_error;
+	  return i_result;
+	}
+      memset (sz_cmd_buf_a, 0, sizeof (sz_cmd_buf_a));
+      memset (sz_ret_buf_a, 0, sizeof (sz_ret_buf_a));
+      strcpy (sz_cmd_buf_a, "play GNUEmacs_PlaySound_Device wait");
+      mci_error = mciSendStringA (sz_cmd_buf_a, sz_ret_buf_a, sizeof (sz_ret_buf_a),
+				  NULL);
+      if (mci_error != 0)
+	{
+	  strcpy (warn_text,
+		  "mciSendString: 'play' command failed to play sound file ");
+	  strcat (warn_text, psz_file_or_data);
+	  SOUND_WARNING (mciGetErrorString, mci_error, warn_text);
+	  i_result = (int) mci_error;
+	}
+      memset (sz_cmd_buf_a, 0, sizeof (sz_cmd_buf_a));
+      memset (sz_ret_buf_a, 0, sizeof (sz_ret_buf_a));
+      strcpy (sz_cmd_buf_a, "close GNUEmacs_PlaySound_Device wait");
+      mci_error = mciSendStringA (sz_cmd_buf_a, sz_ret_buf_a, sizeof (sz_ret_buf_a),
+				  NULL);
+    }
+
   if (b_reset_volume == TRUE)
     {
       mm_result = waveOutSetVolume ((HWAVEOUT) WAVE_MAPPER, ui_volume_org);
       if (mm_result != MMSYSERR_NOERROR)
-        {
-          SOUND_WARNING (waveOutGetErrorText, mm_result,
+	{
+	  SOUND_WARNING (waveOutGetErrorText, mm_result,
 			 "waveOutSetVolume: failed to reset the original"
-                         " volume level of the WAVE_MAPPER device.");
-        }
+			 " volume level of the WAVE_MAPPER device.");
+	}
     }
+
   return i_result;
+}
+
+DEFUN ("w32-sound-volume", Fw32_sound_volume, Sw32_sound_volume, 0, 1, 0,
+      doc: /* Get or set the MS-Windows audio volume setting.
+If VOLUME is specified, it should be the volume to set, either an integer
+in the range [0, 100], or a float in the range [0, 1.0].  Value of zero
+means mute the audio, value of 100 or 1.0 means maximum volume.
+When called with the VOLUME argument nil or omitted, just return the
+current volume setting.
+The return value is the integer volume setting before the change, if any.  */)
+  (Lisp_Object volume)
+{
+  DWORD ui_volume = 0, ui_volume_orig;
+  MMRESULT mm_result = MMSYSERR_NOERROR;
+
+  if (FIXNUMP (volume))
+    ui_volume = XFIXNUM (volume);
+  else if (FLOATP (volume))
+    ui_volume = XFLOAT_DATA (volume) * 100;
+  else if (BIGNUMP (volume))
+    {
+      double dvolume = bignum_to_double (volume);
+      if (dvolume < 0)
+	ui_volume = 0;
+      else if (dvolume > 100.0)
+	ui_volume = 100;
+      else
+	ui_volume = dvolume + 0.5;
+    }
+  else if (!NILP (volume))
+    wrong_type_argument (Qnumberp, volume);
+
+  mm_result = waveOutGetVolume ((HWAVEOUT) WAVE_MAPPER, &ui_volume_orig);
+  if (mm_result == MMSYSERR_NOERROR)
+    {
+      /* Look only at the low 16 bits, assuming left and right channels
+         have identical volume settings.  */
+      ui_volume_orig &= 0xFFFF;
+      /* The value is between 0 and 0xFFFF, convert to our scale.  */
+      ui_volume_orig = ui_volume_orig * 100.0 / 65535.0 + 0.5;
+    }
+  else
+    {
+      SOUND_WARNING (waveOutGetErrorText, mm_result,
+		     "waveOutGetVolume: failed to obtain the original"
+                     " volume level of the WAVE_MAPPER device.");
+      ui_volume_orig = 100;
+    }
+  if (!NILP (volume))
+    {
+      if (ui_volume > 100)
+	ui_volume = 100;
+      /* Set the same volume for left and right channels.  */
+      ui_volume = ui_volume * 0xFFFF / 100;
+      ui_volume = (ui_volume << 16) + ui_volume;
+      mm_result = waveOutSetVolume ((HWAVEOUT) WAVE_MAPPER, ui_volume);
+      if (mm_result != MMSYSERR_NOERROR)
+	{
+	  SOUND_WARNING (waveOutGetErrorText, mm_result,
+			 "waveOutSetVolume: failed to set the volume level"
+			 " of the WAVE_MAPPER device.");
+	}
+    }
+  return make_fixnum (ui_volume_orig);
 }
 
 /* END: Windows specific functions */
@@ -1370,8 +1441,7 @@ Internal use only, use `play-sound' instead.  */)
   CFTypeRef mac_sound;
 #endif
 #ifdef WINDOWSNT
-  unsigned long ui_volume_tmp = UINT_MAX;
-  unsigned long ui_volume = UINT_MAX;
+  unsigned long ui_volume = 0;
 #endif /* WINDOWSNT */
 
   /* Parse the sound specification.  Give up if it is invalid.  */
@@ -1438,33 +1508,31 @@ Internal use only, use `play-sound' instead.  */)
 
 #elif defined WINDOWSNT
 
-  file = Fexpand_file_name (attrs[SOUND_FILE], Vdata_directory);
-  file = ENCODE_FILE (file);
+
   if (FIXNUMP (attrs[SOUND_VOLUME]))
-    {
-      ui_volume_tmp = XFIXNAT (attrs[SOUND_VOLUME]);
-    }
+    ui_volume = XFIXNAT (attrs[SOUND_VOLUME]);
   else if (FLOATP (attrs[SOUND_VOLUME]))
-    {
-      ui_volume_tmp = XFLOAT_DATA (attrs[SOUND_VOLUME]) * 100;
-    }
+    ui_volume = XFLOAT_DATA (attrs[SOUND_VOLUME]) * 100;
+
+  if (ui_volume > 100)
+    ui_volume = 100;
+
+  /* For volume (32 bits), low order 16 bits are the value for left
+     channel, and high order 16 bits for the right channel.  We use the
+     specified volume on both channels.  */
+  ui_volume = ui_volume * 0xFFFF / 100;
+  ui_volume = (ui_volume << 16) + ui_volume;
 
   CALLN (Frun_hook_with_args, Qplay_sound_functions, sound);
 
-  /*
-    Based on some experiments I have conducted, a value of 100 or less
-    for the sound volume is much too low.  You cannot even hear it.
-    A value of UINT_MAX indicates that you wish for the sound to played
-    at the maximum possible volume.  A value of UINT_MAX/2 plays the
-    sound at 50% maximum volume.  Therefore the value passed to do_play_sound
-    (and thus to waveOutSetVolume) must be some fraction of UINT_MAX.
-    The following code adjusts the user specified volume level appropriately.
-  */
-  if ((ui_volume_tmp > 0) && (ui_volume_tmp <= 100))
+  if (STRINGP (attrs[SOUND_FILE]))
     {
-      ui_volume = ui_volume_tmp * (UINT_MAX / 100);
+      file = Fexpand_file_name (attrs[SOUND_FILE], Vdata_directory);
+      file = ENCODE_FILE (file);
+      do_play_sound (SSDATA (file), ui_volume, false);
     }
-  (void)do_play_sound (SSDATA (file), ui_volume);
+  else
+    do_play_sound (SDATA (attrs[SOUND_DATA]), ui_volume, true);
 
 #else /* HAVE_MACGUI */
   if (inhibit_window_system || noninteractive)
@@ -1517,6 +1585,9 @@ syms_of_sound (void)
   DEFSYM (Qplay_sound_functions, "play-sound-functions");
 
   defsubr (&Splay_sound_internal);
+#ifdef WINDOWSNT
+  defsubr (&Sw32_sound_volume);
+#endif
 }
 
 #endif /* HAVE_SOUND */

@@ -1,6 +1,6 @@
 ;;; org-feed.el --- Add RSS feed items to Org files  -*- lexical-binding: t; -*-
 ;;
-;; Copyright (C) 2009-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2026 Free Software Foundation, Inc.
 ;;
 ;; Author: Carsten Dominik <carsten.dominik@gmail.com>
 ;; Keywords: outlines, hypermedia, calendar, text
@@ -92,7 +92,6 @@
 (org-assert-version)
 
 (require 'org)
-(require 'sha1)
 
 (declare-function url-retrieve-synchronously "url"
                   (url &optional silent inhibit-cookies timeout))
@@ -113,7 +112,7 @@
 
 (defcustom org-feed-alist nil
   "Alist specifying RSS feeds that should create inputs for Org.
-Each entry in this list specified an RSS feed tat should be queried
+Each entry in this list specified an RSS feed that should be queried
 to create inbox items in Org.  Each entry is a list with the following items:
 
 name         a custom name for this feed

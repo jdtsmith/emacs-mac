@@ -1,6 +1,6 @@
 ;;; erc-d.el --- A dumb test server for ERC -*- lexical-binding: t -*-
 
-;; Copyright (C) 2020-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -382,7 +382,7 @@ Return associated server."
   "Raise timeout error for EXCHANGE.
 This will start the teardown for DIALOG."
   (setf (erc-d-exchange-spec exchange) nil)
-  (if-let ((finalizer (erc-d-dialog-finalizer dialog)))
+  (if-let* ((finalizer (erc-d-dialog-finalizer dialog)))
       (funcall finalizer dialog exchange)
     (erc-d--teardown 'erc-d-timeout "Timed out awaiting request: %s"
                      (list :name (erc-d-exchange-tag exchange)
@@ -422,10 +422,19 @@ This will start the teardown for DIALOG."
         (make-erc-d-i-message :command "eof" :unparsed erc-d--eof-sentinel))
   (run-at-time nil nil #'erc-d-command dialog 'eof))
 
+(defun erc-d--forget-process (process)
+  "Set sentinel and filter for PROCESS to `ignore'."
+  (let ((server (process-get process :server)))
+    (set-process-sentinel server #'ignore)
+    (set-process-sentinel process #'ignore)
+    (set-process-filter server #'ignore)
+    (set-process-filter process #'ignore)))
+
 (defun erc-d--process-sentinel (process event)
   "Set up or tear down client-connection PROCESS depending on EVENT."
   (erc-d--log-process-event process process event)
-  (if (eq 'open (process-status process))
+  (if (and (eq 'open (process-status process))
+           (process-get process :dialog-dialogs))
       (erc-d--initialize-client process)
     (let* ((dialog (process-get process :dialog))
            (exes (and dialog (erc-d-dialog-exchanges dialog))))
@@ -435,7 +444,9 @@ This will start the teardown for DIALOG."
                 ;; Ignore disconnecting peer when pattern is DROP
                 ((and (string-prefix-p "deleted" event)
                       (erc-d--drop-p (ring-ref exes -1))))
-                (t (erc-d--teardown)))
+                (t (erc-d--forget-process process)
+                   (erc-d--teardown)))
+        (erc-d--forget-process process)
         (erc-d--teardown)))))
 
 (defun erc-d--filter (process string)
@@ -451,8 +462,7 @@ including line delimiters."
                        (substring string (match-end 0))))
         (erc-d--log process line nil)
         (ring-insert queue (erc-d-i--parse-message line nil))))
-    (when string
-      (setf (process-get process :stashed-input) string))))
+    (setf (process-get process :stashed-input) string)))
 
 ;; Misc process properties:
 ;;
@@ -801,7 +811,7 @@ with leading-tilde tags."
 
 (defun erc-d--finalize-done (dialog)
   ;; Linger logic for individual dialogs is handled elsewhere
-  (if-let ((finalizer (erc-d-dialog-finalizer dialog)))
+  (if-let* ((finalizer (erc-d-dialog-finalizer dialog)))
       (funcall finalizer dialog)
     (let ((d (process-get (erc-d-dialog-process dialog) :dialog-linger-secs)))
       (push (run-at-time d nil #'erc-d--teardown)
@@ -876,7 +886,7 @@ back others indicating the lifecycle stage of the current dialog."
                 (apply #'erc-d--teardown matched)
               (erc-d-on-match dialog matched)
               (setf (erc-d-dialog-matched dialog) matched)
-              (if-let ((s (erc-d--command-meter-replies dialog matched nil)))
+              (if-let* ((s (erc-d--command-meter-replies dialog matched nil)))
                   (throw 'yield s)
                 (setf (erc-d-dialog-matched dialog) nil))))
           (erc-d--command-refresh dialog matched)))))))

@@ -1,6 +1,6 @@
 ;;; electric-tests.el --- tests for electric.el  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2013-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2026 Free Software Foundation, Inc.
 
 ;; Author: João Távora <joaotavora@gmail.com>
 ;; Keywords:
@@ -549,6 +549,33 @@ baz\"\""
                 (electric-pair-mode 1)
                 (electric-indent-mode 1)
                 (electric-layout-mode 1)))
+
+;;; String pairs
+;;; TODO: add more tests
+;;;
+
+;; NOTE: Currently string pairs do not support insert pairs in region
+;;       or delete them with electric-pair-delete-pair
+
+(ert-deftest electric-pair-strings-pairs ()
+  (save-electric-modes
+    (with-temp-buffer
+      (setq-local electric-pair-pairs `((,(regexp-quote "/*") . "*/")))
+      (electric-pair-local-mode)
+      (insert "/")
+      (let ((last-command-event ?\*))
+        (ert-simulate-command '(self-insert-command 1)))
+      (should (equal "/**/" (buffer-string))))))
+
+(ert-deftest electric-pair-strings-pairs-with-space ()
+  (save-electric-modes
+    (with-temp-buffer
+      (setq-local electric-pair-pairs `((,(regexp-quote "/*") " */" t)))
+      (electric-pair-local-mode)
+      (insert "/")
+      (let ((last-command-event ?\*))
+        (ert-simulate-command '(self-insert-command 1)))
+      (should (equal "/*  */" (buffer-string))))))
 
 
 ;;; Backspacing
@@ -561,6 +588,14 @@ baz\"\""
       (goto-char 2)
       (electric-pair-delete-pair 1)
       (should (equal "" (buffer-string))))))
+
+(ert-deftest electric-pair-backspace-2 ()
+  (save-electric-modes
+   (with-temp-buffer
+     (insert "((()))")
+     (goto-char 4)
+     (electric-pair-delete-pair 2)
+     (should (equal "()" (buffer-string))))))
 
 
 ;;; Undoing
@@ -647,6 +682,22 @@ baz\"\""
   "foo" "\"" :expected-string "``foo''" :expected-point 8
   :modes '(tex-mode)
   :test-in-comments nil
+  :fixture-fn (lambda ()
+                (electric-pair-mode 1)
+                (goto-char (point-max))
+                (skip-chars-backward "\"")
+                (mark-sexp -1)))
+
+(define-electric-pair-test autowrapping-multi-1
+ "foo" "(" :expected-string "(((((foo)))))" :expected-point 6
+  :bindings '((current-prefix-arg . 5))
+  :fixture-fn (lambda ()
+                (electric-pair-mode 1)
+                (mark-sexp 1)))
+
+(define-electric-pair-test autowrapping-multi-2
+ "foo" ")" :expected-string "(((((foo)))))" :expected-point 14
+  :bindings '((current-prefix-arg . 5))
   :fixture-fn (lambda ()
                 (electric-pair-mode 1)
                 (goto-char (point-max))

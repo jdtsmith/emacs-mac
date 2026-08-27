@@ -10,6 +10,7 @@
 @setfilename ../../info/ediff.info
 
 @settitle Ediff User's Manual
+@documentlanguage en
 @include docstyle.texi
 @synindex vr cp
 @synindex fn cp
@@ -26,7 +27,7 @@
 This file documents Ediff, a comprehensive visual interface to Unix diff
 and patch utilities.
 
-Copyright @copyright{} 1995--2025 Free Software Foundation, Inc.
+Copyright @copyright{} 1995--2026 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -489,15 +490,17 @@ compares three files simultaneously).
 @item a
 @kindex a
 @emph{In comparison sessions:}
-Copies the current difference region (or the region specified as the prefix
-to this command) from buffer A to buffer B@.
-Ediff saves the old contents of buffer B's region; it can
-be restored via the command @kbd{rb}, which see.
+Copies the current difference region (or the region specified as the
+numerical prefix to this command, or @emph{all} regions with @kbd{C-u}
+prefix) from buffer A to buffer B@.  Ediff saves the old contents of
+buffer B's region; it can be restored via the command @kbd{rb}, which
+see.
 
 @emph{In merge sessions:}
-Copies the current difference region (or the region specified as the prefix
-to this command) from buffer A to the merge buffer.  The old contents of
-this region in buffer C can be restored via the command @kbd{r}.
+Copies the current difference region (or the region specified as the
+numerical prefix to this command, or @emph{all} regions with @kbd{C-u}
+prefix) from buffer A to the merge buffer.  The old contents of this
+region in buffer C can be restored via the command @kbd{r}.
 
 @item b
 @kindex b
@@ -511,11 +514,12 @@ be reinstated via the command @kbd{ra} in comparison sessions and
 
 @item ab
 @kindex ab
-Copies the current difference region (or the region specified as the prefix
-to this command) from buffer A to buffer B@.  This (and the next five)
-command is enabled only in sessions that compare three files
-simultaneously.  The old region in buffer B is saved and can be restored
-via the command @kbd{rb}.
+Copies the current difference region (or the region specified as the
+numerical prefix to this command, or @emph{all} regions with @kbd{C-u}
+prefix) from buffer A to buffer B@.  This (and the next five) command is
+enabled only in sessions that compare three files simultaneously.  The
+old region in buffer B is saved and can be restored via the command
+@kbd{rb}.
 @item ac
 @kindex ac
 Copies the difference region from buffer A to buffer C@.
@@ -2396,10 +2400,12 @@ The window displaying buffer A@.  If buffer A is not visible, this variable
 is @code{nil} or it may be a dead window.
 
 @item ediff-window-B
-The window displaying buffer B.
+The window displaying buffer B.  If buffer B is not visible, this variable
+is @code{nil} or it may be a dead window.
 
 @item ediff-window-C
-The window displaying buffer C, if any.
+The window displaying buffer C, if any.  If buffer C is not visible,
+this variable is @code{nil} or it may be a dead window.
 
 @item ediff-control-frame
 A dedicated frame displaying the control buffer, if it exists.  It is

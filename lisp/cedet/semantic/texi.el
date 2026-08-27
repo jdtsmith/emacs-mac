@@ -1,6 +1,6 @@
 ;;; semantic/texi.el --- Semantic details for Texinfo files  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2005, 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2005, 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -385,7 +385,7 @@ Optional argument POINT is where to look for the environment."
     ))
 
 (defvar semantic-texi-command-completion-list
-  (append (mapcar (lambda (a) (car a)) texinfo-section-list)
+  (append (mapcar #'car texinfo-section-list)
 	  texinfo-environments
 	  ;; Is there a better list somewhere?  Here are few
 	  ;; of the top of my head.
@@ -445,6 +445,7 @@ that start with that symbol."
   (setq semantic-parser-name "TEXI"
         ;; Setup a dummy parser table to enable parsing!
         semantic--parse-table t
+        semantic--create-index-function-origin imenu-create-index-function
         imenu-create-index-function #'semantic-create-imenu-index
 	semantic-command-separation-character "@"
 	semantic-type-relation-separator-character '(":")

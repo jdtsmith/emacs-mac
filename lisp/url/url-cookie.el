@@ -1,6 +1,6 @@
 ;;; url-cookie.el --- URL cookie support  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-1999, 2004-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1999, 2004-2026 Free Software Foundation, Inc.
 
 ;; Keywords: comm, data, processes, hypermedia
 
@@ -56,16 +56,14 @@
 
 (defcustom url-cookie-confirmation nil
   "If non-nil, confirmation by the user is required to accept HTTP cookies."
-  :type 'boolean
-  :group 'url-cookie)
+  :type 'boolean)
 
 (defcustom url-cookie-multiple-line nil
   "If nil, HTTP requests put all cookies for the server on one line.
 Some web servers, such as https://www.hotmail.com/, only accept cookies
 when they are on one line.  This is broken behavior, but just try
 telling Microsoft that."
-  :type 'boolean
-  :group 'url-cookie)
+  :type 'boolean)
 
 (defvar url-cookies-changed-since-last-save nil
   "Whether the cookies list has changed since the last save operation.")
@@ -73,7 +71,8 @@ telling Microsoft that."
 (defun url-cookie-parse-file (&optional fname)
   "Load FNAME, default `url-cookie-file'."
   ;; It's completely normal for the cookies file not to exist yet.
-  (load (or fname url-cookie-file) t t))
+  (let ((warning-inhibit-types '((files missing-lexbind-cookie))))
+    (load (or fname url-cookie-file) t t)))
 
 (defun url-cookie-parse-file-netscape (filename &optional long-session)
   "Load cookies from FILENAME in Netscape/Mozilla format.
@@ -112,7 +111,7 @@ i.e. 1970-1-1) are loaded as expiring one year from now instead."
 				  s))))
 		    (key (nth 5 fields))
 		    (val (nth 6 fields)))
-		(cl-incf n)
+                (incf n)
 		;;(message "adding <%s>=<%s> exp=<%s> dom=<%s> path=<%s> sec=%S" key val expires dom path secure)
 		(url-cookie-store key val expires dom path secure)
 		))
@@ -151,7 +150,7 @@ i.e. 1970-1-1) are loaded as expiring one year from now instead."
     (url-cookie-clean-up)
     (url-cookie-clean-up t)
     (with-temp-buffer
-      (insert ";; Emacs-W3 HTTP cookies file\n"
+      (insert ";; Emacs-W3 HTTP cookies file  -*- lexical-binding: t -*-\n"
 	      ";; Automatically generated file!!! DO NOT EDIT!!!\n\n"
 	      "(setq url-cookie-storage\n '")
       (let ((print-length nil) (print-level nil))
@@ -265,13 +264,11 @@ i.e. 1970-1-1) are loaded as expiring one year from now instead."
 
 (defcustom url-cookie-trusted-urls nil
   "A list of regular expressions matching URLs to always accept cookies from."
-  :type '(repeat regexp)
-  :group 'url-cookie)
+  :type '(repeat regexp))
 
 (defcustom url-cookie-untrusted-urls nil
   "A list of regular expressions matching URLs to never accept cookies from."
-  :type '(repeat regexp)
-  :group 'url-cookie)
+  :type '(repeat regexp))
 
 (defun url-cookie-host-can-set-p (host domain)
   (cond
@@ -352,23 +349,24 @@ i.e. 1970-1-1) are loaded as expiring one year from now instead."
 (defvar url-cookie-timer nil)
 
 (defcustom url-cookie-save-interval 3600
-  "The number of seconds between automatic saves of cookies.
-Default is 1 hour.  Note that if you change this variable outside of
-the `customize' interface after `url-do-setup' has been run, you need
-to run the `url-cookie-setup-save-timer' function manually."
+  "If non-nil, the number of seconds between automatic saves of cookies.
+Default is 1 hour; set to nil to disable automatic saving of cookies.
+Note that if you change this variable outside of the `customize'
+interface after `url-do-setup' has been run, you need to run
+the `url-cookie-setup-save-timer' function manually."
   :set (lambda (var val)
          (set-default var val)
          (if (bound-and-true-p url-setup-done)
              (url-cookie-setup-save-timer)))
-  :type 'natnum
-  :group 'url-cookie)
+  :type '(choice (const :tag "Disable automatic saving of cookies" :value nil)
+                 (natnum :tag "Interval in seconds for auto-saving cookies")))
 
 (defun url-cookie-setup-save-timer ()
   "Reset the cookie saver timer."
   (interactive)
   (ignore-errors (cancel-timer url-cookie-timer))
   (setq url-cookie-timer nil)
-  (if url-cookie-save-interval
+  (if (natnump url-cookie-save-interval)
       (setq url-cookie-timer (run-at-time url-cookie-save-interval
 					  url-cookie-save-interval
 					  #'url-cookie-write-file))))

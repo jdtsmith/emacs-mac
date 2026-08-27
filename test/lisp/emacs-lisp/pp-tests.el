@@ -1,6 +1,6 @@
 ;;; pp-tests.el --- Test suite for pretty printer.  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2017-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -82,7 +82,16 @@
             (invalid-read-syntax
              (message "Invalid fill result with i=%d:\n%s"
                       i (buffer-string))
-             (signal (car err) (cdr err))
+             (signal err)
              ))))))))
+
+(ert-deftest pp-tests--bug76715 ()
+  (with-temp-buffer
+    (let ((pp-default-function #'pp-fill)
+          (fill-column 8)
+          (val '(x. y{ z. a{ b. x. y{ z. a{ b.)))
+      (pp val (current-buffer))
+      (goto-char (point-min))
+      (should (equal (read (current-buffer)) val)))))
 
 ;;; pp-tests.el ends here.

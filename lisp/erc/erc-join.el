@@ -1,6 +1,6 @@
 ;;; erc-join.el --- autojoin channels on connect and reconnects  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2004, 2006-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2004, 2006-2026 Free Software Foundation, Inc.
 
 ;; Author: Alex Schroeder <alex@gnu.org>
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
@@ -124,19 +124,21 @@ servers, presumably in the same domain."
 
 (defvar-local erc--autojoin-timer nil)
 
-(defun erc-autojoin-channels-delayed (server nick buffer)
-  "Attempt to autojoin channels.
-This is called from a timer set up by `erc-autojoin-channels'."
-  (if erc--autojoin-timer
-      (setq erc--autojoin-timer
-	    (cancel-timer erc--autojoin-timer)))
-  (with-current-buffer buffer
-    ;; Don't kick of another delayed autojoin or try to wait for
-    ;; another ident response:
-    (let ((erc-autojoin-delay -1)
-	  (erc-autojoin-timing 'connect))
+(defun erc-autojoin-channels-delayed (_ _ buffer)
+  "Attempt to autojoin channels in a server BUFFER.
+Expect to run on a timer after `erc-autojoin-delay' seconds when
+`erc-autojoin-timing' is the symbol `ident'."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (cl-assert (erc--server-buffer-p))
+      (when erc--autojoin-timer
+        (cancel-timer erc--autojoin-timer)
+        (setq erc--autojoin-timer nil))
+      ;; This log message is likely supposed to indicate that
+      ;; `erc-nickserv-identified-hook' did not yet run, assuming the
+      ;; services module is active.
       (erc-log "Delayed autojoin started (no ident success detected yet)")
-      (erc-autojoin-channels server nick))))
+      (erc-autojoin--join))))
 
 (defun erc-autojoin-server-match (candidate)
   "Match the current network ID or server against CANDIDATE.
@@ -157,8 +159,8 @@ network or a network ID).  Return nil on failure."
 ;; encountering errors, like a 475 ERR_BADCHANNELKEY.
 (defun erc-join--remove-requested-channel (_ parsed)
   "Remove channel from `erc-join--requested-channels'."
-  (when-let ((channel (cadr (erc-response.command-args parsed)))
-             ((member channel erc-join--requested-channels)))
+  (when-let* ((channel (cadr (erc-response.command-args parsed)))
+              ((member channel erc-join--requested-channels)))
     (setq erc-join--requested-channels
           (delete channel erc-join--requested-channels)))
   nil)
@@ -175,7 +177,7 @@ network or a network ID).  Return nil on failure."
 (defun erc-autojoin--join ()
   ;; This is called in the server buffer
   (pcase-dolist (`(,name . ,channels) erc-autojoin-channels-alist)
-    (when-let ((match (erc-autojoin-server-match name)))
+    (when-let* ((match (erc-autojoin-server-match name)))
       (dolist (chan channels)
         (let ((buf (erc-get-buffer chan erc-server-process)))
           (unless (and buf (with-current-buffer buf
@@ -185,8 +187,12 @@ network or a network ID).  Return nil on failure."
 
 (defun erc-autojoin-after-ident (_network _nick)
   "Autojoin channels in `erc-autojoin-channels-alist'.
-This function is run from `erc-nickserv-identified-hook'."
+Expect to run in a server buffer on `erc-nickserv-identified-hook' after
+services has authenticated the client."
   (when (eq erc-autojoin-timing 'ident)
+    (when erc--autojoin-timer
+      (cancel-timer erc--autojoin-timer)
+      (setq erc--autojoin-timer nil))
     (erc-autojoin--join)))
 
 (defun erc-autojoin-channels (server nick)

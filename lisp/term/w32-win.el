@@ -1,6 +1,6 @@
 ;;; w32-win.el --- parse switches controlling interface with W32 window system -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993-1994, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1994, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Kevin Gallo
 ;; Keywords: terminals
@@ -101,6 +101,13 @@
 ;;   (princ event))
 
 (defun w32-handle-dropped-file (window file-name)
+  (dnd-handle-multiple-urls
+   window
+   (list
+    (w32-dropped-file-to-url file-name))
+   'private))
+
+(defun w32-dropped-file-to-url (file-name)
   (let ((f (if (eq system-type 'cygwin)
                (cygwin-convert-file-name-from-windows file-name t)
              (subst-char-in-string ?\\ ?/ file-name)))
@@ -117,37 +124,53 @@
                      (split-string (encode-coding-string f coding)
                                    "/")
                      "/")))
-  ;; FIXME: is the W32 build capable only of receiving a single file
-  ;; from each drop?
-  (dnd-handle-multiple-urls window (list (concat
-			                  (if (eq system-type 'cygwin)
-				              "file://"
-			                    "file:")
-			                  file-name))
-                            'private))
+  (concat
+   (if (eq system-type 'cygwin)
+       "file://"
+     "file:")
+   file-name))
 
 (defun w32-drag-n-drop (event &optional new-frame)
-  "Edit the files listed in the drag-n-drop EVENT.
-Switch to a buffer editing the last file dropped."
+  "Perform drag-n-drop action according to data in EVENT.
+If EVENT is for one or more files, visit those files in corresponding
+buffers, and switch to the buffer that visits the last dropped file.
+If EVENT is for text, insert that text at point into the buffer
+shown in the window that is the target of the drop; if that buffer is
+read-only, add the dropped text to kill-ring.
+If EVENT payload is nil, then this is a drag event.
+If the optional argument NEW-FRAME is non-nil, perform the
+drag-n-drop action in a newly-created frame using its selected-window
+and that window's buffer."
   (interactive "e")
-  (save-excursion
-    ;; Make sure the drop target has positive co-ords
-    ;; before setting the selected frame - otherwise it
-    ;; won't work.  <skx@tardis.ed.ac.uk>
-    (let* ((window (posn-window (event-start event)))
-	   (coords (posn-x-y (event-start event)))
-	   (x (car coords))
-	   (y (cdr coords)))
-      (if (and (> x 0) (> y 0))
-	  (set-frame-selected-window nil window))
+  ;; Make sure the drop target has positive co-ords
+  ;; before setting the selected frame - otherwise it
+  ;; won't work.  <skx@tardis.ed.ac.uk>
+  (let* ((window (posn-window (event-start event)))
+	 (coords (posn-x-y (event-start event)))
+         (arg (car (cdr (cdr event))))
+	 (x (car coords))
+	 (y (cdr coords)))
 
-      (when new-frame
-        (select-frame (make-frame)))
-      (raise-frame)
-      (setq window (selected-window))
+    (if (and (> x 0) (> y 0) (window-live-p window))
+        (set-frame-selected-window nil window))
+    ;; Don't create new frame if we are just dragging
+    (and arg new-frame
+         (select-frame (make-frame)))
+    (raise-frame)
+    (setq window (selected-window))
 
-      (mapc (apply-partially #'w32-handle-dropped-file window)
-            (car (cdr (cdr event)))))))
+    ;; arg (the payload of the event) is a string when the drop is
+    ;; text, and a list of strings when the drop is one or more files.
+    ;; It is nil if the event is a drag event.
+    (if arg
+        (save-excursion
+          (if (stringp arg)
+              (dnd-insert-text window 'copy arg)
+            (dnd-handle-multiple-urls
+             window
+             (mapcar #'w32-dropped-file-to-url arg)
+             'private)))
+      (dnd-handle-movement (event-start event)))))
 
 (defun w32-drag-n-drop-other-frame (event)
   "Edit the files listed in the drag-n-drop EVENT, in other frames.
@@ -216,94 +239,6 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
 (defun w32-win-suspend-error ()
   "Report an error when a suspend is attempted."
   (error "Suspending an Emacs running under W32 makes no sense"))
-
-(defvar dynamic-library-alist)
-(defvar libpng-version)                 ; image.c #ifdef HAVE_NTGUI
-(defvar libgif-version)
-(defvar libjpeg-version)
-
-(defvar libgnutls-version)              ; gnutls.c
-
-(defvar tree-sitter--library-abi)       ; treesit.c
-
-;;; Set default known names for external libraries
-(setq dynamic-library-alist
-      (list
-       '(gdiplus "gdiplus.dll")
-       '(shlwapi "shlwapi.dll")
-       '(xpm "libxpm.dll" "xpm4.dll" "libXpm-nox4.dll")
-       ;; Versions of libpng 1.4.x and later are incompatible with
-       ;; earlier versions.  Set up the list of libraries according to
-       ;; the version we were compiled against.  (If we were compiled
-       ;; without PNG support, libpng-version's value is -1.)
-       (if (>= libpng-version 10400)
-	   (let ((major (/ libpng-version 10000))
-		 (minor (mod (/ libpng-version 100) 10)))
-	     (list 'png
-		   ;; libpngXY.dll is the default name when building
-		   ;; with CMake or from a lpngXYY tarball on w32,
-		   ;; libpngXY-XY.dll is the DLL name when building
-		   ;; with libtool / autotools
-		   (format "libpng%d%d.dll" major minor)
-		   (format "libpng%d%d-%d%d.dll" major minor major minor)))
-	 '(png "libpng12d.dll" "libpng12.dll" "libpng3.dll" "libpng.dll"
-	       ;; these are libpng 1.2.8 from GTK+
-	       "libpng13d.dll" "libpng13.dll"))
-       '(tiff "libtiff-5.dll" "libtiff3.dll" "libtiff.dll")
-       (if (> libjpeg-version 62)
-	   ;; Versions of libjpeg after 6b are incompatible with
-	   ;; earlier versions, and each of versions 7, 8, and 9 is
-	   ;; also incompatible with the preceding ones (the core data
-	   ;; structures used for communications with the library
-	   ;; gained additional members with each new version).  So we
-	   ;; must use only the version of the library which Emacs was
-	   ;; compiled against.
-	   (list 'jpeg (format "libjpeg-%d.dll" (/ libjpeg-version 10)))
-	 '(jpeg "jpeg62.dll" "libjpeg.dll" "jpeg-62.dll" "jpeg.dll"))
-       ;; Versions of giflib 5.0.0 and later changed signatures of
-       ;; several functions used by Emacs, which makes those versions
-       ;; incompatible with previous ones.  We select the correct
-       ;; libraries according to the version of giflib we were
-       ;; compiled against.  (If we were compiled without GIF support,
-       ;; libgif-version's value is -1.)
-       (if (>= libgif-version 50100)
-	   ;; Yes, giflib 5.0 uses 6 as the major version of the API,
-	   ;; and giflib 5.1 uses 7, thus "libgif-7.dll" and
-	   ;; "libgif-6.dll" below (giflib 4.x used 5 as the major API
-	   ;; version).  giflib5.dll is from the lua-files project,
-	   ;; and gif.dll is from luapower.
-	   '(gif "libgif-7.dll")
-	 (if (>= libgif-version 50000)
-	     '(gif "libgif-6.dll" "giflib5.dll" "gif.dll")
-	 '(gif "libgif-5.dll" "giflib4.dll" "libungif4.dll" "libungif.dll")))
-       '(svg "librsvg-2-2.dll")
-       '(webp "libwebp-7.dll" "libwebp.dll")
-       '(webpdemux "libwebpdemux-2.dll" "libwebpdemux.dll")
-       '(sqlite3 "libsqlite3-0.dll")
-       '(gdk-pixbuf "libgdk_pixbuf-2.0-0.dll")
-       '(glib "libglib-2.0-0.dll")
-       '(gio "libgio-2.0-0.dll")
-       '(gobject "libgobject-2.0-0.dll")
-       (if (>= libgnutls-version 30400)
-	   '(gnutls "libgnutls-30.dll")
-	 '(gnutls "libgnutls-28.dll" "libgnutls-26.dll"))
-       '(libxml2 "libxml2-16.dll" "libxml2-2.dll" "libxml2.dll")
-       '(zlib "zlib1.dll" "libz-1.dll")
-       '(lcms2 "liblcms2-2.dll")
-       '(gccjit "libgccjit-0.dll")
-       ;; MSYS2 distributes libtree-sitter.dll, without API version
-       ;; number, upto and including version 0.24.3-2; later versions
-       ;; come with libtree-sitter-major.minor.dll (as in
-       ;; libtree-sitter-0.24.dll).  Sadly, the header files don't have
-       ;; any symbols for library version, so we can only use the
-       ;; library-language ABI version; according to
-       ;; https://github.com/tree-sitter/tree-sitter/issues/3925, the
-       ;; language ABI must change when the library's ABI is modified.
-       (if (<= tree-sitter--library-abi 14)
-           '(tree-sitter "libtree-sitter-0.24.dll"
-                         "libtree-sitter.dll"
-                         "libtree-sitter-0.dll")
-         '(tree-sitter "libtree-sitter-0.25.dll"))))
 
 ;;; multi-tty support
 (defvar w32-initialized nil
@@ -431,15 +366,84 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
       (w32-set-clipboard-data (string-replace "\0" "\\0" value))
     (put 'x-selections (or type 'PRIMARY) value)))
 
-(defun w32--get-selection  (&optional type data-type)
+(defvar w32--selection-target-translations
+  '((PNG . image/png)
+    (DIBV5 . image/png)
+    (HTML\ Format . text/html)))
+
+(defun w32--translate-selection-target (target)
+  (let ((xlat (assoc target w32--selection-target-translations)))
+    (if xlat
+        (cdr xlat)
+      target)))
+
+(defun w32--translate-reverse-selection-target (target)
+  (append
+   (mapcar #'car
+           (seq-filter
+            (lambda (x)
+              (eq target
+                  (w32--translate-selection-target (car x))))
+            w32--selection-target-translations))
+   (list target)))
+
+(defvar w32--textual-mime-types
+  '("application/xml"
+    "application/json"
+    "application/yaml"
+    "application/json-seq"
+    "\\`text/"
+    "\\+xml\\'"
+    "\\+json\\'"
+    "\\+yaml\\'"
+    "\\+json-seq\\'"))
+
+(defun w32--mime-type-textual-p (mime-type)
+  "Returns t if MIME-TYPE, a symbol, names a textual MIME type.
+
+This function is intended to classify clipboard data.  All MIME subtypes
+of text/ are considered textual.  Also those with suffixes +xml, +json,
++yaml, +json-seq.  And application/xml, application/json,
+application/yaml, application/json-seq.
+
+This classification is not exhaustive.  Some MIME types not listed may
+also be textual."
+  (string-match-p
+   (mapconcat #'identity w32--textual-mime-types "\\|")
+        (symbol-name mime-type)))
+
+(declare-function w32--get-clipboard-data-media "w32select.c")
+
+(defun w32--get-selection (&optional type data-type)
   (cond ((and (eq type 'CLIPBOARD)
-              (eq data-type 'STRING))
+              (memq data-type '(STRING UTF8_STRING TEXT)))
          (with-demoted-errors "w32-get-clipboard-data:%S"
            (w32-get-clipboard-data)))
         ((eq data-type 'TARGETS)
          (if (eq type 'CLIPBOARD)
-             (w32-selection-targets type)
+             (vconcat
+              (delete-dups
+               (seq-map #'w32--translate-selection-target
+                        (w32-selection-targets type))))
            (if (get 'x-selections (or type 'PRIMARY)) '[STRING])))
+        ((eq type 'CLIPBOARD)
+         (let ((tmp-file (make-temp-file "emacs-clipboard"))
+               (is-textual (w32--mime-type-textual-p data-type)))
+           (unwind-protect
+               (let* ((data-types (w32--translate-reverse-selection-target data-type))
+                      (data (w32--get-clipboard-data-media data-types tmp-file is-textual)))
+                 (cond
+                  ;; data is in the file
+                  ((eq data t)
+                   (with-temp-buffer
+                     (set-buffer-multibyte nil)
+                     (insert-file-contents-literally tmp-file)
+                     (buffer-string)))
+                  ;; data is in data var
+                  ((stringp data) data)
+                  ;; No data
+                  (t nil)))
+             (delete-file tmp-file))))
         (t (get 'x-selections (or type 'PRIMARY)))))
 
 (defun w32--selection-owner-p (selection)
@@ -461,26 +465,6 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
 (cl-defmethod gui-backend-selection-exists-p (selection
                                               &context (window-system w32))
   (w32-selection-exists-p selection))
-
-(when (eq system-type 'windows-nt)
-  ;; Make copy&pasting in w32's console interact with the system's clipboard!
-  ;; We could move those cl-defmethods outside of the `when' and use
-  ;; "&context (system-type (eql windows-nt))" instead!
-  (cl-defmethod gui-backend-set-selection (type value
-                                           &context (window-system nil))
-    (w32--set-selection type value))
-
-  (cl-defmethod gui-backend-get-selection (type data-type
-                                           &context (window-system nil))
-    (w32--get-selection type data-type))
-
-  (cl-defmethod gui-backend-selection-owner-p (selection
-                                               &context (window-system nil))
-    (w32--selection-owner-p selection))
-
-  (cl-defmethod gui-selection-exists-p (selection
-                                        &context (window-system nil))
-    (w32-selection-exists-p selection)))
 
 ;; The "Windows" keys on newer keyboards bring up the Start menu
 ;; whether you want it or not - make Emacs ignore these keystrokes

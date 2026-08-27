@@ -4,7 +4,7 @@
 ;; Created: Fri Mar 26 1999
 ;; Keywords: unix
 
-;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -304,14 +304,16 @@ FILE is a file or a directory name.
 
 This function heeds `dired-actual-switches'."
   (set-buffer buffer)
-  (insert find-lisp-line-indent
-          (find-lisp-format
-           (propertize file 'dired-filename t)
-           (file-attributes file 'string)
-           (or (and dired-actual-switches
-                    (split-string-and-unquote dired-actual-switches))
-               (list ""))
-           nil)))
+  (let ((pt (point)))
+    (insert find-lisp-line-indent
+            (find-lisp-format
+             (propertize file 'dired-filename t)
+             (file-attributes file 'string)
+             (or (and dired-actual-switches
+                      (split-string-and-unquote dired-actual-switches))
+                 (list ""))
+             nil))
+    (dired-insert-set-properties pt (point))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Lifted from ls-lisp. We don't want to require it, because that

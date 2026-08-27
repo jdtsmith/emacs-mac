@@ -1,5 +1,5 @@
 @c This is part of the Emacs manual.
-@c Copyright (C) 1985--1987, 1993--1995, 1997, 1999--2025 Free Software
+@c Copyright (C) 1985--1987, 1993--1995, 1997, 1999--2026 Free Software
 @c Foundation, Inc.
 @c See file emacs.texi for copying conditions.
 @node Files
@@ -123,7 +123,7 @@ expansion, type @samp{$$}.  This pair is converted to a single
 @samp{$} at the same time that variable substitution is performed for
 a single @samp{$}.  Alternatively, quote the whole file name with
 @samp{/:} (@pxref{Quoted File Names}).  File names which begin with a
-literal @samp{~} should also be quoted with @samp{/:}.
+literal @samp{~} should be quoted with @samp{/:./}.
 
   You can include non-@acronym{ASCII} characters in file names.
 @xref{File Name Coding}.
@@ -482,6 +482,9 @@ Terminate @code{save-some-buffers} without any more saving.
 @item .
 Save this buffer, then exit @code{save-some-buffers} without even asking
 about other buffers.
+@item M-~
+Don't save this buffer, and also mark it as unmodified.
+This is like the @code{not-modified} command (@pxref{Save Commands}).
 @item C-r
 View the buffer that you are currently being asked about.  When you exit
 View mode, you get back to @code{save-some-buffers}, which asks the
@@ -997,17 +1000,17 @@ File Shadowing is not available on MS Windows.
 @cindex modification dates
 @cindex last modified time
 
-You can arrange to have a time stamp in a file be updated
-automatically each time you save the file.
-(A time stamp may also be called a date stamp or a last modified time.)
 Having a time stamp in the text of a file ensures that the time the file
 was written will be preserved even if the file is copied or transformed
 in a way that loses the file system's modification time.
+A time stamp may also be called a date stamp or a last modified time.
+You can arrange to have a time stamp in a file update
+automatically each time you save the file.
 
 There are two steps to setting up automatic time stamping.
-First, the file needs a time stamp template
-somewhere in the first eight lines.
-The template looks like this:
+First, the file needs a time stamp template.
+By default, the template occurs somewhere in the first eight lines
+and looks like this:
 
 @example
 Time-stamp: <>
@@ -1023,10 +1026,9 @@ Time-stamp: " "
 @findex time-stamp
 With that template in place, you can update the current buffer's time
 stamp once immediately with the command @kbd{M-x time-stamp}.
-Emacs will check for a template; if a template is found,
+The Emacs editor will check for a template; if a template is found,
 Emacs will write the current date, time, author, and/or
-other info between the brackets or quotes.
-(If the buffer has no template, @code{time-stamp} does nothing.)
+other info between the angle brackets or quotes.
 After the first time stamp, the line might look like this:
 
 @example
@@ -1036,13 +1038,25 @@ Time-stamp: <1993-07-06 11:05:14 terryg>
 Second, configure your Emacs to run @code{time-stamp} whenever it saves a
 file, by adding @code{time-stamp}
 to @code{before-save-hook} (@pxref{Hooks}).
-You can either use @kbd{M-x customize-option} (@pxref{Specific
-Customization}) to customize the option @code{before-save-hook},
-or you can edit your init file adding this line:
+There are two ways to do this step: you can
 
+@itemize
+@item
+use @kbd{M-x customize-option} (@pxref{Specific Customization})
+to customize the option @code{before-save-hook}, or
+
+@item
+edit your initialization file (@pxref{Init File}),
+adding this line:
 @example
 (add-hook 'before-save-hook 'time-stamp)
 @end example
+@end itemize
+
+Now every time you save a file, Emacs will look for a time stamp.
+If the buffer has no template, @code{time-stamp} does nothing;
+any file that does have a time stamp will have it kept up to date
+automatically.
 
 @menu
 * Time Stamp Customization::   How to customize with time-stamp-pattern.
@@ -1061,14 +1075,17 @@ identify a template and where in the file to look for the pattern using
 @code{time-stamp-pattern}; for details, see the variable's built-in
 documentation (with @kbd{C-h v}, @pxref{Name Help}).
 
-As a simple example, if this line occurs near the top of a file:
+As a simple example, suppose you want a manuscript to say the year
+and city of publication.
+You would like the year updated as you make revisions.
+You could have this line near the top of a file:
 
 @example
 publishing_year_and_city = "Published nnnn in Boston, Mass.";
 @end example
 
 @noindent
-then the following comment at the end of the same file tells
+and the following comment at the end of the same file to tell
 @code{time-stamp} how to identify and update that custom template:
 
 @example
@@ -1081,12 +1098,24 @@ then the following comment at the end of the same file tells
 
 This pattern says that the text before the start of the time stamp is
 ``Published '', and the text after the end is `` in Boston''.
-If @code{time-stamp} finds both in one of the first eight lines,
-what is between will be replaced by the current year, as requested by
-the @code{%Y} format.
+If @code{time-stamp} finds both the start and the end in one of the
+first eight lines,
+what is between will be updated as specified by the format, @code{%Y} in
+this example.  Since @code{%Y} requests the year, the result might look
+like this:
 
-After any change to file-local variables,
-type @kbd{M-x normal-mode} to re-read them.
+@example
+publishing_year_and_city = "Published 2025 in Boston, Mass.";
+@end example
+
+By specifying a format of @code{%Y}, we get exactly the year
+substituted; other parts of the default format (day, time and
+author) are not part of this example pattern and so do not appear in the
+result.
+
+After changing the value of @code{time-stamp-pattern}
+(or any file-local variable),
+type @kbd{M-x normal-mode} so that Emacs notices.
 
 Here is another example, with the time stamp inserted into
 the last paragraph of an HTML document.
@@ -1123,7 +1152,7 @@ for specifics on formatting and other variables that affect it.
 
 If you are working on a file with multiple authors, and you cannot
 be sure the other authors have enabled time-stamping globally in
-their Emacs init files, you can force it to be enabled for a
+their Emacs initialization files, you can force it to be enabled for a
 particular file by adding @code{time-stamp} to that buffer's
 @code{before-save-hook} in that file's local variables list.
 To extend one of the previous examples:
@@ -1137,10 +1166,12 @@ To extend one of the previous examples:
 @end group
 @end example
 
-@noindent
 Although this example shows them both set together,
 you can use @code{eval} without also setting @code{time-stamp-pattern}
 if you like the default pattern.
+
+The extra arguments to @code{add-hook} used here, @code{nil} and @code{t},
+are necessary to have the added hook affect only this buffer.
 
 @node Reverting
 @section Reverting a Buffer
@@ -1217,6 +1248,17 @@ visiting the buffer's file, as described in @ref{Choosing Modes}.  Thus,
 the major mode actually turned on as result of reverting a buffer
 depends on mode remapping, and could be different from the original mode
 if you customized @code{major-mode-remap-alist} in-between.
+
+@cindex reverting with superuser permissions
+@cindex reverting with root permissions
+@findex tramp-revert-buffer-with-sudo
+@kindex C-x x @@
+The @kbd{C-x x @@} keystroke is bound to the
+@code{tramp-revert-buffer-with-sudo} command.  This visits the file
+again, but with superuser, or root, permissions.  If called with a
+@kbd{C-u} prefix argument, it prompts for another Tramp method to use
+other than the default, @option{sudo}.  @xref{Ad-hoc multi-hops, Tramp,,
+tramp, The Tramp Manual}.
 
 @node Auto Revert
 @section Auto Revert: Keeping buffers automatically up-to-date
@@ -1766,11 +1808,20 @@ Move to the next hunk-start (@code{diff-hunk-next}).  With prefix
 argument @var{n}, move forward to the @var{n}th next hunk.
 
 @vindex diff-refine
-By default, Diff mode @dfn{refines} hunks as Emacs displays them,
-highlighting their changes with better granularity.  Alternatively, if
-you set @code{diff-refine} to the symbol @code{navigation}, Diff mode
-only refines the hunk you move to with this command or with
-@code{diff-hunk-prev}.
+By default, Diff mode automatically @dfn{refines} hunks as Emacs
+displays them, highlighting their changes with better granularity.
+Alternatively, if you set @code{diff-refine} to the symbol
+@code{navigation}, Diff mode only refines the hunk you move to with this
+command or with @code{diff-hunk-prev}.  Finally, you can set
+@code{diff-refine} to @code{nil} and manually refine hunks using
+@kbd{C-c C-b} (@code{diff-refine-hunk}), described below.
+
+@cindex shadow cursor (Diff mode)
+@vindex smerge-refine-shadow-cursor
+By default, refining a hunk in any way displays a @dfn{shadow cursor} at
+one of the two edges of the refined region, to better show where the
+refined region starts or ends.  This can be controlled by customizing
+the variable @code{smerge-refine-shadow-cursor}.
 
 @findex diff-hunk-prev
 @item M-p
@@ -1793,7 +1844,8 @@ the start of the @var{n}th previous file.
 
 @findex diff-hunk-kill
 @item M-k
-Kill the hunk at point (@code{diff-hunk-kill}).
+Kill the hunk at point (@code{diff-hunk-kill}).  If the region is
+active, kills all hunks the region overlaps.
 
 @findex diff-file-kill
 @item M-K
@@ -1802,6 +1854,7 @@ In a multi-file patch, kill the current file part.
 
 @findex diff-apply-hunk
 @cindex patches, applying
+@cindex reverse-apply diffs
 @item C-c C-a
 Apply this hunk to its target file (@code{diff-apply-hunk}).  With a
 prefix argument of @kbd{C-u}, revert this hunk, i.e.@: apply the
@@ -1809,16 +1862,50 @@ reverse of the hunk, which changes the ``new'' version into the ``old''
 version.  If @code{diff-jump-to-old-file} is non-@code{nil}, apply the
 hunk to the ``old'' version of the file instead.
 
+@code{diff-apply-hunk} prompts you to confirm deleting files and
+applying hunks to backup files, and it offers to reverse-apply hunks
+that are already applied.  If the region is active, however, it applies
+all hunks that the region overlaps without doing any prompting.  In this
+mode, it simply fails if any hunks do not apply cleanly, and does not
+confirm deletions or applying hunks to backup files.
+
+@findex diff-revert-and-kill-hunk
+@item C-c M-u
+Revert this hunk, and then remove the hunk from the diffs
+(@code{diff-revert-and-kill-hunk}).  Save the buffer visiting the target
+file.  When the region is active, the command reverse-applies and kills
+hunks that the region overlaps.
+
+This command is useful in buffers generated by @w{@kbd{C-x v =}} and
+@w{@kbd{C-x v D}} (@pxref{Old Revisions}).  These buffers present you
+with a view of the changes you've made, and you can use this command to
+undo changes you didn't intend to do, or no longer want.
+
+This is a destructive operation, so by default, this command asks you to
+confirm you really want to revert and kill the hunks.  You can customize
+@code{diff-ask-before-revert-and-kill-hunk} to control that.
+
 @findex diff-apply-buffer
 @item C-c @key{RET} a
 Apply all the hunks in the buffer (@code{diff-apply-buffer}).  If the
-diffs were applied successfully, save the changed buffers.
+region is active, apply all hunks that the region overlaps; otherwise,
+apply all hunks.  With a prefix argument, reverse-apply the hunks.
+If the diffs were applied successfully, save the changed buffers.
+
+@findex diff-delete-other-hunks
+@item C-c @key{RET} n
+Delete hunks other than the current one.  If the region is active, this
+command deletes the hunks the region overlaps; otherwise it deletes all
+hunks other than the current hunk.  This command does not work in a
+narrowed buffer because deleting hunks safely requires access to the
+parts of the buffer where the hunks' file names are specified.
 
 @findex diff-refine-hunk
 @item C-c C-b
 Highlight the changes of the hunk at point with a finer granularity
 (@code{diff-refine-hunk}).  This allows you to see exactly which parts
-of each changed line were actually changed.
+of each changed line were actually changed.  Refining a hunk by default
+shows a ``shadow cursor'' at one of the two edges of the refined region.
 
 @vindex diff-refine
 By default, Diff mode refines hunks as Emacs displays them, so you may
@@ -1982,7 +2069,7 @@ different file systems, the file @var{old} is copied and deleted.
 
 @ifnottex
   If a file is under version control (@pxref{Version Control}), you
-should rename it using @w{@kbd{M-x vc-rename-file}} instead of
+should rename it using @w{@kbd{C-x v R}} instead of
 @w{@kbd{M-x rename-file}}.  @xref{VC Delete/Rename}.
 @end ifnottex
 
@@ -2331,6 +2418,8 @@ remote file name, you can quote just the local part.
   @samp{/:} can also prevent @samp{~} from being treated as a special
 character for a user's home directory.  For example, @file{/:/tmp/~hack}
 refers to a file whose name is @file{~hack} in directory @file{/tmp}.
+If @samp{~} is at the beginning of the file name, it must be quoted with
+@samp{/:./}, like in @samp{/:./~foo/bar}.
 
   Quoting with @samp{/:} is also a way to enter in the minibuffer a
 file name that contains @samp{$}.  In order for this to work, the
@@ -2695,10 +2784,16 @@ are shown in the Customize buffer.  Remember to select @samp{Save for
 future sessions} if you want to use the same filesets in future Emacs
 sessions.
 
+@findex filesets-open
+@findex filesets-close
+@findex filesets-run-cmd
+@vindex filesets-commands
   You can use the command @kbd{M-x filesets-open} to visit all the
 files in a fileset, and @kbd{M-x filesets-close} to close them.  Use
-@kbd{M-x filesets-run-cmd} to run a shell command on all the files in
-a fileset.  These commands are also available from the @samp{Filesets}
+@kbd{M-x filesets-run-cmd} to run a command (such as
+@code{multi-isearch-files} or @command{grep}) on all the files in
+a fileset.  These commands, which are specified in
+@code{filesets-commands}, are also available from the @samp{Filesets}
 menu, where each existing fileset is represented by a submenu.
 
    @xref{Version Control}, for a different concept of filesets:

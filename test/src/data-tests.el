@@ -1,6 +1,6 @@
 ;;; data-tests.el --- tests for src/data.c  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2013-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -184,8 +184,8 @@ this is exactly representable and is greater than
     (let ((i 0))
       (dolist (n (nreverse nibbles))
         (dotimes (_ 4)
-          (aset bv i (> (logand 1 n) 0))
-          (cl-incf i)
+          (aset bv i (oddp n))
+          (incf i)
           (setf n (ash n -1)))))
     bv))
 
@@ -218,6 +218,16 @@ comparing the subr with a much slower Lisp implementation."
          unless (eql cnt rcnt)
          do (error "FAILED testcase %S %3S %3S %3S"
                    pos lf cnt rcnt)))))
+
+(ert-deftest binding-test-makunbound-built-in ()
+  "Verify that attempts to `makunbound' built-in symbols are rejected."
+  (should-error (makunbound 'initial-window-system))
+  (let ((initial-window-system 'x))
+    (should-error (makunbound 'initial-window-system)))
+  (should-error
+   (makunbound (make-local-variable 'initial-window-system)))
+  (let ((initial-window-system 'x))
+    (should-error (makunbound 'initial-window-system))))
 
 (defconst bool-vector-test-vectors
 '(""
@@ -344,6 +354,19 @@ comparing the subr with a much slower Lisp implementation."
       (setq-default binding-test-some-local 'new-default))
     (should (eq binding-test-some-local 'some))))
 
+(defvar c-e-x)
+(ert-deftest binding-test-defvar-in-let ()
+  "Test some core Elisp rules."
+  (with-temp-buffer
+    ;; Check that when defvar is run within a let-binding, the toplevel default
+    ;; is properly initialized.
+    (should (equal (list (let ((c-e-x 1)) (defvar c-e-x 2) c-e-x) c-e-x)
+                   '(1 2)))
+    (should (equal (list (let ((c-e-x 1))
+                           (defcustom c-e-x 2 "doc" :group 'blah :type 'integer) c-e-x)
+                         c-e-x)
+                   '(1 2)))))
+
 (ert-deftest data-tests--let-buffer-local ()
   (let ((blvar (make-symbol "blvar")))
     (set-default blvar nil)
@@ -385,6 +408,38 @@ comparing the subr with a much slower Lisp implementation."
             (should (equal (symbol-value var) 123))
             (should (equal (default-value var) def)))
           )))))
+
+(defvar-local c-e-l 'foo)
+(ert-deftest binding-test-toplevel-values ()
+  (setq-default c-e-l 'foo)
+  (let ((c-e-l 'bar))
+    (let ((c-e-l 'baz))
+      (setq-default c-e-l 'bar)
+      (should (eq c-e-l 'bar))
+      (should (eq (default-toplevel-value 'c-e-l) 'foo))
+      (set-default-toplevel-value 'c-e-l 'baz)
+      (should (eq c-e-l 'bar))
+      (should (eq (default-toplevel-value 'c-e-l) 'baz))))
+  (let ((c-e-u 'foo))
+    (ignore c-e-u)   ; hush unused-variable warning
+    (should (condition-case _
+                (default-toplevel-value 'c-e-u)
+              (void-variable t))))
+  (with-temp-buffer
+    (setq-local c-e-l 'bar)
+    (should (eq (buffer-local-toplevel-value 'c-e-l) 'bar))
+    (let ((c-e-l 'baz))
+      (let ((c-e-l 'quux))
+        (setq-local c-e-l 'baz)
+        (should (eq c-e-l 'baz))
+        (should (eq (buffer-local-toplevel-value 'c-e-l) 'bar))
+        (set-buffer-local-toplevel-value 'c-e-l 'foo)
+        (should (eq c-e-l 'baz))
+        (should (eq (buffer-local-toplevel-value 'c-e-l) 'foo)))))
+  (with-temp-buffer
+    (should (condition-case _
+                (buffer-local-toplevel-value 'c-e-l)
+              (void-variable t)))))
 
 (ert-deftest binding-test-makunbound ()
   "Tests of makunbound, from the manual."
@@ -742,6 +797,8 @@ comparing the subr with a much slower Lisp implementation."
   (should (= (ash (* 2 most-negative-fixnum) (* 2 most-negative-fixnum)) -1))
   (should (= (ash (* 2 most-negative-fixnum) -1)
 	     most-negative-fixnum))
+  (should (= (ash 1 48) #x1000000000000))
+  (should (= (ash 1 72) #x1000000000000000000))
   (with-suppressed-warnings ((suspicious lsh))
     (should (= (lsh most-negative-fixnum 1)
                (* most-negative-fixnum 2)))
@@ -874,5 +931,58 @@ comparing the subr with a much slower Lisp implementation."
              ((eq subtype 'function) (cl-functionp val))
              (t (should-not (cl-typep val subtype))))))))))
 
+(ert-deftest data-aset-string ()
+  ;; unibyte
+  (let ((s (copy-sequence "abcdef")))
+    (cl-assert (not (multibyte-string-p s)))
+    (aset s 4 ?E)
+    (should (equal s "abcdEf"))
+    (aset s 2 255)
+    (should (equal s "ab\377dEf"))
+    (should-error (aset s 3 256))       ; not a byte value
+    (should-error (aset s 3 #x3fff80))) ; not a byte value
+  ;; multibyte
+  (let ((s (copy-sequence "abçdef")))
+    (cl-assert (multibyte-string-p s))
+    (aset s 4 ?E)
+    (should (equal s "abçdEf"))
+    (should-error (aset s 2 ?c))        ; previous char not ASCII
+    (should-error (aset s 2 #xe9))      ; new char not ASCII
+    (should-error (aset s 3 #x3fff80))) ; new char not ASCII
+  )
+
+(ert-deftest data-tests-per-buffer-var-predicates ()
+  (with-temp-buffer
+    ;; per buffer variable without predicate
+    (progn
+      (setq line-spacing 2.3)
+      (should (= line-spacing 2.3))
+      (setq line-spacing "2.3")
+      (should (equal line-spacing "2.3"))
+      (setq line-spacing nil)
+      (should (equal line-spacing nil)))
+    ;; per buffer variable with 'fraction predicate
+    (progn
+      (dolist (v '(nil 0.7))
+        (setq scroll-up-aggressively v)
+        (should (equal scroll-up-aggressively v)))
+      (should-error (setq scroll-up-aggressively 'abc)
+                    :type 'wrong-type-argument)
+      (should-error (setq scroll-up-aggressively 2.7))
+      (should (equal scroll-up-aggressively 0.7)))
+    ;; per buffer variable with 'vertical-scroll-bar predicate
+    (progn
+      (dolist (v (get 'vertical-scroll-bar 'choice))
+        (setq vertical-scroll-bar v)
+        (should (equal vertical-scroll-bar v)))
+      (should-error (setq vertical-scroll-bar 'foo))
+      (should (equal vertical-scroll-bar 'right)))
+    ;; per buffer variable with 'overwrite-mode predicate
+    (progn
+      (dolist (v (get 'overwrite-mode 'choice))
+        (setq overwrite-mode v)
+        (should (equal overwrite-mode v)))
+      (should-error (setq overwrite-mode 'foo))
+      (should (equal overwrite-mode 'overwrite-mode-binary)))))
 
 ;;; data-tests.el ends here

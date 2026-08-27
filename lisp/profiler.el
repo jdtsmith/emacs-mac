@@ -1,6 +1,6 @@
 ;;; profiler.el --- UI and helper functions for Emacs's native profiler -*- lexical-binding: t -*-
 
-;; Copyright (C) 2012-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
 ;; Author: Tomohiro Matsuyama <tomo@cx4a.org>
 ;; Keywords: lisp
@@ -65,7 +65,7 @@
 	       collect ?, into s
 	       and do (setq i 3)
 	       collect c into s
-	       do (cl-decf i)
+               do (decf i)
 	       finally return
 	       (apply #'string (if (eq (car s) ?,) (cdr s) s)))
     (profiler-ensure-string number)))
@@ -240,7 +240,7 @@ Optional argument MODE means only check for the specified mode (cpu or mem)."
 (defun profiler-calltree-depth (tree)
   (let ((d 0))
     (while (setq tree (profiler-calltree-parent tree))
-      (cl-incf d))
+      (incf d))
     d))
 
 (defun profiler-calltree-find (tree entry)
@@ -274,7 +274,7 @@ Optional argument MODE means only check for the specified mode (cpu or mem)."
                  (setq child (profiler-make-calltree
                               :entry entry :parent node))
                  (push child (profiler-calltree-children node)))
-               (cl-incf (profiler-calltree-count child) count)
+               (incf (profiler-calltree-count child) count)
                (setq node child)))))))
    log))
 
@@ -336,7 +336,7 @@ Optional argument MODE means only check for the specified mode (cpu or mem)."
                (cl-assert (function-equal (aref backtrace max)
                                           (aref parent i)))
                (while (progn
-                        (cl-decf imatch) (cl-decf match)
+                        (decf imatch) (decf match)
                         (when (> imatch 0)
                           (function-equal (aref backtrace match)
                                           (aref parent imatch)))))
@@ -367,20 +367,20 @@ Optional argument MODE means only check for the specified mode (cpu or mem)."
            (push tmp parents)
            (setq tmp (cdr tmp)))
          (when (aref (cdar parents) (1- max))
-           (cl-incf (profiler-calltree-count leftover-tree) count)
+           (incf (profiler-calltree-count leftover-tree) count)
            (setq node leftover-tree))
          (pcase-dolist (`(,i . ,parent) parents)
            (let ((j (1- max)))
              (while (> j i)
                (let ((f (aref parent j)))
-                 (cl-decf j)
+                 (decf j)
                  (when f
                    (let ((child (profiler-calltree-find node f)))
                      (unless child
                        (setq child (profiler-make-calltree
                                     :entry f :parent node))
                        (push child (profiler-calltree-children node)))
-                     (cl-incf (profiler-calltree-count child) count)
+                     (incf (profiler-calltree-count child) count)
                      (setq node child)))))))))
      log)))
 
@@ -388,7 +388,7 @@ Optional argument MODE means only check for the specified mode (cpu or mem)."
   (let ((total-count 0))
     ;; FIXME: the memory profiler's total wraps around all too easily!
     (dolist (child (profiler-calltree-children tree))
-      (cl-incf total-count (profiler-calltree-count child)))
+      (incf total-count (profiler-calltree-count child)))
     (unless (zerop total-count)
       (profiler-calltree-walk
        tree (lambda (node)

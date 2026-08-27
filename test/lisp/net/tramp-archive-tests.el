@@ -1,6 +1,6 @@
 ;;; tramp-archive-tests.el --- Tests of file archive access  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2017-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 
@@ -33,58 +33,8 @@
 (require 'tramp-archive)
 (defvar tramp-persistency-file-name)
 
-;; `ert-resource-file' was introduced in Emacs 28.1.
-(unless (macrop 'ert-resource-file)
-  (eval-and-compile
-    (defvar ert-resource-directory-format "%s-resources/"
-      "Format for `ert-resource-directory'.")
-    (defvar ert-resource-directory-trim-left-regexp ""
-      "Regexp for `string-trim' (left) used by `ert-resource-directory'.")
-    (defvar ert-resource-directory-trim-right-regexp
-      (rx (? "-test" (? "s")) ".el")
-      "Regexp for `string-trim' (right) used by `ert-resource-directory'.")
-
-    (defmacro ert-resource-directory ()
-      "Return absolute file name of the resource directory for this file.
-
-The path to the resource directory is the \"resources\" directory
-in the same directory as the test file.
-
-If that directory doesn't exist, use the directory named like the
-test file but formatted by `ert-resource-directory-format' and trimmed
-using `string-trim' with arguments
-`ert-resource-directory-trim-left-regexp' and
-`ert-resource-directory-trim-right-regexp'.  The default values mean
-that if called from a test file named \"foo-tests.el\", return
-the absolute file name for \"foo-resources\"."
-      `(let* ((testfile ,(or (bound-and-true-p byte-compile-current-file)
-                             (and load-in-progress load-file-name)
-                             buffer-file-name))
-              (default-directory (file-name-directory testfile)))
-	 (file-truename
-	  (if (file-accessible-directory-p "resources/")
-              (expand-file-name "resources/")
-            (expand-file-name
-             (format
-	      ert-resource-directory-format
-              (string-trim testfile
-			   ert-resource-directory-trim-left-regexp
-			   ert-resource-directory-trim-right-regexp)))))))
-
-    (defmacro ert-resource-file (file)
-      "Return file name of resource file named FILE.
-A resource file is in the resource directory as per
-`ert-resource-directory'."
-      `(expand-file-name ,file (ert-resource-directory)))))
-
 (defvar tramp-archive-test-file-archive (ert-resource-file "foo.tar.gz")
   "The test file archive.")
-
-(defun tramp-archive-test-file-archive-hexlified ()
-    "Return hexlified `tramp-archive-test-file-archive'.
-Do not hexlify \"/\".  This hexlified string is used in `file:///' URLs."
-  (let* ((url-unreserved-chars (cons ?/ url-unreserved-chars)))
-    (url-hexify-string tramp-archive-test-file-archive)))
 
 (defvar tramp-archive-test-archive
   (file-name-as-directory tramp-archive-test-file-archive)
@@ -94,10 +44,27 @@ Do not hexlify \"/\".  This hexlified string is used in `file:///' URLs."
   (file-truename (ert-resource-file "foo.iso"))
   "A directory file name, which looks like an archive.")
 
+(defvar tramp-archive-test-cascaded-file-archive
+  (ert-resource-file "foo.zip/foo.tar.gz")
+  "The cascaded test file archive.")
+
+(defvar tramp-archive-test-cascaded-archive
+  (file-name-as-directory tramp-archive-test-cascaded-file-archive)
+  "The cascaded test archive.")
+
+(defun tramp-archive-test-file-archive-hexlified ()
+    "Return hexlified `tramp-archive-test-file-archive'.
+Do not hexlify \"/\".  This hexlified string is used in `file:///' URLs."
+  (let* ((url-unreserved-chars (cons ?/ url-unreserved-chars)))
+    (url-hexify-string tramp-archive-test-file-archive)))
+
 (setq password-cache-expiry nil
       tramp-cache-read-persistent-data t ;; For auth-sources.
       tramp-persistency-file-name nil
       tramp-verbose 0)
+
+(defvar tramp-archive-test-cascaded nil
+  "Indicator, whether we are testing a cascaded archive.")
 
 (defun tramp-archive--test-make-temp-name ()
   "Return a temporary file name for test.
@@ -121,12 +88,6 @@ the origin of the temporary TMPFILE, have no write permissions."
      (directory-files tmpfile 'full directory-files-no-dot-files-regexp))
     (delete-directory tmpfile)))
 
-(defun tramp-archive--test-emacs28-p ()
-  "Check for Emacs version >= 28.1.
-Some semantics has been changed for there, without new functions or
-variables, so we check the Emacs version directly."
-  (>= emacs-major-version 28))
-
 (ert-deftest tramp-archive-test00-availability ()
   "Test availability of archive file name functions."
   :expected-result (if tramp-archive-enabled :passed :failed)
@@ -136,9 +97,29 @@ variables, so we check the Emacs version directly."
     (file-exists-p tramp-archive-test-file-archive)
     (tramp-archive-file-name-p tramp-archive-test-archive))))
 
+;; These tests are inspired by Bug#79582.
+(defmacro tramp-archive--test-deftest-cascaded (test)
+  "Define ert `TEST-cascaded'."
+  (declare (indent 1))
+  `(ert-deftest ,(intern (concat (symbol-name test) "-cascaded")) ()
+     :tags '(:expensive-test)
+     ;(tramp--test-set-ert-test-documentation ',test "cascaded")
+     (skip-unless tramp-archive-enabled)
+     (if-let* ((ert-test (ert-get-test ',test))
+	       (result (ert-test-most-recent-result ert-test))
+	       (tramp-archive-test-file-archive
+		tramp-archive-test-cascaded-file-archive)
+	       (tramp-archive-test-archive tramp-archive-test-cascaded-archive)
+	       (tramp-archive-test-cascaded t))
+	 (progn
+	   (skip-unless (< (ert-test-result-duration result) 300))
+	   (funcall (ert-test-body ert-test)))
+       (ert-skip (format "Test `%s' must run before" ',test)))))
+
 (ert-deftest tramp-archive-test01-file-name-syntax ()
   "Check archive file name syntax."
-  (should-not (tramp-archive-file-name-p tramp-archive-test-file-archive))
+  (unless tramp-archive-test-cascaded
+    (should-not (tramp-archive-file-name-p tramp-archive-test-file-archive)))
   (should (tramp-archive-file-name-p tramp-archive-test-archive))
   (should
    (string-equal
@@ -185,6 +166,8 @@ variables, so we check the Emacs version directly."
     (tramp-archive-file-name-localname
      (concat tramp-archive-test-archive "baz.tar/"))
     "/")))
+
+(tramp-archive--test-deftest-cascaded tramp-archive-test01-file-name-syntax)
 
 (ert-deftest tramp-archive-test02-file-name-dissect ()
   "Check archive file name components."
@@ -300,10 +283,13 @@ variables, so we check the Emacs version directly."
    (string-equal
     (expand-file-name (concat tramp-archive-test-archive "./file"))
     (concat tramp-archive-test-archive "file")))
-  (should
-   (string-equal
-    (expand-file-name (concat tramp-archive-test-archive "../file"))
-    (concat (ert-resource-directory) "file"))))
+  (unless tramp-archive-test-cascaded
+    (should
+     (string-equal
+      (expand-file-name (concat tramp-archive-test-archive "../file"))
+      (concat (ert-resource-directory) "file")))))
+
+(tramp-archive--test-deftest-cascaded tramp-archive-test05-expand-file-name)
 
 ;; This test is inspired by Bug#30293.
 (ert-deftest tramp-archive-test05-expand-file-name-non-archive-directory ()
@@ -382,6 +368,8 @@ This checks also `file-name-as-directory', `file-name-directory',
    (unhandled-file-name-directory
     (concat tramp-archive-test-archive "path/to/file"))))
 
+(tramp-archive--test-deftest-cascaded tramp-archive-test06-directory-file-name)
+
 (ert-deftest tramp-archive-test07-file-exists-p ()
   "Check `file-exist-p', `write-region' and `delete-file'."
   :tags '(:expensive-test)
@@ -404,6 +392,8 @@ This checks also `file-name-as-directory', `file-name-directory',
 
     ;; Cleanup.
     (tramp-archive-cleanup-hash)))
+
+(tramp-archive--test-deftest-cascaded tramp-archive-test07-file-exists-p)
 
 (ert-deftest tramp-archive-test08-file-local-copy ()
   "Check `file-local-copy'."
@@ -432,6 +422,8 @@ This checks also `file-name-as-directory', `file-name-directory',
       (ignore-errors (tramp-archive--test-delete tmp-name))
       (tramp-archive-cleanup-hash))))
 
+(tramp-archive--test-deftest-cascaded tramp-archive-test08-file-local-copy)
+
 (ert-deftest tramp-archive-test09-insert-file-contents ()
   "Check `insert-file-contents'."
   :tags '(:expensive-test)
@@ -458,6 +450,8 @@ This checks also `file-name-as-directory', `file-name-directory',
 
 	;; Cleanup.
 	(tramp-archive-cleanup-hash))))
+
+(tramp-archive--test-deftest-cascaded tramp-archive-test09-insert-file-contents)
 
 (ert-deftest tramp-archive-test11-copy-file ()
   "Check `copy-file'."
@@ -525,6 +519,8 @@ This checks also `file-name-as-directory', `file-name-directory',
       (ignore-errors (tramp-archive--test-delete tmp-name2))
       (tramp-archive-cleanup-hash))))
 
+(tramp-archive--test-deftest-cascaded tramp-archive-test11-copy-file)
+
 (ert-deftest tramp-archive-test15-copy-directory ()
   "Check `copy-directory'."
   :tags '(:expensive-test)
@@ -578,6 +574,8 @@ This checks also `file-name-as-directory', `file-name-directory',
       (ignore-errors (tramp-archive--test-delete tmp-name2))
       (tramp-archive-cleanup-hash))))
 
+(tramp-archive--test-deftest-cascaded tramp-archive-test15-copy-directory)
+
 (ert-deftest tramp-archive-test16-directory-files ()
   "Check `directory-files'."
   :tags '(:expensive-test)
@@ -602,6 +600,8 @@ This checks also `file-name-as-directory', `file-name-directory',
       ;; Cleanup.
       (tramp-archive-cleanup-hash))))
 
+(tramp-archive--test-deftest-cascaded tramp-archive-test16-directory-files)
+
 (ert-deftest tramp-archive-test17-insert-directory ()
   "Check `insert-directory'."
   :tags '(:expensive-test)
@@ -609,7 +609,7 @@ This checks also `file-name-as-directory', `file-name-directory',
 
   (let (;; We test for the summary line.  Keyword "total" could be localized.
 	(process-environment
-	 (append '("LANG=C" "LANGUAGE=C" "LC_ALL=C") process-environment)))
+	 (seq-union '("LANG=C" "LANGUAGE=C" "LC_ALL=C") process-environment)))
     (unwind-protect
 	(progn
 	  (with-temp-buffer
@@ -649,6 +649,8 @@ This checks also `file-name-as-directory', `file-name-directory',
 
       ;; Cleanup.
       (tramp-archive-cleanup-hash))))
+
+(tramp-archive--test-deftest-cascaded tramp-archive-test17-insert-directory)
 
 (ert-deftest tramp-archive-test18-file-attributes ()
   "Check `file-attributes'.
@@ -711,6 +713,8 @@ This tests also `access-file', `file-readable-p' and `file-regular-p'."
       ;; Cleanup.
       (tramp-archive-cleanup-hash))))
 
+(tramp-archive--test-deftest-cascaded tramp-archive-test18-file-attributes)
+
 (ert-deftest tramp-archive-test19-directory-files-and-attributes ()
   "Check `directory-files-and-attributes'."
   :tags '(:expensive-test)
@@ -736,6 +740,9 @@ This tests also `access-file', `file-readable-p' and `file-regular-p'."
       ;; Cleanup.
       (tramp-archive-cleanup-hash))))
 
+(tramp-archive--test-deftest-cascaded
+ tramp-archive-test19-directory-files-and-attributes)
+
 (ert-deftest tramp-archive-test20-file-modes ()
   "Check `file-modes'.
 This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
@@ -750,7 +757,7 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
 	  ;; `set-file-modes' is not implemented.
 	  (should-error
 	   (set-file-modes tmp-name1 #o777)
-	   :type 'file-error)
+	   :type 'remote-file-error)
 	  (should (= (file-modes tmp-name1) #o400))
 	  (should-not (file-executable-p tmp-name1))
 	  (should-not (file-writable-p tmp-name1))
@@ -759,13 +766,15 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
 	  ;; `set-file-modes' is not implemented.
 	  (should-error
 	   (set-file-modes tmp-name2 #o777)
-	   :type 'file-error)
+	   :type 'remote-file-error)
 	  (should (= (file-modes tmp-name2) #o500))
 	  (should (file-executable-p tmp-name2))
 	  (should-not (file-writable-p tmp-name2)))
 
       ;; Cleanup.
       (tramp-archive-cleanup-hash))))
+
+(tramp-archive--test-deftest-cascaded tramp-archive-test20-file-modes)
 
 (ert-deftest tramp-archive-test21-file-links ()
   "Check `file-symlink-p' and `file-truename'"
@@ -787,7 +796,7 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
 	  ;; `make-symbolic-link' is not implemented.
 	  (should-error
 	   (make-symbolic-link tmp-name1 tmp-name2)
-	   :type 'file-error)
+	   :type 'remote-file-error)
 	  (should (file-symlink-p tmp-name2))
 	  (should (file-regular-p tmp-name2))
 	  (should
@@ -807,6 +816,8 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
 
       ;; Cleanup.
       (tramp-archive-cleanup-hash))))
+
+(tramp-archive--test-deftest-cascaded tramp-archive-test21-file-links)
 
 (ert-deftest tramp-archive-test26-file-name-completion ()
   "Check `file-name-completion' and `file-name-all-completions'."
@@ -847,6 +858,8 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
       ;; Cleanup.
       (tramp-archive-cleanup-hash))))
 
+(tramp-archive--test-deftest-cascaded tramp-archive-test26-file-name-completion)
+
 (ert-deftest tramp-archive-test40-make-nearby-temp-file ()
   "Check `make-nearby-temp-file' and `temporary-file-directory'."
   (skip-unless tramp-archive-enabled)
@@ -874,6 +887,8 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
     (delete-directory tmp-file)
     (should-not (file-exists-p tmp-file))))
 
+(tramp-archive--test-deftest-cascaded tramp-archive-test40-make-nearby-temp-file)
+
 (ert-deftest tramp-archive-test43-file-system-info ()
   "Check that `file-system-info' returns proper values."
   (skip-unless tramp-archive-enabled)
@@ -881,11 +896,13 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
   (let ((fsi (file-system-info tramp-archive-test-archive)))
     (skip-unless fsi)
     (should (and (consp fsi)
-		 (tramp-compat-length= fsi 3)
+		 (length= fsi 3)
 		 (numberp (nth 0 fsi))
 		 ;; FREE and AVAIL are always 0.
 		 (zerop (nth 1 fsi))
 		 (zerop (nth 2 fsi))))))
+
+(tramp-archive--test-deftest-cascaded tramp-archive-test43-file-system-info)
 
 ;; `file-user-uid' and `file-group-gid' were introduced in Emacs 30.1.
 (ert-deftest tramp-archive-test44-user-group-ids ()
@@ -906,7 +923,9 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
       (should (equal uid (with-no-warnings (file-user-uid))))
       (should (equal gid (with-no-warnings (file-group-gid)))))))
 
-(ert-deftest tramp-archive-test48-auto-load ()
+(tramp-archive--test-deftest-cascaded tramp-archive-test44-user-group-ids)
+
+(ert-deftest tramp-archive-test50-auto-load ()
   "Check that `tramp-archive' autoloads properly."
   :tags '(:expensive-test)
   (skip-unless tramp-archive-enabled)
@@ -925,13 +944,7 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
       (dolist (default-directory
 		(append
 		 `(,temporary-file-directory)
-		 ;;  Starting Emacs in a directory which has
-		 ;; `tramp-archive-file-name-regexp' syntax is
-		 ;; supported only with Emacs > 27.2 (sigh!).
-		 ;; (Bug#48476)
-                 (and (tramp-archive--test-emacs28-p)
-		      `(,(file-name-as-directory
-			  tramp-archive-test-directory)))))
+		 `(,(file-name-as-directory tramp-archive-test-directory))))
 	(dolist (file `("/mock::foo" ,(concat tramp-archive-test-archive "foo")))
           (should
            (string-match
@@ -954,7 +967,7 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
 	       (format "(setq tramp-archive-enabled %s)" enabled))
 	      (shell-quote-argument (format code file)))))))))))
 
-(ert-deftest tramp-archive-test48-delay-load ()
+(ert-deftest tramp-archive-test50-delay-load ()
   "Check that `tramp-archive' is loaded lazily, only when needed."
   :tags '(:expensive-test)
   (skip-unless tramp-archive-enabled)
@@ -993,7 +1006,7 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
             code tae tramp-archive-test-file-archive
             (concat tramp-archive-test-archive "foo"))))))))))
 
-(ert-deftest tramp-archive-test49-without-remote-files ()
+(ert-deftest tramp-archive-test51-without-remote-files ()
   "Check that Tramp can be suppressed."
   (skip-unless tramp-archive-enabled)
 

@@ -1,6 +1,6 @@
 ;;; srecode/mode.el --- Minor mode for managing and using SRecode templates  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2008-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -207,7 +207,7 @@ MENU-DEF is the menu to bind this into."
 		   (ctxtcons (assoc ctxt alltabs))
 		   (bind (if (slot-boundp temp 'binding)
 			     (oref temp binding)))
-		   (name (eieio-object-name-string temp)))
+		   (name (slot-value temp 'object-name)))
 
 	      (when (not ctxtcons)
 		(if (string= context ctxt)

@@ -1,6 +1,6 @@
 ;;; auth-source-pass.el --- Integrate auth-source with password-store -*- lexical-binding: t -*-
 
-;; Copyright (C) 2015, 2017-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2015, 2017-2026 Free Software Foundation, Inc.
 
 ;; Author: Damien Cassou <damien@cassou.me>,
 ;;         Nicolas Petton <nicolas@petton.fr>
@@ -85,10 +85,13 @@ HOST, USER, PORT, REQUIRE, and MAX."
         ((null host)
          ;; Do not build a result, as none will match when HOST is nil
          nil)
+        ((not (file-directory-p auth-source-pass-filename))
+         ;; Do nothing if the password-store folder doesn't exist.
+         nil)
         (auth-source-pass-extra-query-keywords
          (auth-source-pass--build-result-many host port user require max))
         (t
-         (when-let ((result (auth-source-pass--build-result host port user)))
+         (when-let* ((result (auth-source-pass--build-result host port user)))
            (list result)))))
 
 (defun auth-source-pass--build-result (hosts port user)
@@ -149,7 +152,6 @@ HOSTS can be a string or a list of strings."
 
 (defvar auth-source-pass-backend
   (auth-source-backend
-   (when (<= emacs-major-version 25) "password-store")
    :source "." ;; not used
    :type 'password-store
    :search-function #'auth-source-pass-search)
@@ -195,10 +197,15 @@ See `auth-source-pass-get'."
 (defun auth-source-pass--read-entry (entry)
   "Return a string with the file content of ENTRY."
   (with-temp-buffer
-    (insert-file-contents (expand-file-name
-                           (format "%s.gpg" entry)
-                           auth-source-pass-filename))
-    (buffer-substring-no-properties (point-min) (point-max))))
+    ;; `file-name-handler-alist' could be nil, or miss the
+    ;; `epa-file-handler' entry.  We ensure that it does exist.
+    ;; (Bug#67937)
+    (let ((file-name-handler-alist
+           (cons epa-file-handler file-name-handler-alist)))
+      (insert-file-contents (expand-file-name
+                             (format "%s.gpg" entry)
+                             auth-source-pass-filename))
+      (buffer-substring-no-properties (point-min) (point-max)))))
 
 (defun auth-source-pass-parse-entry (entry)
   "Return an alist of the data associated with ENTRY.
@@ -220,7 +227,7 @@ CONTENTS is the contents of a password-store formatted file."
   (let ((lines (cdr (split-string contents "\n" t "[ \t]+"))))
     (seq-remove #'null
                 (mapcar (lambda (line)
-                          (when-let ((pos (seq-position line ?:)))
+                          (when-let* ((pos (seq-position line ?:)))
                             (cons (string-trim (substring line 0 pos))
                                   (string-trim (substring line (1+ pos))))))
                         lines))))
@@ -271,11 +278,12 @@ HOSTS can be a string or a list of strings."
                            n)))
              seen)))
 
-(defun auth-source-pass--match-parts (parts key value require)
-  (let ((mv (plist-get parts key)))
-    (if (memq key require)
-        (and value (equal mv value))
-      (or (not value) (not mv) (equal mv value)))))
+(defun auth-source-pass--match-parts (cache key reference require)
+  (let ((value (plist-get cache key)))
+    (cond ((memq key require)
+           (if reference (equal value reference) value))
+          ((and value reference) (equal value reference))
+          (t))))
 
 (defun auth-source-pass--find-match-many (hosts users ports require max)
   "Return plists for valid combinations of HOSTS, USERS, PORTS."
@@ -296,11 +304,11 @@ HOSTS can be a string or a list of strings."
                      ((equal host (plist-get m :host)))
                      ((auth-source-pass--match-parts m :port port require))
                      ((auth-source-pass--match-parts m :user user require))
-                     (parsed (auth-source-pass-parse-entry e))
                      ;; For now, ignore body-content pairs, if any,
                      ;; from `auth-source-pass--parse-data'.
-                     (secret (or (auth-source-pass--get-attr 'secret parsed)
-                                 (not (memq :secret require)))))
+                     (secret (let ((parsed (auth-source-pass-parse-entry e)))
+                               (or (auth-source-pass--get-attr 'secret parsed)
+                                   (not (memq :secret require))))))
                   (push
                    `( :host ,host ; prefer user-provided :host over h
                       ,@(and-let* ((u (plist-get m :user))) (list :user u))
@@ -308,13 +316,13 @@ HOSTS can be a string or a list of strings."
                       ,@(and secret (not (eq secret t)) (list :secret secret)))
                    (if (setq suffixedp (plist-get m :suffix)) suffixed out))
                   (unless suffixedp
-                    (when (or (zerop (cl-decf max))
+                    (when (or (zerop (decf max))
                               (null (setq entries (delete e entries))))
                       (throw 'done out)))))
               (setq suffixed (nreverse suffixed))
               (while suffixed
                 (push (pop suffixed) out)
-                (when (zerop (cl-decf max))
+                (when (zerop (decf max))
                   (throw 'done out))))))))))
 
 (defun auth-source-pass--disambiguate (host &optional user port)

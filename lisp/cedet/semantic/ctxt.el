@@ -1,6 +1,6 @@
 ;;; semantic/ctxt.el --- Context calculations for Semantic tools  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Keywords: syntax
@@ -362,7 +362,7 @@ This will move past type/field names when applicable.
 Depends on `semantic-type-relation-separator-character', and will
 work on C like languages."
   (if point (goto-char point))
-  (let* ((fieldsep1 (mapconcat (lambda (a) (regexp-quote a))
+  (let* ((fieldsep1 (mapconcat #'regexp-quote
 			       semantic-type-relation-separator-character
 			       "\\|"))
 	 ;; NOTE: The [ \n] expression below should used \\s-, but that
@@ -446,7 +446,7 @@ This will include a list of type/field names when applicable.
 Depends on `semantic-type-relation-separator-character'."
   (save-excursion
     (if point (goto-char point))
-    (let* ((fieldsep1 (mapconcat (lambda (a) (regexp-quote a))
+    (let* ((fieldsep1 (mapconcat #'regexp-quote
 				 semantic-type-relation-separator-character
 				 "\\|"))
 	   ;; NOTE: The [ \n] expression below should used \\s-, but that

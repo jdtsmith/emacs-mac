@@ -1,6 +1,6 @@
 ;;; dbus.el --- Elisp bindings for D-Bus. -*- lexical-binding: t -*-
 
-;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, hardware
@@ -192,6 +192,10 @@ See /usr/include/dbus-1.0/dbus/dbus-protocol.h.")
 (defconst dbus-error-failed (concat dbus-error-dbus ".Failed")
   "A generic error; \"something went wrong\" - see the error message for more.")
 
+(defconst dbus-error-interactive-authorization-required
+  (concat dbus-error-dbus ".InteractiveAuthorizationRequired")
+  "Interactive authentication required.")
+
 (defconst dbus-error-invalid-args (concat dbus-error-dbus ".InvalidArgs")
   "Invalid arguments passed to a method call.")
 
@@ -241,9 +245,11 @@ Otherwise, return result of last form in BODY, or all other errors."
   (declare (indent 0) (debug t))
   `(condition-case err
        (progn ,@body)
-     (dbus-error (when dbus-debug (signal (car err) (cdr err))))))
+     (dbus-error (when dbus-debug (signal err)))))
 
-(defvar dbus-event-error-functions '(dbus-notice-synchronous-call-errors)
+(defvar dbus-event-error-functions
+  '(dbus-notice-synchronous-call-errors
+    dbus-warn-interactive-authorization-required)
   "Functions to be called when a D-Bus error happens in the event handler.
 Every function must accept two arguments, the event and the error variable
 caught in `condition-case' by `dbus-error'.")
@@ -282,6 +288,18 @@ The result will be made available in `dbus-return-values-table'."
       (setcar result :error)
       (setcdr result er))))
 
+(defun dbus-warn-interactive-authorization-required (ev er)
+  "Detect `dbus-error-interactive-authorization-required'."
+  (when  (string-equal (cadr er) dbus-error-interactive-authorization-required)
+    (lwarn 'dbus :warning "%S" (cdr er))
+    (let* ((key (list :serial
+		      (dbus-event-bus-name ev)
+		      (dbus-event-serial-number ev)))
+           (result (gethash key dbus-return-values-table)))
+      (when (consp result)
+        (setcar result :complete)
+        (setcdr result nil)))))
+
 (defun dbus-call-method (bus service path interface method &rest args)
   "Call METHOD on the D-Bus BUS.
 
@@ -296,6 +314,14 @@ If the parameter `:timeout' is given, the following integer
 TIMEOUT specifies the maximum number of milliseconds before the
 method call must return.  The default value is 25,000.  If the
 method call doesn't return in time, a D-Bus error is raised.
+
+If the parameter `:authorizable' is given and the following AUTH
+is non-nil, the invoked method may interactively prompt the user
+for authorization.  The default is nil.
+
+If the parameter `:keep-fd' is given, and the return message has a first
+argument with a D-Bus type `:unix-fd', the returned file desriptor is
+kept internally, and can be used in a later `dbus--close-fd' call.
 
 All other arguments ARGS are passed to METHOD as arguments.  They are
 converted into D-Bus types via the following rules:
@@ -426,6 +452,14 @@ If the parameter `:timeout' is given, the following integer
 TIMEOUT specifies the maximum number of milliseconds before the
 method call must return.  The default value is 25,000.  If the
 method call doesn't return in time, a D-Bus error is raised.
+
+If the parameter `:authorizable' is given and the following AUTH
+is non-nil, the invoked method may interactively prompt the user
+for authorization.  The default is nil.
+
+If the parameter `:keep-fd' is given, and the return message has a first
+argument with a D-Bus type `:unix-fd', the returned file desriptor is
+kept internally, and can be used in a later `dbus--close-fd' call.
 
 All other arguments ARGS are passed to METHOD as arguments.  They are
 converted into D-Bus types via the following rules:
@@ -578,6 +612,7 @@ This is an internal function, it shall not be used outside dbus.el."
 
 ;;; Hash table of registered functions.
 
+;; Seems to be unused.  Dow we want to keep it?
 (defun dbus-list-hash-table ()
   "Return all registered member registrations to D-Bus.
 The return value is a list, with elements of kind (KEY . VALUE).
@@ -587,7 +622,7 @@ hash table."
     (maphash
      (lambda (key value) (push (cons key value) result))
      dbus-registered-objects-table)
-    result))
+    (nreverse result)))
 
 (defun dbus-setenv (bus variable value)
   "Set the value of the BUS environment variable named VARIABLE to VALUE.
@@ -843,7 +878,7 @@ Example:
 	 "AddMatch" rule)
       (dbus-error
        (if (not (string-match-p "eavesdrop" rule))
-	   (signal (car err) (cdr err))
+	   (signal err)
 	 ;; The D-Bus spec says we shall fall back to a rule without eavesdrop.
 	 (when dbus-debug (message "Removing eavesdrop from rule %s" rule))
          (setq rule (replace-regexp-in-string ",eavesdrop='true'" "" rule t t))
@@ -1009,8 +1044,8 @@ BYTE-ARRAY must be a list of structure (c1 c2 ...), or a byte array as
 produced by `dbus-string-to-byte-array', and the individual bytes must
 be a valid UTF-8 byte sequence."
   (declare (advertised-calling-convention (byte-array) "30.1"))
-  (if-let ((bytes (seq-filter #'characterp byte-array))
-           (string (apply #'unibyte-string bytes)))
+  (if-let* ((bytes (seq-filter #'characterp byte-array))
+            (string (apply #'unibyte-string bytes)))
       (let (last-coding-system-used)
         (decode-coding-string string 'utf-8 'nocopy))
     ""))
@@ -1199,7 +1234,7 @@ If the HANDLER returns a `dbus-error', it is propagated as return message."
      ;; Propagate D-Bus error messages.
      (run-hook-with-args 'dbus-event-error-functions event err)
      (when dbus-debug
-       (signal (car err) (cdr err))))))
+       (signal err)))))
 
 (defun dbus-event-bus-name (event)
   "Return the bus name the event is coming from.
@@ -1631,9 +1666,9 @@ return nil.
   (condition-case err
       (dbus-get-property bus service path interface property)
     (dbus-error
-     (if (string-equal dbus-error-access-denied (cadr err))
+     (if (string-equal dbus-error-access-denied (error-slot-value err 1))
          (car args)
-       (signal (car err) (cdr err))))))
+       (signal err)))))
 
 (defun dbus-get-all-properties (bus service path interface)
   "Return all properties of INTERFACE at BUS, SERVICE, PATH.
@@ -2072,9 +2107,10 @@ either a method name, a signal name, or an error name."
 
 (defun dbus-monitor-goto-serial ()
   "Goto D-Bus message with the same serial number."
+  (declare (completion ignore))
   (interactive)
   (when (mouse-event-p last-input-event) (mouse-set-point last-input-event))
-  (when-let ((point (get-text-property (point) 'dbus-serial)))
+  (when-let* ((point (get-text-property (point) 'dbus-serial)))
     (goto-char point)))
 
 (defun dbus-monitor-handler (&rest _args)

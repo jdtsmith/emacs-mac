@@ -1,6 +1,6 @@
 ;;; eieio-tests.el --- eieio test routines -*- lexical-binding: t -*-
 
-;; Copyright (C) 1999-2003, 2005-2010, 2012-2025 Free Software
+;; Copyright (C) 1999-2003, 2005-2010, 2012-2026 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
@@ -430,6 +430,9 @@ METHOD is the method that was attempting to be called."
 (defclass virtual-slot-class ()
   ((base-value :initarg :base-value))
   "Class has real slot :base-value and simulated slot :derived-value.")
+
+(eieio-declare-slots derived-value)
+
 (with-suppressed-warnings ((obsolete defmethod)
                            (obsolete defgeneric))
   (defmethod slot-missing ((vsc virtual-slot-class)
@@ -1044,7 +1047,9 @@ Subclasses to override slot attributes."))
                 (slot-value x 'c)))
     (setf (slot-value x 'a) 1)
     (should (eq (eieio-test--struct-a x) 1))
-    (should-error (setf (slot-value x 'c) 3) :type 'eieio-read-only)))
+    (should-error (setf (slot-value x 'c) 3) :type 'eieio-read-only)
+    (with-no-warnings
+      (should-error (eieio-oref x 'd)) :type 'invalid-slot-name)))
 
 (defclass foo-bug-66938 (eieio-instance-inheritor)
   ((x :initarg :x

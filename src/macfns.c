@@ -3675,7 +3675,7 @@ mac_create_tip_frame (struct mac_display_info *dpyinfo, Lisp_Object parms)
   {
     Lisp_Object bg = Fframe_parameter (frame, Qbackground_color);
 
-    call2 (Qface_set_after_frame_default, frame, Qnil);
+    calln (Qface_set_after_frame_default, frame, Qnil);
 
     if (!EQ (bg, Fframe_parameter (frame, Qbackground_color)))
       {
@@ -3818,7 +3818,7 @@ mac_hide_tip (bool delete)
 {
   if (!NILP (tip_timer))
     {
-      call1 (Qcancel_timer, tip_timer);
+      calln (Qcancel_timer, tip_timer);
       tip_timer = Qnil;
     }
 
@@ -3926,7 +3926,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 	  tip_f = XFRAME (tip_frame);
 	  if (!NILP (tip_timer))
 	    {
-	      call1 (Qcancel_timer, tip_timer);
+	      calln (Qcancel_timer, tip_timer);
 	      tip_timer = Qnil;
 	    }
 
@@ -3964,11 +3964,11 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 		    }
 		  else
 		    tip_last_parms =
-		      call2 (Qassq_delete_all, parm, tip_last_parms);
+		      calln (Qassq_delete_all, parm, tip_last_parms);
 		}
 	      else
 		tip_last_parms =
-		  call2 (Qassq_delete_all, parm, tip_last_parms);
+		  calln (Qassq_delete_all, parm, tip_last_parms);
 	    }
 
 	  /* Now check if every parameter in what is left of
@@ -4130,7 +4130,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 
  start_timer:
   /* Let the tip disappear after timeout seconds.  */
-  tip_timer = call3 (Qrun_at_time, timeout, Qnil,
+  tip_timer = calln (Qrun_at_time, timeout, Qnil,
 		     Qx_hide_tip);
 
   return unbind_to (count, Qnil);
@@ -4366,10 +4366,7 @@ visible.  */)
   frames = Fnreverse (tmp);
 
   /* Make sure the current matrices are up-to-date.  */
-  specpdl_ref count = SPECPDL_INDEX ();
-  specbind (Qredisplay_dont_pause, Qt);
   redisplay_preserve_echo_area (32);
-  unbind_to (count, Qnil);
 
   block_input ();
   mac_print_frames_dialog (frames);
@@ -5171,10 +5168,7 @@ usage: (mac-start-animation FRAME-OR-WINDOW &rest PROPERTIES) */)
   check_window_system (f);
   properties = Flist (nargs - 1, args + 1);
 
-  specpdl_ref count = SPECPDL_INDEX ();
-  specbind (Qredisplay_dont_pause, Qt);
   redisplay_preserve_echo_area (30);
-  unbind_to (count, Qnil);
 
   block_input ();
   mac_start_animation (frame_or_window, properties);
@@ -5310,9 +5304,9 @@ syms_of_macfns (void)
   DEFSYM (Qmac_handle_drag_motion, "mac-handle-drag-motion");
 
   Fput (Qundefined_color, Qerror_conditions,
-	pure_list (Qundefined_color, Qerror));
+	list (Qundefined_color, Qerror));
   Fput (Qundefined_color, Qerror_message,
-	build_pure_c_string ("Undefined color"));
+	build_string ("Undefined color"));
 
   DEFVAR_LISP ("x-pointer-shape", Vx_pointer_shape,
 	       doc: /* SKIP: real doc in xfns.c.  */);
@@ -5433,8 +5427,7 @@ respectively.  */);
     if (!STRINGP (version))
       version = build_string ("Unknown");
     Vmac_carbon_version_string =
-      Fpurecopy (CALLN (Fformat, format, version,
-			make_float (mac_appkit_version ())));
+      CALLN (Fformat, format, version, make_float (mac_appkit_version ()));
   }
 
   defsubr (&Sxw_display_color_p);

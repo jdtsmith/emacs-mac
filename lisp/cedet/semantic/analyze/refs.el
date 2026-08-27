@@ -1,6 +1,6 @@
 ;;; semantic/analyze/refs.el --- Analysis of the references between tags.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2008-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -89,8 +89,7 @@ Use `semantic-analyze-current-tag' to debug this fcn."
 
       (setq allhits (semantic--analyze-refs-full-lookup tag scope t))
 
-      (semantic-analyze-references (semantic-tag-name tag)
-				    :tag tag
+      (semantic-analyze-references  :tag tag
 				    :tagdb db
 				    :scope scope
 				    :rawsearchdata allhits)

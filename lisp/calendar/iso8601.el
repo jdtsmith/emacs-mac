@@ -1,6 +1,6 @@
 ;;; iso8601.el --- parse ISO 8601 date/time strings  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2019-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
 ;; Keywords: dates
 
@@ -127,6 +127,9 @@ or \"2024-04-05T14:30Z\" or \"2024-04-05T12:30−02:00\",
 but shorter, incomplete strings like \"2008-03-02\" are valid, as
 well as variants like \"2008W32\" (week number) and
 \"2008-234\" (ordinal day number).
+Values returned are identical to those of `decode-time', except
+that an unknown DST value is -1 and other unknown values are nil.
+
 Note that, unlike `decode-time', this function does not interpret
 the time string, and in particular the time-zone designator or UTC
 offset that is part of STRING does not affect the returned value of

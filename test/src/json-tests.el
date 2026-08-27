@@ -1,6 +1,6 @@
 ;;; json-tests.el --- unit tests for json.c          -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2017-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -315,6 +315,32 @@ Test with both unibyte and multibyte strings."
     (should-not (bobp))
     (should (looking-at-p (rx " [456]" eos)))))
 
+(defmacro with-all-gap-positions-in-temp-buffer (string &rest body)
+  "Create a temporary buffer containing STRING, and evaluate BODY
+with each possible gap position.
+See also `with-temp-buffer'."
+  `(with-temp-buffer
+     (insert ,string)
+     (dotimes (i (- (point-max) (point-min)))
+       (goto-char (- (point-max) i))
+       (insert "X")
+       (delete-region (1- (point)) (point))
+       ,@body)))
+
+(ert-deftest json-parse-buffer/restricted ()
+  (with-all-gap-positions-in-temp-buffer
+   "[123] [456] [789]"
+   (pcase-dolist (`((,beg . ,end) ,result)
+                  '(((7 . 12) [456])
+                    ((1 . 6) [123])
+                    ((13 . 18) [789])))
+     (goto-char beg)
+     (narrow-to-region beg end)
+     (should (equal (json-parse-buffer) result))
+     (should (= (point) end))
+     (should-error (json-parse-buffer) :type 'json-end-of-file)
+     (widen))))
+
 (ert-deftest json-parse-with-custom-null-and-false-objects ()
   (let* ((input
           "{ \"abc\" : [9, false] , \"def\" : null }")
@@ -357,7 +383,7 @@ Test with both unibyte and multibyte strings."
     (let ((calls 0))
       (add-hook 'after-change-functions
                 (lambda (_begin _end _length)
-                  (cl-incf calls)
+                  (incf calls)
                   (signal 'json-tests--error
                           '("Error in `after-change-functions'")))
                 :local)
@@ -371,7 +397,7 @@ Test with both unibyte and multibyte strings."
     (let ((calls 0))
       (add-hook 'after-change-functions
                 (lambda (_begin _end _length)
-                  (cl-incf calls)
+                  (incf calls)
                   (throw 'test-tag 'throw-value))
                 :local)
       (should
@@ -397,6 +423,35 @@ Test with both unibyte and multibyte strings."
   (let ((table (make-hash-table :test #'eq)))
     (puthash 1 2 table)
     (should-error (json-serialize table) :type 'wrong-type-argument)))
+
+(defun json-tests--parse-string-error-pos (s)
+  (condition-case e
+      (json-parse-string s)
+    (json-error (nth 3 e))
+    (:success 'no-error)))
+
+(defun json-tests--parse-buffer-error-pos ()
+  (condition-case e
+      (json-parse-buffer)
+    (json-error (nth 3 e))
+    (:success 'no-error)))
+
+(ert-deftest json-parse-error-position ()
+  (let* ((s "[\"*Ωßœ☃*\",,8]")
+         (su (encode-coding-string s 'utf-8-emacs)))
+    (should (equal (json-tests--parse-string-error-pos s) 11))
+    (should (equal (json-tests--parse-string-error-pos su) 16))
+
+    (with-temp-buffer
+      (let ((junk "some leading junk"))
+        (insert junk)
+        (insert s)
+        (goto-char (1+ (length junk)))
+        (should (equal (json-tests--parse-buffer-error-pos) 11))
+
+        (set-buffer-multibyte nil)
+        (goto-char (1+ (length junk)))
+        (should (equal (json-tests--parse-buffer-error-pos) 16))))))
 
 (provide 'json-tests)
 ;;; json-tests.el ends here

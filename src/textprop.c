@@ -1,5 +1,5 @@
 /* Interface code for dealing with text properties.
-   Copyright (C) 1993-2025 Free Software Foundation, Inc.
+   Copyright (C) 1993-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -2167,7 +2167,7 @@ call_mod_hooks (Lisp_Object list, Lisp_Object start, Lisp_Object end)
 {
   while (!NILP (list))
     {
-      call2 (Fcar (list), start, end);
+      calln (Fcar (list), start, end);
       list = Fcdr (list);
     }
 }
@@ -2427,6 +2427,7 @@ inherits it if NONSTICKINESS is nil.  The `front-sticky' and
      by default.  */
   Vtext_property_default_nonsticky
     = list2 (Fcons (Qsyntax_table, Qt), Fcons (Qdisplay, Qt));
+  Fmake_variable_buffer_local (Qtext_property_default_nonsticky);
 
   interval_insert_behind_hooks = Qnil;
   interval_insert_in_front_hooks = Qnil;
@@ -2444,6 +2445,7 @@ inherits it if NONSTICKINESS is nil.  The `front-sticky' and
   DEFSYM (Qlocal_map, "local-map");
   DEFSYM (Qfront_sticky, "front-sticky");
   DEFSYM (Qrear_nonsticky, "rear-nonsticky");
+  DEFSYM (Qtext_property_default_nonsticky, "text-property-default-nonsticky");
   DEFSYM (Qmouse_face, "mouse-face");
   DEFSYM (Qminibuffer_prompt, "minibuffer-prompt");
 

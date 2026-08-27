@@ -1,6 +1,6 @@
 # SETUPFILE for Org manual
 
-# Copyright (C) 2021-2025 Free Software Foundation, Inc.
+# Copyright (C) 2021-2026 Free Software Foundation, Inc.
 #
 # This file is part of GNU Emacs.
 #
@@ -29,9 +29,9 @@
 
 # Contact Info
 #+texinfo_header: @set MAINTAINERSITE @uref{https://orgmode.org,maintainers webpage}
-#+texinfo_header: @set MAINTAINER Bastien Guerry
-#+texinfo_header: @set MAINTAINEREMAIL @email{bzg@gnu.org}
-#+texinfo_header: @set MAINTAINERCONTACT @uref{mailto:bzg@gnu.org,contact the maintainer}
+#+texinfo_header: @set MAINTAINER Ihor Radchenko
+#+texinfo_header: @set MAINTAINEREMAIL @email{yantar92@posteo.net}
+#+texinfo_header: @set MAINTAINERCONTACT @uref{mailto:yantar92@posteo.net,contact the maintainer}
 
 #+options: H:4 num:t toc:t author:t \n:nil ::t |:t ^:nil -:t f:t *:t <:t e:t ':t
 #+options: d:nil todo:nil pri:nil tags:not-in-toc stat:nil broken-links:mark
@@ -50,4 +50,3 @@
 # The "kbd" macro turns KBD into @kbd{KBD}.  Additionally, it
 # encloses case-sensitive special keys (SPC, RET...) within @key{...}.
 #+macro: kbd (eval (org-texinfo-kbd-macro $1))
-

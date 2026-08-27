@@ -1,6 +1,6 @@
 ;;; comp-common.el --- common code -*- lexical-binding: t -*-
 
-;; Copyright (C) 2023-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 ;; Author: Andrea Corallo <acorallo@gnu.org>
 ;; Keywords: lisp
@@ -56,7 +56,7 @@ This is intended for debugging the compiler itself.
   "Primitive functions to exclude from trampoline optimization.
 
 Primitive functions included in this list will not be called
-directly by the natively-compiled code, which makes trampolines for
+directly by the native-compiled code, which makes trampolines for
 those primitives unnecessary in case of function redefinition/advice."
   :type '(repeat symbol)
   :version "30.1")
@@ -272,7 +272,7 @@ Used to modify the compiler environment."
     (member (function (t list) list))
     (memq (function (t list) list))
     (memql (function (t list) list))
-    (message (function (string &rest t) string))
+    (message (function ((or string null) &rest t) (or string null)))
     (min (function ((or number marker) &rest (or number marker)) number))
     (minibuffer-selected-window (function () (or window null)))
     (minibuffer-window (function (&optional frame) window))
@@ -510,17 +510,17 @@ comes from `comp-primitive-type-specifiers' or the function type declaration
 itself."
   (let ((kind 'declared)
         type-spec)
-    (when-let ((res (assoc function comp-primitive-type-specifiers)))
+    (when-let* ((res (assoc function comp-primitive-type-specifiers)))
       ;; Declared primitive
       (setf type-spec (cadr res)))
     (let ((f (and (symbolp function)
                   (symbol-function function))))
       (when (and f (null type-spec))
-        (if-let ((delc-type (function-get function 'function-type)))
+        (if-let* ((delc-type (function-get function 'function-type)))
             ;; Declared Lisp function
             (setf type-spec delc-type)
           (when (native-comp-function-p f)
-            ;; Native compiled inferred
+            ;; Natively compiled inferred
             (setf kind 'inferred
                   type-spec (subr-type f))))))
     (when type-spec

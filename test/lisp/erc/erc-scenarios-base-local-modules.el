@@ -1,6 +1,6 @@
 ;;; erc-scenarios-base-local-modules.el --- Local-module tests for ERC -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -117,20 +117,25 @@
         (erc-cmd-QUIT "")
         (funcall expect 10 "finished")))
 
-    (ert-info ("Disabling works from a target buffer")
+    (ert-info ("Explicit disabling affects entire session")
+      ;; Even though the mode variable is nil (but locally bound) in
+      ;; this target buffer, disabling interactively with
+      ;; `erc-sasl-disable', deactivates the module session-wide.
       (with-current-buffer "#chan"
-        (should erc-sasl-mode)
-        (call-interactively #'erc-sasl-disable)
         (should-not erc-sasl-mode)
         (should (local-variable-p 'erc-sasl-mode))
+        (should (buffer-local-value 'erc-sasl-mode (get-buffer "foonet")))
+        (call-interactively #'erc-sasl-disable)
         (should-not (buffer-local-value 'erc-sasl-mode (get-buffer "foonet")))
+        (should-not erc-sasl-mode)
         (erc-cmd-RECONNECT)
         (funcall expect 10 "Some enigma, some riddle")
-        (should-not erc-sasl-mode) ; regression
+        (should-not erc-sasl-mode)
         (should (local-variable-p 'erc-sasl-mode)))
 
       (with-current-buffer "foonet"
         (should (local-variable-p 'erc-sasl-mode))
+        (should-not erc-sasl-mode)
         (funcall expect 10 "User modes for tester`")
         (erc-cmd-QUIT "")
         (funcall expect 10 "finished")))
@@ -139,7 +144,8 @@
       (with-current-buffer "#chan"
         (call-interactively #'erc-sasl-enable)
         (should (local-variable-p 'erc-sasl-mode))
-        (should erc-sasl-mode)
+        (should-not erc-sasl-mode)
+        (should (buffer-local-value 'erc-sasl-mode (get-buffer "foonet")))
         (erc-cmd-RECONNECT)
         (funcall expect 10 "Well met; good morrow, Titus and Hortensius.")
         (erc-cmd-QUIT ""))
@@ -153,7 +159,7 @@
 
 (define-erc-module -phony-sblm- nil
   "Test module for `erc-scenarios-base-local-modules--var-persistence'."
-  ((when-let ((vars (or erc--server-reconnecting erc--target-priors)))
+  ((when-let* ((vars (or erc--server-reconnecting erc--target-priors)))
      (should (assq 'erc--phony-sblm--mode vars))
      (setq erc-scenarios-base-local-modules--local-var
            (alist-get 'erc-scenarios-base-local-modules--local-var vars)))

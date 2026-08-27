@@ -1,6 +1,6 @@
 ;;; erc-scenarios-base-buffer-display.el --- Buffer display scenarios -*- lexical-binding: t -*-
 
-;; Copyright (C) 2023-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -40,6 +40,7 @@
        (port (process-contact dumb-server :service))
        (expect (erc-d-t-make-expecter))
        (erc-server-flood-penalty 0.1)
+       (erc-server-reconnect-function #'erc-server-delayed-reconnect)
        (erc-server-auto-reconnect t)
        erc-autojoin-channels-alist)
 
@@ -229,7 +230,8 @@
        (erc-user-full-name "tester"))
 
     (ert-info ("Connect to foonet")
-      (with-current-buffer (let (inhibit-interaction)
+      (with-current-buffer (let ((inhibit-message noninteractive)
+                                 (inhibit-interaction nil))
                              (ert-simulate-keys url
                                (call-interactively #'erc)))
         (should (string= (buffer-name) (format "127.0.0.1:%d" port)))

@@ -1,6 +1,6 @@
 ;;; recentf.el --- keep track of recently opened files  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
 ;; Author: David Ponce <david@dponce.com>
 ;; Created: July 19 1999
@@ -73,20 +73,22 @@
 You should define the options of your own filters in this group."
   :group 'recentf)
 
-(defcustom recentf-max-saved-items 20
+(defcustom recentf-max-saved-items 25
   "Maximum number of items of the recent list that will be saved.
 A nil value means to save the whole list.
 See the command `recentf-save-list'."
   :group 'recentf
-  :type '(choice (integer :tag "Entries" :value 1)
-		 (const :tag "No Limit" nil)))
+  :type '(choice (natnum :tag "Entries")
+		 (const :tag "No Limit" nil))
+  :version "31.1")
 
-(defcustom recentf-save-file (locate-user-emacs-file "recentf" ".recentf")
+(defcustom recentf-save-file
+  (locate-user-emacs-file '("recentf.eld" "recentf") ".recentf")
   "File to save the recent list into."
   :group 'recentf
-  :version "24.4"
+  :version "31.1"
   :type 'file
-  :initialize 'custom-initialize-default
+  :initialize #'custom-initialize-default
   :set (lambda (symbol value)
          (let ((oldvalue (symbol-value symbol)))
            (custom-set-default symbol value)
@@ -96,9 +98,10 @@ See the command `recentf-save-list'."
 
 (defcustom recentf-save-file-modes #o600
   "Mode bits of recentf save file, as an integer, or nil.
-If non-nil, after writing `recentf-save-file', set its mode bits to
-this value.  By default give R/W access only to the user who owns that
-file.  See also the function `set-file-modes'."
+If non-nil, after writing `recentf-save-file', set its mode bits to this
+value.  This is decimal, not octal.  The default is 384 (0600 in octal),
+which gives R/W access only to the user who owns that file.  See also
+the function `set-file-modes'."
   :group 'recentf
   :type '(choice (const :tag "Don't change" nil)
           integer))
@@ -111,6 +114,31 @@ A predicate is a function that is passed a filename to check and that
 must return non-nil to exclude it."
   :group 'recentf
   :type '(repeat (choice regexp function)))
+
+(defcustom recentf-exclude-ignored-extensions nil
+  "List of file-name extensions that `recentf' should ignore.
+This has effect only if the function `recentf-exclude-file-by-extension-p'
+is in the list that is the value of `recentf-exclude'.
+If this option is nil and `recentf-exclude-file-by-extension-p' is a
+member of `recentf-exclude', a file will be ignored if its extension is
+in `completion-ignored-extensions', which see."
+  :group 'recentf
+  :version "31.1"
+  :type '(repeat string))
+
+(defun recentf-exclude-file-by-extension-p (file-name)
+  "Whether to ignore FILE-NAME due to its file-name extension.
+This predicate function is meant to be added to the list in `recentf-exclude'.
+It returns non-nil if FILE-NAME's extension is in the list that is
+the value of `recentf-exclude-ignored-extensions'; if that variable
+is nil, this function consults `completion-ignored-extensions' instead."
+  (and-let* ((extension (file-name-extension file-name)))
+    (string-match-p
+     (concat
+      (regexp-opt (or recentf-exclude-ignored-extensions
+                      completion-ignored-extensions))
+      "\\'")
+     (concat "." extension))))
 
 (defun recentf-access-file (filename)
   "Check whether FILENAME is accessible."
@@ -155,7 +183,7 @@ Set VARIABLE with VALUE, and force a rebuild of the recentf menu."
   "Name of the recentf menu."
   :group 'recentf
   :type 'string
-  :set 'recentf-menu-customization-changed)
+  :set #'recentf-menu-customization-changed)
 
 (defcustom recentf-menu-path '("File")
   "Path where to add the recentf menu.
@@ -163,7 +191,7 @@ If nil add it at top level (see also `easy-menu-add-item')."
   :group 'recentf
   :type '(choice (const :tag "Top Level" nil)
                  (sexp :tag "Menu Path"))
-  :set 'recentf-menu-customization-changed)
+  :set #'recentf-menu-customization-changed)
 
 (defcustom recentf-menu-before "Open File..."
   "Name of the menu before which the recentf menu will be added.
@@ -171,7 +199,7 @@ If nil add it at end of menu (see also `easy-menu-add-item')."
   :group 'recentf
   :type '(choice (string :tag "Name")
                  (const :tag "Last" nil))
-  :set 'recentf-menu-customization-changed)
+  :set #'recentf-menu-customization-changed)
 
 (defcustom recentf-menu-action #'find-file
   "Function to invoke with a filename item of the recentf menu.
@@ -307,10 +335,10 @@ They are successively passed a file name to transform it."
   :type '(choice
           (const :tag "None" nil)
           (repeat :tag "Functions"
-           (choice
-            (const file-truename)
-            (const abbreviate-file-name)
-            (function :tag "Other function"))))
+                  (choice
+                   (const file-truename)
+                   (const abbreviate-file-name)
+                   (function :tag "Other function"))))
   :version "29.1")
 
 (defcustom recentf-show-file-shortcuts-flag t
@@ -319,6 +347,23 @@ If non-nil, `recentf-open-files' will show labels for keys that can be
 used as shortcuts to open the Nth file."
   :group 'recentf
   :type 'boolean)
+
+(defcustom recentf-show-messages t
+  "Whether to show verbose messages about low-level recentf actions.
+nil means to not show messages related to the recentf machinery.
+t means show messages that were printed by default on Emacs <= 31.1."
+  :group 'recentf
+  :type 'boolean
+  :version "31.1")
+
+(defcustom recentf-suppress-open-file-help nil
+  "If non-nil, suppress help messages in recentf open file dialogs.
+By default, opening the dialog interactively and tabbing between items
+shows help messages.  (In any case, a tooltip displays the help text
+when the mouse pointer hovers over an item)."
+  :group 'recentf
+  :type 'boolean
+  :version "31.1")
 
 ;;; Utilities
 ;;
@@ -361,7 +406,9 @@ the full list."
         (setq value (seq-take value limit)))
       (insert (format "\n(setq %S\n      '(" variable))
       (dolist (e value)
-        (insert (format "\n        %S" e)))
+        (insert (format "\n        %S"
+                        (or (and (stringp e) (substring-no-properties e))
+                            e))))
       (insert "\n        ))\n"))))
 
 (defvar recentf-auto-cleanup-timer nil
@@ -371,7 +418,8 @@ See also the option `recentf-auto-cleanup'.")
 (defun recentf-auto-cleanup ()
   "Automatic cleanup of the recent list."
   (when (timerp recentf-auto-cleanup-timer)
-    (cancel-timer recentf-auto-cleanup-timer))
+    (cancel-timer recentf-auto-cleanup-timer)
+    (setq recentf-auto-cleanup-timer nil))
   (when recentf-mode
     (setq recentf-auto-cleanup-timer
           (cond
@@ -380,11 +428,11 @@ See also the option `recentf-auto-cleanup'.")
             nil)
            ((numberp recentf-auto-cleanup)
             (run-with-idle-timer
-             recentf-auto-cleanup t 'recentf-cleanup))
+             recentf-auto-cleanup t #'recentf-cleanup))
            ((stringp recentf-auto-cleanup)
             (run-at-time
              ;; Repeat every 24 hours.
-             recentf-auto-cleanup (* 24 60 60) 'recentf-cleanup))))))
+             recentf-auto-cleanup (* 24 60 60) #'recentf-cleanup))))))
 
 ;;; File functions
 ;;
@@ -492,12 +540,14 @@ Enable `recentf-mode' if it isn't already."
    (list
     (progn (unless recentf-mode (recentf-mode 1))
            (completing-read (format-prompt "Open recent file" nil)
-                            recentf-list nil t))))
+                            (completion-table-with-metadata
+                             recentf-list '((category . recentf)))
+                            nil t))))
   (when file
     (funcall recentf-menu-action file)))
 
 ;;;###autoload
-(defalias 'recentf 'recentf-open)
+(defalias 'recentf #'recentf-open)
 
 
 ;;; Menu building
@@ -1086,14 +1136,37 @@ IGNORE arguments."
 Go to the beginning of buffer if not found."
   (goto-char (point-min))
   (condition-case nil
-      (let (done)
-        (widget-move 1)
+      (let ((no-echo (or recentf-suppress-open-file-help
+                         ;; Show help messages by default only when
+                         ;; invoking these interactively (bug#78666).
+                         (not (memq this-command '(recentf-open-files
+                                                   recentf-open-more-files
+                                                   recentf-forward
+                                                   recentf-backward)))))
+            done)
+        (widget-move 1 no-echo)
         (while (not done)
           (if (eq widget-type (widget-type (widget-at (point))))
               (setq done t)
-            (widget-move 1))))
+            (widget-move 1 no-echo))))
     (error
      (goto-char (point-min)))))
+
+(defun recentf-forward (arg)
+  "Move the cursor to the next widget in the current dialog.
+With prefix argument ARG, move to the ARGth next widget.  If
+`recentf-suppress-open-file-help' is non-nil, suppress help messages in
+the echo area in the open recentf dialog."
+  (interactive "p")
+  (widget-forward arg recentf-suppress-open-file-help))
+
+(defun recentf-backward (arg)
+  "Move the cursor to the previous widget in the current dialog.
+With prefix argument ARG, move to the ARGth previous widget.  If
+`recentf-suppress-open-file-help' is non-nil, suppress help messages in
+the echo area in the open recentf dialog."
+  (interactive "p")
+  (widget-backward arg recentf-suppress-open-file-help))
 
 (defvar-keymap recentf-dialog-mode-map
   :doc "Keymap used in recentf dialogs."
@@ -1126,6 +1199,8 @@ Go to the beginning of buffer if not found."
     (recentf-dialog-mode)
     ,@forms
     (widget-setup)
+    (keymap-local-set "<remap> <widget-forward>" #'recentf-forward)
+    (keymap-local-set "<remap> <widget-backward>" #'recentf-backward)
     (switch-to-buffer (current-buffer))))
 
 ;;; Edit list dialog
@@ -1304,8 +1379,45 @@ Optional argument N must be a valid digit number.  It defaults to 1.
 
 ;;; Save/load/cleanup the recent list
 ;;
+(defvar recentf--autosave-timer nil)
+
+(defun recentf--cancel-autosave-timer ()
+  "Cancel `recentf--autosave-timer', if set."
+  (when (timerp recentf--autosave-timer)
+    (cancel-timer recentf--autosave-timer))
+  (setq recentf--autosave-timer nil))
+
+(defvar recentf-autosave-interval)
+
+(defun recentf--manage-autosave-timer ()
+  "Set or cancel an invocation of `recentf-save-list' on a timer.
+If `recentf-mode' is enabled, set the timer, otherwise cancel the timer."
+  (if (and recentf-mode
+           recentf-autosave-interval
+           (null recentf--autosave-timer))
+      (setq recentf--autosave-timer
+	    (run-with-timer
+             recentf-autosave-interval
+	     recentf-autosave-interval #'recentf-save-list))
+    (recentf--cancel-autosave-timer)))
+
+(defcustom recentf-autosave-interval nil
+  "The interval between auto saves of recently opened files.
+If set to nil, disables timer-based auto saving.
+Do not set this variable via `setq', use either `setopt' or
+`customize-option' instead."
+  :type '(choice (const :tag "Disabled" nil)
+                 (integer :tag "Auto-save interval in seconds"))
+  :version "31.1"
+  :set (lambda (sym val)
+         (set-default sym val)
+         (recentf--cancel-autosave-timer)
+         (recentf--manage-autosave-timer)))
+
 (defconst recentf-save-file-header
-  ";;; Automatically generated by `recentf' on %s.\n"
+  ;; FIXME: This should arguably be a `lisp-data' file, but currently
+  ;; it contains and is used as an executable Elisp code.
+  ";;; Automatically generated by `recentf' on %s  -*- mode: emacs-lisp; lexical-binding: t -*-\n"
   "Header to be written into the `recentf-save-file'.")
 
 (defconst recentf-save-file-coding-system
@@ -1329,8 +1441,12 @@ Write data into the file specified by `recentf-save-file'."
         (insert "\n\n;; Local Variables:\n"
                 (format ";; coding: %s\n" recentf-save-file-coding-system)
                 ";; End:\n")
-        (write-region (point-min) (point-max)
-                      (expand-file-name recentf-save-file))
+        (write-region (point-min)
+                      (point-max)
+                      (expand-file-name recentf-save-file) nil
+                      (unless (or (called-interactively-p 'interactive)
+                                  recentf-show-messages)
+                        'quiet))
         (when recentf-save-file-modes
           (set-file-modes recentf-save-file recentf-save-file-modes))
         nil)
@@ -1347,7 +1463,8 @@ empty `file-name-history' with the recent list."
         ;; We do not want Tramp asking for passwords.
         (non-essential t))
     (when (file-readable-p file)
-      (load-file file)
+      (let ((warning-inhibit-types '((files missing-lexbind-cookie))))
+        (load-file file))
       (and recentf-initialize-file-name-history
            (not file-name-history)
            (setq file-name-history (mapcar #'abbreviate-file-name
@@ -1413,6 +1530,7 @@ buffers you switch to a lot, you can say something like the following:
       (recentf-hide-menu)
       (recentf-save-list))
     (recentf-auto-cleanup)
+    (recentf--manage-autosave-timer)
     (let ((hook-setup (if recentf-mode 'add-hook 'remove-hook)))
       (dolist (hook recentf-used-hooks)
         (apply hook-setup hook)))))

@@ -1,6 +1,6 @@
 ;;; vc-rcs.el --- support for RCS version-control  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
 ;; Author: FSF (see vc.el for full credits)
 ;; Maintainer: emacs-devel@gnu.org
@@ -96,7 +96,7 @@ to use --brief and sets this variable to remember whether it worked."
 ;; for a registered backend without loading every backend.
 ;;;###autoload
 (defcustom vc-rcs-master-templates
-  (purecopy '("%sRCS/%s,v" "%s%s,v" "%sRCS/%s"))
+  '("%sRCS/%s,v" "%s%s,v" "%sRCS/%s")
   "Where to look for RCS master files.
 For a description of possible values, see `vc-check-master-templates'."
   :type '(choice (const :tag "Use standard RCS file names"
@@ -249,6 +249,9 @@ COMMENT can be used to provide an initial description for each FILES.
 Passes either `vc-rcs-register-switches' or `vc-register-switches'
 to the RCS command."
   (let (subdir name)
+    ;; RCS doesn't track directories, and 'ci' will fail if passed a
+    ;; directory name.
+    (setq files (seq-remove #'file-directory-p files))
     (dolist (file files)
       (and (not (file-exists-p
 		 (setq subdir (expand-file-name "RCS"
@@ -554,11 +557,10 @@ files beneath it."
     (vc-rcs-print-log-cleanup))
   (when limit 'limit-unsupported))
 
-(defun vc-rcs-diff (files &optional oldvers newvers buffer _async)
+(defun vc-rcs-diff (files &optional oldvers newvers buffer async)
   "Get a difference report using RCS between two sets of files."
   (apply #'vc-do-command (or buffer "*vc-diff*")
-	 ;; The repo is local, so this is fast anyway.
-	 1 ; bug#21969
+         (if async 'async 1)
 	 "rcsdiff" (vc-expand-dirs files 'RCS)
          (append (list "-q"
                        (and oldvers (concat "-r" oldvers))
@@ -946,8 +948,11 @@ Uses `rcs2log' which only works for RCS and CVS."
 (autoload 'vc-rename-master "vc-filewise")
 
 (defun vc-rcs-rename-file (old new)
-  ;; Just move the master file (using vc-rcs-master-templates).
-  (vc-rename-master (vc-master-name old) new vc-rcs-master-templates))
+  (if (file-directory-p old)
+      ;; RCS doesn't track directories, so just rename the directory.
+      (rename-file old new)
+    ;; Just move the master file (using vc-rcs-master-templates).
+    (vc-rename-master (vc-master-name old) new vc-rcs-master-templates)))
 
 (defun vc-rcs-find-file-hook ()
   ;; If the file is locked by some other user, make

@@ -1,6 +1,6 @@
 ;;; composite.el --- support character composition  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
 ;; Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
 ;;   2008, 2009, 2010, 2011
@@ -493,6 +493,24 @@ by `find-composition'."
         (setq idx (1+ idx)))))
     (or found endpos)))
 
+(defun composition-find-pos-glyph (composition pos)
+  "Find in COMPOSITION a glyph that corresponds to character at position POS.
+COMPOSITION is as returned by `find-composition'."
+  (let* ((from-pos (car composition))
+         (to-pos (nth 1 composition))
+         (gstring (nth 2 composition))
+         (nglyphs (lgstring-glyph-len gstring))
+        (idx 0)
+        glyph found)
+    (if (and (>= pos from-pos) (< pos to-pos))
+        (while (and (not found) (< idx nglyphs))
+          (setq glyph (lgstring-glyph gstring idx))
+          (if (and (>= pos (+ from-pos (lglyph-from glyph)))
+                   (<= pos (+ from-pos (lglyph-to glyph))))
+              (setq found (lglyph-code glyph)))
+          (setq idx (1+ idx))))
+    found))
+
 (defun compose-glyph-string (gstring from to)
   (let ((glyph (lgstring-glyph gstring from))
 	from-pos to-pos)
@@ -755,7 +773,7 @@ All non-spacing characters have this function in
 
 ;; Allow for bootstrapping without uni-*.el.
 (when unicode-category-table
-  (let ((elt `([,(purecopy "\\c.\\c^+") 1 compose-gstring-for-graphic]
+  (let ((elt `(["\\c.\\c^+" 1 compose-gstring-for-graphic]
 	       [nil 0 compose-gstring-for-graphic])))
     (map-char-table
      #'(lambda (key val)
@@ -764,7 +782,7 @@ All non-spacing characters have this function in
      unicode-category-table))
   ;; for dotted-circle
   (aset composition-function-table #x25CC
-	`([,(purecopy ".\\c^") 0 compose-gstring-for-dotted-circle]))
+        `([".\\c^" 0 compose-gstring-for-dotted-circle]))
   ;; For prettier display of fractions
   (set-char-table-range
    composition-function-table
@@ -772,10 +790,10 @@ All non-spacing characters have this function in
    ;; We use font-shape-gstring so that if the font doesn't support
    ;; fractional display, the characters are shown separately, not as
    ;; a composed cluster.
-   (list (vector (purecopy "[1-9][0-9][0-9]\u2044[0-9]+")
+   (list (vector "[1-9][0-9][0-9]\u2044[0-9]+"
                  3 'font-shape-gstring)
-         (vector (purecopy "[1-9][0-9]\u2044[0-9]+") 2 'font-shape-gstring)
-         (vector (purecopy "[1-9]\u2044[0-9]+") 1 'font-shape-gstring))))
+         (vector "[1-9][0-9]\u2044[0-9]+" 2 'font-shape-gstring)
+         (vector "[1-9]\u2044[0-9]+" 1 'font-shape-gstring))))
 
 (defun compose-gstring-for-terminal (gstring _direction)
   "Compose glyph-string GSTRING for terminal display.

@@ -1,6 +1,6 @@
 ;;; lpr.el --- print Emacs buffer on line printer  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985, 1988, 1992, 1994, 2001-2025 Free Software
+;; Copyright (C) 1985, 1988, 1992, 1994, 2001-2026 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -94,14 +94,13 @@ This switch is used in conjunction with `printer-name'."
 
 ;;;###autoload
 (defcustom lpr-command
- (purecopy
   (cond
    (lpr-windows-system
     "")
    (lpr-lp-system
     "lp")
    (t
-    "lpr")))
+    "lpr"))
   "Name of program for printing a file.
 
 On MS-DOS and MS-Windows systems, if the value is an empty string then

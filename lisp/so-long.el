@@ -1,6 +1,6 @@
 ;;; so-long.el --- Say farewell to performance problems with minified code.  -*- lexical-binding:t -*-
 ;;
-;; Copyright (C) 2015-2016, 2018-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2016, 2018-2026 Free Software Foundation, Inc.
 
 ;; Author: Phil Sainty <psainty@orcon.net.nz>
 ;; Maintainer: Phil Sainty <psainty@orcon.net.nz>
@@ -69,7 +69,7 @@
 ;; the long lines.  In such circumstances you may find that `longlines-mode' is
 ;; the most helpful facility.
 ;;
-;; Note also that the mitigations are automatically triggered when visiting a
+;; Note also that the mitigation is automatically triggered when visiting a
 ;; file.  The library does not automatically detect if long lines are inserted
 ;; into an existing buffer (although the `so-long' command can be invoked
 ;; manually in such situations).
@@ -383,6 +383,43 @@
 ;; Finally, the `so-long-predicate' user option enables the automated behavior
 ;; to be determined by a custom function, if greater control is needed.
 
+;; * Non-file buffers
+;; ------------------
+;; As noted in the introduction, `global-so-long-mode' only affects buffers
+;; visiting files, and only at the point in time that they are visited.  The
+;; library does not automatically detect if long lines are inserted into an
+;; existing buffer, which means that non-file buffers are not processed at all
+;; by the global mode (although the `so-long' command can be invoked manually).
+;; To handle such buffers additional glue code will be required, and that code
+;; should likely be specific to the particular use-case to avoid unintended
+;; behaviors.
+;;
+;; An example to handle `compilation-mode' (and derivative) buffers follows:
+;;
+;;   ;; Trigger `so-long-minor-mode' for long compile output.
+;;   (with-eval-after-load 'compile
+;;     (require 'so-long))
+;;
+;;   (add-hook 'compilation-mode-hook 'my-so-long-compilation-mode)
+;;
+;;   (defun my-so-long-compilation-mode ()
+;;     "Add `my-so-long-compilation-filter' to local `compilation-filter-hook'."
+;;     (add-hook 'compilation-filter-hook
+;;               'my-so-long-compilation-filter nil :local))
+;;
+;;   (defun my-so-long-compilation-filter ()
+;;     "Maybe call `so-long-minor-mode' during `compilation-filter-hook'."
+;;     (let ((start (save-excursion (goto-char compilation-filter-start)
+;;                                  (line-beginning-position))))
+;;       (when (> (- (point) start) so-long-threshold)
+;;         (save-restriction
+;;           (narrow-to-region start (point))
+;;           (when (let (so-long-max-lines so-long-skip-leading-comments)
+;;                   (funcall so-long-predicate))
+;;             (so-long-minor-mode 1)
+;;             (remove-hook 'compilation-filter-hook
+;;                          'my-so-long-compilation-filter :local))))))
+
 ;; * Implementation notes
 ;; ----------------------
 ;; This library advises `set-auto-mode' (in order to react after Emacs has
@@ -495,7 +532,7 @@
   "Internal use.  Non-nil when any `so-long' functionality has been used.")
 
 (defvar-local so-long--active nil ; internal use
-  "Non-nil when `so-long' mitigations are in effect.")
+  "Non-nil when `so-long' mitigation is in effect.")
 
 (defvar so-long--set-auto-mode nil ; internal use
   "Non-nil while `set-auto-mode' is executing.")
@@ -969,7 +1006,7 @@ If nil, no mode line indicator will be displayed."
 
 (defface so-long-mode-line-active
   '((t :inherit mode-line-emphasis))
-  "Face for the mode line construct when mitigations are active.
+  "Face for the mode line construct when mitigation is active.
 
 Applied to `mode-name' in the `so-long-mode' major mode, and to
 `so-long-mode-line-label' otherwise (for non-major-mode actions).
@@ -979,7 +1016,7 @@ See also `so-long-mode-line-info'."
 
 (defface so-long-mode-line-inactive
   '((t :inherit mode-line-inactive))
-  "Face for `so-long-mode-line-info' when mitigations have been reverted."
+  "Face for `so-long-mode-line-info' when mitigation has been reverted."
   :package-version '(so-long . "1.0"))
 
 ;; Modes that go slowly and line lengths excessive
@@ -1150,7 +1187,7 @@ Displayed as part of `mode-line-misc-info'.
 
 `so-long-mode-line-label' defines the text to be displayed (if any).
 
-Face `so-long-mode-line-active' is used while mitigations are active, and
+Face `so-long-mode-line-active' is used while mitigation is active, and
 `so-long-mode-line-inactive' is used if `so-long-revert' is called.
 
 Not displayed when `so-long-mode' is enabled, as the major mode construct
@@ -1517,14 +1554,14 @@ The variables are set in accordance with what was remembered in `so-long'."
       (kill-local-variable variable))))
 
 (defun so-long-mode-maintain-preserved-variables ()
-  "Set any \"preserved\" variables.
+  "Set variables listed in `so-long-mode-preserved-variables'.
 
 The variables are set in accordance with what was remembered in `so-long'."
   (dolist (var (so-long-original 'so-long-mode-preserved-variables))
     (so-long-restore-variable var)))
 
 (defun so-long-mode-maintain-preserved-minor-modes ()
-  "Enable or disable \"preserved\" minor modes.
+  "Enable or disable modes listed in `so-long-mode-preserved-minor-modes'.
 
 The modes are set in accordance with what was remembered in `so-long'."
   (dolist (mode (so-long-original 'so-long-mode-preserved-minor-modes))
@@ -1716,7 +1753,8 @@ major mode is a member (or derivative of a member) of `so-long-target-modes'.
        (not so-long--inhibited)
        (not so-long--calling)
        (or (eq so-long-target-modes t)
-           (derived-mode-p so-long-target-modes))
+           ;; Maintain `derived-mode-p' compatibility with Emacs < 30.
+           (apply #'derived-mode-p so-long-target-modes))
        (setq so-long-detected-p (funcall so-long-predicate))
        ;; `so-long' should be called; but only if and when the buffer is
        ;; displayed in a window.  Long lines in invisible buffers are generally
@@ -1879,7 +1917,7 @@ Equivalent to calling (global-so-long-mode 0)"
 
 ;;;###autoload
 (define-minor-mode global-so-long-mode
-  "Toggle automated performance mitigations for files with long lines.
+  "Toggle automated performance mitigation for files with long lines.
 
 Many Emacs modes struggle with buffers which contain excessively long lines,
 and may consequently cause unacceptable performance issues.
@@ -2028,7 +2066,10 @@ If it appears in `%s', you should remove it."
   ;; Update to version 1.0 from earlier versions:
   (when (version< so-long-version "1.0")
     (remove-hook 'change-major-mode-hook 'so-long-change-major-mode)
-    (require 'advice) ;; It should already be loaded, but just in case.
+    (require 'advice)
+    ;; `ad-find-advice' is a macro in Emacs 26 and earlier.
+    (eval-when-compile (when (< emacs-major-version 27)
+                         (require 'advice)))
     (declare-function ad-find-advice "advice")
     (declare-function ad-remove-advice "advice")
     (declare-function ad-activate "advice")
@@ -2083,7 +2124,7 @@ If it appears in `%s', you should remove it."
 ; LocalWords:  noerror selectable mapc sgml nxml hl flydiff defs arg Phil Sainty
 ; LocalWords:  defadvice nadvice whitespace ie bos eos eobp origmode un Un setq
 ; LocalWords:  docstring auf Wiedersehen longlines alist autoload Refactored Inc
-; LocalWords:  MERCHANTABILITY RET REGEXP VAR ELPA WS mitigations EmacsWiki eval
+; LocalWords:  MERCHANTABILITY RET REGEXP VAR ELPA WS EmacsWiki eval
 ; LocalWords:  rx filename filenames js defun bidi bpa FIXME globalized amongst
 
 ;; So long, farewell, auf Wiedersehen, goodbye

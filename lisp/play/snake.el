@@ -1,6 +1,6 @@
 ;;; snake.el --- implementation of Snake for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Glynn Clements <glynn@sensei.co.uk>
 ;; Created: 1997-09-10
@@ -269,8 +269,8 @@ and then start moving it leftwards.")
     (dotimes (_ snake-length)
       (gamegrid-set-cell x y snake-snake)
       (setq snake-positions (cons (vector x y) snake-positions))
-      (cl-incf x snake-velocity-x)
-      (cl-incf y snake-velocity-y)))
+      (incf x snake-velocity-x)
+      (incf y snake-velocity-y)))
   (snake-update-score))
 
 (defun snake-set-dot ()
@@ -296,8 +296,8 @@ Argument SNAKE-BUFFER is the name of the buffer."
 	      (= c snake-snake))
 	  (snake-end-game)
 	(cond ((= c snake-dot)
-	       (cl-incf snake-length)
-	       (cl-incf snake-score)
+               (incf snake-length)
+               (incf snake-score)
 	       (snake-update-score)
 	       (snake-set-dot))
 	      (t

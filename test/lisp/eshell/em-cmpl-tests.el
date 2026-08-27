@@ -1,6 +1,6 @@
 ;;; em-cmpl-tests.el --- em-cmpl test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2023-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -30,11 +30,10 @@
 (require 'em-hist)
 (require 'em-tramp)
 (require 'em-unix)
+(require 'ert-x)
 
 (require 'eshell-tests-helpers
-         (expand-file-name "eshell-tests-helpers"
-                           (file-name-directory (or load-file-name
-                                                    default-directory))))
+         (ert-resource-file "eshell-tests-helpers"))
 
 (defvar eshell-test-value nil)
 

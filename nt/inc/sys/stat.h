@@ -1,7 +1,7 @@
 /* sys/stat.h supplied with MSVCRT uses too narrow data types for
    inode and user/group id, so we replace them with our own.
 
-Copyright (C) 2008-2025 Free Software Foundation, Inc.
+Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -108,6 +108,9 @@ struct stat {
   time_t	   st_ctime;
   char		   st_uname[260];
   char		   st_gname[260];
+  int		   st_atimensec;
+  int		   st_mtimensec;
+  int		   st_ctimensec;
 };
 
 /* These are here to avoid compiler warnings when using wchar.h.  */

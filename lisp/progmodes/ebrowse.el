@@ -1,6 +1,6 @@
 ;;; ebrowse.el --- Emacs C++ class browser & tags facility  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
 ;; Author: Gerd Moellmann <gerd@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -593,7 +593,7 @@ MARKED-ONLY non-nil means include marked classes only."
     (ebrowse-for-all-trees (tree ebrowse--tree-table)
       (when (or (not marked-only) (ebrowse-ts-mark tree))
 	(let ((class (ebrowse-ts-class tree)))
-	  (when (zerop (% (cl-incf i) 20))
+          (when (zerop (% (incf i) 20))
 	    (ebrowse-show-progress "Preparing file list" (zerop i)))
 	  ;; Add files mentioned in class description
 	  (let ((source-file (ebrowse-cs-source-file class))
@@ -864,7 +864,7 @@ type `ebrowse-hs' is set to the resulting table."
     (garbage-collect)
     ;; For all classes...
     (ebrowse-for-all-trees (c ebrowse--tree-table)
-      (when (zerop (% (cl-incf i) 10))
+      (when (zerop (% (incf i) 10))
 	(ebrowse-show-progress "Preparing member lookup" (zerop i)))
       (dolist (f ebrowse-member-list-accessors)
         (dolist (m (funcall f c))
@@ -1334,7 +1334,7 @@ Pop to member buffer if no prefix ARG, to tree buffer otherwise."
                                    "Indentation"
                                    (int-to-string ebrowse--indentation))
                                   nil nil ebrowse--indentation))))
-    (when (cl-plusp width)
+    (when (plusp width)
       (setq-local ebrowse--indentation width)
       (ebrowse-redraw-tree))))
 
@@ -1649,7 +1649,7 @@ INFO is a list (TREE-HEADER TREE-OR-MEMBER MEMBER-LIST)."
                      when (re-search-forward pattern (+ start offset) t)
                        return t
                      never (bobp)
-                     do (cl-incf offset offset)))
+                     do (incf offset offset)))
       (cond (found
 	     (beginning-of-line)
 	     (run-hooks 'ebrowse-view/find-hook))
@@ -1935,11 +1935,12 @@ COLLAPSE non-nil means collapse the branch."
   "Prevent cursor from moving beyond the buffer end.
 Don't let it move into the title lines.
 See `Electric-command-loop' for a description of STATE and CONDITION."
+  ;; NOTE: This code looks very much like `electric-buffer-menu-looper'.
   (cond ((and condition
-	      (not (memq (car condition)
-			 '(buffer-read-only end-of-buffer
-					    beginning-of-buffer))))
-	 (signal (car condition) (cdr condition)))
+	      (not (or (error-has-type-p condition 'buffer-read-only)
+		       (error-has-type-p condition 'end-of-buffer)
+		       (error-has-type-p condition 'beginning-of-buffer))))
+	 (signal condition))
 	((< (point) (car state))
 	 (goto-char (point-min))
 	 (forward-line 2))
@@ -2168,7 +2169,7 @@ The new width is read from the minibuffer."
 					    ebrowse--decl-column
 					  ebrowse--column-width))
 			 "): ")))))
-    (when (cl-plusp width)
+    (when (plusp width)
       (if ebrowse--long-display-flag
 	  (setq ebrowse--decl-column width)
 	(setq ebrowse--column-width width))
@@ -2209,12 +2210,12 @@ make one."
 			     ebrowse--accessor
 			     #'eql)))
     (setf ebrowse--accessor
-	  (cond ((cl-plusp incr)
+	  (cond ((plusp incr)
 		 (or (nth (1+ index)
 			  ebrowse-member-list-accessors)
 		     (cl-first ebrowse-member-list-accessors)))
-		((cl-minusp incr)
-		 (or (and (>= (cl-decf index) 0)
+		((minusp incr)
+                 (or (and (>= (decf index) 0)
 			  (nth index
 			       ebrowse-member-list-accessors))
 		     (cl-first (last ebrowse-member-list-accessors))))))
@@ -2689,11 +2690,11 @@ TREE is the class tree in which the members are found."
 			  mouse-face highlight
 			  ebrowse-tree ,tree
 			  help-echo "mouse-2: view definition; mouse-3: menu"))
-	  (cl-incf i)
+          (incf i)
 	  (when (>= i ebrowse--n-columns)
 	    (setf i 0)
 	    (insert "\n")))))
-    (when (cl-plusp i)
+    (when (plusp i)
       (insert "\n"))
     (goto-char (point-min))))
 
@@ -2863,7 +2864,7 @@ Prefix arg INC specifies which one."
     (setq index (+ inc (seq-position containing-list
 				     ebrowse--displayed-class
 				     #'eql)))
-    (cond ((cl-minusp index) (message "No previous class"))
+    (cond ((minusp index) (message "No previous class"))
 	  ((null (nth index containing-list)) (message "No next class")))
     (setq index (max 0 (min index (1- (length containing-list)))))
     (setq cls (nth index containing-list))
@@ -3729,7 +3730,7 @@ Positions in buffers that have no file names are not saved."
     (let ((too-much (- (length ebrowse-position-stack)
 		       ebrowse-max-positions)))
       ;; Do not let the stack grow to infinity.
-      (when (cl-plusp too-much)
+      (when (plusp too-much)
 	(setq ebrowse-position-stack
 	      (butlast ebrowse-position-stack too-much)))
       ;; Push the position.
@@ -3879,23 +3880,7 @@ Runs the hook `ebrowse-electric-position-mode-hook'."
     (kill-buffer buffer)))
 
 
-(defun ebrowse-electric-position-looper (state condition)
-  "Prevent moving point on invalid lines.
-Called from `Electric-command-loop'.  See there for the meaning
-of STATE and CONDITION."
-  (cond ((and condition
-	      (not (memq (car condition) '(buffer-read-only
-					   end-of-buffer
-					   beginning-of-buffer))))
-	 (signal (car condition) (cdr condition)))
-	((< (point) (car state))
-	 (goto-char (point-min))
-	 (forward-line 2))
-	((> (point) (cdr state))
-	 (goto-char (point-max))
-	 (forward-line -1)
-	 (if (pos-visible-in-window-p (point-max))
-	     (recenter -1)))))
+(defalias 'ebrowse-electric-position-looper #'ebrowse-electric-list-looper)
 
 
 (defun ebrowse-electric-position-undefined ()
@@ -4032,11 +4017,11 @@ NUMBER-OF-STATIC-VARIABLES:"
   (let ((classes 0) (member-functions 0) (member-variables 0)
 	(static-functions 0) (static-variables 0))
     (ebrowse-for-all-trees (tree ebrowse--tree-table)
-      (cl-incf classes)
-      (cl-incf member-functions (length (ebrowse-ts-member-functions tree)))
-      (cl-incf member-variables (length (ebrowse-ts-member-variables tree)))
-      (cl-incf static-functions (length (ebrowse-ts-static-functions tree)))
-      (cl-incf static-variables (length (ebrowse-ts-static-variables tree))))
+      (incf classes)
+      (incf member-functions (length (ebrowse-ts-member-functions tree)))
+      (incf member-variables (length (ebrowse-ts-member-variables tree)))
+      (incf static-functions (length (ebrowse-ts-static-functions tree)))
+      (incf static-variables (length (ebrowse-ts-static-variables tree))))
     (list classes member-functions member-variables
 	  static-functions static-variables)))
 

@@ -1,6 +1,6 @@
 ;;; octave.el --- editing octave source files under emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2026 Free Software Foundation, Inc.
 
 ;; Author: Kurt Hornik <Kurt.Hornik@wu-wien.ac.at>
 ;;	   John Eaton <jwe@octave.org>
@@ -536,8 +536,6 @@ Non-nil means always go to the next Octave code line after sending."
       (put-text-property (match-beginning 1) (match-end 1)
                          'syntax-table (string-to-syntax "\"'")))))
 
-(defvar electric-layout-rules)
-
 ;; FIXME: cc-mode.el also adds an entry for .m files, mapping them to
 ;; objc-mode.  We here rely on the fact that loaddefs.el is filled in
 ;; alphabetical order, so cc-mode.el comes before octave-mode.el, which lets
@@ -997,7 +995,7 @@ directory and makes this the current buffer's default directory."
       (progn
         (cd (car inferior-octave-output-list))
         t)
-    (error (unless noerror (signal (car err) (cdr err))))))
+    (error (unless noerror (signal err)))))
 
 (defcustom inferior-octave-minimal-columns 80
   "The minimal column width for the inferior Octave process."
@@ -1668,12 +1666,10 @@ code line."
   'follow-link t
   'action (lambda (b) (octave-help (button-label b))))
 
-(defvar octave-help-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "\M-."  'octave-find-definition)
-    (define-key map "\C-hd" 'octave-help)
-    (define-key map "\C-ha" 'octave-lookfor)
-    map))
+(defvar-keymap octave-help-mode-map
+  "M-."   #'octave-find-definition
+  "C-h d" #'octave-help
+  "C-h a" #'octave-lookfor)
 
 (define-derived-mode octave-help-mode help-mode "OctHelp"
   "Major mode for displaying Octave documentation."

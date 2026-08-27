@@ -1,6 +1,6 @@
 ;;; ibuf-macs.el --- macros for ibuffer  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: Colin Walters <walters@verbum.org>
 ;; Maintainer: John Paul Wallington <jpw@gnu.org>
@@ -35,7 +35,7 @@
 If TEST returns non-nil, bind `it' to the value, and evaluate
 TRUE-BODY.  Otherwise, evaluate forms in FALSE-BODY as if in `progn'.
 Compare with `if'."
-  (declare (obsolete if-let "29.1") (indent 2))
+  (declare (obsolete if-let* "29.1") (indent 2))
   (let ((sym (make-symbol "ibuffer-aif-sym")))
     `(let ((,sym ,test))
        (if ,sym
@@ -47,8 +47,8 @@ Compare with `if'."
 (defmacro ibuffer-awhen (test &rest body)
   "Evaluate BODY if TEST returns non-nil.
 During evaluation of body, bind `it' to the value returned by TEST."
-  (declare (indent 1) (obsolete when-let "29.1"))
-  `(when-let ((it ,test))
+  (declare (indent 1) (obsolete when-let* "29.1"))
+  `(when-let* ((it ,test))
      ,@body))
 
 (defmacro ibuffer-save-marks (&rest body)
@@ -72,7 +72,8 @@ During evaluation of body, bind `it' to the value returned by TEST."
 
 ;;;###autoload
 (cl-defmacro define-ibuffer-column (symbol (&key name inline props summarizer
-					       header-mouse-map) &rest body)
+					         header-mouse-map)
+					   &rest body)
   "Define a column SYMBOL for use with `ibuffer-formats'.
 
 BODY will be called with `buffer' bound to the buffer object, and
@@ -112,19 +113,18 @@ change its definition, you should explicitly call
 	  `(defun ,sym (buffer mark)
              (ignore mark)            ;Silence byte-compiler if mark is unused.
 	     ,bod))
-       (put (quote ,sym) 'ibuffer-column-name
+       (put ',sym 'ibuffer-column-name
 	    ,(if (stringp name)
 		 name
 	       (capitalize (symbol-name symbol))))
-       ,(if header-mouse-map `(put (quote ,sym) 'header-mouse-map ,header-mouse-map))
+       ,(if header-mouse-map `(put ',sym 'header-mouse-map ,header-mouse-map))
        ,(if summarizer
 	    ;; Store the name of the summarizing function.
-	    `(put (quote ,sym) 'ibuffer-column-summarizer
-		  (quote ,summarizer)))
+	    `(put ',sym 'ibuffer-column-summarizer #',summarizer))
        ,(if summarizer
 	    ;; This will store the actual values of the column
 	    ;; summary.
-	    `(put (quote ,sym) 'ibuffer-column-summary nil))
+	    `(put ',sym 'ibuffer-column-summary nil))
        :autoload-end)))
 
 ;;;###autoload
@@ -146,7 +146,7 @@ value if and only if `a' is \"less than\" `b'.
   `(progn
      (defun ,(intern (concat "ibuffer-do-sort-by-" (symbol-name name))) ()
        ,(or documentation "No :documentation specified for this sorting method.")
-       (interactive)
+       (interactive "@")
        (setq ibuffer-sorting-mode ',name)
        (when (eq ibuffer-sorting-mode ibuffer-last-sorting-mode)
 	 (setq ibuffer-sorting-reversep (not ibuffer-sorting-reversep)))
@@ -196,9 +196,13 @@ prompted before performing this operation.
 OPSTRING is a string which will be displayed to the user after the
 operation is complete, in the form:
  \"Operation complete; OPSTRING x buffers\"
+OPSTRING may also be a function that returns prompt text.
 ACTIVE-OPSTRING is a string which will be displayed to the user in a
 confirmation message, in the form:
  \"Really ACTIVE-OPSTRING x buffers?\"
+ACTIVE-OPSTRING may also be a function that returns prompt text, or
+if DOCUMENTATION is not provided, ACTIVE-OPSTRING should return
+documentation text.
 BEFORE is a form to evaluate before start the operation.
 AFTER is a form to evaluate once the operation is complete.
 COMPLEX means this function is special; if COMPLEX is nil BODY
@@ -211,76 +215,96 @@ buffer object.
 
 \(fn OP ARGS DOCUMENTATION (&key INTERACTIVE MARK MODIFIER-P DANGEROUS OPSTRING ACTIVE-OPSTRING BEFORE AFTER COMPLEX) &rest BODY)"
   (declare (indent 2) (doc-string 3))
-  `(progn
-     (defun ,(intern (concat (if (string-match "^ibuffer-do" (symbol-name op))
-				 "" "ibuffer-do-")
-                             (symbol-name op)))
-       ,args
-       ,(if (stringp documentation)
-	    documentation
-	  (format "%s marked buffers." active-opstring))
-       ,(if (not (null interactive))
-	    `(interactive ,interactive)
-	  '(interactive))
-       (cl-assert (derived-mode-p 'ibuffer-mode))
-       (setq ibuffer-did-modification nil)
-       (let ((marked-names  (,(pcase mark
-				(:deletion
-				 'ibuffer-deletion-marked-buffer-names)
-				(_
-				 'ibuffer-marked-buffer-names)))))
-	 (when (null marked-names)
-           (cl-assert (get-text-property (line-beginning-position)
-                                         'ibuffer-properties)
-                      nil "No buffer on this line")
-	   (setq marked-names (list (buffer-name (ibuffer-current-buffer))))
-	   (ibuffer-set-mark ,(pcase mark
-				(:deletion
-				 'ibuffer-deletion-char)
-				(_
-				 'ibuffer-marked-char))))
-	 ,(let* ((finish (append
-			  '(progn)
-			  (if (eq modifier-p t)
-			      '((setq ibuffer-did-modification t))
-			    ())
-                          (and after `(,after)) ; post-operation form.
-			  `((ibuffer-redisplay t)
-			    (message ,(concat "Operation finished; " opstring
-                                              " %s %s")
-                                     count (ngettext "buffer" "buffers" count)))))
-		 (inner-body (if complex
-				 `(progn ,@body)
-			       `(progn
-				  (with-current-buffer buf
-				    (save-excursion
-				      ,@body))
-				  t)))
-		 (body `(let ((_ ,before) ; pre-operation form.
+  (let ((opstring-sym (make-symbol "opstring"))
+        (active-opstring-sym (make-symbol "active-opstring")))
+    `(progn
+       (defalias ',(intern (concat (if (string-match "^ibuffer-do" (symbol-name op))
+                                       "" "ibuffer-do-")
+                                   (symbol-name op)))
+         (let ((,opstring-sym ,opstring)
+               (,active-opstring-sym ,active-opstring))
+           (lambda ,args
+             ,(if (stringp documentation)
+                  documentation
+                (format "%s marked buffers." (if (functionp active-opstring)
+                                                 ;; FIXME: Unused?
+                                                 (funcall active-opstring)
+                                               active-opstring)))
+             ,(if (not (null interactive))
+                  `(interactive ,interactive)
+                '(interactive))
+             (cl-assert (derived-mode-p 'ibuffer-mode))
+             (setq ibuffer-did-modification nil)
+             (let ((marked-names  (,(pcase mark
+                                      (:deletion
+                                       'ibuffer-deletion-marked-buffer-names)
+                                      (_
+                                       'ibuffer-marked-buffer-names)))))
+               (when (null marked-names)
+                 (cl-assert (get-text-property (line-beginning-position)
+                                               'ibuffer-properties)
+                            nil "No buffer on this line")
+                 (setq marked-names
+                       (list (buffer-name (ibuffer-current-buffer))))
+                 (ibuffer-set-mark ,(pcase mark
+                                      (:deletion
+                                       'ibuffer-deletion-char)
+                                      (_
+                                       'ibuffer-marked-char))))
+               ,(let* ((finish (append
+                                '(progn)
+                                (if (eq modifier-p t)
+                                    '((setq ibuffer-did-modification t))
+                                  ())
+                                (and after `(,after)) ; post-operation form.
+                                `((ibuffer-redisplay t)
+                                  (message (concat "Operation finished; "
+                                                   (if (functionp ,opstring-sym)
+                                                       ;; FIXME: Unused?
+                                                       (funcall ,opstring-sym)
+                                                     ,opstring-sym)
+                                                   " %s %s")
+                                           count (ngettext "buffer" "buffers"
+                                                           count)))))
+                       (inner-body (if complex
+                                       `(progn ,@body)
+                                     `(progn
+                                        (with-current-buffer buf
+                                          (save-excursion
+                                            ,@body))
+                                        t)))
+                       (body
+                        `(let ((_ ,before) ; pre-operation form.
                                (count
-			       (,(pcase mark
-				   (:deletion
-				    'ibuffer-map-deletion-lines)
-				   (_
-				    'ibuffer-map-marked-lines))
-                                (lambda (buf mark)
-                                  ;; Silence warning for code that doesn't
-                                  ;; use `mark'.
-                                  (ignore mark)
-                                  ,(if (eq modifier-p :maybe)
-                                       `(let ((ibuffer-tmp-previous-buffer-modification
-                                               (buffer-modified-p buf)))
-                                          (prog1 ,inner-body
-                                            (when (not (eq ibuffer-tmp-previous-buffer-modification
-                                                           (buffer-modified-p buf)))
-                                              (setq ibuffer-did-modification t))))
-                                     inner-body)))))
-			  ,finish)))
-	    (if dangerous
-		`(when (ibuffer-confirm-operation-on ,active-opstring marked-names)
-		   ,body)
-	      body))))
-     :autoload-end))
+                                (,(pcase mark
+                                    (:deletion
+                                     'ibuffer-map-deletion-lines)
+                                    (_
+                                     'ibuffer-map-marked-lines))
+                                 (lambda (buf mark)
+                                   ;; Silence warning for code that doesn't
+                                   ;; use `mark'.
+                                   (ignore mark)
+                                   ,(if (eq modifier-p :maybe)
+                                        `(let ((ibuffer-tmp-previous-buffer-modification
+                                                (buffer-modified-p buf)))
+                                           (prog1 ,inner-body
+                                             (unless (eq ibuffer-tmp-previous-buffer-modification
+                                                            (buffer-modified-p buf))
+                                               (setq
+                                                ibuffer-did-modification t))))
+                                      inner-body)))))
+                           ,finish)))
+                  (if dangerous
+                      `(when (ibuffer-confirm-operation-on
+                              (if (functionp ,active-opstring-sym)
+                                  ;; FIXME: Unused?
+                                  (funcall ,active-opstring-sym)
+                                ,active-opstring-sym)
+                              marked-names)
+                         ,body)
+                    body))))))
+       :autoload-end)))
 
 ;;;###autoload
 (cl-defmacro define-ibuffer-filter (name documentation

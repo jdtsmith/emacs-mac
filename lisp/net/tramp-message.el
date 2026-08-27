@@ -1,6 +1,6 @@
 ;;; tramp-message.el --- Tramp messages  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2023-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
@@ -56,7 +56,6 @@
 (defvar tramp-repository-branch)
 (defvar tramp-repository-version)
 
-;;;###tramp-autoload
 (defcustom tramp-verbose 3
   "Verbosity level for Tramp messages.
 Any level x includes messages for all levels 1 .. x-1.  The levels are
@@ -74,7 +73,8 @@ Any level x includes messages for all levels 1 .. x-1.  The levels are
 10  traces (huge)
 11  call traces (maintainer only)."
   :group 'tramp
-  :type 'integer)
+  :type 'integer
+  :link '(info-link :tag "Tramp manual" "(tramp) Traces and Profiles"))
 
 (defcustom tramp-debug-to-file nil
   "Whether Tramp debug messages shall be saved to file.
@@ -82,14 +82,25 @@ The debug file has the same name as the debug buffer, written to
 `tramp-compat-temporary-file-directory'."
   :group 'tramp
   :version "28.1"
-  :type 'boolean)
+  :type 'boolean
+  :link '(info-link :tag "Tramp manual" "(tramp) Traces and Profiles"))
 
 (defcustom tramp-debug-command-messages nil
   "Whether to write only command messages to the debug buffer.
 This increases `tramp-verbose' to 6 if necessary."
   :group 'tramp
   :version "30.1"
-  :type 'boolean)
+  :type 'boolean
+  :link '(info-link :tag "Tramp manual" "(tramp) Traces and Profiles"))
+
+(defcustom tramp-debug-buffer-limit (* 100 1024 1024) ;100MB
+  "The upper limit of a Tramp debug buffer.
+If the size of a debug buffer exceeds this limit, a warning is raised.
+Set it to 0 if there is no limit."
+  :group 'tramp
+  :version "31.1"
+  :type 'natnum
+  :link '(info-link :tag "Tramp manual" "(tramp) Traces and Profiles"))
 
 (defconst tramp-debug-outline-regexp
   (rx ;; Timestamp.
@@ -106,7 +117,7 @@ When it is used for regexp matching, the regexp groups are
   3 for the verbosity level.")
 
 (defconst tramp-debug-font-lock-keywords
-  ;; FIXME: Make it a function instead of an ELisp expression, so you
+  ;; FIXME: Make it a function instead of a Lisp expression, so you
   ;; can evaluate it with `funcall' rather than `eval'!
   ;; Also, in `font-lock-defaults' you can specify a function name for
   ;; the "KEYWORDS" part, so font-lock calls it to get the actual keywords!
@@ -124,9 +135,8 @@ The outline level is equal to the verbosity of the Tramp message."
   (declare (tramp-suppress-trace t))
   (1+ (string-to-number (match-string 3))))
 
-;; This function takes action since Emacs 28.1, when
-;; `read-extended-command-predicate' is set to
-;; `command-completion-default-include-p'.
+;; This function takes action, when `read-extended-command-predicate'
+;; is set to `command-completion-default-include-p'.
 (defun tramp-debug-buffer-command-completion-p (_symbol buffer)
   "A predicate for Tramp interactive commands.
 They are completed by `M-x TAB' only in Tramp debug buffers."
@@ -138,9 +148,8 @@ They are completed by `M-x TAB' only in Tramp debug buffers."
 
 (defun tramp-setup-debug-buffer ()
   "Function to setup debug buffers."
-  (declare (tramp-suppress-trace t))
-  ;; (declare (completion tramp-debug-buffer-command-completion-p)
-  ;; 	   (tramp-suppress-trace t))
+  (declare (completion tramp-debug-buffer-command-completion-p)
+           (tramp-suppress-trace t))
   (interactive)
   (set-buffer-file-coding-system 'utf-8)
   (setq buffer-undo-list t)
@@ -163,12 +172,9 @@ They are completed by `M-x TAB' only in Tramp debug buffers."
   (use-local-map special-mode-map)
   (set-buffer-modified-p nil)
   ;; For debugging purposes.
+  ;(add-hook 'kill-buffer-hook #'debug nil 'local)
   (local-set-key "\M-n" 'clone-buffer)
   (add-hook 'clone-buffer-hook #'tramp-setup-debug-buffer nil 'local))
-
-(function-put
- #'tramp-setup-debug-buffer 'completion-predicate
- #'tramp-debug-buffer-command-completion-p)
 
 (defun tramp-debug-buffer-name (vec)
   "A name for the debug buffer of VEC."
@@ -188,20 +194,29 @@ They are completed by `M-x TAB' only in Tramp debug buffers."
       (tramp-setup-debug-buffer))
     (current-buffer)))
 
+;; On some systems, file names starting with "*" do not work.
 (defun tramp-get-debug-file-name (vec)
   "Get the debug file name for VEC."
   (declare (tramp-suppress-trace t))
   (expand-file-name
-   (tramp-compat-string-replace "/" " " (tramp-debug-buffer-name vec))
+   (string-replace
+    "/" " " (substring (tramp-debug-buffer-name vec) 1 -1))
    tramp-compat-temporary-file-directory))
 
 (defun tramp-trace-buffer-name (vec)
   "A name for the trace buffer for VEC."
   (declare (tramp-suppress-trace t))
-   (tramp-compat-string-replace "*debug" "*trace" (tramp-debug-buffer-name vec)))
+  (string-replace "*debug" "*trace" (tramp-debug-buffer-name vec)))
 
 (defvar tramp-trace-functions nil
   "A list of non-Tramp functions to be traced with `tramp-verbose' > 10.")
+
+(defun tramp-trace-add-package (package)
+  "Add all functions of PACKAGE to `tramp-trace-functions'."
+  (when (and (symbolp package) (require package nil 'noerror))
+    (dolist (elt (apropos-internal
+		  (rx bos (literal (symbol-name package))) #'functionp))
+      (add-to-list 'tramp-trace-functions elt))))
 
 (defun tramp-debug-message (vec fmt-string &rest arguments)
   "Append message to debug buffer of VEC.
@@ -221,20 +236,21 @@ ARGUMENTS to actually emit the message (if applicable)."
 	    ";; Emacs: %s Tramp: %s -*- mode: outline; coding: utf-8; -*-"
 	    emacs-version tramp-version))
 	  (when (>= tramp-verbose 10)
-	    (let ((tramp-verbose 0))
-	      (insert
-	       (format
-		"\n;; Location: %s Git: %s/%s"
-		(locate-library "tramp")
-		(or tramp-repository-branch "")
-		(or tramp-repository-version "")))))
+	    (insert
+	     (format
+	      "\n;; Location: %s Git: %s/%s"
+	      (locate-library "tramp")
+	      (or tramp-repository-branch "")
+	      (or tramp-repository-version ""))))
 	  ;; Traces.
 	  (when (>= tramp-verbose 11)
 	    (dolist
 		(elt
 		 (append
-		  (mapcar
-		   #'intern (all-completions "tramp-" obarray #'functionp))
+		  (apropos-internal (rx bos "tramp-") #'functionp)
+		  (apropos-internal (rx bos "tramp-") #'macrop)
+		  (apropos-internal
+		   (rx bos "with-" (? "parsed-") "tramp-") #'macrop)
 		  tramp-trace-functions))
 	      (unless (get elt 'tramp-suppress-trace)
 		(trace-function-background elt (tramp-trace-buffer-name vec)))))
@@ -243,7 +259,7 @@ ARGUMENTS to actually emit the message (if applicable)."
 	    (ignore-errors (delete-file (tramp-get-debug-file-name vec)))
 	    (let ((message-log-max t))
 	      (message
-	       "Tramp debug file is %s" (tramp-get-debug-file-name vec)))))
+	       "Tramp debug file is \"%s\"" (tramp-get-debug-file-name vec)))))
 	(unless (bolp)
 	  (insert "\n"))
 	;; Timestamp.
@@ -284,7 +300,14 @@ ARGUMENTS to actually emit the message (if applicable)."
 	  (when tramp-debug-to-file
 	    (ignore-errors
 	      (write-region
-	       point (point-max) (tramp-get-debug-file-name vec) 'append))))))))
+	       point (point-max) (tramp-get-debug-file-name vec) 'append))))
+	(when (and (natnump tramp-debug-buffer-limit)
+		   (not (zerop tramp-debug-buffer-limit))
+		   (> (point-max) tramp-debug-buffer-limit))
+	  (setq-local tramp-debug-buffer-limit nil)
+	  (lwarn
+	   'tramp :warning
+	   "Tramp debug buffer %S exceeds the limit" (current-buffer)))))))
 
 ;;;###tramp-autoload
 (defun tramp-message (vec-or-proc level fmt-string &rest arguments)
@@ -382,8 +405,12 @@ FMT-STRING and ARGUMENTS."
      vec-or-proc 1 "%s"
      (error-message-string
       (list signal
+	    ;; FIXME: Looks redundant since `error-message-string'
+	    ;; already uses the `error-message' property of `signal'!
 	    (get signal 'error-message)
 	    (apply #'format-message fmt-string arguments))))
+    ;; FIXME: This doesn't look right: ELisp code should be able to rely on
+    ;; the "shape" of the list based on the type of the signal.
     (signal signal (list (substring-no-properties
 			  (apply #'format-message fmt-string arguments))))))
 
@@ -457,7 +484,7 @@ an input event arrives.  The other arguments are passed to `tramp-error'."
 BODY is executed like wrapped by `with-demoted-errors'.  FORMAT
 is a format-string containing a %-sequence meaning to substitute
 the resulting error message."
-  (declare (indent 2) (debug (symbolp form body)))
+  (declare (indent 2) (debug (symbolp form &rest body)))
   (let ((err (make-symbol "err")))
     `(condition-case-unless-debug ,err
          (progn ,@body)

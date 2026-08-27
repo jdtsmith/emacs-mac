@@ -1,5 +1,5 @@
 /* Font driver on macOS Core text.
-   Copyright (C) 2009-2025 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -946,7 +946,7 @@ macfont_get_family_cache_if_present (Lisp_Object symbol, CFStringRef *string)
   if (HASH_TABLE_P (macfont_family_cache))
     {
       struct Lisp_Hash_Table *h = XHASH_TABLE (macfont_family_cache);
-      ptrdiff_t i = hash_lookup (h, symbol);
+      ptrdiff_t i = hash_find (h, symbol);
 
       if (i >= 0)
 	{
@@ -973,7 +973,7 @@ macfont_set_family_cache (Lisp_Object symbol, CFStringRef string)
 
   h = XHASH_TABLE (macfont_family_cache);
   hash_hash_t hash;
-  i = hash_lookup_get_hash (h, symbol, &hash);
+  i = hash_find_get_hash (h, symbol, &hash);
   value = string ? make_mint_ptr ((void *) CFRetain (string)) : Qnil;
   if (i >= 0)
     {

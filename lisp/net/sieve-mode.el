@@ -1,6 +1,6 @@
 ;;; sieve-mode.el --- Sieve code editing commands for Emacs  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Simon Josefsson <simon@josefsson.org>
 
@@ -48,6 +48,13 @@
   "Sieve."
   :group 'languages)
 
+(defcustom sieve-indent-offset 2
+  "Indentation offset for Sieve mode."
+  :type 'integer
+  :group 'sieve
+  :safe #'integerp
+  :version "31.1")
+
 (defcustom sieve-mode-hook nil
   "Hook run in sieve mode buffers."
   :type 'hook)
@@ -67,7 +74,7 @@
   "Face used for Sieve Test Commands.")
 
 (defface sieve-tagged-arguments
-  '((t :inherit font-lock-keyword face))
+  '((t :inherit font-lock-keyword-face))
   "Face used for Sieve Tagged Arguments.")
 
 
@@ -180,7 +187,7 @@ Turning on Sieve mode runs `sieve-mode-hook'."
     (let ((depth (car (syntax-ppss))))
       (when (looking-at "[ \t]*}")
         (setq depth (1- depth)))
-      (indent-line-to (* 2 depth))))
+      (indent-line-to (* sieve-indent-offset depth))))
   ;; Skip to the end of the indentation if at the beginning of the
   ;; line.
   (when (save-excursion

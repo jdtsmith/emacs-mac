@@ -1,6 +1,6 @@
 @c -*- coding: utf-8 -*-
 @c This is part of the Emacs manual.
-@c Copyright (C) 1985--1987, 1993--1995, 1997, 2000--2025 Free Software
+@c Copyright (C) 1985--1987, 1993--1995, 1997, 2000--2026 Free Software
 @c Foundation, Inc.
 @c See file emacs.texi for copying conditions.
 @node Search
@@ -1125,6 +1125,18 @@ ends of the range in upper case, or both in lower case, or both should
 be non-letters.  The behavior of a mixed-case range such as @samp{A-z}
 is somewhat ill-defined, and it may change in future Emacs versions.
 
+To search for raw bytes (@pxref{International Chars}) using regular
+expressions, specify their codepoints in the bracket expression, as in
+@w{@kbd{C-M-s [ C-x 8 @key{RET} 3fff80 @key{RET} - C-x 8 @key{RET}
+3fffff @key{RET} ]}}.  Emacs will show the equivalent
+
+@example
+Regexp I-search: [\200-\377]
+@end example
+
+@noindent
+in the echo area.
+
 @item @kbd{[^ @dots{} ]}
 @samp{[^} begins a @dfn{complemented character set}, which matches any
 character except the ones specified.  Thus, @samp{[^a-z0-9A-Z]} matches
@@ -1896,6 +1908,10 @@ made.
 to undo all the replacements and go back to where the first
 replacement was made.
 
+@item d
+to show the diff buffer that changes all occurrences to their
+replacements.
+
 @item C-r
 to enter a recursive editing level, in case the occurrence needs to be
 edited rather than just replaced with @var{newstring}.  When you are
@@ -1920,6 +1936,10 @@ case.  I.e., if you have a @code{query-replace} from @samp{foo} to
 @samp{bar}, a text like @samp{Foo} will be normally be replaced with
 @samp{Bar}.  Use this command to do the current replacement with exact
 case.
+
+@item d
+to show the replacement of the current match as a buffer of diffs
+between the original text and text with the match replaced.
 
 @item C-l
 to redisplay the screen.  Then you must type another character to
@@ -2186,24 +2206,20 @@ variable @code{isearch-lazy-highlight} to @code{nil} disables this
 highlighting.  Here are some other variables that customize the lazy
 highlighting:
 
-@table @code
+@vtable @code
 @item lazy-highlight-initial-delay
-@vindex lazy-highlight-initial-delay
 Time in seconds to wait before highlighting visible matches.
 Applies only if the search string is less than
 @code{lazy-highlight-no-delay-length} characters long.
 
 @item lazy-highlight-no-delay-length
-@vindex lazy-highlight-no-delay-length
 For search strings at least as long as the value of this variable,
 lazy highlighting of matches starts immediately.
 
 @item lazy-highlight-interval
-@vindex lazy-highlight-interval
 Time in seconds between highlighting successive matches.
 
 @item lazy-highlight-max-at-a-time
-@vindex lazy-highlight-max-at-a-time
 The maximum number of matches to highlight before checking for input.
 A large number can take some time to highlight, so if you want to
 continue searching and type @kbd{C-s} or @kbd{C-r} during that time,
@@ -2211,17 +2227,28 @@ Emacs will not respond until it finishes highlighting all those
 matches.  Thus, smaller values make Emacs more responsive.
 
 @item isearch-lazy-count
-@vindex isearch-lazy-count
 Show the current match number and the total number of matches in the
 search prompt.
 
 @item lazy-count-prefix-format
 @itemx lazy-count-suffix-format
-@vindex lazy-count-prefix-format
-@vindex lazy-count-suffix-format
 These two variables determine the format of showing the current and
 the total number of matches for @code{isearch-lazy-count}.
-@end table
+
+@item lazy-highlight-buffer
+If non-@code{nil}, lazy highlighting highlights the matches in the
+entire buffer, not only those visible on display of the current window
+(so, for example, they will also become visible in other windows showing
+the same buffer).
+
+@item lazy-highlight-buffer-max-at-a-time
+Like @code{lazy-highlight-max-at-a-time}, but used for highlighting
+matches not currently visible in the window when
+@code{lazy-highlight-buffer} is non-@code{nil}.  It defaults to 200; set
+to @code{nil} to highlight all the matches in a buffer without checking
+for input.  @strong{Warning:} this could make Emacs not responsive when
+searching large buffers.
+@end vtable
 
 @vindex search-nonincremental-instead
   Normally, entering @key{RET} within incremental search when the

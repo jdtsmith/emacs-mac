@@ -1,6 +1,6 @@
 /* Functions for the NeXT/Open/GNUstep and macOS window system.
 
-Copyright (C) 1989, 1992-1994, 2005-2006, 2008-2025 Free Software
+Copyright (C) 1989, 1992-1994, 2005-2006, 2008-2026 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -65,10 +65,6 @@ static Lisp_Object tip_frame;
 
 /* The X and Y deltas of the last call to `x-show-tip'.  */
 static Lisp_Object tip_dx, tip_dy;
-
-/* The window-system window corresponding to the frame of the
-   currently visible tooltip.  */
-static NSWindow *tip_window;
 
 /* A timer that hides or deletes the currently visible tooltip when it
    fires.  */
@@ -1110,6 +1106,7 @@ frame_parm_handler ns_frame_parm_handlers[] =
   0, /* x_set_override_redirect */
   gui_set_no_special_glyphs,
   gui_set_alpha_background,
+  gui_set_borders_respect_alpha_background,
   NULL,
 #ifdef NS_IMPL_COCOA
   ns_set_appearance,
@@ -1265,6 +1262,8 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 
   XSETFRAME (frame, f);
 
+  frame_set_id_from_params (f, parms);
+
   f->terminal = dpyinfo->terminal;
 
   f->output_method = output_ns;
@@ -1408,12 +1407,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 #ifdef NS_IMPL_COCOA
   tem = gui_display_get_arg (dpyinfo, parms, Qns_appearance, NULL, NULL,
                              RES_TYPE_SYMBOL);
-  if (EQ (tem, Qdark))
-    FRAME_NS_APPEARANCE (f) = ns_appearance_vibrant_dark;
-  else if (EQ (tem, Qlight))
-    FRAME_NS_APPEARANCE (f) = ns_appearance_aqua;
-  else
-    FRAME_NS_APPEARANCE (f) = ns_appearance_system_default;
+  ns_set_appearance_1 (f, tem);
   store_frame_param (f, Qns_appearance,
                      (!NILP (tem) && !EQ (tem, Qunbound)) ? tem : Qnil);
 
@@ -1541,6 +1535,9 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
                          "alpha", "Alpha", RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qalpha_background, Qnil,
                          "alphaBackground", "AlphaBackground", RES_TYPE_NUMBER);
+  gui_default_parameter (f, parms, Qborders_respect_alpha_background, Qnil,
+                         "bordersRespectAlphaBackground",
+                         "BordersRespectAlphaBackground", RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qfullscreen, Qnil,
                          "fullscreen", "Fullscreen", RES_TYPE_SYMBOL);
 
@@ -1998,9 +1995,20 @@ DEFUN ("x-display-mm-height", Fx_display_mm_height, Sx_display_mm_height, 0, 1, 
        doc: /* SKIP: real doc in xfns.c.  */)
   (Lisp_Object terminal)
 {
+  double px_to_mm;
   struct ns_display_info *dpyinfo = check_ns_display_info (terminal);
 
-  return make_fixnum (ns_display_pixel_height (dpyinfo) / (92.0/25.4));
+#ifdef NS_IMPL_COCOA
+  CGDirectDisplayID did = CGMainDisplayID ();
+  CGSize size_mm = CGDisplayScreenSize (did);
+  CGRect bounds = CGDisplayBounds (did);
+
+  px_to_mm = size_mm.height / bounds.size.height;
+#else
+  px_to_mm = 25.4 / dpyinfo->resx;
+#endif
+
+  return make_fixnum (ns_display_pixel_height (dpyinfo) * px_to_mm);
 }
 
 
@@ -2008,9 +2016,20 @@ DEFUN ("x-display-mm-width", Fx_display_mm_width, Sx_display_mm_width, 0, 1, 0,
        doc: /* SKIP: real doc in xfns.c.  */)
   (Lisp_Object terminal)
 {
+  double px_to_mm;
   struct ns_display_info *dpyinfo = check_ns_display_info (terminal);
 
-  return make_fixnum (ns_display_pixel_width (dpyinfo) / (92.0/25.4));
+#ifdef NS_IMPL_COCOA
+  CGDirectDisplayID did = CGMainDisplayID ();
+  CGSize size_mm = CGDisplayScreenSize (did);
+  CGRect bounds = CGDisplayBounds (did);
+
+  px_to_mm = size_mm.width / bounds.size.width;
+#else
+  px_to_mm = 25.4 / dpyinfo->resy;
+#endif
+
+  return make_fixnum (ns_display_pixel_width (dpyinfo) * px_to_mm);
 }
 
 
@@ -2212,6 +2231,62 @@ font descriptor.  If string contains `fontset' and not
   return build_string (ns_xlfd_to_fontname (SSDATA (name)));
 }
 
+/* Called in emacs.c to support early calls to ns_lisp_to_color or
+   Fns_list_colors.  */
+void
+ns_init_colors (void)
+{
+  NSTRACE ("ns_init_colors");
+
+  NSColorList *cl = [NSColorList colorListNamed: @"Emacs"];
+
+  /* There are 752 colors defined in rgb.txt.  */
+  if ( cl == nil || [[cl allKeys] count] < 752)
+    {
+      Lisp_Object color_file, color_map, color, name;
+      unsigned long c;
+
+      color_file = Fexpand_file_name (build_string ("rgb.txt"),
+				      Fsymbol_value (intern ("data-directory")));
+
+      color_map = Fx_load_color_file (color_file);
+      if (NILP (color_map))
+	fatal ("Could not read %s.\n", SDATA (color_file));
+
+      cl = [[NSColorList alloc] initWithName: @"Emacs"];
+      for ( ; CONSP (color_map); color_map = XCDR (color_map))
+	{
+	  color = XCAR (color_map);
+	  name = XCAR (color);
+	  c = XFIXNUM (XCDR (color));
+	  c |= 0xFF000000;
+	  [cl setColor:
+		[NSColor colorWithUnsignedLong:c]
+		forKey: [NSString stringWithLispString: name]];
+	}
+      @try
+	{
+#if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MAX_ALLOWED >= 101100
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 101100
+	  if ([cl respondsToSelector:@selector(writeToURL:error:)])
+#endif
+	    if ([cl writeToURL:nil error:nil] == false)
+	      fprintf (stderr, "ns_init_colors: could not write Emacs.clr\n");
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 101100
+	    else
+#endif
+#endif /* MAC_OS_X_VERSION_MAX_ALLOWED >= 101100 */
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 101100 || defined (NS_IMPL_GNUSTEP)
+	      if ([cl writeToFile: nil] == false)
+		fprintf (stderr, "ns_init_colors: could not write Emacs.clr\n");
+#endif
+	}
+      @catch (NSException *e)
+	{
+	  NSLog(@"ns_init_colors: could not write Emacs.clr: %@", e.reason);
+	}
+    }
+}
 
 DEFUN ("ns-list-colors", Fns_list_colors, Sns_list_colors, 0, 1, 0,
        doc: /* Return a list of all available colors.
@@ -2517,7 +2592,7 @@ DEFUN ("system-move-file-to-trash", Fsystem_move_file_to_trash,
 
   handler = Ffind_file_name_handler (filename, operation);
   if (!NILP (handler))
-    return call2 (handler, operation, filename);
+    return calln (handler, operation, filename);
   else
     {
       NSFileManager *fm = [NSFileManager defaultManager];
@@ -2621,100 +2696,6 @@ DEFUN ("x-display-pixel-height", Fx_display_pixel_height,
   return make_fixnum (ns_display_pixel_height (dpyinfo));
 }
 
-#ifdef NS_IMPL_COCOA
-
-/* Returns the name for the screen that OBJ represents, or NULL.
-   Caller must free return value.
-*/
-
-static char *
-ns_get_name_from_ioreg (io_object_t obj)
-{
-  char *name = NULL;
-
-  NSDictionary *info = (NSDictionary *)
-    IODisplayCreateInfoDictionary (obj, kIODisplayOnlyPreferredName);
-  NSDictionary *names = [info objectForKey:
-                                [NSString stringWithUTF8String:
-                                            kDisplayProductName]];
-
-  if ([names count] > 0)
-    {
-      NSString *n = [names objectForKey: [[names allKeys]
-                                                 objectAtIndex:0]];
-      if (n != nil) name = xstrdup ([n UTF8String]);
-    }
-
-  [info release];
-
-  return name;
-}
-
-/* Returns the name for the screen that DID came from, or NULL.
-   Caller must free return value.
-*/
-
-static char *
-ns_screen_name (CGDirectDisplayID did)
-{
-  char *name = NULL;
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED >= 1090
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 1090
-  if (CGDisplayIOServicePort == NULL)
-#endif
-    {
-      mach_port_t masterPort;
-      io_iterator_t it;
-      io_object_t obj;
-
-      /* CGDisplayIOServicePort is deprecated.  Do it another (harder) way.
-
-         Is this code OK for macOS < 10.9, and GNUstep?  I suspect it is,
-         in which case is it worth keeping the other method in here?  */
-
-      if (IOMasterPort (MACH_PORT_NULL, &masterPort) != kIOReturnSuccess
-          || IOServiceGetMatchingServices (masterPort,
-                                           IOServiceMatching ("IONDRVDevice"),
-                                           &it) != kIOReturnSuccess)
-        return name;
-
-      /* Must loop until we find a name.  Many devices can have the same unit
-         number (represents different GPU parts), but only one has a name.  */
-      while (! name && (obj = IOIteratorNext (it)))
-        {
-          CFMutableDictionaryRef props;
-          const void *val;
-
-          if (IORegistryEntryCreateCFProperties (obj,
-                                                 &props,
-                                                 kCFAllocatorDefault,
-                                                 kNilOptions) == kIOReturnSuccess
-              && props != nil
-              && (val = CFDictionaryGetValue(props, @"IOFBDependentIndex")))
-            {
-              unsigned nr = [(NSNumber *)val unsignedIntegerValue];
-              if (nr == CGDisplayUnitNumber (did))
-                name = ns_get_name_from_ioreg (obj);
-            }
-
-          CFRelease (props);
-          IOObjectRelease (obj);
-        }
-
-      IOObjectRelease (it);
-    }
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 1090
-  else
-#endif
-#endif /* #if MAC_OS_X_VERSION_MAX_ALLOWED >= 1090 */
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 1090
-    name = ns_get_name_from_ioreg (CGDisplayIOServicePort (did));
-#endif
-  return name;
-}
-#endif /* NS_IMPL_COCOA */
-
 static Lisp_Object
 ns_make_monitor_attribute_list (struct MonitorInfo *monitors,
                                 int n_monitors,
@@ -2795,46 +2776,51 @@ Internal use only, use `display-monitor-attributes-list' instead.  */)
       struct MonitorInfo *m = &monitors[i];
       NSRect fr = [s frame];
       NSRect vfr = [s visibleFrame];
-      short y, vy;
 
 #ifdef NS_IMPL_COCOA
       NSDictionary *dict = [s deviceDescription];
       NSNumber *nid = [dict objectForKey:@"NSScreenNumber"];
       CGDirectDisplayID did = [nid unsignedIntValue];
 #endif
+
+      /* The primary display is always the first in the array.  */
       if (i == 0)
-        {
-          primary_display_height = fr.size.height;
-          y = (short) fr.origin.y;
-          vy = (short) vfr.origin.y;
-        }
-      else
-        {
-          /* Flip y coordinate as NS screen coordinates originate from
-	     the bottom.  */
-          y = (short) (primary_display_height - fr.size.height - fr.origin.y);
-          vy = (short) (primary_display_height -
-                        vfr.size.height - vfr.origin.y);
-        }
+	primary_display_height = fr.size.height;
+
+      /* Flip y coordinate as NS screen coordinates originate from
+	 the bottom.  */
 
       m->geom.x = (short) fr.origin.x;
-      m->geom.y = y;
+      m->geom.y = (short) (primary_display_height - NSMaxY(fr));
       m->geom.width = (unsigned short) fr.size.width;
       m->geom.height = (unsigned short) fr.size.height;
 
+      /* The work area excludes the menu bar and the dock.  */
       m->work.x = (short) vfr.origin.x;
-      /* y is flipped on NS, so vy - y are pixels missing at the
-	 bottom, and fr.size.height - vfr.size.height are pixels
-	 missing in total.
-
-	 Pixels missing at top are fr.size.height - vfr.size.height -
-	 vy + y.  work.y is then pixels missing at top + y.  */
-      m->work.y = (short) (fr.size.height - vfr.size.height) - vy + y + y;
+      m->work.y = (short) (primary_display_height - NSMaxY(vfr));
       m->work.width = (unsigned short) vfr.size.width;
       m->work.height = (unsigned short) vfr.size.height;
 
 #ifdef NS_IMPL_COCOA
-      m->name = ns_screen_name (did);
+      m->name = NULL;
+      if ([s respondsToSelector:@selector(localizedName)])
+        {
+	  NSString *name = [s valueForKey:@"localizedName"];
+	  if (name != NULL)
+	    {
+	      m->name = xmalloc ([name lengthOfBytesUsingEncoding: NSUTF8StringEncoding] + 1);
+	      strcpy(m->name, [name UTF8String]);
+	    }
+        }
+      /* If necessary, synthesize a name of the following form:
+	  %dx%d@%d,%d width height x y. */
+      if (m->name == NULL)
+	{
+	  char buf[25]; /* sufficient for 12345x78901@34567,90123 */
+	  snprintf (buf, sizeof(buf), "%ux%u@%d,%d",
+		    m->work.width, m->work.height, m->work.x, m->work.y);
+	  m->name = xstrdup (buf);
+	}
 
       {
         CGSize mms = CGDisplayScreenSize (did);
@@ -2959,10 +2945,7 @@ unwind_create_tip_frame (Lisp_Object frame)
 
   deleted = unwind_create_frame (frame);
   if (EQ (deleted, Qt))
-    {
-      tip_window = NULL;
-      tip_frame = Qnil;
-    }
+    tip_frame = Qnil;
 }
 
 /* Create a frame for a tooltip on the display described by DPYINFO.
@@ -3144,7 +3127,7 @@ ns_create_tip_frame (struct ns_display_info *dpyinfo, Lisp_Object parms)
   {
     Lisp_Object bg = Fframe_parameter (frame, Qbackground_color);
 
-    call2 (Qface_set_after_frame_default, frame, Qnil);
+    calln (Qface_set_after_frame_default, frame, Qnil);
 
     if (!EQ (bg, Fframe_parameter (frame, Qbackground_color)))
       {
@@ -3183,7 +3166,7 @@ x_hide_tip (bool delete)
 {
   if (!NILP (tip_timer))
     {
-      call1 (Qcancel_timer, tip_timer);
+      calln (Qcancel_timer, tip_timer);
       tip_timer = Qnil;
     }
 
@@ -3334,7 +3317,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 	      tip_f = XFRAME (tip_frame);
 	      if (!NILP (tip_timer))
 		{
-		  call1 (Qcancel_timer, tip_timer);
+		  calln (Qcancel_timer, tip_timer);
 		  tip_timer = Qnil;
 		}
 
@@ -3351,7 +3334,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 	      [nswindow orderFront: NSApp];
 	      [nswindow display];
 
-	      SET_FRAME_VISIBLE (tip_f, 1);
+	      SET_FRAME_VISIBLE (tip_f, true);
 	      unblock_input ();
 
 	      goto start_timer;
@@ -3382,11 +3365,11 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 			}
 		      else
 			tip_last_parms
-			  = call2 (Qassq_delete_all, parm, tip_last_parms);
+			  = calln (Qassq_delete_all, parm, tip_last_parms);
 		    }
 		  else
 		    tip_last_parms
-		      = call2 (Qassq_delete_all, parm, tip_last_parms);
+		      = calln (Qassq_delete_all, parm, tip_last_parms);
 		}
 
 	      /* Now check if every parameter in what is left of
@@ -3534,7 +3517,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
       [nswindow orderFront: NSApp];
       [nswindow display];
 
-      SET_FRAME_VISIBLE (tip_f, YES);
+      SET_FRAME_VISIBLE (tip_f, true);
       FRAME_PIXEL_WIDTH (tip_f) = width;
       FRAME_PIXEL_HEIGHT (tip_f) = height;
       unblock_input ();
@@ -3548,8 +3531,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 
     start_timer:
       /* Let the tip disappear after timeout seconds.  */
-      tip_timer = call3 (Qrun_at_time, timeout, Qnil,
-			 Qx_hide_tip);
+      tip_timer = calln (Qrun_at_time, timeout, Qnil, Qx_hide_tip);
     }
 
   return unbind_to (count, Qnil);
@@ -3577,16 +3559,17 @@ frame_geometry (Lisp_Object frame, Lisp_Object attribute)
 		     || EQ (fullscreen_symbol, Qfullscreen));
   int border = fullscreen ? 0 : f->border_width;
   int title_height = fullscreen ? 0 : FRAME_NS_TITLEBAR_HEIGHT (f);
+  int tool_bar_height = FRAME_TOOLBAR_HEIGHT (f);
   int native_width = FRAME_PIXEL_WIDTH (f);
   int native_height = FRAME_PIXEL_HEIGHT (f);
   int outer_width = native_width + 2 * border;
-  int outer_height = native_height + 2 * border + title_height;
+  int outer_height
+    = native_height + 2 * border + title_height + tool_bar_height;
   int native_left = f->left_pos + border;
   int native_top = f->top_pos + border + title_height;
   int native_right = f->left_pos + outer_width - border;
   int native_bottom = f->top_pos + outer_height - border;
   int internal_border_width = FRAME_INTERNAL_BORDER_WIDTH (f);
-  int tool_bar_height = FRAME_TOOLBAR_HEIGHT (f);
   int tool_bar_width = (tool_bar_height
 			? outer_width - 2 * internal_border_width
 			: 0);
@@ -3771,6 +3754,290 @@ DEFUN ("ns-show-character-palette",
 
   return Qnil;
 }
+
+
+DEFUN ("ns-process-is-accessibility-trusted",
+       Fns_process_is_accessibility_trusted,
+       Sns_process_is_accessibility_trusted,
+       0, 0, 0,
+       doc: /* Return non-nil if Emacs is trusted by macOS Accessibility.
+Return nil otherwise or if the OS is not macOS.
+This is necessary for Emacs to support Zoom and related accessibility
+features.  Authorize Emacs for accessibility via System
+Settings... Privacy & Security... Accessibility... and add the Emacs.app
+installed directory to the enabled application list.  */)
+  (void)
+{
+#ifdef NS_IMPL_COCOA
+  if (AXIsProcessTrusted())
+    return Qt;
+#endif
+  return Qnil;
+}
+
+
+DEFUN ("ns-badge", Fns_badge, Sns_badge, 1, 1, 0,
+       doc: /* Set the app icon badge to BADGE.
+BADGE should be a string short enough to display nicely in the short
+space intended for badges.
+If BADGE is nil, clear the app badge.  */)
+  (Lisp_Object badge)
+{
+  block_input ();
+  if (NILP (badge))
+    [[NSApp dockTile] setBadgeLabel: nil];
+  else
+    {
+      CHECK_STRING (badge);
+      [[NSApp dockTile] setBadgeLabel:
+			  [NSString stringWithUTF8String: SSDATA (badge)]];
+    }
+  unblock_input ();
+  return Qnil;
+}
+
+/* Use -1 to indicate no active request.  */
+static NSInteger ns_request_user_attention_id = -1;
+
+DEFUN ("ns-request-user-attention",
+       Fns_request_user_attention,
+       Sns_request_user_attention,
+       1, 1, 0,
+       doc: /* Bounce the app dock icon to request user attention.
+If URGENCY nil, cancel the outstanding request, if any.
+If URGENCY is the symbol `informational', bouncing lasts a few seconds.
+If URGENCY is the symbol `critical', bouncing lasts until Emacs is
+focused.  */)
+  (Lisp_Object urgency)
+{
+  block_input ();
+  if (ns_request_user_attention_id != -1)
+    {
+      [NSApp cancelUserAttentionRequest: ns_request_user_attention_id];
+      ns_request_user_attention_id = -1;
+    }
+  if (!NILP (urgency) && SYMBOLP (urgency))
+    {
+      if (EQ (urgency, Qinformational))
+	ns_request_user_attention_id = [NSApp requestUserAttention:
+						NSInformationalRequest];
+      else if (EQ (urgency, Qcritical))
+	ns_request_user_attention_id = [NSApp requestUserAttention:
+						NSCriticalRequest];
+    }
+  unblock_input ();
+  return Qnil;
+}
+
+DEFUN ("ns-progress-indicator",
+       Fns_progress_indicator,
+       Sns_progress_indicator,
+       1, 1, 0,
+       doc: /* Bounce the app dock icon to request user attention.
+PROGRESS is a float between 0.0 and 1.0.
+If PROGRESS is nil, remove the progress indicator.  */)
+  (Lisp_Object progress)
+{
+  block_input ();
+  NSDockTile *dock_tile = [NSApp dockTile];
+  /* Use NSLevelIndicator with reliable redraws, not NSProgressIndicator.  */
+  NSLevelIndicator *level_indicator;
+  /* Reuse the indicator subview or create one. */
+  if (dock_tile.contentView
+      && [[dock_tile.contentView subviews] count] > 0
+      && [[[dock_tile.contentView subviews] lastObject]
+                        isKindOfClass:[NSLevelIndicator class]])
+    level_indicator =
+      (NSLevelIndicator *)[[[dock_tile contentView] subviews] lastObject];
+    else
+      {
+	if (!dock_tile.contentView)
+	  {
+	    NSImageView* image_view = [[NSImageView alloc] init];
+	    [image_view setImage: [NSApp applicationIconImage]];
+	    [dock_tile setContentView: image_view];
+	  }
+	/* Set width to the width of the application icon, and height to
+	   % of the icon height to respect scaled icons.  */
+	float width = [[NSApp applicationIconImage] size].width;
+	float height = 0.10 * [[NSApp applicationIconImage] size].height;
+	level_indicator =
+	  [[NSLevelIndicator alloc] initWithFrame:
+				      NSMakeRect (0.0, 0.0,
+						  width, height)];
+	[level_indicator setWantsLayer: YES]; /* Performance.  */
+	[level_indicator setEnabled: NO]; /* Ignore mouse input.  */
+#ifdef NS_IMPL_GNUSTEP
+	[level_indicator setLevelIndicatorStyle:
+			   NSContinuousCapacityLevelIndicatorStyle];
+#else
+	[level_indicator setLevelIndicatorStyle:
+			   NSLevelIndicatorStyleContinuousCapacity];
+#endif
+	/* Match NSProgressIndicator color.  */
+	[level_indicator setFillColor: [NSColor controlAccentColor]];
+	[level_indicator setMinValue: 0.0];
+	[level_indicator setMaxValue: 1.0];
+	/* The contentView takes ownership.  */
+	[dock_tile.contentView addSubview: level_indicator];
+      }
+  double progress_value;
+  BOOL hide = (NILP (progress)
+	       || (!NILP (progress) && !(FLOATP (progress))));
+  if (!hide)
+    {
+      progress_value = XFLOAT_DATA (progress);
+      hide = (progress_value < 0.0 || progress_value > 1.0);
+    }
+  if (hide)
+    {
+      [level_indicator setDoubleValue: 0.0];
+      [level_indicator setHidden: YES];
+    }
+  else
+    {
+      [level_indicator setDoubleValue: progress_value];
+      [level_indicator setHidden: NO];
+    }
+  [dock_tile display];
+  unblock_input ();
+  return Qnil;
+}
+
+/* A unique integer sleep block id and a hash map of its id to opaque
+   NSObject sleep block activity tokens.  */
+static unsigned int sleep_block_id = 0;
+static NSMutableDictionary *sleep_block_map = NULL;
+
+DEFUN ("ns-block-system-sleep",
+       Fns_block_system_sleep,
+       Sns_block_system_sleep,
+       2, 2, 0,
+       doc: /* Block system idle sleep.
+WHY is a string reason for the block.
+If ALLOW-DISPLAY-SLEEP is non-nil, block the screen from sleeping.
+Return a token to unblock this block using `ns-unblock-system-sleep',
+or nil if the block fails.  */)
+  (Lisp_Object why, Lisp_Object allow_display_sleep)
+{
+  block_input ();
+
+  NSString *reason = @"Emacs";
+  if (!NILP (why))
+    {
+      CHECK_STRING (why);
+      reason = [NSString stringWithLispString: why];
+    }
+
+  unsigned long activity_options =
+    NSActivityUserInitiated | NSActivityIdleSystemSleepDisabled;
+  if (NILP (allow_display_sleep))
+    activity_options |= NSActivityIdleDisplaySleepDisabled;
+
+  NSProcessInfo *processInfo = [NSProcessInfo processInfo];
+  NSObject *activity_id = nil;
+  if ([processInfo respondsToSelector:@selector(beginActivityWithOptions:reason:)])
+    activity_id = [[NSProcessInfo processInfo]
+			     beginActivityWithOptions: activity_options
+					       reason: reason];
+  if (!sleep_block_map)
+    sleep_block_map = [[NSMutableDictionary alloc] initWithCapacity: 25];
+
+  if (activity_id)
+    {
+      [sleep_block_map setObject: activity_id
+			  forKey: [NSNumber numberWithInt: ++sleep_block_id]];
+      unblock_input ();
+      return make_fixnum (sleep_block_id);
+    }
+  else
+    {
+      unblock_input ();
+      return Qnil;
+    }
+}
+
+DEFUN ("ns-unblock-system-sleep",
+       Fns_unblock_system_sleep,
+       Sns_unblock_system_sleep,
+       1, 1, 0,
+       doc: /* Unblock system idle sleep.
+TOKEN is an object returned by `ns-block-system-sleep'.
+Return non-nil if the TOKEN block was unblocked.  */)
+  (Lisp_Object token)
+{
+  block_input ();
+  Lisp_Object res = Qnil;
+  CHECK_FIXNAT (token);
+  if (sleep_block_map)
+    {
+      NSNumber *key = [NSNumber numberWithInt: XFIXNAT (token)];
+      NSObject *activity_id = [sleep_block_map objectForKey: key];
+      if (activity_id)
+	{
+	  NSProcessInfo *processInfo = [NSProcessInfo processInfo];
+	  if ([processInfo respondsToSelector:@selector(endActivity:)])
+	    {
+	      [[NSProcessInfo processInfo] endActivity: activity_id];
+	      res = Qt;
+	    }
+	  [sleep_block_map removeObjectForKey: key];
+	}
+    }
+  unblock_input ();
+  return res;
+}
+
+#ifdef NS_IMPL_COCOA
+
+DEFUN ("ns-send-items",
+       Fns_send_items,
+       Sns_send_items, 1, 1, 0,
+       doc: /* Send a list of items to macOS applications or services. */)
+       (Lisp_Object items)
+{
+  CHECK_LIST (items);
+
+  NSMutableArray *sent = [NSMutableArray array];
+  for (Lisp_Object tail = items; CONSP (tail); tail = XCDR (tail))
+  {
+    Lisp_Object elt = XCAR (tail);
+    if (!(STRINGP (elt)))
+    {
+      signal_error ("Element not a string", elt);
+    }
+    BOOL isDir;
+    if ([[NSFileManager defaultManager] fileExistsAtPath:@(SSDATA(elt)) isDirectory:&isDir]) {
+      [sent addObject:[NSURL fileURLWithPath:@(SSDATA(elt))]];
+      continue;
+    }
+    [sent addObject:@(SSDATA(elt))];
+  }
+
+  struct frame *frame = SELECTED_FRAME ();
+  struct window *window = XWINDOW (selected_window);
+
+  int text_area_x, text_area_y, text_area_width, text_area_height;
+  window_box (window, TEXT_AREA, &text_area_x, &text_area_y,
+              &text_area_width, &text_area_height);
+
+  int x = text_area_x + window->phys_cursor.x;
+  int y = text_area_y + window->phys_cursor.y;
+
+  NSPoint point = NSMakePoint(x + FRAME_COLUMN_WIDTH (frame) / 2,
+			      y + FRAME_LINE_HEIGHT (frame) + 10);
+
+  EmacsView *view = FRAME_NS_VIEW (frame);
+  NSSharingServicePicker *picker = [[NSSharingServicePicker alloc] initWithItems:sent];
+  [picker showRelativeToRect:NSMakeRect(point.x - 1, point.y - 1, 2, 2)
+		      ofView:view
+	       preferredEdge:NSRectEdgeMaxY];
+
+  return Qnil;
+}
+
+
+#endif /* NS_IMPL_COCOA */
 
 /* ==========================================================================
 
@@ -4004,6 +4271,15 @@ The default value is t.  */);
   defsubr (&Sns_set_mouse_absolute_pixel_position);
   defsubr (&Sns_mouse_absolute_pixel_position);
   defsubr (&Sns_show_character_palette);
+  defsubr (&Sns_process_is_accessibility_trusted);
+  defsubr (&Sns_badge);
+  defsubr (&Sns_request_user_attention);
+  defsubr (&Sns_progress_indicator);
+  defsubr (&Sns_block_system_sleep);
+  defsubr (&Sns_unblock_system_sleep);
+#ifdef NS_IMPL_COCOA
+  defsubr (&Sns_send_items);
+#endif
   defsubr (&Sx_display_mm_width);
   defsubr (&Sx_display_mm_height);
   defsubr (&Sx_display_screens);
@@ -4067,4 +4343,6 @@ The default value is t.  */);
   DEFSYM (Qassq_delete_all, "assq-delete-all");
   DEFSYM (Qrun_at_time, "run-at-time");
   DEFSYM (Qx_hide_tip, "x-hide-tip");
+  DEFSYM (Qinformational, "informational");
+  DEFSYM (Qcritical, "critical");
 }

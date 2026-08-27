@@ -1,6 +1,6 @@
 ;;; ruby-ts-mode.el --- Major mode for editing Ruby files using tree-sitter -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; Author: Perry Smith <pedz@easesoftware.com>
 ;; Created: December 2022
@@ -22,11 +22,20 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
+;;; Tree-sitter language versions
+;;
+;; ruby-ts-mode has been tested with the following grammars and version:
+;; - tree-sitter-ruby: v0.23.1
+;;
+;; We try our best to make builtin modes work with latest grammar
+;; versions, so a more recent grammar has a good chance to work too.
+;; Send us a bug report if it doesn't.
+
 ;;; Commentary:
 
 ;; This file defines ruby-ts-mode which is a major mode for editing
 ;; Ruby files that uses Tree Sitter to parse the language.  More
-;; information about Tree Sitter can be found in the ELisp Info pages
+;; information about Tree Sitter can be found in the Elisp Info pages
 ;; as well as this website: https://tree-sitter.github.io/tree-sitter/
 
 ;; For this major mode to work, Emacs has to be compiled with
@@ -59,11 +68,8 @@
 ;;
 ;;   will turn on the ruby-ts-mode for Ruby source files.
 ;;
-;; - If you have the Ruby grammar installed, add
-;;
-;;     (load "ruby-ts-mode")
-;;
-;;   to your init file.
+;; - If you have the Ruby grammar installed, customize
+;;   'treesit-enabled-modes' and add 'ruby-ts-mode' to it.
 ;;
 ;; You can also turn on this mode manually in a buffer.
 
@@ -112,23 +118,13 @@
 
 (require 'treesit)
 (require 'ruby-mode)
+(treesit-declare-unavailable-functions)
 
-(declare-function treesit-parser-create "treesit.c")
-(declare-function treesit-induce-sparse-tree "treesit.c")
-(declare-function treesit-node-child-by-field-name "treesit.c")
-(declare-function treesit-search-subtree "treesit.c")
-(declare-function treesit-node-parent "treesit.c")
-(declare-function treesit-node-next-sibling "treesit.c")
-(declare-function treesit-node-type "treesit.c")
-(declare-function treesit-node-child "treesit.c")
-(declare-function treesit-node-end "treesit.c")
-(declare-function treesit-node-start "treesit.c")
-(declare-function treesit-node-string "treesit.c")
-(declare-function treesit-query-compile "treesit.c")
-(declare-function treesit-query-capture "treesit.c")
-(declare-function treesit-parser-add-notifier "treesit.c")
-(declare-function treesit-parser-buffer "treesit.c")
-(declare-function treesit-parser-list "treesit.c")
+(add-to-list
+ 'treesit-language-source-alist
+ '(ruby "https://github.com/tree-sitter/tree-sitter-ruby"
+        :commit "71bd32fb7607035768799732addba884a37a6210")
+ t)
 
 (defgroup ruby-ts nil
   "Major mode for editing Ruby code."
@@ -239,9 +235,9 @@ values of OVERRIDE."
              (<= plus-1 end)
              (string-match-p "\\`#" text))
         (treesit-fontify-with-override node-start plus-1
-                                       font-lock-comment-delimiter-face override))
+                                       'font-lock-comment-delimiter-face override))
     (treesit-fontify-with-override (max plus-1 start) (min node-end end)
-                                   font-lock-comment-face override)))
+                                   'font-lock-comment-face override)))
 
 (defun ruby-ts--font-lock-settings (language)
   "Tree-sitter font-lock settings for Ruby."
@@ -875,7 +871,11 @@ a statement container is a node that matches
      ((and
        (not (eq ruby-bracketed-args-indent t))
        (string-match-p "\\`array\\|hash\\'" (treesit-node-type parent))
-       (equal (treesit-node-parent parent) found)
+       (or (equal (treesit-node-parent parent) found)
+           ;; When the array/hash is part of a pair (keyword argument),
+           ;; check if the pair's parent is the found node.
+           (and (equal (treesit-node-type (treesit-node-parent parent)) "pair")
+                (equal (treesit-node-parent (treesit-node-parent parent)) found)))
        ;; Grandparent is not a parenless call.
        (or (not (equal (treesit-node-type found) "argument_list"))
            (equal (treesit-node-type (treesit-node-child found 0))
@@ -1068,6 +1068,9 @@ leading double colon is not added."
                              ;; Method calls with name ending with ? or !.
                              ((call method: (identifier) @ident)
                               (:match "[?!]\\'" @ident))
+                             ;; Method definitions for the above.
+                             ((method name: (identifier) @ident)
+                              (:match "[?!]\\'" @ident))
                              ;; Backtick method redefinition.
                              ((operator "`" @backtick))
                              ;; TODO: Stop at interpolations.
@@ -1136,6 +1139,12 @@ leading double colon is not added."
       (equal (treesit-node-type (treesit-node-child node 0))
              "(")))
 
+(defun ruby-ts--list-p (node)
+  ;; Distinguish between the named `unless' node and the
+  ;; node with the same value of type.
+  (when (treesit-node-check node 'named)
+    (ruby-ts--sexp-p node)))
+
 (defvar-keymap ruby-ts-mode-map
   :doc "Keymap used in Ruby mode"
   :parent prog-mode-map
@@ -1153,10 +1162,10 @@ leading double colon is not added."
   :group 'ruby
   :syntax-table ruby-mode-syntax-table
 
-  (unless (treesit-ready-p 'ruby)
+  (unless (treesit-ensure-installed 'ruby)
     (error "Tree-sitter for Ruby isn't available"))
 
-  (treesit-parser-create 'ruby)
+  (setq treesit-primary-parser (treesit-parser-create 'ruby))
 
   (setq-local add-log-current-defun-function #'ruby-ts-add-log-current-function)
 
@@ -1165,79 +1174,88 @@ leading double colon is not added."
 
   (setq-local treesit-thing-settings
               `((ruby
-                 (sexp ,(cons (rx
-                               bol
+                 (sexp (not (or (and named
+                                     ,(rx bos (or "program"
+                                                  "body_statement"
+                                                  "comment"
+                                                  "then")
+                                          eos))
+                                (and anonymous
+                                     ,(rx bos (or "do" "begin"
+                                                  "if" "unless"
+                                                  "def" "end"
+                                                  "(" ")" "[" "]"
+                                                  "{" "}" "|" "," ";")
+                                          eos)))))
+                 (list ,(cons (rx
+                               bos
                                (or
+                                "begin_block"
+                                "end_block"
+                                "method"
+                                "singleton_method"
+                                "method_parameters"
+                                "parameters"
+                                "block_parameters"
                                 "class"
                                 "singleton_class"
                                 "module"
-                                "method"
-                                "singleton_method"
-                                "array"
-                                "hash"
-                                "parenthesized_statements"
-                                "method_parameters"
-                                "array_pattern"
-                                "hash_pattern"
-                                "if"
-                                "else"
-                                "then"
-                                "unless"
+                                "do"
                                 "case"
                                 "case_match"
-                                "when"
-                                "while"
-                                "until"
-                                "for"
-                                "block"
-                                "do_block"
+                                "array_pattern"
+                                "find_pattern"
+                                "hash_pattern"
+                                "parenthesized_pattern"
+                                "expression_reference_pattern"
+                                "if"
+                                "unless"
                                 "begin"
-                                "integer"
-                                "identifier"
-                                "self"
-                                "super"
-                                "constant"
-                                "simple_symbol"
-                                "hash_key_symbol"
-                                "symbol_array"
+                                "parenthesized_statements"
+                                "argument_list"
+                                "do_block"
+                                "block"
+                                "destructured_left_assignment"
+                                "interpolation"
                                 "string"
                                 "string_array"
-                                "heredoc_body"
+                                "symbol_array"
+                                "delimited_symbol"
                                 "regex"
-                                "argument_list"
-                                "interpolation"
-                                "instance_variable"
-                                "global_variable"
-                                )
-                               eol)
-                              #'ruby-ts--sexp-p))
+                                "heredoc_body"
+                                "array"
+                                "hash")
+                               eos)
+                              #'ruby-ts--list-p))
+                 (sexp-default
+                  ;; For `C-M-f' in "#|{a}"
+                  ("#{" . ,(lambda (node)
+                             (and (eq (char-after (point)) ?{)
+                                  (equal (treesit-node-type (treesit-node-parent node))
+                                         "interpolation")))))
+                 (sentence ,(rx bos (or "return"
+                                        "body_statement"
+                                        "call"
+                                        "assignment")
+                                eos))
                  (text ,(lambda (node)
                           (or (member (treesit-node-type node)
-                                      '("comment" "string_content" "heredoc_content"))
-                              ;; for C-M-f in hash[:key] and hash['key']
-                              (and (member (treesit-node-text node)
-                                           '("[" "]"))
-                                   (equal (treesit-node-type
-                                           (treesit-node-parent node))
-                                          "element_reference"))
-                              ;; for C-M-f in "abc #{ghi} def"
-                              (and (member (treesit-node-text node)
-                                           '("#{" "}"))
-                                   (equal (treesit-node-type
-                                           (treesit-node-parent node))
-                                          "interpolation"))))))))
+                                      '("comment" "string_content"
+                                        "heredoc_content"))))))))
 
   ;; Imenu.
   (setq-local imenu-create-index-function #'ruby-ts--imenu)
 
   ;; Outline minor mode.
   (setq-local treesit-outline-predicate
-              (rx bos (or "singleton_method"
-                          "method"
-                          "alias"
-                          "class"
-                          "module")
-                  eos))
+              `(and ,(rx bos (or "singleton_method"
+                                 "method"
+                                 "alias"
+                                 "singleton_class"
+                                 "class"
+                                 "module")
+                         eos)
+                    named))
   ;; Restore default values of outline variables
   ;; to use `treesit-outline-predicate'.
   (kill-local-variable 'outline-regexp)
@@ -1263,11 +1281,10 @@ leading double colon is not added."
 
 (derived-mode-add-parents 'ruby-ts-mode '(ruby-mode))
 
-(when (treesit-ready-p 'ruby)
-  (setq major-mode-remap-defaults
-        (assq-delete-all 'ruby-mode major-mode-remap-defaults))
-  (add-to-list 'major-mode-remap-defaults
-                 '(ruby-mode . ruby-ts-mode)))
+;;;###autoload
+(when (boundp 'treesit-major-mode-remap-alist)
+  (add-to-list 'treesit-major-mode-remap-alist
+               '(ruby-mode . ruby-ts-mode)))
 
 (provide 'ruby-ts-mode)
 

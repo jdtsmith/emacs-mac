@@ -1,6 +1,6 @@
 ;;; frameset.el --- save and restore frame and window setup -*- lexical-binding: t -*-
 
-;; Copyright (C) 2013-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2026 Free Software Foundation, Inc.
 
 ;; Author: Juanma Barranquero <lekktu@gmail.com>
 ;; Keywords: convenience
@@ -1362,11 +1362,18 @@ All keyword parameters default to nil."
     ;; Clean up the frame list
     (when cleanup-frames
       (let ((map nil)
-	    (cleanup (if (eq cleanup-frames t)
-			 (lambda (frame action)
-			   (when (memq action '(:rejected :ignored))
-			     (delete-frame frame)))
-		       cleanup-frames)))
+	    (cleanup
+             (if (eq cleanup-frames t)
+		 (lambda (frame action)
+		   (when (and (memq action '(:rejected :ignored))
+                              ;; Don't try deleting the daemon's initial
+                              ;; frame, as that would only trigger
+                              ;; warnings.
+                              (not
+                               (and (daemonp) ;; FIXME: Remove `daemonp'?
+                                    (frame-initial-p frame))))
+                     (delete-frame frame)))
+               cleanup-frames)))
 	(maphash (lambda (frame _action) (push frame map)) frameset--action-map)
 	(dolist (frame (sort map
 			     ;; Minibufferless frames must go first to avoid
@@ -1412,15 +1419,15 @@ All keyword parameters default to nil."
    :reuse-frames (if arg t 'match)
    :cleanup-frames (if arg
 		       ;; delete frames
-		       nil
+		       t
 		     ;; iconify frames
 		     (lambda (frame action)
 		       (pcase action
-			 ('rejected (iconify-frame frame))
+			 (:rejected (iconify-frame frame))
 			 ;; In the unexpected case that a frame was a candidate
 			 ;; (matching frame id) and yet not restored, remove it
 			 ;; because it is in fact a duplicate.
-			 ('ignored (delete-frame frame))))))
+			 (:ignored (delete-frame frame))))))
 
   ;; Restore selected frame, buffer and point.
   (let ((frame (frameset-frame-with-id (frameset-register-frame-id data)))

@@ -4,6 +4,7 @@
 @c smallbook
 @c [title]
 @settitle GNU Emacs Calc Manual
+@documentlanguage en
 @include docstyle.texi
 @setchapternewpage odd
 @documentencoding UTF-8
@@ -96,7 +97,7 @@ This file documents Calc, the GNU Emacs calculator, included with
 GNU Emacs @value{EMACSVER}.
 @end ifnotinfo
 
-Copyright @copyright{} 1990--1991, 2001--2025 Free Software Foundation,
+Copyright @copyright{} 1990--1991, 2001--2026 Free Software Foundation,
 Inc.
 
 @quotation
@@ -167,10 +168,12 @@ longer Info tutorial.)
 @menu
 * Getting Started::       General description and overview.
 @ifinfo
-* Interactive Tutorial::
+* Interactive Tutorial::  Tutorial, and brief instructions on using
+                           the Emacs Info system for reading this manual.
 @end ifinfo
+@ifnotinfo
 * Tutorial::              A step-by-step introduction for beginners.
-
+@end ifnotinfo
 * Introduction::          Introduction to the Calc reference manual.
 * Data Types::            Types of objects manipulated by Calc.
 * Stack and Trail::       Manipulating the stack and trail buffers.
@@ -1243,8 +1246,8 @@ finished in two weeks.
 
 @ifinfo
 @c This node is accessed by the 'C-x * t' command.
-@node Interactive Tutorial, Tutorial, Getting Started, Top
-@chapter Tutorial
+@node Interactive Tutorial, Introduction, Getting Started, Top
+@chapter Interactive Tutorial
 
 @noindent
 Some brief instructions on using the Emacs Info system for this tutorial:
@@ -9571,7 +9574,12 @@ the last rule.
 
 @c [reference]
 
-@node Introduction
+@ifinfo
+@node Introduction, Data Types, Interactive Tutorial, Top
+@end ifinfo
+@ifnotinfo
+@node Introduction, Data Types, Tutorial, Top
+@end ifnotinfo
 @chapter Introduction
 
 @noindent
@@ -10179,7 +10187,7 @@ result @samp{[120]} (because 120 is the ASCII code of the lower-case
 is displayed only according to the current mode settings.  But
 running Quick Calc again and entering @samp{120} will produce the
 result @samp{120 (16#78, 8#170, x)} which shows the number in its
-decimal, hexadecimal, octal, and ASCII forms.
+decimal, hexadecimal, octal, and character forms.
 
 Please note that the Quick Calculator is not any faster at loading
 or computing the answer than the full Calculator; the name ``quick''
@@ -10836,11 +10844,11 @@ from 1 to @samp{n}.
 @cindex Strings
 @cindex Character strings
 Character strings are not a special data type in the Calculator.
-Rather, a string is represented simply as a vector all of whose
-elements are integers in the range 0 to 255 (ASCII codes).  You can
-enter a string at any time by pressing the @kbd{"} key.  Quotation
-marks and backslashes are written @samp{\"} and @samp{\\}, respectively,
-inside strings.  Other notations introduced by backslashes are:
+Rather, a string is represented simply as a vector all of whose elements
+are integers in the Latin-1 range 0 to 255.  You can enter a string at
+any time by pressing the @kbd{"} key.  Quotation marks and backslashes
+are written @samp{\"} and @samp{\\}, respectively, inside strings.
+Other notations introduced by backslashes are:
 
 @example
 @group
@@ -10857,21 +10865,24 @@ inside strings.  Other notations introduced by backslashes are:
 
 @noindent
 Finally, a backslash followed by three octal digits produces any
-character from its ASCII code.
+character from its code.
 
 @kindex d "
 @pindex calc-display-strings
 Strings are normally displayed in vector-of-integers form.  The
 @w{@kbd{d "}} (@code{calc-display-strings}) command toggles a mode in
 which any vectors of small integers are displayed as quoted strings
-instead.
+instead.  The display of strings containing higher character codes can
+be enabled by increasing the custom variable
+@code{calc-string-maximum-character} (@pxref{Customizing Calc}).
 
 The backslash notations shown above are also used for displaying
-strings.  Characters 128 and above are not translated by Calc; unless
-you have an Emacs modified for 8-bit fonts, these will show up in
-backslash-octal-digits notation.  For characters below 32, and
-for character 127, Calc uses the backslash-letter combination if
-there is one, or otherwise uses a @samp{\^} sequence.
+strings.  For ASCII control characters (below 32), and for the
+@code{DEL} character (127), Calc uses the backslash-letter combination
+if there is one, or otherwise uses a @samp{\^} sequence.  Control
+characters above 127 are not translated by Calc, and will show up in
+backslash-octal-digits notation.  The display of higher character codes
+will depend on your display settings and system font coverage.
 
 The only Calc feature that uses strings is @dfn{compositions};
 @pxref{Compositions}.  Strings also provide a convenient
@@ -30811,7 +30822,7 @@ embedded in a @TeX{} or @LaTeX{} document its plain version will be
 invisible in the final printed copy.  Certain major modes have different
 delimiters to ensure that the ``plain'' version will be
 in a comment for those modes, also.
-See @ref{Customizing Embedded Mode} to see how to change the ``plain''
+@xref{Customizing Embedded Mode}, to see how to change the ``plain''
 formula delimiters.
 
 There are several notations which Calc's parser for ``big''
@@ -32370,7 +32381,7 @@ has the advantage that it is quietly ignored if @code{calc-check-defines}
 is not yet defined because Calc has not yet been loaded.
 
 Examples of things that ought to be enclosed in a @code{calc-define}
-property are @code{defmath} calls, @code{define-key} calls that modify
+property are @code{defmath} calls, @code{keymap-set} calls that modify
 the Calc key map, and any calls that redefine things defined inside Calc.
 Ordinary @code{defun}s need not be enclosed with @code{calc-define}.
 
@@ -32478,7 +32489,7 @@ there.
 @vindex calc-Y-help-msgs
 Calc reserves a special prefix key, shift-@kbd{Y}, for user-written
 extensions to Calc.  There are no built-in commands that work with
-this prefix key; you must call @code{define-key} from Lisp (probably
+this prefix key; you must call @code{keymap-set} from Lisp (probably
 from inside a @code{calc-define} property) to add to it.  Initially only
 @kbd{Y ?} is defined; it takes help messages from a list of strings
 (initially @code{nil}) in the variable @code{calc-Y-help-msgs}.  All
@@ -32512,9 +32523,9 @@ decreases the precision.
 
 (put 'calc-define 'inc-prec '(progn
 
-(define-key calc-mode-map (format "Y%sI" inc-prec-base-key)
+(keymap-set calc-mode-map (format "Y %s I" inc-prec-base-key)
             'calc-increase-precision)
-(define-key calc-mode-map (format "Y%sD" inc-prec-base-key)
+(keymap-set calc-mode-map (format "Y %s D" inc-prec-base-key)
             'calc-decrease-precision)
 
 (setq calc-Y-help-msgs
@@ -35297,7 +35308,7 @@ The usual prefix for Calc is the key sequence @kbd{C-x *}.  If you wish
 to use a different prefix, you can put
 
 @example
-(global-set-key "NEWPREFIX" 'calc-dispatch)
+(keymap-global-set "NEWPREFIX" 'calc-dispatch)
 @end example
 
 @noindent
@@ -35323,8 +35334,8 @@ also be reset by putting the appropriate lines in your .emacs file;
 
 Some of the customizable variables are regular expressions.  A regular
 expression is basically a pattern that Calc can search for.
-See @ref{Regexp Search,, Regular Expression Search, emacs, The GNU Emacs Manual}
-to see how regular expressions work.
+@xref{Regexp Search,, Regular Expression Search, emacs, The GNU Emacs
+Manual}, to see how regular expressions work.
 
 @defvar calc-settings-file
 The variable @code{calc-settings-file} holds the file name in
@@ -35341,7 +35352,7 @@ value will be @code{"~/.calc.el"}.
 @end defvar
 
 @defvar calc-gnuplot-name
-See @ref{Graphics}.@*
+@xref{Graphics}.@*
 The variable @code{calc-gnuplot-name} should be the name of the
 GNUPLOT program (a string).  If you have GNUPLOT installed on your
 system but Calc is unable to find it, you may need to set this
@@ -35352,7 +35363,7 @@ The default value of @code{calc-gnuplot-name} is @code{"gnuplot"}.
 
 @defvar  calc-gnuplot-plot-command
 @defvarx calc-gnuplot-print-command
-See @ref{Devices, ,Graphical Devices}.@*
+@xref{Devices, ,Graphical Devices}.@*
 The variables @code{calc-gnuplot-plot-command} and
 @code{calc-gnuplot-print-command} represent system commands to
 display and print the output of GNUPLOT, respectively.  These may be
@@ -35367,7 +35378,7 @@ and the default value of @code{calc-gnuplot-print-command} is
 @end defvar
 
 @defvar calc-language-alist
-See @ref{Basic Embedded Mode}.@*
+@xref{Basic Embedded Mode}.@*
 The variable @code{calc-language-alist} controls the languages that
 Calc will associate with major modes.  When Calc embedded mode is
 enabled, it will try to use the current major mode to
@@ -35396,7 +35407,7 @@ The default value of @code{calc-language-alist} is
 
 @defvar calc-embedded-announce-formula
 @defvarx calc-embedded-announce-formula-alist
-See @ref{Customizing Embedded Mode}.@*
+@xref{Customizing Embedded Mode}.@*
 The variable @code{calc-embedded-announce-formula} helps determine
 what formulas @kbd{C-x * a} will activate in a buffer.  It is a
 regular expression, and when activating embedded formulas with
@@ -35434,7 +35445,7 @@ and @code{calc-embedded-open-close-mode-alist}.
 @defvar  calc-embedded-open-formula
 @defvarx calc-embedded-close-formula
 @defvarx calc-embedded-open-close-formula-alist
-See @ref{Customizing Embedded Mode}.@*
+@xref{Customizing Embedded Mode}.@*
 The variables @code{calc-embedded-open-formula} and
 @code{calc-embedded-close-formula} control the region that Calc will
 activate as a formula when Embedded mode is entered with @kbd{C-x * e}.
@@ -35471,7 +35482,7 @@ It consists of a list of lists of the form
 
 @defvar  calc-embedded-word-regexp
 @defvarx calc-embedded-word-regexp-alist
-See @ref{Customizing Embedded Mode}.@*
+@xref{Customizing Embedded Mode}.@*
 The variable @code{calc-embedded-word-regexp} determines the expression
 that Calc will activate when Embedded mode is entered with @kbd{C-x *
 w}.  It is a regular expressions.
@@ -35490,7 +35501,7 @@ It consists of a list of lists of the form
 @defvar  calc-embedded-open-plain
 @defvarx calc-embedded-close-plain
 @defvarx calc-embedded-open-close-plain-alist
-See @ref{Customizing Embedded Mode}.@*
+@xref{Customizing Embedded Mode}.@*
 The variables @code{calc-embedded-open-plain} and
 @code{calc-embedded-open-plain} are used to delimit ``plain''
 formulas.  Note that these are actual strings, not regular
@@ -35531,7 +35542,7 @@ and @code{calc-embedded-open-close-mode-alist}.
 @defvar  calc-embedded-open-new-formula
 @defvarx calc-embedded-close-new-formula
 @defvarx calc-embedded-open-close-new-formula-alist
-See @ref{Customizing Embedded Mode}.@*
+@xref{Customizing Embedded Mode}.@*
 The variables @code{calc-embedded-open-new-formula} and
 @code{calc-embedded-close-new-formula} are strings which are
 inserted before and after a new formula when you type @kbd{C-x * f}.
@@ -35559,7 +35570,7 @@ It consists of a list of lists of the form
 @defvar  calc-embedded-open-mode
 @defvarx calc-embedded-close-mode
 @defvarx calc-embedded-open-close-mode-alist
-See @ref{Customizing Embedded Mode}.@*
+@xref{Customizing Embedded Mode}.@*
 The variables @code{calc-embedded-open-mode} and
 @code{calc-embedded-close-mode} are strings which Calc will place before
 and after any mode annotations that it inserts.  Calc never scans for
@@ -35600,7 +35611,7 @@ and @code{calc-embedded-open-close-plain-alist}.
 
 @defvar  calc-lu-power-reference
 @defvarx calc-lu-field-reference
-See @ref{Logarithmic Units}.@*
+@xref{Logarithmic Units}.@*
 The variables @code{calc-lu-power-reference} and
 @code{calc-lu-field-reference} are unit expressions (written as
 strings) which Calc will use as reference quantities for logarithmic
@@ -35612,7 +35623,7 @@ and the default value of @code{calc-lu-field-reference} is
 @end defvar
 
 @defvar calc-note-threshold
-See @ref{Musical Notes}.@*
+@xref{Musical Notes}.@*
 The variable @code{calc-note-threshold} is a number (written as a
 string) which determines how close (in cents) a frequency needs to be
 to a note to be recognized as that note.
@@ -35623,7 +35634,7 @@ The default value of @code{calc-note-threshold} is 1.
 @defvar calc-highlight-selections-with-faces
 @defvarx calc-selected-face
 @defvarx calc-nonselected-face
-See @ref{Displaying Selections}.@*
+@xref{Displaying Selections}.@*
 The variable @code{calc-highlight-selections-with-faces}
 determines how selected sub-formulas are distinguished.
 If @code{calc-highlight-selections-with-faces} is @code{nil}, then
@@ -35671,7 +35682,7 @@ be preserved.  The default value of @code{calc-undo-length} is @expr{100}.
 @end defvar
 
 @defvar calc-gregorian-switch
-See @ref{Date Forms}.@*
+@xref{Date Forms}.@*
 The variable @code{calc-gregorian-switch} is either a list of integers
 @code{(@var{YEAR} @var{MONTH} @var{DAY})} or @code{nil}.
 If it is @code{nil}, then Calc's date forms always represent Gregorian dates.
@@ -35682,6 +35693,40 @@ date.  The customization buffer will offer several standard dates to
 choose from, or the user can enter their own date.
 
 The default value of @code{calc-gregorian-switch} is @code{nil}.
+@end defvar
+
+@defvar calc-string-maximum-character
+@xref{Strings}.@*
+
+The variable @code{calc-string-maximum-character} is the maximum value
+of a vector's elements for @code{calc-display-strings}, @code{string},
+and @code{bstring} to display the vector as a string.  This maximum
+@emph{must} represent a character, i.e. it's a non-negative integer less
+than or equal to @code{(max-char)} or @code{0x3FFFFF}.  Any value not
+representing a character effectively disables the display of strings.
+Some natural choices (and their resulting ranges) are:
+
+@itemize
+@item
+@code{0x7F} or 127 (ASCII),
+@item
+@code{0xFF} or 255 (Latin-1, the default),
+@item
+@code{0x10FFFF} (Unicode),
+@item
+@code{0x3FFFFF} (Emacs).
+@end itemize
+
+The default value of @code{calc-string-maximum-character} is @code{0xFF}
+or 255.
+@end defvar
+
+@defvar calc-inhibit-startup-message
+The variable @code{calc-inhibit-startup-message} controls display of a
+welcome message when starting Calc.  If it is @code{nil} (the default),
+Calc will print a brief message listing key bindings to get help or to
+quit.  If it is non-@code{nil}, Calc will start without printing
+anything.
 @end defvar
 
 @node Reporting Bugs

@@ -1,6 +1,6 @@
 ;;; gv-tests.el --- tests for gv.el  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2017-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -162,6 +162,42 @@ its getter (Bug#41853)."
         ;; Only check whether evaluation works in general.
         (eval-buffer))))
   (should (equal (get 'gv-setter-edebug 'gv-setter-edebug-prop) '(123))))
+
+(defvar gv-test--special 0)
+
+(ert-deftest gv-incf ()
+  (setq gv-test--special 0)
+  (should (= (incf gv-test--special) 1))
+  (should (= gv-test--special 1))
+  (should (= (incf gv-test--special 9) 10))
+  (should (= gv-test--special 10))
+  (let ((var 0))
+    (should (= (incf var) 1))
+    (should (= var 1))
+    (should (= (incf var 9) 10))
+    (should (= var 10)))
+  (let ((alist))
+    (should (= (incf (alist-get 'a alist 0)) 1))
+    (should (= (alist-get 'a alist 0) 1))
+    (should (= (incf (alist-get 'a alist 0) 9) 10))
+    (should (= (alist-get 'a alist 0) 10))))
+
+(ert-deftest gv-decf ()
+  (setq gv-test--special 0)
+  (should (= (decf gv-test--special) -1))
+  (should (= gv-test--special -1))
+  (should (= (decf gv-test--special 9) -10))
+  (should (= gv-test--special -10))
+  (let ((var 1))
+    (should (= (decf var) 0))
+    (should (= var 0))
+    (should (= (decf var 10) -10))
+    (should (= var -10)))
+  (let ((alist))
+    (should (= (decf (alist-get 'a alist 0)) -1))
+    (should (= (alist-get 'a alist 0) -1))
+    (should (= (decf (alist-get 'a alist 0) 9) -10))
+    (should (= (alist-get 'a alist 0) -10))))
 
 (ert-deftest gv-plist-get ()
   ;; Simple `setf' usage for `plist-get'.

@@ -1,9 +1,10 @@
 # manywarnings.m4
-# serial 26
-dnl Copyright (C) 2008-2025 Free Software Foundation, Inc.
+# serial 32
+dnl Copyright (C) 2008-2026 Free Software Foundation, Inc.
 dnl This file is free software; the Free Software Foundation
 dnl gives unlimited permission to copy and/or distribute it,
 dnl with or without modifications, as long as this notice is preserved.
+dnl This file is offered as-is, without any warranty.
 
 dnl From Simon Josefsson
 
@@ -93,10 +94,10 @@ AC_DEFUN([gl_MANYWARN_ALL_GCC(C)],
   # List all gcc warning categories.
   # To compare this list to your installed GCC's, run this Bash command:
   #
-  # comm -3 \
+  # export LC_ALL=C && comm -3 \
   #  <((sed -n 's/^  *\(-[^ 0-9][^ ]*\).*/\1/p' manywarnings.m4; \
   #     awk '/^[^#]/ {print $1}' ../build-aux/gcc-warning.spec) | sort) \
-  #  <(LC_ALL=C gcc --help=warnings | sed -n 's/^  \(-[^ ]*\) .*/\1/p' | sort)
+  #  <(gcc --help=warnings | sed -n 's/^  \(-[^ ]*\) .*/\1/p' | sort)
 
   $1=
   for gl_manywarn_item in -fanalyzer -fstrict-flex-arrays \
@@ -105,13 +106,12 @@ AC_DEFUN([gl_MANYWARN_ALL_GCC(C)],
     -Wbad-function-cast \
     -Wcast-align=strict \
     -Wdate-time \
-    -Wdisabled-optimization \
     -Wdouble-promotion \
     -Wduplicated-branches \
     -Wduplicated-cond \
     -Wextra \
-    -Wformat-signedness \
     -Wflex-array-member-not-at-end \
+    -Wformat-signedness \
     -Winit-self \
     -Winline \
     -Winvalid-pch \
@@ -138,10 +138,7 @@ AC_DEFUN([gl_MANYWARN_ALL_GCC(C)],
     -Wsuggest-attribute=malloc \
     -Wsuggest-attribute=noreturn \
     -Wsuggest-attribute=pure \
-    -Wsuggest-final-methods \
-    -Wsuggest-final-types \
     -Wsync-nand \
-    -Wsystem-headers \
     -Wtrampolines \
     -Wuninitialized \
     -Wunknown-pragmas \
@@ -151,7 +148,6 @@ AC_DEFUN([gl_MANYWARN_ALL_GCC(C)],
     -Wvector-operation-performance \
     -Wvla \
     -Wwrite-strings \
-    \
     ; do
     AS_VAR_APPEND([$1], [" $gl_manywarn_item"])
   done
@@ -170,21 +166,33 @@ AC_DEFUN([gl_MANYWARN_ALL_GCC(C)],
   AS_VAR_APPEND([$1], [' -Wunused-const-variable=2'])
   AS_VAR_APPEND([$1], [' -Wvla-larger-than=4031'])
 
-  # These are needed for older GCC versions.
+  # These depend on the GCC version.
   if test -n "$GCC" && gl_gcc_version=`($CC --version) 2>/dev/null`; then
     case $gl_gcc_version in
-      'gcc (GCC) '[[0-3]].* | \
-      'gcc (GCC) '4.[[0-7]].*)
+      gcc*' ('*') '[[0-3]].* | \
+      gcc*' ('*') '4.[[0-7]].*)
         AS_VAR_APPEND([$1], [' -fdiagnostics-show-option'])
         AS_VAR_APPEND([$1], [' -funit-at-a-time'])
           ;;
     esac
     case $gl_gcc_version in
-      'gcc (GCC) '[[0-9]].*)
+      gcc*' ('*') '[[0-9]].*)
         AS_VAR_APPEND([$1], [' -fno-common'])
           ;;
     esac
+    case $gl_gcc_version in
+      gcc*' ('*') '?.* | gcc*' ('*') '1[[0-4]].*)
+          # In GCC < 15 the option either does not exist,
+          # or is accepted but always warns.
+          ;;
+      *)
+          AS_VAR_APPEND([$1], [' -Wzero-as-null-pointer-constant'])
+          ;;
+    esac
   fi
+
+  # These options are not supported by gcc, but are useful with clang.
+  AS_VAR_APPEND([$1], [' -Wthread-safety'])
 
   # Disable specific options as needed.
   if test "$gl_cv_cc_nomfi_needed" = yes; then
@@ -196,7 +204,7 @@ AC_DEFUN([gl_MANYWARN_ALL_GCC(C)],
   fi
 
   # This warning have too many false alarms in GCC 11.2.1.
-  # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101713
+  # https://gcc.gnu.org/PR101713
   AS_VAR_APPEND([$1], [' -Wno-analyzer-malloc-leak'])
 
   AC_LANG_POP([C])

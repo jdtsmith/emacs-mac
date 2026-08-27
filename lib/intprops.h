@@ -1,6 +1,6 @@
 /* intprops.h -- properties of integer types
 
-   Copyright (C) 2001-2025 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify it
    under the terms of the GNU Lesser General Public License as published
@@ -33,6 +33,14 @@
 /* Return 1 if the real expression E, after promotion, has a
    signed or floating type.  Do not evaluate E.  */
 #define EXPR_SIGNED(e) _GL_EXPR_SIGNED (e)
+
+/* The same value as as the arithmetic expression E, but with E's type
+   after integer promotions.  For example, if E is of type 'enum {A, B}'
+   then 'switch (INT_PROMOTE (E))' pacifies gcc -Wswitch-enum if some
+   enum values are deliberately omitted from the switch's cases.
+   Here, unary + is safer than a cast or inline function, as unary +
+   does only integer promotions and is disallowed on pointers.  */
+#define INT_PROMOTE(e) (+ (e))
 
 
 /* Minimum and maximum values for integer types and expressions.  */
@@ -197,11 +205,11 @@
     || INT_MULTIPLY_RANGE_OVERFLOW (a, b, min, max))
 #endif
 #define _GL_DIVIDE_OVERFLOW(a, b, min, max)                             \
-  ((min) < 0 ? (b) == _GL_INT_NEGATE_CONVERT (min, 1) && (a) < - (max)  \
+  ((min) < 0 ? (b) == _GL_INT_CONVERT (min, -1) && (a) < - (max)        \
    : (a) < 0 ? (b) <= (a) + (b) - 1                                     \
    : (b) < 0 && (a) + (b) <= (a))
 #define _GL_REMAINDER_OVERFLOW(a, b, min, max)                          \
-  ((min) < 0 ? (b) == _GL_INT_NEGATE_CONVERT (min, 1) && (a) < - (max)  \
+  ((min) < 0 ? (b) == _GL_INT_CONVERT (min, -1) && (a) < - (max)        \
    : (a) < 0 ? (a) % (b) != ((max) - (b) + 1) % (b)                     \
    : (b) < 0 && ! _GL_UNSIGNED_NEG_MULTIPLE (a, b, max))
 

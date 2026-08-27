@@ -1,6 +1,6 @@
 ;;; cus-edit-tests.el --- Tests for cus-edit.el  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2020-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -31,7 +31,7 @@
   `(save-window-excursion
      (unwind-protect
          (progn ,@body)
-       (when-let ((buf (get-buffer ,buffer)))
+       (when-let* ((buf (get-buffer ,buffer)))
          (kill-buffer buf)))))
 
 
@@ -90,7 +90,7 @@
               (erase-buffer))
             (setopt cus-edit-test-foo1 :foo)
             (buffer-substring-no-properties (point-min) (point-max)))))
-    (should (string-search "Value `:foo' does not match type number"
+    (should (string-search "Value does not match cus-edit-test-foo1's type `number': :foo\n"
                            warn-txt))))
 
 (defcustom cus-edit-test-bug63290-option nil
@@ -133,6 +133,24 @@
     (widget-value-set choice (widget-default-get list-opt)))
   ;; No empty key/value pairs should show up.
   (should-not (search-forward "key" nil t)))
+
+(defcustom cus-edit-test-bug76156 "\C-c "
+  "Key-sequence option that might show up as EDITED even though it's not."
+  :type 'key-sequence)
+
+(defcustom cus-edit-test-bug76156-2 [(control ?z)]
+  "Key-sequence option that might show up as EDITED even though it's not."
+  :type 'key-sequence)
+
+(ert-deftest cus-edit-test-unedited-option ()
+  "Test that customizing unedited options doesn't show up as EDITED."
+  (dolist (option '(cus-edit-test-bug76156
+                    cus-edit-test-bug76156-2
+                    cus-edit-test-foo1))
+    (customize-option option)
+    (let ((widget (car custom-options)))
+      (should (eq (widget-get widget :custom-state) 'standard)))
+    (kill-buffer)))
 
 (provide 'cus-edit-tests)
 ;;; cus-edit-tests.el ends here

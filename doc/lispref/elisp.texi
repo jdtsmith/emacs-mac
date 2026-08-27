@@ -18,6 +18,7 @@
 @ifclear volflag
 @settitle GNU Emacs Lisp Reference Manual
 @end ifclear
+@documentlanguage en
 @include docstyle.texi
 
 @c %**end of header
@@ -99,7 +100,7 @@ This is the @cite{GNU Emacs Lisp Reference Manual}
 @end ifclear
 corresponding to Emacs version @value{EMACSVER}.
 
-Copyright @copyright{} 1990--1996, 1998--2025 Free Software Foundation,
+Copyright @copyright{} 1990--1996, 1998--2026 Free Software Foundation,
 Inc.
 
 @quotation
@@ -236,7 +237,7 @@ To view this manual in other formats, click
 
 Appendices
 
-* Antinews::                Info for users downgrading to Emacs 29.
+* Antinews::                Info for users downgrading to Emacs 30.
 * GNU Free Documentation License:: The license for this documentation.
 * GPL::                     Conditions for copying and changing GNU Emacs.
 * Tips::                    Advice and coding conventions for Emacs Lisp.
@@ -582,6 +583,10 @@ Functions
 * Related Topics::          Cross-references to specific Lisp primitives
                               that have a special bearing on how
                               functions work.
+
+Defining Functions
+
+* Finding Definitions::     Finding function definitions created by macros.
 
 Lambda Expressions
 
@@ -1075,6 +1080,8 @@ Windows
 * Deleting Windows::        Deleting a window gives its space to other windows.
 * Recombining Windows::     Preserving the frame layout when splitting and
                               deleting windows.
+* Resurrecting Windows::    Restoring deleted windows.
+* Changing Window Layouts::  Transposing windows in an orderly manner.
 * Cyclic Window Ordering::  Moving around the existing windows.
 * Buffers and Windows::     Each window displays the contents of a buffer.
 * Switching Buffers::       Higher-level functions for switching to a buffer.
@@ -1130,6 +1137,7 @@ Frames
 * Frame Titles::            Automatic updating of frame titles.
 * Deleting Frames::         Frames last until explicitly deleted.
 * Finding All Frames::      How to examine all existing frames.
+* Splitting and Merging Frames:: Transferring window layouts between frames.
 * Minibuffers and Frames::  How a frame finds the minibuffer to use.
 * Input Focus::             Specifying the selected frame.
 * Visibility of Frames::    Frames may be visible or invisible, or icons.
@@ -1180,6 +1188,12 @@ Window Frame Parameters
 * Management Parameters::   Communicating with the window manager.
 * Cursor Parameters::       Controlling the cursor appearance.
 * Font and Color Parameters:: Fonts and colors for the frame text.
+
+Child Frames
+
+* Child Frame Operations::  Making and investigating child frames.
+* Child Frame Properties::  Special properties of child frames.
+* Child Frame Peculiarities:: Deviant behaviors of child frames.
 
 Positions
 
@@ -1382,7 +1396,7 @@ Parsing Program Source
 * Pattern Matching::         Pattern matching with query patterns.
 * Multiple Languages::       Parse text written in multiple languages.
 * Tree-sitter Major Modes::  Develop major modes using tree-sitter.
-* Tree-sitter C API::        Compare the C API and the ELisp API.
+* Tree-sitter C API::        Compare the C API and the Lisp API.
 
 Syntax Descriptors
 
@@ -1419,7 +1433,7 @@ Threads
 Processes
 
 * Subprocess Creation::     Functions that start subprocesses.
-* Shell Arguments::         Quoting an argument to pass it to a shell.
+* Shell Arguments::         Quoting & partitioning command arguments.
 * Synchronous Processes::   Details of using synchronous subprocesses.
 * Asynchronous Processes::  Starting up an asynchronous subprocess.
 * Deleting Processes::      Eliminating an asynchronous subprocess.
@@ -1636,6 +1650,9 @@ Preparing Lisp code for distribution
 * Simple Packages::         How to package a single .el file.
 * Multi-file Packages::     How to package multiple files.
 * Package Archives::        Maintaining package archives.
+* Archive Web Server::      Interfacing to an archive web server.
+* Forwards-Compatibility::  Supporting older versions of Emacs.
+* Package Information::     Information about built-in packages.
 
 Tips and Conventions
 
@@ -1645,13 +1662,13 @@ Tips and Conventions
 * Compilation Tips::        Making compiled code run fast.
 * Warning Tips::            Turning off compiler warnings.
 * Documentation Tips::      Writing readable documentation strings.
+* Documentation Group Tips::  Writing useful documentation groups.
 * Comment Tips::            Conventions for writing comments.
 * Library Headers::         Standard headers for library packages.
 
 GNU Emacs Internals
 
 * Building Emacs::          How the dumped Emacs is made.
-* Pure Storage::            Kludge to make preloaded Lisp functions shareable.
 * Garbage Collection::      Reclaiming space for Lisp objects no longer used.
 * Stack-allocated Objects:: Temporary conses and strings on C stack.
 * Memory Usage::            Info about total size of Lisp objects made so far.

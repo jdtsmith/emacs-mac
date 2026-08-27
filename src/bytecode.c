@@ -1,5 +1,5 @@
 /* Execution of byte code produced by bytecomp.el.
-   Copyright (C) 1985-1988, 1993, 2000-2025 Free Software Foundation,
+   Copyright (C) 1985-1988, 1993, 2000-2026 Free Software Foundation,
    Inc.
 
 This file is part of GNU Emacs.
@@ -20,19 +20,9 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <config.h>
 
 #include "lisp.h"
-#include "blockinput.h"
 #include "sysstdio.h"
-#include "character.h"
 #include "buffer.h"
-#include "keyboard.h"
-#include "syntax.h"
 #include "window.h"
-#include "puresize.h"
-
-/* Work around GCC bug 54561.  */
-#if GNUC_PREREQ (4, 3, 0)
-# pragma GCC diagnostic ignored "-Wclobbered"
-#endif
 
 /* Define BYTE_CODE_SAFE true to enable some minor sanity checking,
    useful for debugging the byte compiler.  It defaults to false.  */
@@ -285,7 +275,7 @@ enum byte_code_op
 /* Fetch two bytes from the bytecode stream and make a 16-bit number
    out of them.  */
 
-#define FETCH2 (op = FETCH, op | (FETCH << 8))
+#define FETCH2 (pc += 2, pc[-2] | pc[-1] << 8)
 
 /* Push X onto the execution stack.  The expression X should not
    contain TOP, to avoid competing side effects.  */
@@ -332,7 +322,7 @@ If the third argument is incorrect, Emacs may crash.  */)
 static void
 bcall0 (Lisp_Object f)
 {
-  Ffuncall (1, &f);
+  calln (f);
 }
 
 /* The bytecode stack size in bytes.
@@ -459,6 +449,28 @@ valid_sp (struct bc_thread_state *bc, Lisp_Object *sp)
   return sp < (Lisp_Object *)fp && sp + 1 >= fp->saved_fp->next_stack;
 }
 
+/* GCC seems to have difficulty putting important variables in
+   registers, so give it some heavy-handed assistance by specifying
+   which ones to use.  Use callee-saved registers to reduce spill/fill.  */
+#if __GNUC__ && !__clang__ && defined __x86_64__
+#define BC_REG_TOP asm ("rbx")
+#define BC_REG_PC asm ("r12")
+#elif __GNUC__ && !__clang__ && defined __aarch64__
+#define BC_REG_TOP asm ("x19")
+#define BC_REG_PC asm ("x20")
+#else
+#define BC_REG_TOP
+#define BC_REG_PC
+#endif
+
+/* It seems difficult to avoid spurious -Wclobbered diagnostics from GCC
+   in exec_byte_code, so turn the warning off around that function.
+   See <https://gcc.gnu.org/bugzilla/show_bug.cgi?id=21161>.  */
+#if __GNUC__ && !__clang__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclobbered"
+#endif
+
 /* Execute the byte-code in FUN.  ARGS_TEMPLATE is the function arity
    encoded as an integer (the one in FUN is ignored), and ARGS, of
    size NARGS, should be a vector of the actual arguments.  The
@@ -476,8 +488,8 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
   struct bc_thread_state *bc = &current_thread->bc;
 
   /* Values used for the first stack record when called from C.  */
-  Lisp_Object *top = NULL;
-  unsigned char const *pc = NULL;
+  register Lisp_Object *top BC_REG_TOP = NULL;
+  register unsigned char const *pc BC_REG_PC = NULL;
 
   Lisp_Object bytestr = AREF (fun, CLOSURE_CODE);
 
@@ -538,7 +550,8 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 
   while (true)
     {
-      int op;
+      ptrdiff_t op;
+      ptrdiff_t arg;
       enum handlertype type;
 
       if (BYTE_CODE_SAFE && !valid_sp (bc, top))
@@ -606,7 +619,7 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
       FIRST
 	{
 	CASE (Bvarref7):
-	  op = FETCH2;
+	  arg = FETCH2;
 	  goto varref;
 
 	CASE (Bvarref):
@@ -615,16 +628,16 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	CASE (Bvarref3):
 	CASE (Bvarref4):
 	CASE (Bvarref5):
-	  op -= Bvarref;
+	  arg = op - Bvarref;
 	  goto varref;
 
 	/* This seems to be the most frequently executed byte-code
 	   among the Bvarref's, so avoid a goto here.  */
 	CASE (Bvarref6):
-	  op = FETCH;
+	  arg = FETCH;
 	varref:
 	  {
-	    Lisp_Object v1 = vectorp[op], v2;
+	    Lisp_Object v1 = vectorp[arg], v2;
 	    if (XBARE_SYMBOL (v1)->u.s.redirect != SYMBOL_PLAINVAL
 		|| (v2 = XBARE_SYMBOL (v1)->u.s.val.value,
 		    BASE_EQ (v2, Qunbound)))
@@ -636,7 +649,7 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	CASE (Bgotoifnil):
 	  {
 	    Lisp_Object v1 = POP;
-	    op = FETCH2;
+	    arg = FETCH2;
 	    if (NILP (v1))
 	      goto op_branch;
 	    NEXT;
@@ -684,23 +697,20 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	CASE (Bvarset3):
 	CASE (Bvarset4):
 	CASE (Bvarset5):
-	  op -= Bvarset;
+	  arg = op - Bvarset;
 	  goto varset;
 
 	CASE (Bvarset7):
-	  op = FETCH2;
+	  arg = FETCH2;
 	  goto varset;
 
 	CASE (Bvarset6):
-	  op = FETCH;
+	  arg = FETCH;
 	varset:
 	  {
-	    Lisp_Object sym = vectorp[op];
+	    Lisp_Object sym = vectorp[arg];
 	    Lisp_Object val = POP;
-
-	    /* Inline the most common case.  */
-	    if (!BASE_EQ (val, Qunbound)
-		&& XBARE_SYMBOL (sym)->u.s.redirect == SYMBOL_PLAINVAL
+	    if (XBARE_SYMBOL (sym)->u.s.redirect == SYMBOL_PLAINVAL
 		&& !XBARE_SYMBOL (sym)->u.s.trapped_write)
 	      SET_SYMBOL_VAL (XBARE_SYMBOL (sym), val);
 	    else
@@ -718,11 +728,11 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	/* ------------------ */
 
 	CASE (Bvarbind6):
-	  op = FETCH;
+	  arg = FETCH;
 	  goto varbind;
 
 	CASE (Bvarbind7):
-	  op = FETCH2;
+	  arg = FETCH2;
 	  goto varbind;
 
 	CASE (Bvarbind):
@@ -731,18 +741,18 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	CASE (Bvarbind3):
 	CASE (Bvarbind4):
 	CASE (Bvarbind5):
-	  op -= Bvarbind;
+	  arg = op - Bvarbind;
 	varbind:
 	  /* Specbind can signal and thus GC.  */
-	  specbind (vectorp[op], POP);
+	  specbind (vectorp[arg], POP);
 	  NEXT;
 
 	CASE (Bcall6):
-	  op = FETCH;
+	  arg = FETCH;
 	  goto docall;
 
 	CASE (Bcall7):
-	  op = FETCH2;
+	  arg = FETCH2;
 	  goto docall;
 
 	CASE (Bcall):
@@ -751,10 +761,10 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	CASE (Bcall3):
 	CASE (Bcall4):
 	CASE (Bcall5):
-	  op -= Bcall;
+	  arg = op - Bcall;
 	docall:
 	  {
-	    DISCARD (op);
+	    DISCARD (arg);
 #ifdef BYTE_CODE_METER
 	    if (byte_metering_on && SYMBOLP (TOP))
 	      {
@@ -778,7 +788,7 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 		  error ("Lisp nesting exceeds `max-lisp-eval-depth'");
 	      }
 
-	    ptrdiff_t call_nargs = op;
+	    ptrdiff_t call_nargs = arg;
 	    Lisp_Object call_fun = TOP;
 	    Lisp_Object *call_args = &TOP + 1;
 
@@ -823,11 +833,11 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	  }
 
 	CASE (Bunbind6):
-	  op = FETCH;
+	  arg = FETCH;
 	  goto dounbind;
 
 	CASE (Bunbind7):
-	  op = FETCH2;
+	  arg = FETCH2;
 	  goto dounbind;
 
 	CASE (Bunbind):
@@ -836,44 +846,44 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	CASE (Bunbind3):
 	CASE (Bunbind4):
 	CASE (Bunbind5):
-	  op -= Bunbind;
+	  arg = op - Bunbind;
 	dounbind:
-	  unbind_to (specpdl_ref_add (SPECPDL_INDEX (), -op), Qnil);
+	  unbind_to (specpdl_ref_add (SPECPDL_INDEX (), -arg), Qnil);
 	  NEXT;
 
 	CASE (Bgoto):
-	  op = FETCH2;
+	  arg = FETCH2;
 	op_branch:
-	  op -= pc - bytestr_data;
-	  if (BYTE_CODE_SAFE
-	      && ! (bytestr_data - pc <= op
-		    && op < bytestr_data + bytestr_length - pc))
-	    emacs_abort ();
-	  quitcounter += op < 0;
-	  if (!quitcounter)
-	    {
-	      quitcounter = 1;
-	      maybe_gc ();
-	      maybe_quit ();
-	    }
-	  pc += op;
-	  NEXT;
+	  {
+	    if (BYTE_CODE_SAFE && !(arg >= 0 && arg < bytestr_length))
+	      emacs_abort ();
+	    const unsigned char *new_pc = bytestr_data + arg;
+	    quitcounter += new_pc < pc;
+	    if (!quitcounter)
+	      {
+		quitcounter = 1;
+		maybe_gc ();
+		maybe_quit ();
+	      }
+	    pc = new_pc;
+	    NEXT;
+	  }
 
 	CASE (Bgotoifnonnil):
-	  op = FETCH2;
+	  arg = FETCH2;
 	  if (!NILP (POP))
 	    goto op_branch;
 	  NEXT;
 
 	CASE (Bgotoifnilelsepop):
-	  op = FETCH2;
+	  arg = FETCH2;
 	  if (NILP (TOP))
 	    goto op_branch;
 	  DISCARD (1);
 	  NEXT;
 
 	CASE (Bgotoifnonnilelsepop):
-	  op = FETCH2;
+	  arg = FETCH2;
 	  if (!NILP (TOP))
 	    goto op_branch;
 	  DISCARD (1);
@@ -967,10 +977,14 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 
 	    if (sys_setjmp (c->jmp))
 	      {
+		/* No need to restore old quitcounter; just check at the next
+		   backward branch.  */
+		quitcounter = (unsigned char)-1;
 		struct handler *c = handlerlist;
 		handlerlist = c->next;
 		top = c->bytecode_top;
-		op = c->bytecode_dest;
+		arg = c->bytecode_dest;
+		bc = &current_thread->bc;
 		struct bc_frame *fp = bc->fp;
 
 		Lisp_Object fun = fp->fun;
@@ -1099,10 +1113,12 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	  NEXT;
 
 	CASE (BlistN):
-	  op = FETCH;
-	  DISCARD (op - 1);
-	  TOP = Flist (op, &TOP);
-	  NEXT;
+	  {
+	    ptrdiff_t n = FETCH;
+	    DISCARD (n - 1);
+	    TOP = Flist (n, &TOP);
+	    NEXT;
+	  }
 
 	CASE (Blength):
 	  TOP = Flength (TOP);
@@ -1218,10 +1234,12 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	  NEXT;
 
 	CASE (BconcatN):
-	  op = FETCH;
-	  DISCARD (op - 1);
-	  TOP = Fconcat (op, &TOP);
-	  NEXT;
+	  {
+	    ptrdiff_t n = FETCH;
+	    DISCARD (n - 1);
+	    TOP = Fconcat (n, &TOP);
+	    NEXT;
+	  }
 
 	CASE (Bsub1):
 	  TOP = (FIXNUMP (TOP) && XFIXNUM (TOP) != MOST_NEGATIVE_FIXNUM
@@ -1242,7 +1260,7 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	    if (FIXNUMP (v1) && FIXNUMP (v2))
 	      TOP = BASE_EQ (v1, v2) ? Qt : Qnil;
 	    else
-	      TOP = arithcompare (v1, v2, ARITH_EQUAL);
+	      TOP = arithcompare (v1, v2) & Cmp_EQ ? Qt : Qnil;
 	    NEXT;
 	  }
 
@@ -1253,7 +1271,7 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	    if (FIXNUMP (v1) && FIXNUMP (v2))
 	      TOP = XFIXNUM (v1) > XFIXNUM (v2) ? Qt : Qnil;
 	    else
-	      TOP = arithcompare (v1, v2, ARITH_GRTR);
+	      TOP = arithcompare (v1, v2) & Cmp_GT ? Qt : Qnil;
 	    NEXT;
 	  }
 
@@ -1264,7 +1282,7 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	    if (FIXNUMP (v1) && FIXNUMP (v2))
 	      TOP = XFIXNUM (v1) < XFIXNUM (v2) ? Qt : Qnil;
 	    else
-	      TOP = arithcompare (v1, v2, ARITH_LESS);
+	      TOP = arithcompare (v1, v2) & Cmp_LT ? Qt : Qnil;
 	    NEXT;
 	  }
 
@@ -1275,7 +1293,7 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	    if (FIXNUMP (v1) && FIXNUMP (v2))
 	      TOP = XFIXNUM (v1) <= XFIXNUM (v2) ? Qt : Qnil;
 	    else
-	      TOP = arithcompare (v1, v2, ARITH_LESS_OR_EQUAL);
+	      TOP = arithcompare (v1, v2) & (Cmp_LT | Cmp_EQ) ? Qt : Qnil;
 	    NEXT;
 	  }
 
@@ -1286,7 +1304,7 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	    if (FIXNUMP (v1) && FIXNUMP (v2))
 	      TOP = XFIXNUM (v1) >= XFIXNUM (v2) ? Qt : Qnil;
 	    else
-	      TOP = arithcompare (v1, v2, ARITH_GRTR_OR_EQUAL);
+	      TOP = arithcompare (v1, v2) & (Cmp_GT | Cmp_EQ) ? Qt : Qnil;
 	    NEXT;
 	  }
 
@@ -1404,10 +1422,12 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	  NEXT;
 
 	CASE (BinsertN):
-	  op = FETCH;
-	  DISCARD (op - 1);
-	  TOP = Finsert (op, &TOP);
-	  NEXT;
+	  {
+	    ptrdiff_t n = FETCH;
+	    DISCARD (n - 1);
+	    TOP = Finsert (n, &TOP);
+	    NEXT;
+	  }
 
 	CASE (Bpoint_max):
 	  PUSH (make_fixed_natnum (ZV));
@@ -1625,7 +1645,6 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 		record_in_backtrace (Qsetcar, &TOP, 2);
 		wrong_type_argument (Qconsp, cell);
 	      }
-	    CHECK_IMPURE (cell, XCONS (cell));
 	    XSETCAR (cell, newval);
 	    TOP = newval;
 	    NEXT;
@@ -1640,7 +1659,6 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 		record_in_backtrace (Qsetcdr, &TOP, 2);
 		wrong_type_argument (Qconsp, cell);
 	      }
-	    CHECK_IMPURE (cell, XCONS (cell));
 	    XSETCDR (cell, newval);
 	    TOP = newval;
 	    NEXT;
@@ -1672,7 +1690,7 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	     for that instead.  */
 	  /* CASE (Bstack_ref): */
 	  error ("Invalid byte opcode: op=%d, ptr=%"pD"d",
-		 op, pc - 1 - bytestr_data);
+		 pc[-1], pc - 1 - bytestr_data);
 
 	  /* Handy byte-codes for lexical binding.  */
 	CASE (Bstack_ref1):
@@ -1711,14 +1729,16 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	    NEXT;
 	  }
 	CASE (BdiscardN):
-	  op = FETCH;
-	  if (op & 0x80)
-	    {
-	      op &= 0x7F;
-	      top[-op] = TOP;
-	    }
-	  DISCARD (op);
-	  NEXT;
+	  {
+	    ptrdiff_t n = FETCH;
+	    if (n & 0x80)
+	      {
+		n &= 0x7F;
+		top[-n] = TOP;
+	      }
+	    DISCARD (n);
+	    NEXT;
+	  }
 
         CASE (Bswitch):
           {
@@ -1746,16 +1766,16 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 		for (ptrdiff_t i = h->count - 1; i >= 0; i--)
 		  if (BASE_EQ (v1, HASH_KEY (h, i)))
 		    {
-		      op = XFIXNUM (HASH_VALUE (h, i));
+		      arg = XFIXNUM (HASH_VALUE (h, i));
 		      goto op_branch;
 		    }
               }
             else
 	      {
-		ptrdiff_t i = hash_lookup (h, v1);
+		ptrdiff_t i = hash_find (h, v1);
 		if (i >= 0)
 		  {
-		    op = XFIXNUM (HASH_VALUE (h, i));
+		    arg = XFIXNUM (HASH_VALUE (h, i));
 		    goto op_branch;
 		  }
 	      }
@@ -1779,6 +1799,11 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
   Lisp_Object result = TOP;
   return result;
 }
+
+#if __GNUC__ && !__clang__
+#pragma GCC diagnostic pop
+#endif
+
 
 /* `args_template' has the same meaning as in exec_byte_code() above.  */
 Lisp_Object

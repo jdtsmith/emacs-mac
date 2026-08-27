@@ -1,6 +1,6 @@
 ;;; eudc-hotlist.el --- hotlist management for EUDC  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
 ;; Author: Oscar Figueiredo <oscar@cpe.fr>
 ;;         Pavel Janík <Pavel@Janik.cz>
@@ -128,7 +128,7 @@ These are the special commands of this mode:\\<eudc-hotlist-mode-map>
     (setq eudc-server-hotlist (nreverse hotlist))
     (eudc-install-menu)
     (eudc-save-options)
-    (kill-this-buffer)))
+    (kill-current-buffer)))
 
 (defun eudc-hotlist-select-server ()
   "Select the server at point as the current server."

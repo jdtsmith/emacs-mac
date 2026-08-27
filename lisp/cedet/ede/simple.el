@@ -1,6 +1,6 @@
 ;;; ede/simple.el --- Overlay an EDE structure on an existing project  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -86,7 +86,7 @@ ROOTPROJ is nil, since we will only create a single EDE project here."
 	(obj nil))
     (when pf
       (setq obj (eieio-persistent-read pf))
-      (oset obj :directory dir)
+      (oset obj directory dir)
       )
     obj))
 

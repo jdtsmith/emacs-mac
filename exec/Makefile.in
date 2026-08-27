@@ -1,6 +1,6 @@
 ### @configure_input@
 
-# Copyright (C) 2023-2025 Free Software Foundation, Inc.
+# Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 # This file is part of GNU Emacs.
 
@@ -44,6 +44,9 @@ FIND_DELETE = @FIND_DELETE@
        OBJS = @OBJS@
    LOADOBJS = $(patsubst %.s,%.o,$(LOADER))
 
+# Compilation parameters.
+    is_mips = @is_mips@
+
 # Set up automatic dependency tracking.
 
 AUTO_DEPEND = @AUTO_DEPEND@
@@ -82,6 +85,8 @@ Makefile: config.status Makefile.in
 .SUFFIXES: .c .s
 .c.o:
 	$(CC) -c $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -I. -I$(srcdir) $< -o $@
+
+ifeq ($(is_mips),yes)
 .s.o:
 	$(M4) $< > $(notdir $<).s
 	$(AS) $(ASFLAGS) $(notdir $<).s -o $@
@@ -89,8 +94,12 @@ Makefile: config.status Makefile.in
 # Set up dependencies for config-mips.m4.
 
 config-mips.m4: config-mips.m4.in
-	cd $(srcdir) && ./config.status $@
+	cd $(builddir) && ./config.status $@
 $(LOADOBJS): config-mips.m4
+else
+.s.o:
+	$(AS) $(ASFLAGS) $< -o $@
+endif
 
 # Set up rules to build libexec.a.
 

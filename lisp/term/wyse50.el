@@ -1,6 +1,6 @@
 ;;; wyse50.el --- terminal support code for Wyse 50  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1989, 1993-1994, 2001-2025 Free Software Foundation,
+;; Copyright (C) 1989, 1993-1994, 2001-2026 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Daniel Pfeiffer <occitan@esperanto.org>,
@@ -145,14 +145,14 @@ M-r	M-x move-to-window-line, Funct up-arrow or down-arrow are similar"
   ;;         ;; By unsetting C-a and then binding it to a prefix, we
   ;;         ;; allow the rest of the function keys which start with C-a
   ;;         ;; to be recognized.
-  ;;         '(("\C-a"	nil)
-  ;;           ("\C-k"	nil)
-  ;;           ("\C-j"	nil)
-  ;;           ("\C-l"	nil)
-  ;;           ("\C-h"	nil)
-  ;;           ("\er"	nil)))
-  ;;   (global-set-key (car key-definition)
-  ;;                   (nth 1 key-definition)))
+  ;;         '(("C-a"	nil)
+  ;;           ("C-k"	nil)
+  ;;           ("C-j"	nil)
+  ;;           ("C-l"	nil)
+  ;;           ("C-h"	nil)
+  ;;           ("M-r"	nil)))
+  ;;   (keymap-global-set (car key-definition)
+  ;;                      (nth 1 key-definition)))
   (fset 'enable-arrow-keys nil))
 
 (provide 'term/wyse50)

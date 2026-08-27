@@ -1,6 +1,6 @@
 # Files that Git should ignore in the Emacs source directory.
 
-# Copyright 2009-2025 Free Software Foundation, Inc.
+# Copyright 2009-2026 Free Software Foundation, Inc.
 
 # This file is part of GNU Emacs.
 
@@ -18,14 +18,15 @@
 # along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 
-# Currently we assume only Git 1.7.1 (April 2010) or later, so this
-# file does not rely on "**" in patterns.  The "**" feature was added
-# in Git 1.8.2 (March 2013).
-
-
-# Personal customization.
-.dir-locals-2.el
-.no-advice-on-failure
+# Ignore all dot-files except for those under version control.
+.*
+!.clang-format
+!.clangd
+!.dir-locals.el
+!.gitattributes
+!.gitignore
+!.gitlab-ci.yml
+!.mailmap
 
 # Built by 'autogen.sh'.
 /aclocal.m4
@@ -119,8 +120,8 @@ cross/ndk-build/ndk-build.mk
 cross/ndk-build/*.o
 
 # Lisp-level sources built by 'make'.
-*cus-load.el
-*loaddefs.el
+lisp/**/*cus-load.el
+lisp/**/*loaddefs.el
 lisp/cedet/semantic/bovine/c-by.el
 lisp/cedet/semantic/bovine/make-by.el
 lisp/cedet/semantic/bovine/scm-by.el
@@ -202,8 +203,13 @@ test/manual/indent/*.new
 test/lisp/gnus/mml-sec-resources/random_seed
 test/lisp/play/fortune-resources/fortunes.dat
 test/**/*.xml
+test/infra/android/**/*.class
+test/infra/android/**/*.dex
+test/infra/android/**/*.zip
+test/infra/android/**/*.jar
+test/infra/android/bin/build.sh
 
-# ctags, etags.
+# etags.
 TAGS
 !admin/notes/tags
 
@@ -228,7 +234,6 @@ a.out
 lib-src/asset-directory-tool
 lib-src/be-resources
 lib-src/blessmail
-lib-src/ctags
 lib-src/ebrowse
 lib-src/emacsclient
 lib-src/etags
@@ -321,10 +326,8 @@ gnustmp*
 *.orig
 *.swp
 *~
-.#*
 \#*\#
 ChangeLog
-[0-9]*.patch
 [0-9]*.txt
 /vc-dwim-log-*
 
@@ -370,16 +373,7 @@ lib-src/seccomp-filter-exec.pfc
 # Ignore directory made by admin/make-manuals.
 /manual/
 
-# Ignore Finder files on MacOS.
-.DS_Store
-
-# Ignore a directory used by dap-mode.
-.vscode
 /test/gmp.h
-
-# GDB history
-.gdb_history
-_gdb_history
 
 # Files ignored in exec/.
 exec/aclocal.m4

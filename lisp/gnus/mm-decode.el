@@ -1,6 +1,6 @@
 ;;; mm-decode.el --- Functions for decoding MIME things  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;;	MORIOKA Tomohiko <morioka@jaist.ac.jp>
@@ -66,7 +66,7 @@
       (background light))
      (:foreground "red3"))
     (t
-     (:italic t)))
+     (:slant italic)))
   "Face used for displaying output from commands."
   :group 'mime-display)
 
@@ -232,6 +232,10 @@ before the external MIME handler is invoked."
      mm-inline-image
      ,(lambda (handle)
        (mm-valid-and-fit-image-p 'pbm handle)))
+    ("image/svg\\+xml"
+     mm-inline-image
+     ,(lambda (handle)
+        (mm-valid-and-fit-image-p 'svg handle)))
     ("text/plain" mm-inline-text identity)
     ("text/enriched" mm-inline-text identity)
     ("text/richtext" mm-inline-text identity)
@@ -442,8 +446,9 @@ If not set, `default-directory' will be used."
   :type '(choice directory (const :tag "Default" nil))
   :group 'mime-display)
 
-(defcustom mm-attachment-file-modes 384
-  "Set the mode bits of saved attachments to this integer."
+(defcustom mm-attachment-file-modes #o600
+  "Set the mode bits of saved attachments to this integer.
+This is decimal, not octal.  The default is 384 (0600 in octal)."
   :version "22.1"
   :type 'integer
   :group 'mime-display)
@@ -535,13 +540,11 @@ result of the verification."
 		 (item :tag "ask" nil))
   :group 'mime-security)
 
-(defvar mm-viewer-completion-map
-  (let ((map (make-sparse-keymap 'mm-viewer-completion-map)))
-    (set-keymap-parent map minibuffer-local-completion-map)
-    ;; Should we bind other key to minibuffer-complete-word?
-    (define-key map " " 'self-insert-command)
-    map)
-  "Keymap for input viewer with completion.")
+(defvar-keymap mm-viewer-completion-map
+  :doc "Keymap for input viewer with completion."
+  :parent minibuffer-local-completion-map
+  ;; Should we bind other key to minibuffer-complete-word?
+  "SPC" #'self-insert-command)
 
 ;;; The functions.
 
@@ -789,19 +792,24 @@ MIME-Version header before proceeding."
     (mm-possibly-verify-or-decrypt (nreverse parts) ctl from)))
 
 (defun mm-copy-to-buffer ()
-  "Copy the contents of the current buffer to a fresh buffer."
+  "Copy the contents of the current buffer to a fresh unibyte buffer."
   (let ((obuf (current-buffer))
         (mb enable-multibyte-characters)
+	(nbuf (generate-new-buffer " *mm*"))
         beg)
     (goto-char (point-min))
     (search-forward-regexp "^\n" nil 'move) ;; There might be no body.
     (setq beg (point))
-    (with-current-buffer
-          (generate-new-buffer " *mm*")
-      ;; Preserve the data's unibyteness (for url-insert-file-contents).
-      (set-buffer-multibyte mb)
-      (insert-buffer-substring obuf beg)
-      (current-buffer))))
+    (with-current-buffer nbuf
+      (set-buffer-multibyte nil))
+    (if (null mb)
+	(with-current-buffer nbuf
+	  (insert-buffer-substring obuf beg)
+	  (current-buffer))
+      (encode-coding-region beg (point-max) 'utf-8-emacs-unix nbuf)
+      (with-current-buffer nbuf
+        (goto-char (point-max))
+        (current-buffer)))))
 
 (defun mm-display-parts (handle)
   (cond

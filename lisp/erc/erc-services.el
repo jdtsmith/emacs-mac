@@ -1,6 +1,6 @@
 ;;; erc-services.el --- Identify to NickServ  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2002-2004, 2006-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2004, 2006-2026 Free Software Foundation, Inc.
 
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
 ;; URL: https://www.emacswiki.org/emacs/ErcNickserv
@@ -50,7 +50,7 @@
 ;; Using the Libera.Chat network as an example:
 ;;
 ;; (setq erc-nickserv-passwords
-;;       '((Libera.Chat (("nickname" "password")))))
+;;       '((Libera.Chat (("nickname" . "password")))))
 ;;
 ;; The default automatic identification mode is autodetection of NickServ
 ;; identify requests.  Set the variable `erc-nickserv-identify-mode' if
@@ -190,8 +190,6 @@ prompting.  See Info node `(erc) auth-source' for details."
 
 (defcustom erc-nickserv-passwords nil
   "Passwords used when identifying to NickServ automatically.
-`erc-prompt-for-nickserv-password' must be nil for these
-passwords to be used.
 
 Example of use:
   (setq erc-nickserv-passwords
@@ -405,9 +403,8 @@ If this is the case, run `erc-nickserv-identified-hook'."
 
 (defun erc-nickserv-identify-autodetect (_proc parsed)
   "Identify to NickServ when an identify request is received.
-Make sure it is the real NickServ for this network.
-If `erc-prompt-for-nickserv-password' is non-nil, prompt the user for the
-password for this nickname, otherwise try to send it automatically."
+If both the sender and the body of the PARSED message match an entry in
+`erc-nickserv-alist', ask `erc-nickserv-identify' to authenticate."
   (unless (and (null erc-nickserv-passwords)
                (null erc-prompt-for-nickserv-password)
                (null erc-use-auth-source-for-nickserv-password))
@@ -495,15 +492,11 @@ Returns t if the message could be sent, nil otherwise."
 ;;;###autoload
 (defun erc-nickserv-identify (&optional password nick)
   "Identify to NickServ immediately.
-Identification will either use NICK or the current nick if not
-provided, and some password obtained through
-`erc-nickserv-get-password' (which see).  If no password can be
-found, an error is reported through `erc-error'.
-
-Interactively, the user will be prompted for NICK, an empty
-string meaning to default to the current nick.
-
-Returns t if the identify message could be sent, nil otherwise."
+For authenticating, use NICK or `erc-current-nick' and PASSWORD or one
+obtained via `erc-nickserv-get-password'.  If a password can't be found,
+tell `erc-error'.  Return t if a message was sent, nil otherwise.
+Interactively, prompt for NICK, interpreting an empty string as the
+current nick."
   (interactive
    (list
     nil
@@ -514,7 +507,7 @@ Returns t if the identify message could be sent, nil otherwise."
   (unless password
     (setq password (erc-nickserv-get-password nick)))
   (if password
-      (erc-nickserv-send-identify nick password)
+      (progn (erc-nickserv-send-identify nick password) t)
     (erc-error "Cannot find a password for nickname %s"
                nick)
     nil))
@@ -548,6 +541,9 @@ for details and use cases."
                         (function-item erc-services-issue-ghost-and-retry-nick)
                         function)))
 
+(defvar erc-services-regain-timeout-seconds 5
+  "Seconds after which to run callbacks if necessary.")
+
 (defun erc-services-retry-nick-on-connect (want)
   "Try at most once to grab nickname WANT after reconnecting.
 Expect to be used when automatically reconnecting to servers
@@ -578,13 +574,13 @@ as needed."
   (letrec ((attempts 3)
            (on-notice
             (lambda (_proc parsed)
-              (when-let ((nick (erc-extract-nick
-                                (erc-response.sender parsed)))
-                         ((erc-nick-equal-p nick "nickserv"))
-                         (contents (erc-response.contents parsed))
-                         (case-fold-search t)
-                         ((string-match (rx (or "ghost" "is not online"))
-                                        contents)))
+              (when-let* ((nick (erc-extract-nick
+                                 (erc-response.sender parsed)))
+                          ((erc-nick-equal-p nick "nickserv"))
+                          (contents (erc-response.contents parsed))
+                          (case-fold-search t)
+                          ((string-match (rx (or "ghost" "is not online"))
+                                         contents)))
                 (setq attempts 1)
                 (erc-server-send (concat "NICK " want) 'force))
               (when (zerop (cl-decf attempts))
@@ -608,10 +604,12 @@ consider its main option, `erc-services-regain-alist':
 
 In practical terms, this means that this module, which is still
 somewhat experimental, is likely only useful in conjunction with
-SASL authentication rather than the traditional approach provided
-by the `services' module it shares a library with (see Info
-node `(erc) SASL' for more)."
-  nil nil 'local)
+SASL authentication or CertFP rather than the traditional approach
+provided by the `services' module it shares a library with (see Info
+node `(erc) SASL' for more).
+
+This local module's minor mode is only active in server buffers."
+  ((when erc--target (erc-services-regain-mode -1))) nil localp)
 
 (cl-defmethod erc--nickname-in-use-make-request
   ((want string) temp &context (erc-server-connected null)
@@ -632,11 +630,21 @@ one."
             (funcall found want))))
        (on-900
         (lambda (_ parsed)
+          (cancel-timer timer)
           (remove-hook 'erc-server-900-functions on-900 t)
-          (unless erc-server-connected
-            (when (equal (car (erc-response.command-args parsed)) temp)
-              (add-hook 'erc-after-connect after-connect nil t)))
-          nil)))
+          (unless (equal want (erc-current-nick))
+            (if erc-server-connected
+                (funcall after-connect nil temp)
+              (when (or (eq parsed 'forcep)
+                        (equal (car (erc-response.command-args parsed)) temp))
+                (add-hook 'erc-after-connect after-connect nil t))))
+          nil))
+       (timer (run-at-time erc-services-regain-timeout-seconds
+                           nil (lambda (buffer)
+                                 (when (buffer-live-p buffer)
+                                   (with-current-buffer buffer
+                                     (funcall on-900 nil 'forcep))))
+                           (current-buffer))))
     (add-hook 'erc-server-900-functions on-900 nil t))
   (cl-call-next-method))
 

@@ -1,6 +1,6 @@
 ;;; smtpmail.el --- simple SMTP protocol (RFC 821) for sending mail  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1995-1996, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1995-1996, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Tomoji Kagatani <kagatani@rbc.ncl.omron.co.jp>
 ;; Maintainer: emacs-devel@gnu.org
@@ -99,12 +99,15 @@ don't define this value."
   "Type of SMTP connections to use.
 This may be either nil (upgrade with STARTTLS if possible),
 `starttls' (refuse to send if STARTTLS isn't available),
-`plain' (never use STARTTLS), or `ssl' (to use TLS/SSL)."
+`plain' (never use STARTTLS), or `tls' (to use TLS/SSL).
+`ssl' is accepted as a backwards-compatible equivalent
+to `tls'"
   :version "24.1"
   :type '(choice (const :tag "Possibly upgrade to STARTTLS" nil)
 		 (const :tag "Always use STARTTLS" starttls)
 		 (const :tag "Never use STARTTLS" plain)
-		 (const :tag "Use TLS/SSL" ssl)))
+		 (const :tag "Use TLS/SSL" tls)
+		 (const :tag "Use TLS/SSL (old name)" ssl)))
 
 (defcustom smtpmail-sendto-domain nil
   "Local domain name without a host name.
@@ -182,7 +185,6 @@ These will then be used when sending the queue."
 
 ;;; Variables
 
-(defvar smtpmail-address-buffer)
 (defvar smtpmail-recipient-address-list nil)
 (defvar smtpmail--stored-queue-variables
   '(smtpmail-smtp-server
@@ -357,11 +359,9 @@ for `smtpmail-try-auth-method'.")
 		  (erase-buffer))))
 	  ;; Encode the header according to RFC2047.
 	  (mail-encode-header (point-min) delimline)
-	  ;;
-	  (setq smtpmail-address-buffer (generate-new-buffer "*smtp-mail*"))
+	  ;; Get recipients' addresses
 	  (setq smtpmail-recipient-address-list
                 (smtpmail-deduce-address-list tembuf (point-min) delimline))
-	  (kill-buffer smtpmail-address-buffer)
 
 	  (smtpmail-do-bcc delimline)
           ;; Send or queue
@@ -602,6 +602,8 @@ USER and PASSWORD should be non-nil."
     (when (eq (car ret) 334)
       (let* ((challenge (substring (cadr ret) 4))
 	     (decoded (base64-decode-string challenge))
+	     (password (encode-coding-string password 'utf-8))
+	     (user (encode-coding-string user 'utf-8))
 	     (hash (rfc2104-hash 'md5 64 16 password decoded))
 	     (response (concat user " " hash))
 	     ;; Osamu Yamane <yamane@green.ocn.ne.jp>:
@@ -621,8 +623,10 @@ USER and PASSWORD should be non-nil."
 (cl-defmethod smtpmail-try-auth-method
   (process (_mech (eql 'login)) user password)
   (smtpmail-command-or-throw process "AUTH LOGIN")
-  (smtpmail-command-or-throw process (base64-encode-string user t))
-  (smtpmail-command-or-throw process (base64-encode-string password t)))
+  (let ((password (encode-coding-string password 'utf-8))
+        (user (encode-coding-string user 'utf-8)))
+    (smtpmail-command-or-throw process (base64-encode-string user t))
+    (smtpmail-command-or-throw process (base64-encode-string password t))))
 
 (cl-defmethod smtpmail-try-auth-method
   (process (_mech (eql 'plain)) user password)
@@ -631,11 +635,13 @@ USER and PASSWORD should be non-nil."
   ;; violate a SHOULD in RFC 2222 paragraph 5.1.  Note that this
   ;; is not sent if the server did not advertise AUTH PLAIN in
   ;; the EHLO response.  See RFC 2554 for more info.
-  (smtpmail-command-or-throw
-   process
-   (concat "AUTH PLAIN "
-	   (base64-encode-string (concat "\0" user "\0" password) t))
-   235))
+  (let ((password (encode-coding-string password 'utf-8))
+        (user (encode-coding-string user 'utf-8)))
+    (smtpmail-command-or-throw
+     process
+     (concat "AUTH PLAIN "
+             (base64-encode-string (concat "\0" user "\0" password) t))
+     235)))
 
 (cl-defmethod smtpmail-try-auth-method
   (process (_mech (eql 'xoauth2)) user password)
@@ -810,11 +816,7 @@ Returns an error if the server cannot be contacted."
 		  (smtpmail-command-or-throw
 		   process (format "HELO %s" (smtpmail-fqdn)))
 		;; EHLO was successful, so we parse the extensions.
-		(dolist (line (delete
-			       ""
-			       (split-string
-				(plist-get (cdr result) :capabilities)
-				"\r\n")))
+		(dolist (line (delete "" (split-string capabilities "\r\n")))
 		  (let ((name
                          ;; Use ASCII case-table to prevent I
                          ;; downcasing to a dotless i under some
@@ -1078,8 +1080,7 @@ Returns an error if the server cannot be contacted."
 
 (defun smtpmail-deduce-address-list (smtpmail-text-buffer header-start header-end)
   "Get address list suitable for smtp RCPT TO: <address>."
-  (with-current-buffer smtpmail-address-buffer
-    (erase-buffer)
+  (with-temp-buffer
     (let ((case-fold-search t)
           (simple-address-list "")
           this-line
@@ -1122,7 +1123,7 @@ Returns an error if the server cannot be contacted."
 	  (backward-char 1)
 	  (setq recipient-address-list (cons (buffer-substring (match-beginning 1) (match-end 1))
 					     recipient-address-list)))
-	(setq smtpmail-recipient-address-list recipient-address-list)))))
+        recipient-address-list))))
 
 (defun smtpmail-do-bcc (header-end)
   "Delete [Resent-]Bcc: and their continuation lines from the header area.

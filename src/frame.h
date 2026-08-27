@@ -1,5 +1,5 @@
 /* Define frame-object for GNU Emacs.
-   Copyright (C) 1993-1994, 1999-2025 Free Software Foundation, Inc.
+   Copyright (C) 1993-1994, 1999-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -31,6 +31,19 @@ enum vertical_scroll_bar_type
   vertical_scroll_bar_right
 };
 
+enum internal_border_part
+  {
+   INTERNAL_BORDER_NONE,
+   INTERNAL_BORDER_LEFT_EDGE,
+   INTERNAL_BORDER_TOP_LEFT_CORNER,
+   INTERNAL_BORDER_TOP_EDGE,
+   INTERNAL_BORDER_TOP_RIGHT_CORNER,
+   INTERNAL_BORDER_RIGHT_EDGE,
+   INTERNAL_BORDER_BOTTOM_RIGHT_CORNER,
+   INTERNAL_BORDER_BOTTOM_EDGE,
+   INTERNAL_BORDER_BOTTOM_LEFT_CORNER,
+  };
+
 #ifdef HAVE_WINDOW_SYSTEM
 
 enum fullscreen_type
@@ -55,19 +68,6 @@ enum z_group
   z_group_below,
   z_group_above_suspended,
 };
-
-enum internal_border_part
-  {
-   INTERNAL_BORDER_NONE,
-   INTERNAL_BORDER_LEFT_EDGE,
-   INTERNAL_BORDER_TOP_LEFT_CORNER,
-   INTERNAL_BORDER_TOP_EDGE,
-   INTERNAL_BORDER_TOP_RIGHT_CORNER,
-   INTERNAL_BORDER_RIGHT_EDGE,
-   INTERNAL_BORDER_BOTTOM_RIGHT_CORNER,
-   INTERNAL_BORDER_BOTTOM_EDGE,
-   INTERNAL_BORDER_BOTTOM_LEFT_CORNER,
-  };
 
 #ifdef NS_IMPL_COCOA
 enum ns_appearance_type
@@ -164,10 +164,8 @@ struct frame
      Usually it is nil.  */
   Lisp_Object title;
 
-#if defined (HAVE_WINDOW_SYSTEM)
   /* This frame's parent frame, if it has one.  */
   Lisp_Object parent_frame;
-#endif /* HAVE_WINDOW_SYSTEM */
 
   /* Last device to move over this frame.  Any value that isn't a
      string means the "Virtual core pointer".  */
@@ -302,6 +300,9 @@ struct frame
   struct image_cache *image_cache;
 #endif /* HAVE_WINDOW_SYSTEM */
 
+  /* Unique frame id.  */
+  EMACS_UINT id;
+
   /* Tab-bar item index of the item on which a mouse button was pressed.  */
   int last_tab_bar_item;
 
@@ -393,15 +394,15 @@ struct frame
      zero if the frame has been made invisible without an icon.  */
 
   /* Nonzero if the frame is currently displayed; we check
-     it to see if we should bother updating the frame's contents.
+     it to see if we should bother updating the frame's contents. */
+  unsigned visible : 1;
 
-     On ttys and on Windows NT/9X, to avoid wasting effort updating
-     visible frames that are actually completely obscured by other
-     windows on the display, we bend the meaning of visible slightly:
-     if equal to 2, then the frame is obscured - we still consider
-     it to be "visible" as seen from lisp, but we don't bother
-     updating it.  */
-  unsigned visible : 2;
+#ifdef HAVE_MACGUI
+  /* True if the frame is visible but not drawable, e.g. because it is
+     entirely covered by another window.  Drawing on such a frame is
+     wasted effort, so redisplay skips it.  */
+  bool_bf obscured : 1;
+#endif
 
   /* True if the frame is currently iconified.  Do not
      set this directly, use SET_FRAME_ICONIFIED instead.  */
@@ -459,6 +460,13 @@ struct frame
      This must be the same as the terminal->type. */
   ENUM_BF (output_method) output_method : 4;
 
+  /* True if this is an undecorated frame.  */
+  bool_bf undecorated : 1;
+
+  /* Nonzero if this frame's window does not want to receive input focus
+     via mouse clicks or by moving the mouse into it.  */
+  bool_bf no_accept_focus : 1;
+
 #ifdef HAVE_WINDOW_SYSTEM
   /* True if this frame is a tooltip frame.  */
   bool_bf tooltip : 1;
@@ -473,10 +481,7 @@ struct frame
   /* Nonzero if we should actually display horizontal scroll bars on this frame.  */
   bool_bf horizontal_scroll_bars : 1;
 
-  /* True if this is an undecorated frame.  */
-  bool_bf undecorated : 1;
-
-#ifndef HAVE_NTGUI
+# ifndef HAVE_NTGUI
   /* True if this is an override_redirect frame.  */
   bool_bf override_redirect : 1;
 #endif
@@ -488,17 +493,13 @@ struct frame
      receive input focus when it is mapped.  */
   bool_bf no_focus_on_map : 1;
 
-  /* Nonzero if this frame's window does not want to receive input focus
-     via mouse clicks or by moving the mouse into it.  */
-  bool_bf no_accept_focus : 1;
-
   /* The z-group this frame's window belongs to. */
   ENUM_BF (z_group) z_group : 2;
+#endif /* HAVE_WINDOW_SYSTEM */
 
   /* Non-zero if display of truncation and continuation glyphs outside
      the fringes is suppressed.  */
   bool_bf no_special_glyphs : 1;
-#endif /* HAVE_WINDOW_SYSTEM */
 
   /* True means set_window_size_hook requests can be processed for
      this frame.  */
@@ -527,10 +528,6 @@ struct frame
   bool_bf tool_bar_redisplayed : 1;
   bool_bf tool_bar_resized : 1;
 
-  /* Inhibit implied resize before after_make_frame is set.  */
-  bool_bf inhibit_horizontal_resize : 1;
-  bool_bf inhibit_vertical_resize : 1;
-
   /* Non-zero if this frame's faces need to be recomputed.  */
   bool_bf face_change : 1;
 
@@ -552,6 +549,10 @@ struct frame
      selected window in the frame, assuming there is still an active
      minibuffer in that mini-window.  */
   bool_bf select_mini_window_flag : 1;
+
+  /* Set to true when borders' transparencies should match the
+     background opacity.  */
+  bool_bf borders_respect_alpha_background : 1;
   /* Bitfield area ends here.  */
 
   /* This frame's change stamp, set the last time window change
@@ -733,8 +734,15 @@ struct frame
      frame parameter.  0 means don't do gamma correction.  */
   double gamma;
 
-  /* Additional space to put between text lines on this frame.  */
+  /* Additional space to put below text lines on this frame.
+     Also takes part in line height calculation.  */
   int extra_line_spacing;
+
+  /* Amount of space (included in extra_line_spacing) that goes ABOVE
+     line line.
+     IMPORTANT: Don't use this for line height calculations.
+                (5 . 20) means that extra_line_spacing is 25 with 5 above.  */
+  int extra_line_spacing_above;
 
   /* All display backends seem to need these two pixel values.  */
   unsigned long background_pixel;
@@ -749,7 +757,10 @@ struct frame
 #ifdef HAVE_TEXT_CONVERSION
   /* Text conversion state used by certain input methods.  */
   struct text_conversion_state conversion;
-#endif
+# endif
+
+  /* Z-order of child frames.  */
+  int z_order;
 } GCALIGNED_STRUCT;
 
 /* Most code should use these functions to set Lisp fields in struct frame.  */
@@ -1047,9 +1058,9 @@ default_pixels_per_inch_y (void)
    does not have FRAME_DISPLAY_INFO.  */
 #ifdef HAVE_WINDOW_SYSTEM
 #ifndef HAVE_ANDROID
-# define MOUSE_HL_INFO(F)					\
+#   define MOUSE_HL_INFO(F)					\
   (FRAME_WINDOW_P (F)						\
-   ? &FRAME_DISPLAY_INFO(F)->mouse_highlight			\
+   ? &FRAME_DISPLAY_INFO (F)->mouse_highlight			\
    : &(F)->output_data.tty->display_info->mouse_highlight)
 #else
 /* There is no "struct tty_output" on Android at all.  */
@@ -1190,22 +1201,12 @@ default_pixels_per_inch_y (void)
 /* True if frame F is currently visible.  */
 #define FRAME_VISIBLE_P(f) (f)->visible
 
-/* True if frame F should be redisplayed.  This is normally the same
-   as FRAME_VISIBLE_P (f).  Under X, frames can continue to be
-   displayed to the user by the compositing manager even if they are
-   invisible, so this also checks whether or not the frame is reported
-   visible by the X server.  */
-
-#ifndef HAVE_X_WINDOWS
-#define FRAME_REDISPLAY_P(f) FRAME_VISIBLE_P (f)
-#else
-#define FRAME_REDISPLAY_P(f) (FRAME_VISIBLE_P (f)		\
-			      || (FRAME_X_P (f)			\
-				  && FRAME_X_VISIBLE (f)))
-#endif
-
 /* True if frame F is currently visible but hidden.  */
-#define FRAME_OBSCURED_P(f) ((f)->visible > 1)
+#ifdef HAVE_MACGUI
+#define FRAME_OBSCURED_P(f) (f)->obscured
+#else
+#define FRAME_OBSCURED_P(f) false
+#endif
 
 /* True if frame F is currently iconified.  */
 #define FRAME_ICONIFIED_P(f) (f)->iconified
@@ -1271,21 +1272,23 @@ default_pixels_per_inch_y (void)
 #define FRAME_HAS_VERTICAL_SCROLL_BARS_ON_RIGHT(f) ((void) (f), 0)
 #endif /* HAVE_WINDOW_SYSTEM */
 
-#if defined (HAVE_WINDOW_SYSTEM)
+INLINE struct frame *
+FRAME_PARENT_FRAME (struct frame *f)
+{
+  return NILP (f->parent_frame) ? NULL : XFRAME (f->parent_frame);
+}
+
 #define FRAME_UNDECORATED(f) ((f)->undecorated)
+
+#if defined (HAVE_WINDOW_SYSTEM)
 #ifdef HAVE_NTGUI
 #define FRAME_OVERRIDE_REDIRECT(f) ((void) (f), 0)
 #else
 #define FRAME_OVERRIDE_REDIRECT(f) ((f)->override_redirect)
 #endif
-#define FRAME_PARENT_FRAME(f)			\
-  (NILP ((f)->parent_frame)			\
-   ? NULL					\
-   : XFRAME ((f)->parent_frame))
 #define FRAME_SKIP_TASKBAR(f) ((f)->skip_taskbar)
 #define FRAME_NO_FOCUS_ON_MAP(f) ((f)->no_focus_on_map)
 #define FRAME_NO_ACCEPT_FOCUS(f) ((f)->no_accept_focus)
-#define FRAME_NO_SPECIAL_GLYPHS(f) ((f)->no_special_glyphs)
 #define FRAME_Z_GROUP(f) ((f)->z_group)
 #define FRAME_Z_GROUP_NONE(f) ((f)->z_group == z_group_none)
 #define FRAME_Z_GROUP_ABOVE(f) ((f)->z_group == z_group_above)
@@ -1298,19 +1301,18 @@ default_pixels_per_inch_y (void)
 #define FRAME_NS_TRANSPARENT_TITLEBAR(f) ((f)->ns_transparent_titlebar)
 #endif
 #else /* not HAVE_WINDOW_SYSTEM */
-#define FRAME_UNDECORATED(f) ((void) (f), 0)
 #define FRAME_OVERRIDE_REDIRECT(f) ((void) (f), 0)
-#define FRAME_PARENT_FRAME(f) ((void) (f), NULL)
 #define FRAME_SKIP_TASKBAR(f) ((void) (f), 0)
 #define FRAME_NO_FOCUS_ON_MAP(f) ((void) (f), 0)
 #define FRAME_NO_ACCEPT_FOCUS(f) ((void) (f), 0)
-#define FRAME_NO_SPECIAL_GLYPHS(f) ((void) (f), 0)
 #define FRAME_Z_GROUP(f) ((void) (f), z_group_none)
 #define FRAME_Z_GROUP_NONE(f) ((void) (f), true)
 #define FRAME_Z_GROUP_ABOVE(f) ((void) (f), false)
 #define FRAME_Z_GROUP_BELOW(f) ((void) (f), false)
 #define FRAME_TOOLTIP_P(f) ((void) f, false)
 #endif /* HAVE_WINDOW_SYSTEM */
+
+#define FRAME_NO_SPECIAL_GLYPHS(f) ((f)->no_special_glyphs)
 
 /* Whether horizontal scroll bars are currently enabled for frame F.  */
 #if USE_HORIZONTAL_SCROLL_BARS
@@ -1465,26 +1467,12 @@ default_pixels_per_inch_y (void)
 #define AUTO_FRAME_ARG(name, parameter, value)		\
   AUTO_LIST1 (name, AUTO_CONS_EXPR (parameter, value))
 
+extern EMACS_UINT frame_next_id;
+extern EMACS_UINT frame_set_id (struct frame *f, EMACS_UINT id);
+extern EMACS_UINT frame_set_id_from_params (struct frame *f, Lisp_Object params);
+
 /* False means there are no visible garbaged frames.  */
 extern bool frame_garbaged;
-
-/* Set visibility of frame F.
-   We call redisplay_other_windows to make sure the frame gets redisplayed
-   if some changes were applied to it while it wasn't visible (and hence
-   wasn't redisplayed).  */
-INLINE void
-SET_FRAME_VISIBLE (struct frame *f, int v)
-{
-  eassert (0 <= v && v <= 2);
-  if (v)
-    {
-      if (v == 1 && f->visible != 1)
-	redisplay_other_windows ();
-      if (FRAME_GARBAGED_P (f))
-	frame_garbaged = true;
-    }
-  f->visible = v;
-}
 
 /* Set iconified status of frame F.  */
 INLINE void
@@ -1542,13 +1530,19 @@ extern struct frame *decode_live_frame (Lisp_Object);
 extern struct frame *decode_any_frame (Lisp_Object);
 extern struct frame *make_initial_frame (void);
 extern struct frame *make_frame (bool);
+extern bool frame_redisplay_p (struct frame *);
+extern int tty_child_pos_param (struct frame *, Lisp_Object,
+				Lisp_Object, int, int);
+extern int tty_child_size_param (struct frame *, Lisp_Object,
+				 Lisp_Object, int);
 #ifdef HAVE_WINDOW_SYSTEM
-extern struct frame *make_minibuffer_frame (void);
-extern struct frame *make_frame_without_minibuffer (Lisp_Object,
-                                                    struct kboard *,
-                                                    Lisp_Object);
 extern bool display_available (void);
 #endif
+
+struct frame *make_minibuffer_frame (void);
+struct frame *
+make_frame_without_minibuffer (Lisp_Object mini_window,
+			       KBOARD *kb, Lisp_Object display);
 
 INLINE bool
 window_system_available (struct frame *f)
@@ -1561,8 +1555,10 @@ window_system_available (struct frame *f)
 }
 
 extern WINDOW_SYSTEM_RETURN void check_window_system (struct frame *);
+struct frame *decode_tty_frame (Lisp_Object frame);
 extern void frame_make_pointer_invisible (struct frame *);
 extern void frame_make_pointer_visible (struct frame *);
+extern struct frame *root_frame (struct frame *f);
 extern Lisp_Object delete_frame (Lisp_Object, Lisp_Object);
 extern bool frame_inhibit_resize (struct frame *, bool, Lisp_Object);
 extern void adjust_frame_size (struct frame *, int, int, int, bool,
@@ -1586,6 +1582,27 @@ extern Lisp_Object Vframe_list;
       ? XFRAME (selected_frame)				\
       : (emacs_abort (), (struct frame *) 0))
 
+/* Set visibility of frame F.
+   We call redisplay_other_windows to make sure the frame gets redisplayed
+   if some changes were applied to it while it wasn't visible (and hence
+   wasn't redisplayed).  */
+INLINE void
+SET_FRAME_VISIBLE (struct frame *f, bool v)
+{
+  if (v)
+    {
+      if (v == 1 && f->visible != 1)
+	redisplay_other_windows ();
+      if (FRAME_GARBAGED_P (f))
+	frame_garbaged = true;
+    }
+  /* If F is a child frame on a tty and is the selected frame, try to
+     re-select the frame that was selected before F.  */
+  else if (is_tty_child_frame (f) && f == XFRAME (selected_frame))
+    do_switch_frame (mru_rooted_frame (f), 0, 0, Qnil);
+
+  f->visible = v;
+}
 
 /***********************************************************************
 			Display-related Macros
@@ -1656,15 +1673,11 @@ FRAME_CHILD_FRAME_BORDER_WIDTH (struct frame *f)
 INLINE int
 FRAME_INTERNAL_BORDER_WIDTH (struct frame *f)
 {
-#ifdef HAVE_WINDOW_SYSTEM
   return (FRAME_PARENT_FRAME(f)
 	  ? (FRAME_CHILD_FRAME_BORDER_WIDTH(f) >= 0
 	     ? FRAME_CHILD_FRAME_BORDER_WIDTH(f)
 	     : frame_dimension (f->internal_border_width))
 	  : frame_dimension (f->internal_border_width));
-#else
-  return frame_dimension (f->internal_border_width);
-#endif
 }
 
 /* Pixel-size of window divider lines.  */
@@ -1906,6 +1919,8 @@ extern long gui_figure_window_size (struct frame *, Lisp_Object, bool, bool);
 
 extern void gui_set_alpha (struct frame *, Lisp_Object, Lisp_Object);
 extern void gui_set_alpha_background (struct frame *, Lisp_Object, Lisp_Object);
+extern void gui_set_borders_respect_alpha_background (struct frame *, Lisp_Object,
+                                                      Lisp_Object);
 extern void gui_set_no_special_glyphs (struct frame *, Lisp_Object, Lisp_Object);
 
 extern void validate_x_resource_name (void);
@@ -1919,8 +1934,6 @@ extern Lisp_Object gui_display_get_resource (Display_Info *,
 extern void set_frame_menubar (struct frame *f, bool deep_p);
 extern void frame_set_mouse_pixel_position (struct frame *f, int pix_x, int pix_y);
 extern void free_frame_menubar (struct frame *);
-extern bool frame_ancestor_p (struct frame *af, struct frame *df);
-extern enum internal_border_part frame_internal_border_part (struct frame *f, int x, int y);
 
 #if defined HAVE_X_WINDOWS
 extern void x_wm_set_icon_position (struct frame *, int, int);
@@ -1945,6 +1958,10 @@ gui_set_bitmap_icon (struct frame *f)
 
 #endif /* !HAVE_MACGUI && !HAVE_NS && !HAVE_PGTK */
 #endif /* HAVE_WINDOW_SYSTEM */
+
+extern enum internal_border_part frame_internal_border_part (struct frame *f,
+							     int x, int y);
+extern bool frame_ancestor_p (struct frame *af, struct frame *df);
 
 INLINE void
 flush_frame (struct frame *f)

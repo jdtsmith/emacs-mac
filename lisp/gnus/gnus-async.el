@@ -1,6 +1,6 @@
 ;;; gnus-async.el --- asynchronous support for Gnus  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news
@@ -23,8 +23,6 @@
 ;;; Commentary:
 
 ;;; Code:
-
-(eval-when-compile (require 'cl-lib))
 
 (require 'gnus)
 (require 'gnus-sum)
@@ -178,7 +176,7 @@ that was fetched."
 		    d)
 		(while (and (setq d (pop data))
 			    (if (numberp n)
-				(natnump (cl-decf n))
+                                (natnump (decf n))
 			      n))
 		  (unless (or (gnus-async-prefetched-article-entry
 			       group (setq article (gnus-data-number d)))
@@ -283,7 +281,7 @@ that was fetched."
 	    ;; should check time-since-last-output, which
 	    ;; needs to be done in nntp.el.
 	    (while (eq article gnus-async-current-prefetch-article)
-	      (cl-incf tries)
+              (incf tries)
 	      (when (nntp-accept-process-output proc)
 		(setq tries 0))
 	      (when (and (not nntp-have-messaged)

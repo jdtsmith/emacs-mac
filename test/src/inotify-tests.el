@@ -1,6 +1,6 @@
 ;;; inotify-tests.el --- Test suite for inotify. -*- lexical-binding: t -*-
 
-;; Copyright (C) 2012-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
 ;; Author: Rüdiger Sonderfeld <ruediger@c-plusplus.de>
 ;; Keywords:       internal
@@ -66,6 +66,17 @@
           (should (inotify-valid-p wd))
           (inotify-rm-watch wd)
           (should-not (inotify-valid-p wd)))))))
+
+(ert-deftest inotify-file-watch-stop-delivery ()
+  "Test whether IN_IGNORE events are delivered."
+  (skip-unless (featurep 'inotify))
+  (progn
+    (ert-with-temp-file temp-file
+      (inotify-add-watch
+       temp-file t (lambda (event)
+                     (when (memq 'ignored (cadr event))
+                       (throw 'success t)))))
+    (should (catch 'success (recursive-edit) nil))))
 
 (provide 'inotify-tests)
 

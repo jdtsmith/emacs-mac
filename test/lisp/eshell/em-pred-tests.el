@@ -1,6 +1,6 @@
 ;;; em-pred-tests.el --- em-pred test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -28,11 +28,10 @@
 (require 'eshell)
 (require 'em-glob)
 (require 'em-pred)
+(require 'ert-x)
 
 (require 'eshell-tests-helpers
-         (expand-file-name "eshell-tests-helpers"
-                           (file-name-directory (or load-file-name
-                                                    default-directory))))
+         (ert-resource-file "eshell-tests-helpers"))
 
 (defvar eshell-test-value nil)
 
@@ -142,7 +141,7 @@ behavior for real files.
            (let ((attrs (eshell-parse-file-name-attributes file)))
              ;; For simplicity, just return whether the file is
              ;; world-executable.
-             (= (logand (or (alist-get 'modes attrs) 0) 1) 1)))))
+             (oddp (or (alist-get 'modes attrs) 0))))))
      ,@body))
 
 ;;; Tests:
@@ -416,12 +415,6 @@ PREDICATE is the predicate used to query that attribute."
   (should (equal (eshell-eval-predicate
                   '("/path/to/file.el" "/other/path/") ":r")
                  '("/path/to/file" "/other/path/"))))
-
-(ert-deftest em-pred-test/modifier-quote ()
-  "Test that \":q\" quotes arguments."
-  (should (equal-including-properties
-           (eshell-eval-predicate '("foo" "bar") ":q")
-           (list (eshell-escape-arg "foo") (eshell-escape-arg "bar")))))
 
 (ert-deftest em-pred-test/modifier-substitute ()
   "Test that \":s/PAT/REP/\" replaces PAT with REP once."

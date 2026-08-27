@@ -1,6 +1,6 @@
 ;;; xdg.el --- XDG specification and standard support -*- lexical-binding: t -*-
 
-;; Copyright (C) 2017-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
 ;; Author: Mark Oteiza <mvoteiza@udel.edu>
 ;; Created: 27 January 2017
@@ -291,7 +291,7 @@ According to the XDG Desktop Entry Specification version 0.5:
     colon-separated list of strings ... $XDG_CURRENT_DESKTOP
     should have been set by the login manager, according to the
     value of the DesktopNames found in the session file."
-  (when-let ((ret (getenv "XDG_CURRENT_DESKTOP")))
+  (when-let* ((ret (getenv "XDG_CURRENT_DESKTOP")))
     (string-split ret ":")))
 
 
@@ -372,8 +372,7 @@ an absolute file name of a readable file.
 Results are cached in `xdg-mime-table'."
   (pcase-let ((`(,type ,subtype) (split-string mime "/"))
               (xdg-data-dirs (xdg-data-dirs))
-              (caches (xdg-mime-apps-files))
-              (files ()))
+              (caches (xdg-mime-apps-files)))
     (let ((mtim1 (get 'xdg-mime-table 'mtime))
           (mtim2 (cl-loop for f in caches when (file-readable-p f)
                           maximize (float-time
@@ -382,21 +381,21 @@ Results are cached in `xdg-mime-table'."
       ;; If one of the MIME/Desktop cache files has been modified:
       (when (or (null mtim1) (time-less-p mtim1 mtim2))
         (setq xdg-mime-table nil)))
-    (when (null (assoc type xdg-mime-table))
-      (push (cons type (make-hash-table :test #'equal)) xdg-mime-table))
-    (if (let ((def (make-symbol "def"))
-              (table (cdr (assoc type xdg-mime-table))))
-          (not (eq (setq files (gethash subtype table def)) def)))
-        files
-      (and files (setq files nil))
-      (let ((dirs (mapcar (lambda (dir) (expand-file-name "applications" dir))
-                          (cons (xdg-data-home) xdg-data-dirs))))
-        ;; Not being particular about desktop IDs
-        (dolist (f (nreverse (xdg-mime-collect-associations mime caches)))
-          (push (locate-file f dirs) files))
-        (when files
-          (put 'xdg-mime-table 'mtime (current-time)))
-        (puthash subtype (delq nil files) (cdr (assoc type xdg-mime-table)))))))
+    (let ((table (cdr (or (assoc type xdg-mime-table)
+                          (let ((p (cons type (make-hash-table :test #'equal))))
+                            (push p xdg-mime-table)
+                            p)))))
+      (if (hash-table-contains-p subtype table)
+          (gethash subtype table)
+        (let ((files ())
+              (dirs (mapcar (lambda (dir) (expand-file-name "applications" dir))
+                            (cons (xdg-data-home) xdg-data-dirs))))
+          ;; Not being particular about desktop IDs
+          (dolist (f (nreverse (xdg-mime-collect-associations mime caches)))
+            (push (locate-file f dirs) files))
+          (when files
+            (put 'xdg-mime-table 'mtime (current-time)))
+          (puthash subtype (delq nil files) table))))))
 
 
 ;; Unofficial extension from systemd.

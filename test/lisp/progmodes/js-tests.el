@@ -1,6 +1,6 @@
 ;;; js-tests.el --- Test suite for js-mode  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2017-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -291,7 +291,7 @@ function bar() {
 ;;;; Tree-sitter tests.
 
 (ert-deftest js-ts-mode-test-indentation ()
-  (skip-unless (treesit-ready-p 'javascript))
+  (skip-unless (and (treesit-ready-p 'javascript) (treesit-ready-p 'jsdoc)))
   (ert-test-erts-file (ert-resource-file "js-ts-indents.erts")))
 
 (provide 'js-tests)

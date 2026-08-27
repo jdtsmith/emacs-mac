@@ -1,5 +1,5 @@
 @c This is part of the Emacs manual.
-@c Copyright (C) 1985--1987, 1993--1995, 1997, 2000--2025 Free Software
+@c Copyright (C) 1985--1987, 1993--1995, 1997, 2000--2026 Free Software
 @c Foundation, Inc.
 @c See file emacs.texi for copying conditions.
 @node Buffers
@@ -205,7 +205,7 @@ Here is an example of a buffer list:
 
 @smallexample
 CRM Buffer                Size  Mode              File
-. * .emacs                3294  ELisp/l           ~/.emacs
+. * .emacs                3294  Elisp/l           ~/.emacs
  %  *Help*                 101  Help
     search.c             86055  C                 ~/cvs/emacs/src/search.c
  %  src                  20959  Dired by name     ~/cvs/emacs/src/

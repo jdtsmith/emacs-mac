@@ -1,6 +1,6 @@
 ;;; loadup.el --- load up always-loaded Lisp files for Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1986, 1992, 1994, 2001-2025 Free Software
+;; Copyright (C) 1985-1986, 1992, 1994, 2001-2026 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -41,7 +41,7 @@
 
 ;; These rules are so that src/Makefile can construct lisp.mk
 ;; automatically.  This ensures that the Lisp files are compiled (if
-;; necessary) before the emacs executable is dumped.
+;; necessary) before the "emacs" executable is dumped.
 
 ;;; Code:
 
@@ -57,7 +57,7 @@
 ;; Add subdirectories to the load-path for files that might get
 ;; autoloaded when bootstrapping or running Emacs normally.
 ;; This is because PATH_DUMPLOADSEARCH is just "../lisp".
-(if (or (member dump-mode '("bootstrap" "pbootstrap"))
+(if (or (member dump-mode '("pbootstrap"))
 	;; FIXME this is irritatingly fragile.
         (and (stringp (nth 4 command-line-args))
              (string-match "^unidata-gen\\(\\.elc?\\)?$"
@@ -103,11 +103,7 @@
       ;; During bootstrapping the byte-compiler is run interpreted
       ;; when compiling itself, which uses a lot more stack
       ;; than usual.
-      (setq max-lisp-eval-depth (max max-lisp-eval-depth 3400))))
-
-(if (eq t purify-flag)
-    ;; Hash consing saved around 11% of pure space in my tests.
-    (setq purify-flag (make-hash-table :test #'equal :size 80000)))
+      (setq max-lisp-eval-depth (max max-lisp-eval-depth 4200))))
 
 (message "Using load-path %s" load-path)
 
@@ -128,10 +124,6 @@
 (load "emacs-lisp/backquote")
 (load "subr")
 (load "keymap")
-
-;; Do it after subr, since both after-load-functions and add-hook are
-;; implemented in subr.el.
-(add-hook 'after-load-functions (lambda (_) (garbage-collect)))
 
 (load "version")
 
@@ -183,12 +175,6 @@
     (load "loaddefs")
   (file-error
    (load "ldefs-boot.el")))
-
-(let ((new (make-hash-table :test #'equal)))
-  ;; Now that loaddefs has populated definition-prefixes, purify its contents.
-  (maphash (lambda (k v) (puthash (purecopy k) (purecopy v) new))
-           definition-prefixes)
-  (setq definition-prefixes new))
 
 (load "button")                  ;After loaddefs, because of define-minor-mode!
 
@@ -342,6 +328,7 @@
       (load "term/w32-win")
       (load "disp-table")
       (when (eq system-type 'windows-nt)
+        (load "term/w32-nt")
         (load "w32-fns")
         (load "ls-lisp")
         (load "dos-w32"))
@@ -401,13 +388,15 @@
 
 (load "emacs-lisp/eldoc")
 (load "emacs-lisp/cconv")
-(when (and (compiled-function-p (symbol-function 'cconv-fv))
-           (compiled-function-p (symbol-function 'macroexpand-all)))
+;; It should be safe to set `internal-make-interpreted-closure-function'
+;; unconditionally, but if cconv and friends haven't been compiled yet,
+;; it's excruciatingly slow.
+(when (compiled-function-p (symbol-function 'cconv-fv))
   (setq internal-make-interpreted-closure-function
         #'cconv-make-interpreted-closure))
-(load "cus-start") ;Late to reduce customize-rogue (needs loaddefs.el anyway)
-(if (not (eq system-type 'ms-dos))
-    (load "tooltip"))
+(dlet ((cus-start--preload t)) ;; Tell `cus-start' we're preloading.
+  (load "cus-start")) ;Late to reduce customize-rogue (needs loaddefs.el anyway)
+(load "tooltip")
 (load "international/iso-transl") ; Binds Alt-[ and friends.
 
 ;; Used by `kill-buffer', for instance.
@@ -507,14 +496,7 @@ lost after dumping")))
 ;; Avoid storing references to build directory in the binary.
 (setq custom-current-group-alist nil)
 
-;; We keep the load-history data in PURE space.
-;; Make sure that the spine of the list is not in pure space because it can
-;; be destructively mutated in lread.c:build_load_history.
-(setq load-history (mapcar #'purecopy load-history))
-
 (set-buffer-modified-p nil)
-
-(remove-hook 'after-load-functions (lambda (_) (garbage-collect)))
 
 (if (boundp 'load--prefer-newer)
     (progn
@@ -580,29 +562,9 @@ directory got moved.  This is set to be a pair in the form of:
   ;; file-local variables.
   (defvar comp--no-native-compile (make-hash-table :test #'equal)))
 
-(when (hash-table-p purify-flag)
-  (let ((strings 0)
-        (vectors 0)
-        (bytecodes 0)
-        (conses 0)
-        (others 0))
-    (maphash (lambda (k v)
-               (cond
-                ((stringp k) (setq strings (1+ strings)))
-                ((vectorp k) (setq vectors (1+ vectors)))
-                ((consp k)   (setq conses  (1+ conses)))
-                ((byte-code-function-p v) (setq bytecodes (1+ bytecodes)))
-                (t           (setq others  (1+ others)))))
-             purify-flag)
-    (message "Pure-hashed: %d strings, %d vectors, %d conses, %d bytecodes, %d others"
-             strings vectors conses bytecodes others)))
 
-;; Avoid error if user loads some more libraries now and make sure the
-;; hash-consing hash table is GC'd.
+;; Avoid error if user loads some more libraries now.
 (setq purify-flag nil)
-
-(if (null (garbage-collect))
-    (setq pure-space-overflow t))
 
 ;; Make sure we will attempt bidi reordering henceforth.
 (setq redisplay--inhibit-bidi nil)
@@ -639,9 +601,10 @@ directory got moved.  This is set to be a pair in the form of:
               (error nil))))))
   (if dump-mode
       (let ((output (cond ((equal dump-mode "pdump") "emacs.pdmp")
-                          ((equal dump-mode "dump") "emacs")
-                          ((equal dump-mode "bootstrap") "emacs")
-                          ((equal dump-mode "pbootstrap") "bootstrap-emacs.pdmp")
+                          ((equal dump-mode "pbootstrap")
+                           (if (eq system-type 'ms-dos)
+                               "b-emacs.pdmp"
+                             "bootstrap-emacs.pdmp"))
                           (t (error "Unrecognized dump mode %s" dump-mode)))))
         (when (and (featurep 'native-compile)
                    (equal dump-mode "pdump"))
@@ -658,15 +621,14 @@ directory got moved.  This is set to be a pair in the form of:
           (unwind-protect
               (let ((tmp-dump-mode dump-mode)
                     (dump-mode nil)
-                    ;; Set `lexical-binding' to nil by default
+                    ;; Set `lexical-binding' to its default value
                     ;; in the dumped Emacs.
-                    (lexical-binding nil))
+                    (lexical-binding (default-toplevel-value 'lexical-binding)))
                 (if (member tmp-dump-mode '("pdump" "pbootstrap"))
                     (dump-emacs-portable (expand-file-name output invocation-directory))
                   (dump-emacs output (if (eq system-type 'ms-dos)
                                          "temacs.exe"
-                                       "temacs"))
-                  (message "%d pure bytes used" pure-bytes-used))
+                                       "temacs")))
                 (setq success t))
             (unless success
               (ignore-errors
@@ -684,7 +646,7 @@ directory got moved.  This is set to be a pair in the form of:
                          (eq system-type 'android))
                      ;; Don't bother adding another name if we're just
                      ;; building bootstrap-emacs.
-                     (member dump-mode '("pbootstrap" "bootstrap"))))
+                     (member dump-mode '("pbootstrap"))))
             (let ((name (format "emacs-%s.%d" emacs-version emacs-build-number))
                   (exe (if (eq system-type 'windows-nt) ".exe" "")))
               (while (string-match "[^-+_.a-zA-Z0-9]+" name)

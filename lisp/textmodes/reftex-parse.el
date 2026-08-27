@@ -1,8 +1,8 @@
 ;;; reftex-parse.el --- parser functions for RefTeX  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2026 Free Software Foundation, Inc.
 
-;; Author: Carsten Dominik <dominik@science.uva.nl>
+;; Author: Carsten Dominik <carsten.dominik@gmail.com>
 ;; Maintainer: auctex-devel@gnu.org
 
 ;; This file is part of GNU Emacs.
@@ -29,6 +29,8 @@
 (require 'reftex)
 
 (defmacro reftex-with-special-syntax (&rest body)
+  "Evaluate BODY with syntax table set to `reftex-syntax-table'."
+  (declare (debug t))
   `(let ((saved-syntax (syntax-table)))
      (unwind-protect
          (progn
@@ -72,10 +74,10 @@ When allowed, do only a partial scan from FILE."
 
   (let* ((old-list (symbol-value reftex-docstruct-symbol))
          (master (reftex-TeX-master-file))
-         (true-master (file-truename master))
-         (master-dir (file-name-as-directory (file-name-directory master)))
-         (file (or file (buffer-file-name)))
-         (true-file (file-truename file))
+         (true-master (reftex--get-truename master))
+         (master-dir (file-name-as-directory (reftex--get-directory master)))
+         (file (or file (reftex--get-buffer-identifier)))
+         (true-file (reftex--get-truename file))
          (bibview-cache (assq 'bibview-cache old-list))
          (reftex--index-tags (cdr (assq 'index-tags old-list)))
          from-file appendix docstruct tmp)
@@ -86,7 +88,7 @@ When allowed, do only a partial scan from FILE."
                          (member (list 'eof file) old-list))))
       ;; Scan whole document because no such file section exists
       (setq rescan 1))
-    (when (string= true-file true-master)
+    (when (equal true-file true-master)
       ;; Scan whole document because this file is the master
       (setq rescan 1))
 
@@ -184,13 +186,14 @@ When allowed, do only a partial scan from FILE."
 When RELATIVE is non-nil, give file names relative to directory
 of master file."
   (let* ((all (symbol-value reftex-docstruct-symbol))
-         (master-dir (file-name-directory (reftex-TeX-master-file)))
+         (master-dir (reftex--get-directory (reftex-TeX-master-file)))
          (re (concat "\\`" (regexp-quote master-dir)))
         file-list tmp file)
     (while (setq tmp (assoc 'bof all))
       (setq file (nth 1 tmp)
             all (cdr (memq tmp all)))
       (and relative
+           (stringp file) ; Ignore non-file buffers.
            (string-match re file)
            (setq file (substring file (match-end 0))))
       (push file file-list))
@@ -226,7 +229,7 @@ of master file."
                 (not (eq t reftex-keep-temporary-buffers)))))
 
         ;; Begin of file mark
-        (setq file (buffer-file-name))
+        (setq file (reftex--get-buffer-identifier))
         (push (list 'bof file) docstruct)
 
         (reftex-with-special-syntax
@@ -273,7 +276,8 @@ of master file."
                  (when (and toc-entry
                             (eq ;; Either both are t or both are nil.
                              (= (char-after bound) ?%)
-                             (string-suffix-p ".dtx" file)))
+                             (and (stringp file)
+                                  (string-suffix-p ".dtx" file))))
                    ;; It can happen that section info returns nil
                    (setq level (nth 5 toc-entry))
                    (setq highest-level (min highest-level level))
@@ -629,14 +633,15 @@ if the information is exact (t) or approximate (nil)."
         found)
     (save-excursion
       (while (not rtn)
-        (cl-incf cnt)
+        (incf cnt)
         (setq found (re-search-backward (reftex-everything-regexp) nil t))
         (setq rtn
               (cond
                ((not found)
                 ;; no match
                 (or
-                 (car (member (list 'bof (buffer-file-name)) docstruct))
+                 (car (member (list 'bof (reftex--get-buffer-identifier))
+                              docstruct))
                  (not (setq cnt 2))
                  (assq 'bof docstruct)  ;; for safety reasons
                  'corrupted))
@@ -647,15 +652,16 @@ if the information is exact (t) or approximate (nil)."
                ((match-end 3)
                 ;; Section
                 (goto-char (1- (match-beginning 3)))
-                (let* ((list (member (list 'bof (buffer-file-name))
+                (let* ((buffile (reftex--get-buffer-identifier))
+                       (list (member (list 'bof buffile)
                                      docstruct))
-                       (endelt (car (member (list 'eof (buffer-file-name))
+                       (endelt (car (member (list 'eof buffile)
                                             list)))
                        rtn1)
                   (while (and list (not (eq endelt (car list))))
                     (if (and (eq (car (car list)) 'toc)
-                             (string= (buffer-file-name)
-                                      (nth 3 (car list))))
+                             (equal buffile
+                                    (nth 3 (car list))))
                         (cond
                          ((equal (point)
                                  (or (and (markerp (nth 4 (car list)))
@@ -683,17 +689,20 @@ if the information is exact (t) or approximate (nil)."
                 (when reftex-support-index
                   (let* ((index-info (save-excursion
                                        (reftex-index-info-safe nil)))
-                         (list (member (list 'bof (buffer-file-name))
-                                       docstruct))
-                         (endelt (car (member (list 'eof (buffer-file-name))
-                                              list)))
+                         (list (member
+                                (list 'bof (reftex--get-buffer-identifier))
+                                docstruct))
+                         (endelt
+                          (car (member
+                                (list 'eof (reftex--get-buffer-identifier))
+                                list)))
                          dist last-dist last (n 0))
                     ;; Check all index entries with equal text
                     (while (and list (not (eq endelt (car list))))
                       (when (and (eq (car (car list)) 'index)
                                  (string= (nth 2 index-info)
                                           (nth 2 (car list))))
-                        (cl-incf n)
+                        (incf n)
                         (setq dist (abs (- (point) (nth 4 (car list)))))
                         (if (or (not last-dist) (< dist last-dist))
                             (setq last-dist dist last (car list))))
@@ -756,12 +765,13 @@ if the information is exact (t) or approximate (nil)."
          (when (re-search-forward (reftex-everything-regexp) nil t)
            (cond
             ((match-end 1)
-             (push (reftex-label-info (reftex-match-string 1) buffer-file-name)
+             (push (reftex-label-info (reftex-match-string 1)
+                                  (reftex--get-buffer-identifier))
                    (cdr tail)))
 
             ((match-end 3)
              (setq star (= ?* (char-after (match-end 3)))
-                   entry (reftex-section-info (buffer-file-name))
+                   entry (reftex-section-info (reftex--get-buffer-identifier))
                    level (nth 5 entry))
              ;; Insert the section info
              (push entry (cdr tail))
@@ -793,7 +803,8 @@ if the information is exact (t) or approximate (nil)."
             ((match-end 10)
              ;; Index entry
              (and reftex-support-index
-                  (setq entry (reftex-index-info-safe buffer-file-name))
+                  (setq entry (reftex-index-info-safe
+                               (reftex--get-buffer-identifier)))
                   ;; FIXME: (add-to-list 'reftex--index-tags (nth 1 index-entry))
                   (push entry (cdr tail))))))))))
 
@@ -875,8 +886,8 @@ considered an argument of macro \\macro."
                                 (backward-sexp))
                               t)
                           (error nil)))
-              (if (memq (following-char) '(?\( ?\[)) (cl-incf cnt-opt))
-              (cl-incf cnt))
+              (if (memq (following-char) '(?\( ?\[)) (incf cnt-opt))
+              (incf cnt))
             (setq pos (point))
             (when (and (memq (following-char) '(?\[ ?\( ?\{))
                        (re-search-backward "\\\\[*a-zA-Z]+\\=" nil t))
@@ -1017,18 +1028,18 @@ OPT-ARGS is a list of argument numbers which are optional."
         (while (< cnt n)
           (while (and (member cnt opt-args)
                       (eq (following-char) ?\{))
-            (cl-incf cnt))
+            (incf cnt))
           (when (< cnt n)
             (unless (and (condition-case nil
                              (or (forward-list 1) t)
                            (error nil))
                          (reftex-move-to-next-arg)
-                         (cl-incf cnt))
+                         (incf cnt))
               (setq cnt 1000))))
 
         (while (and (memq cnt opt-args)
                     (eq (following-char) ?\{))
-          (cl-incf cnt)))
+          (incf cnt)))
       (if (and (= n cnt)
                (> (skip-chars-forward "{[") 0))
           (reftex-context-substring)
@@ -1090,7 +1101,7 @@ When point is just after a { or [, limit string to matching parenthesis."
                   (- (string-to-char number-string) ?A -1))
             (aset reftex-section-numbers i (string-to-number number-string)))
         (pop numbers))
-      (cl-decf i)))
+      (decf i)))
   (put 'reftex-section-numbers 'appendix appendix))
 
 ;;;###autoload
@@ -1114,7 +1125,7 @@ When LEVEL is non-nil, increase section numbers on that level."
           (if (or (not partspecial)
                   (not (= idx 1)))
               (aset reftex-section-numbers idx 0))
-          (cl-incf idx))))
+          (incf idx))))
     (if partspecial
         (setq string (concat "Part " (reftex-roman-number
                                       (aref reftex-section-numbers 0))))
@@ -1124,7 +1135,7 @@ When LEVEL is non-nil, increase section numbers on that level."
         (if (not (and partspecial (not (equal string ""))))
             (setq string (concat string (if (not (string= string "")) "." "")
                                  (int-to-string n))))
-        (cl-incf idx))
+        (incf idx))
       (save-match-data
         (if (string-match "\\`\\([@0]\\.\\)+" string)
             (setq string (replace-match "" nil nil string)))

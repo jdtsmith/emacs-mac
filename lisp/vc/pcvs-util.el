@@ -1,6 +1,6 @@
 ;;; pcvs-util.el --- utility functions for PCL-CVS  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1991-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1991-2026 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords: pcl-cvs
@@ -46,7 +46,7 @@
 	(while (and l (> n 1))
 	  (setcdr nl (list (pop l)))
 	  (setq nl (cdr nl))
-	  (cl-decf n))
+          (decf n))
 	ret))))
 
 (defun cvs-partition (p l)

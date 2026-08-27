@@ -1,6 +1,6 @@
 /* pop.c: client routines for talking to a POP3-protocol post-office server
 
-Copyright (C) 1991, 1993, 1996-1997, 1999, 2001-2025 Free Software
+Copyright (C) 1991, 1993, 1996-1997, 1999, 2001-2026 Free Software
 Foundation, Inc.
 
 Author: Jonathan Kamens <jik@security.ov.com>
@@ -1565,9 +1565,10 @@ find_crlf (char *in_string, int len)
 /* The following 2 functions are only available since XP, so we load
    them dynamically and provide fallbacks.  */
 
-int (WINAPI *pfn_getaddrinfo) (const char *, const char *,
-			       const struct addrinfo *, struct addrinfo **);
-void (WINAPI *pfn_freeaddrinfo) (struct addrinfo *);
+static int (WINAPI *pfn_getaddrinfo) (const char *, const char *,
+				      const struct addrinfo *,
+				      struct addrinfo **);
+static void (WINAPI *pfn_freeaddrinfo) (struct addrinfo *);
 
 static int
 load_ws2 (void)

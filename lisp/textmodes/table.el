@@ -1,6 +1,6 @@
 ;;; table.el --- create and edit WYSIWYG text based embedded tables  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
 ;; Keywords: text, convenience
 ;; Author: Takaaki Ota <Takaaki.Ota@am.sony.com>
@@ -333,7 +333,7 @@
 ;;
 ;;   (add-hook 'table-cell-map-hook
 ;;     (lambda ()
-;;       (local-set-key [<key sequence>] '<function>)))
+;;       (keymap-local-set "<key sequence>" '<function>)))
 ;;
 ;; Adding the above to your init file is a common way to customize a
 ;; mode specific keymap.  However it does not work for this package.
@@ -343,7 +343,7 @@
 ;;
 ;;   (add-hook 'table-cell-map-hook
 ;;     (lambda ()
-;;       (define-key table-cell-map [<key sequence>] '<function>)))
+;;       (keymap-set table-cell-map "<key sequence>" '<function>)))
 ;;
 ;; -----
 ;; Menu:

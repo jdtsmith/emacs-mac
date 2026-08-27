@@ -1,6 +1,6 @@
 ;;; erc-scenarios-base-association.el --- base assoc scenarios -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -53,7 +53,7 @@
                :nick "tester"
                :password "changeme"
                :full-name "tester")
-        (funcall expect 3 "debug mode")
+        (funcall expect 10 "debug mode")
         (erc-cmd-JOIN "#chan")))
 
     (erc-d-t-wait-for 2 (get-buffer "#chan"))

@@ -1,6 +1,6 @@
 ;;; nnselect.el --- a virtual group backend   -*- lexical-binding:t -*-
 
-;; Copyright (C) 2020-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
 ;; Author: Andrew Cohen <cohen@andy.bu.edu>
 ;; Keywords: news mail
@@ -346,8 +346,7 @@ group info."
             gnus-newsgroup-selection))
       ;; Don't swallow gnus-search errors; the user should be made
       ;; aware of them.
-      (gnus-search-error
-       (signal (car err) (cdr err)))
+      (gnus-search-error (signal err))
       (error
        (gnus-error
         3
@@ -736,7 +735,7 @@ group info."
                    (push (1+ seq) old-arts)
                  (setq gnus-newsgroup-selection
                        (vconcat gnus-newsgroup-selection (vector article)))
-                 (cl-incf last)))
+                 (incf last)))
              (gnus-search-run-query
               (list (cons 'search-query-spec query-spec)
                     (cons 'search-group-spec group-spec))))
@@ -1029,7 +1028,7 @@ article came from is also searched."
             (let ((i 5))
               (while (and (> i 2)
                           (not (nth i group-info)))
-                (when (nthcdr (cl-decf i) group-info)
+                (when (nthcdr (decf i) group-info)
                   (setcdr (nthcdr i group-info) nil))))
 
             ;; update read and unread

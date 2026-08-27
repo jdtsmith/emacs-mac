@@ -1,6 +1,6 @@
 ;;; project-am.el --- A project management scheme based on automake files.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1998-2000, 2003, 2005, 2007-2025 Free Software
+;; Copyright (C) 1998-2000, 2003, 2005, 2007-2026 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
@@ -480,7 +480,7 @@ This is used when subprojects are made in named subdirectories."
 	     (bug (nth 2 pi))
 	     (cof (nth 3 pi))
 	     (ampf (project-am-makefile
-		    pn :name pn
+		    :name pn
 		    :version ver
 		    :mailinglist (or bug "")
 		    :file fn)))

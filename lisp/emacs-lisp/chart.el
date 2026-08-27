@@ -1,6 +1,6 @@
 ;;; chart.el --- Draw charts (bar charts, etc)  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1996-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Old-Version: 0.2
@@ -347,7 +347,7 @@ of the drawing."
 	 (odd nil)
 	 p1)
     (while s
-      (setq odd (= (% (length s) 2) 1))
+      (setq odd (oddp (length s)))
       (setq r (chart-translate-namezone (oref a chart) i))
       (if (eq dir 'vertical)
 	  (setq p (/ (+ (car r) (cdr r)) 2))
@@ -633,7 +633,7 @@ argument to `chart-sort' to sort the lists if desired."
 	     (m (member s extlst)))
 	(unless (null s)
 	  (if m
-              (cl-incf (car (nthcdr (- (length extlst) (length m)) cntlst)))
+              (incf (car (nthcdr (- (length extlst) (length m)) cntlst)))
 	    (setq extlst (cons s extlst)
                   cntlst (cons 1 cntlst))))))
     ;; Let's create the chart!
@@ -652,7 +652,7 @@ argument to `chart-sort' to sort the lists if desired."
   "Compute total size of files in directory DIR and its subdirectories.
 DIR is assumed to be a directory, verified by the caller."
   (let ((size 0))
-    (dolist (file (directory-files-recursively dir "." t))
+    (dolist (file (directory-files-recursively dir "" t))
       (let ((fsize (nth 7 (file-attributes file))))
         (if (> fsize 0)
             (setq size

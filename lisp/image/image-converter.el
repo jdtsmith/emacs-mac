@@ -1,6 +1,6 @@
 ;;; image-converter.el --- Converting images from exotic formats -*- lexical-binding: t -*-
 
-;; Copyright (C) 2019-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: images
@@ -65,7 +65,8 @@ not, the conversion will fail."
 (defvar image-converter--converters
   '((graphicsmagick :command ("gm" "convert") :probe ("-list" "format"))
     (ffmpeg :command "ffmpeg" :probe "-decoders")
-    (imagemagick :command "convert" :probe ("-list" "format")))
+    ;; "-layers merge" flattens visible layers in e.g. Gimp XCF files.
+    (imagemagick :command ("convert" "-layers" "merge") :probe ("-list" "format")))
   "List of supported image converters to try and required command-line switches.")
 
 (defvar image-converter--extra-converters (make-hash-table :test #'equal))
@@ -85,7 +86,7 @@ like \"image/gif\"."
   (image-converter-initialize)
   ;; When image-converter was customized
   (when (and image-converter (not image-converter-regexp))
-    (when-let ((formats (image-converter--probe image-converter)))
+    (when-let* ((formats (image-converter--probe image-converter)))
       (setq image-converter-regexp
             (concat "\\." (regexp-opt formats) "\\'"))
       (setq image-converter-file-name-extensions formats)))
@@ -136,8 +137,8 @@ converted image data as a string."
            (extra-converter (gethash type image-converter--extra-converters)))
       (if extra-converter
           (funcall extra-converter source format)
-        (when-let ((err (image-converter--convert
-                         image-converter source format)))
+        (when-let* ((err (image-converter--convert
+                          image-converter source format)))
           (error "%s" err))))
     (if (listp image)
         ;; Return an image object that's the same as we were passed,
@@ -217,8 +218,8 @@ converted image data as a string."
   "Find an installed image converter Emacs can use."
   (catch 'done
     (dolist (elem image-converter--converters)
-      (when-let ((formats (image-converter--filter-formats
-                           (image-converter--probe (car elem)))))
+      (when-let* ((formats (image-converter--filter-formats
+                            (image-converter--probe (car elem)))))
         (setq image-converter (car elem)
               image-converter-regexp (concat "\\." (regexp-opt formats) "\\'")
               image-converter-file-name-extensions formats)

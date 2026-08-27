@@ -1,6 +1,6 @@
 ;;; erc-pcomplete.el --- Provides programmable completion for ERC  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2004, 2006-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2004, 2006-2026 Free Software Foundation, Inc.
 
 ;; Author: Sacha Chua <sacha@free.net.ph>
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
@@ -61,6 +61,11 @@ add this string to nicks completed."
 ;;;###autoload(put 'completion 'erc--feature 'erc-pcomplete)
 ;;;###autoload(autoload 'erc-completion-mode "erc-pcomplete" nil t)
 (put 'completion 'erc-group 'erc-pcomplete)
+;; For historical reasons, (the downcased version of) this module's
+;; alias is the canonical name used by `erc-modules'.  But user code
+;; still needs to detect whether the module is enabled based on that
+;; name alone, hence this variable alias.
+(defvaralias 'erc-completion-mode 'erc-pcomplete-mode)
 (define-erc-module pcomplete Completion
   "In ERC Completion mode, the TAB key does completion whenever possible."
   ((add-hook 'erc-mode-hook #'pcomplete-erc-setup)
@@ -186,6 +191,14 @@ for use on `completion-at-point-function'."
 (defun pcomplete/erc-mode/RECONNECT ()
   (pcomplete-here '("cancel"))
   (pcomplete-opt "a"))
+
+(defun pcomplete/erc-mode/BANLIST ()
+  (pcomplete-opt "f"))
+(defalias 'pcomplete/erc-mode/BL #'pcomplete/erc-mode/BANLIST)
+
+(defun pcomplete/erc-mode/MASSUNBAN ()
+  (pcomplete-opt "f"))
+(defalias 'pcomplete/erc-mode/MUB #'pcomplete/erc-mode/MASSUNBAN)
 
 ;;; Functions that provide possible completions.
 

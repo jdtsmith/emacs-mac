@@ -1,6 +1,6 @@
 ;;; tramp-androidsu.el --- Tramp method for Android superuser shells  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2024-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2024-2026 Free Software Foundation, Inc.
 
 ;; Author: Po Lu
 ;; Keywords: comm, processes
@@ -111,7 +111,7 @@ multibyte mode and waits for the shell prompt to appear."
 
   (with-tramp-debug-message vec "Opening connection"
     (let ((p (tramp-get-connection-process vec))
-	  (process-name (tramp-get-connection-property vec "process-name"))
+	  (process-name (tramp-get-connection-property vec " process-name"))
 	  (process-environment (copy-sequence process-environment)))
       ;; Open a new connection.
       (condition-case err
@@ -131,19 +131,18 @@ multibyte mode and waits for the shell prompt to appear."
                      ;; The executable loader cannot execute setuid
                      ;; binaries, such as su.
                      (android-use-exec-loader nil)
-		     (p (start-process (tramp-get-connection-name vec)
-			               (tramp-get-connection-buffer vec)
-                                       ;; Disregard
-                                       ;; `tramp-encoding-shell', as
-                                       ;; there's no guarantee that it's
-                                       ;; possible to execute it with
-                                       ;; `android-use-exec-loader' off.
-			               tramp-androidsu-local-shell-name "-i"))
+		     (p (tramp-start-process
+			 vec (tramp-get-connection-name vec)
+			 (tramp-get-connection-buffer vec)
+			 ;; Disregard `tramp-encoding-shell', as
+			 ;; there's no guarantee that it's possible to
+			 ;; execute it with `android-use-exec-loader'
+			 ;; off.
+			 tramp-androidsu-local-shell-name "-i"))
 		     (user (tramp-file-name-user vec))
                      su-binary path command)
-                ;; Set sentinel.  Initialize variables.
+                ;; Set sentinel.
 	        (set-process-sentinel p #'tramp-process-sentinel)
-	        (tramp-post-process-creation p vec)
                 ;; Replace `login-args' place holders.  `PATH' must be
                 ;; set to `tramp-androidsu-remote-path', as some `su'
                 ;; implementations propagate their callers' environments
@@ -304,18 +303,15 @@ FUNCTION."
   "Like `tramp-handle-make-process', but modified for Android."
   (tramp-skeleton-make-process args nil nil
     (let* ((env (mapcar
-		 (lambda (elt)
-		   (when (tramp-compat-string-search "=" elt) elt))
+		 (lambda (elt) (when (string-search "=" elt) elt))
 		 tramp-remote-process-environment))
 	   ;; We use as environment the difference to toplevel
 	   ;; `process-environment'.
 	   (env (dolist (elt process-environment env)
 		  (when
 		      (and
-		       (tramp-compat-string-search "=" elt)
-		       (not
-			(member
-			 elt (default-toplevel-value 'process-environment))))
+		       (string-search "=" elt)
+		       (not (tramp-local-environment-variable-p elt)))
 		    (setq env (cons elt env)))))
 	   ;; Add remote path if exists.
 	   (env (let ((remote-path (string-join (tramp-get-remote-path v) ":")))
@@ -376,7 +372,6 @@ FUNCTION."
       ;; so we reset it.
       (set-process-query-on-exit-flag p (null noquery))
       (process-put p 'remote-command orig-command)
-      (tramp-set-connection-property p "remote-command" orig-command)
       (when (bufferp stderr)
 	(tramp-taint-remote-process-buffer stderr))
       p)))
@@ -534,13 +529,9 @@ arguments to pass to the OPERATION."
 
 (connection-local-set-profiles
  `(:application tramp :protocol ,tramp-androidsu-method)
- 'tramp-androidsu-connection-local-default-profile)
-
-(with-eval-after-load 'shell
-  (connection-local-set-profiles
-   `(:application tramp :protocol ,tramp-androidsu-method)
-   'tramp-adb-connection-local-default-shell-profile
-   'tramp-adb-connection-local-default-ps-profile))
+ 'tramp-androidsu-connection-local-default-profile
+ 'tramp-adb-connection-local-default-shell-profile
+ 'tramp-adb-connection-local-default-ps-profile)
 
 (add-hook 'tramp-unload-hook
 	  (lambda ()

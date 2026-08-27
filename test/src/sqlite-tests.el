@@ -1,6 +1,6 @@
 ;;; sqlite-tests.el --- Tests for sqlite.el  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -184,6 +184,14 @@
     (should (sqlite-select db "select * from test6"))
     (sqlite-close db)
     (should-error (sqlite-select db "select * from test6"))))
+
+(ert-deftest sqlite-closed-db ()
+  "Verify that `sqlite-close' on a closed database is a no-op."
+  (skip-unless (sqlite-available-p))
+  (let (db)
+    (setq db (sqlite-open))
+    (should (eq (sqlite-close db)
+                (sqlite-close db)))))
 
 (ert-deftest sqlite-load-extension ()
   (skip-unless (sqlite-available-p))

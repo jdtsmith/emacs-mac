@@ -1,6 +1,6 @@
 ;;; landmark.el --- Neural-network robot that learns landmarks  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-1997, 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1997, 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: Terrence Brannon <metaperl@gmail.com>
 ;; Created: December 16, 1996 - first release to usenet
@@ -206,7 +206,6 @@
     (define-key map [remap beginning-of-line] #'landmark-beginning-of-line)
     (define-key map [remap end-of-line] #'landmark-end-of-line)
     (define-key map [remap undo] #'landmark-human-takes-back)
-    (define-key map [remap advertised-undo] #'landmark-human-takes-back)
     map)
   "Local keymap to use in Landmark mode.")
 

@@ -1,6 +1,6 @@
 ;;; oc-natbib.el --- Citation processor using natbib LaTeX package  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Author: Nicolas Goaziou <mail@nicolasgoaziou.fr>
 
@@ -48,9 +48,7 @@
 
 (require 'oc)
 
-(declare-function org-element-property "org-element-ast" (property node))
-
-(declare-function org-export-data "org-export" (data info))
+(declare-function org-export-data "ox" (data info))
 
 
 ;;; Customization

@@ -1,5 +1,5 @@
 /* Definitions and headers for communication on the Microsoft Windows API.
-   Copyright (C) 1995, 2001-2025 Free Software Foundation, Inc.
+   Copyright (C) 1995, 2001-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -271,7 +271,10 @@ extern const char *w32_get_string_resource (void *v_rdb,
                                             const char *class);
 
 /* w32fns.c */
+extern frame_parm_handler w32_frame_parm_handlers[];
 extern void w32_default_font_parameter (struct frame* f, Lisp_Object parms);
+extern Lisp_Object w32_process_dnd_data (int format, void *pDataObj);
+extern void w32_register_for_sleep_notifications (void);
 
 
 #define PIX_TYPE COLORREF
@@ -710,7 +713,10 @@ do { \
 #define WM_EMACS_INPUT_READY           (WM_EMACS_START + 24)
 #define WM_EMACS_FILENOTIFY            (WM_EMACS_START + 25)
 #define WM_EMACS_IME_STATUS            (WM_EMACS_START + 26)
-#define WM_EMACS_END                   (WM_EMACS_START + 27)
+#define WM_EMACS_DRAGOVER              (WM_EMACS_START + 27)
+#define WM_EMACS_DROP                  (WM_EMACS_START + 28)
+#define WM_EMACS_END                   (WM_EMACS_START + 29)
+#define WM_EMACS_SET_TOOLKIT_THEME     (WM_EMACS_START + 30)
 
 #define WND_FONTWIDTH_INDEX    (0)
 #define WND_LINEHEIGHT_INDEX   (4)
@@ -875,21 +881,6 @@ extern int w32_system_caret_hdr_height;
 extern int w32_system_caret_mode_height;
 
 extern Window tip_window;
-
-#ifdef _MSC_VER
-#ifndef EnumSystemLocales
-/* MSVC headers define these only for _WIN32_WINNT >= 0x0500.  */
-typedef BOOL (CALLBACK *LOCALE_ENUMPROCA)(LPSTR);
-typedef BOOL (CALLBACK *LOCALE_ENUMPROCW)(LPWSTR);
-BOOL WINAPI EnumSystemLocalesA(LOCALE_ENUMPROCA,DWORD);
-BOOL WINAPI EnumSystemLocalesW(LOCALE_ENUMPROCW,DWORD);
-#ifdef UNICODE
-#define EnumSystemLocales EnumSystemLocalesW
-#else
-#define EnumSystemLocales EnumSystemLocalesA
-#endif
-#endif
-#endif
 
 #if EMACSDEBUG
 extern const char*

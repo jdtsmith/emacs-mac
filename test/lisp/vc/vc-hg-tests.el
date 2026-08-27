@@ -1,6 +1,6 @@
 ;;; vc-hg-tests.el --- tests for vc/vc-hg.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2016-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2026 Free Software Foundation, Inc.
 
 ;; Author: Dmitry Gutov <dgutov@yandex.ru>
 ;; Maintainer: emacs-devel@gnu.org
@@ -56,5 +56,53 @@
     (should (equal (vc-hg-annotate-time)
                    (vc-annotate-convert-time
                     (encode-time 0 0 0 28 11 2014))))))
+
+(defun vc-hg-test--after-dir-status-expect (in out)
+  "Call `vc-hg-after-dir-status' on IN and assert that it returns OUT."
+  (with-temp-buffer
+    (insert in)
+    (vc-hg-after-dir-status (lambda (res) (should (equal res out))))))
+
+(ert-deftest vc-hg-after-dir-status ()
+  "Test `vc-hg-after-dir-status'."
+  (vc-hg-test--after-dir-status-expect
+   "\
+A bar2
+  bar
+A foo2
+  foo
+R bar"
+   '(("bar" removed #s(vc-hg-extra-fileinfo renamed-to "bar2"))
+     ("foo2" added #s(vc-hg-extra-fileinfo copied "foo"))
+     ("bar2" added #s(vc-hg-extra-fileinfo renamed-from "bar"))))
+  (vc-hg-test--after-dir-status-expect
+   "\
+A bar2
+  bar
+A foo2
+  foo
+R bar
+R foo"
+   '(("foo" removed #s(vc-hg-extra-fileinfo renamed-to "foo2"))
+     ("bar" removed #s(vc-hg-extra-fileinfo renamed-to "bar2"))
+     ("foo2" added #s(vc-hg-extra-fileinfo renamed-from "foo"))
+     ("bar2" added #s(vc-hg-extra-fileinfo renamed-from "bar")))))
+
+(ert-deftest vc-hg-diff-revision-arguments ()
+  "Test `vc-hg-diff' revision arguments."
+  (cl-letf (((symbol-function 'vc-hg-command) #'list)
+            (vc-hg-diff-switches t))
+    ;; REV1 REV2 both nil: diff file against working revision
+    (should (equal (vc-hg-diff '("foo") nil nil)
+                   '("*vc-diff*" 1 ("foo") "diff")))
+    ;; REV1 nil and REV2 non-nil: diff REV2 against empty tree
+    (should (equal (vc-hg-diff '("foo") nil "22222")
+                   '("*vc-diff*" 1 ("foo") "diff" "-r" "null" "-r" "22222")))
+    ;; REV1 non-nil and REV2 nil: diff working copy against older revision
+    (should (equal (vc-hg-diff '("foo") "11111" nil)
+                   '("*vc-diff*" 1 ("foo") "diff" "-r" "11111")))
+    ;; REV1 REV2 both non-nil: diff two revisions
+    (should (equal (vc-hg-diff '("foo") "11111" "22222")
+                   '("*vc-diff*" 1 ("foo") "diff" "-r" "11111" "-r" "22222")))))
 
 ;;; vc-hg-tests.el ends here

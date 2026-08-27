@@ -1,6 +1,6 @@
 ;;; semantic-tests.el --- Miscellaneous Semantic tests.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2003-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -100,7 +100,7 @@ global enabled."
     (condition-case err
 	(semanticdb-enable-gnu-global-in-buffer)
       (error (if standardfile
-		 (error err)
+		 (signal err)
 	       (save-match-data
 		 (set-buffer (find-file-noselect semanticdb-test-gnu-global-startfile)))
 	       (semanticdb-enable-gnu-global-in-buffer))))

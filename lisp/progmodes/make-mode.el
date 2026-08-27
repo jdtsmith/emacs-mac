@@ -1,6 +1,6 @@
 ;;; make-mode.el --- makefile editing commands for Emacs -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
 ;; Author: Thomas Neumann <tom@smart.bo.open.de>
 ;;	Eric S. Raymond <esr@thyrsus.com>
@@ -83,7 +83,7 @@
 
 (defface makefile-space
   '((((class color)) (:background  "hotpink"))
-    (t (:reverse-video t)))
+    (t (:inverse-video t)))
   "Face to use for highlighting leading spaces in Font-Lock mode.")
 
 (defface makefile-targets
@@ -93,7 +93,7 @@
   :version "22.1")
 
 (defface makefile-shell
-  '((t (:inherit default)))
+  '((t))
   ;;'((((class color) (min-colors 88) (background light)) (:background  "seashell1"))
   ;;  (((class color) (min-colors 88) (background dark)) (:background  "seashell4")))
   "Face to use for additionally highlighting Shell commands in Font-Lock mode."
@@ -102,7 +102,7 @@
 (defface makefile-makepp-perl
   '((((class color) (background light)) (:background  "LightBlue1")) ; Camel Book
     (((class color) (background dark)) (:background  "DarkBlue"))
-    (t (:reverse-video t)))
+    (t (:inverse-video t)))
   "Face to use for additionally highlighting Perl code in Font-Lock mode."
   :version "22.1")
 
@@ -225,8 +225,18 @@ not be enclosed in { } or ( )."
 ;; that if you change this regexp you might have to fix the imenu
 ;; index in makefile-imenu-generic-expression.
 (defvar makefile-dependency-regex
-  ;; Allow for two nested levels $(v1:$(v2:$(v3:a=b)=c)=d)
-  "^\\(\\(?:\\$\\(?:[({]\\(?:\\$\\(?:[({]\\(?:\\$\\(?:[^({]\\|.[^\n$#})]+?[})]\\)\\|[^\n$#)}]\\)+?[})]\\|[^({]\\)\\|[^\n$#)}]\\)+?[})]\\|[^({]\\)\\|[^\n$#:=]\\)+?\\)\\(:\\)\\(?:[ \t]*$\\|[^=\n]\\(?:[^#\n]*?;[ \t]*\\(.+\\)\\)?\\)"
+  (letrec ((elems-re
+            (lambda (n &optional outer)
+              (if (< n 1)
+                   "[^\n$#})]+?"
+                (concat "\\(?:\\$\\(?:"
+                        "[({]" (funcall elems-re (- n 1)) "[})]"
+                        "\\|[^({]\\)"
+                        "\\|[^\n$#" (if outer "\t:=" ")}") "]\\)+?")))))
+    (concat
+     ;; Allow for two nested levels $(v1:$(v2:$(v3:a=b)=c)=d)
+     "^\\(" (funcall elems-re 3 'outer)
+     "\\)\\(:\\)\\(?:[ \t]*$\\|[^=\n]\\(?:[^#\n]*?;[ \t]*\\(.+\\)\\)?\\)"))
   "Regex used to find dependency lines in a makefile.")
 
 (defconst makefile-bsdmake-dependency-regex
@@ -321,7 +331,7 @@ not be enclosed in { } or ( )."
 					     &rest fl-keywords)
   `(;; Do macro assignments.  These get the "variable-name" face.
     (,makefile-macroassign-regex
-     (1 font-lock-variable-name-face)
+     (1 'font-lock-variable-name-face)
      ;; This is for after !=
      (2 'makefile-shell prepend t)
      ;; This is for after normal assignment
@@ -330,10 +340,10 @@ not be enclosed in { } or ( )."
     ;; Rule actions.
     ;; FIXME: When this spans multiple lines we need font-lock-multiline.
     (makefile-match-action
-     (1 font-lock-type-face nil t)
+     (1 'font-lock-type-face nil t)
      (2 'makefile-shell prepend)
      ;; Only makepp has builtin commands.
-     (3 font-lock-builtin-face prepend t))
+     (3 'font-lock-builtin-face prepend t))
 
     ;; Variable references even in targets/strings/comments.
     (,var 2 font-lock-variable-name-face prepend)
@@ -354,11 +364,11 @@ not be enclosed in { } or ( )."
 		   (string-replace "-" "[_-]" (regexp-opt (cdr keywords) t))
 		 (regexp-opt keywords t)))
 	      "\\>[ \t]*\\([^: \t\n#]*\\)")
-             (1 font-lock-keyword-face) (2 font-lock-variable-name-face))))
+             (1 'font-lock-keyword-face) (2 'font-lock-variable-name-face))))
 
     ,@(if negation
-	  `((,negation (1 font-lock-negation-char-face prepend)
-		       (2 font-lock-negation-char-face prepend t))))
+	  `((,negation (1 'font-lock-negation-char-face prepend)
+		       (2 'font-lock-negation-char-face prepend t))))
 
     ,@(if space
 	  '(;; Highlight lines that contain just whitespace.
@@ -426,9 +436,9 @@ not be enclosed in { } or ( )."
 
    ;; Colon modifier keywords.
    '("\\(:\\s *\\)\\(build_c\\(?:ache\\|heck\\)\\|env\\(?:ironment\\)?\\|foreach\\|signature\\|scanner\\|quickscan\\|smartscan\\)\\>\\([^:\n]*\\)"
-     (1 font-lock-type-face t)
-     (2 font-lock-keyword-face t)
-     (3 font-lock-variable-name-face t))
+     (1 'font-lock-type-face t)
+     (2 'font-lock-keyword-face t)
+     (3 'font-lock-variable-name-face t))
 
    ;; $(function ...) $((function ...)) ${...} ${{...}} $[...] $[[...]]
    '("[^$]\\$\\(?:((?\\|{{?\\|\\[\\[?\\)\\([-a-zA-Z0-9_.]+\\s \\)"
@@ -705,7 +715,7 @@ The function must satisfy this calling convention:
 ;; Each "ARG" is used as a prompt for a required argument.
 (defconst makefile-gnumake-functions-alist
   '(
-    ;; Text functions
+    ;; Functions for String Substitution and Analysis
     ("subst" "From" "To" "In")
     ("patsubst" "Pattern" "Replacement" "In")
     ("strip" "Text")
@@ -713,22 +723,42 @@ The function must satisfy this calling convention:
     ("filter" "Pattern" "Text")
     ("filter-out" "Pattern" "Text")
     ("sort" "List")
-    ;; Filename functions
+    ("word" "Index" "Text")
+    ("wordlist" "S" "E" "Text")
+    ("words" "Text")
+    ("firstword" "Text")
+    ("lastword" "Names")
+    ;; Functions for File Names
     ("dir" "Names")
     ("notdir" "Names")
     ("suffix" "Names")
     ("basename" "Names")
-    ("addprefix" "Prefix" "Names")
     ("addsuffix" "Suffix" "Names")
+    ("addprefix" "Prefix" "Names")
     ("join" "List 1" "List 2")
-    ("word" "Index" "Text")
-    ("words" "Text")
-    ("firstword" "Text")
     ("wildcard" "Pattern")
+    ("realpath" "Names")
+    ("abspath" "Names")
+    ;; Functions for Conditionals
+    ("if" "Condition" "Then-part" "Else-part")
+    ("or"  "Condition 1" "Condition 2" "Condition 3" "Condition 4")
+    ("and" "Condition 1" "Condition 2" "Condition 3" "Condition 4")
     ;; Misc functions
     ("foreach" "Variable" "List" "Text")
+    ("file" "Op" "Filename" "Text")
+    ("call" "Variable" "Param 1" "Param 2" "Param 3" "Param 4" "Param 5")
+    ("value" "Variable")
+    ("eval" "statement")
     ("origin" "Variable")
-    ("shell" "Command")))
+    ("flavor" "Variable")
+    ("shell" "Command")
+    ("guile" "Program")
+    ;; Functions that control make
+    ("error" "Text")
+    ("warning" "Text")
+    ("info" "Text")
+    )
+  "Alist of GNU Make functions and their arguments.")
 
 
 ;;; ------------------------------------------------------------

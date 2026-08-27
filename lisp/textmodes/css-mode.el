@@ -1,9 +1,9 @@
 ;;; css-mode.el --- Major mode to edit CSS files  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2006-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2026 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
-;; Maintainer: Simen Heggestøyl <simenheg@gmail.com>
+;; Maintainer: Simen Heggestøyl <simenheg@runbox.com>
 ;; Keywords: hypermedia
 
 ;; This file is part of GNU Emacs.
@@ -20,6 +20,15 @@
 
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Tree-sitter language versions
+;;
+;; css-ts-mode has been tested with the following grammars and version:
+;; - tree-sitter-css: v0.23.1-1-g6a442a3
+;;
+;; We try our best to make builtin modes work with latest grammar
+;; versions, so a more recent grammar has a good chance to work too.
+;; Send us a bug report if it doesn't.
 
 ;;; Commentary:
 
@@ -57,7 +66,7 @@
 
 (defconst css-pseudo-class-ids
   '("active" "checked" "default" "disabled" "empty" "enabled" "first"
-    "first-child" "first-of-type" "focus" "focus-within" "hover"
+    "first-child" "first-of-type" "focus" "focus-within" "has" "hover"
     "in-range" "indeterminate" "invalid" "lang" "last-child"
     "last-of-type" "left" "link" "not" "nth-child" "nth-last-child"
     "nth-last-of-type" "nth-of-type" "only-child" "only-of-type"
@@ -884,13 +893,7 @@ cannot be completed sensibly: `custom-ident',
     (modify-syntax-entry ?? "." st)
     st))
 
-(defvar-keymap css-mode-map
-  :doc "Keymap used in `css-mode'."
-  "<remap> <info-lookup-symbol>" #'css-lookup-symbol
-  ;; `info-complete-symbol' is not used.
-  "<remap> <complete-symbol>" #'completion-at-point
-  "C-c C-f" #'css-cycle-color-format
-  :menu
+(defvar css-mode--menu
   '("CSS"
     :help "CSS-specific features"
     ["Reformat block" fill-paragraph
@@ -901,7 +904,17 @@ cannot be completed sensibly: `custom-ident',
     ["Describe symbol" css-lookup-symbol
      :help "Display documentation for a CSS symbol"]
     ["Complete symbol" completion-at-point
-     :help "Complete symbol before point"]))
+     :help "Complete symbol before point"])
+    "Menu bar for `css-mode'")
+
+(defvar-keymap css-mode-map
+  :doc "Keymap used in `css-mode'."
+  "<remap> <info-lookup-symbol>" #'css-lookup-symbol
+  ;; `info-complete-symbol' is not used.
+  "<remap> <complete-symbol>" #'completion-at-point
+  "C-c C-f" #'css-cycle-color-format
+  :menu
+  css-mode--menu)
 
 (eval-and-compile
   (defconst css--uri-re
@@ -1067,12 +1080,12 @@ the returned hex string."
         (push (min (max 0 (round number)) 255) result)
 	(goto-char (match-end 0))
 	(css--color-skip-blanks)
-	(cl-incf iter)
+        (incf iter)
 	;; Accept a superset of the CSS syntax since I'm feeling lazy.
 	(when (and (= (skip-chars-forward ",/") 0)
 		   (= iter 3))
 	  ;; The alpha is optional.
-	  (cl-incf iter))
+          (incf iter))
 	(css--color-skip-blanks)))
     (when (looking-at ")")
       (forward-char)
@@ -1328,6 +1341,12 @@ for determining whether point is within a selector."
 
 ;;; Tree-sitter
 
+(add-to-list
+ 'treesit-language-source-alist
+ '(css "https://github.com/tree-sitter/tree-sitter-css"
+       :commit "6a442a3cf461b0ce275339e5afa178693484c927")
+ t)
+
 (defvar css-ts-mode-map (copy-keymap css-mode-map)
   "Keymap used in `css-ts-mode'.")
 
@@ -1359,7 +1378,9 @@ for determining whether point is within a selector."
       "@import"
       "@charset"
       "@namespace"
-      "@keyframes"] @font-lock-builtin-face
+      "@keyframes"
+      "@supports"] @font-lock-builtin-face
+      (at_keyword) @font-lock-builtin-face
       ["and"
        "or"
        "not"
@@ -1380,7 +1401,8 @@ for determining whether point is within a selector."
      (child_selector) @css-selector
      (id_selector) @css-selector
      (tag_name) @css-selector
-     (class_name) @css-selector)
+     (class_name) @css-selector
+     (keyframe_block (integer_value) @css-selector) )
 
    :feature 'property
    :language 'css
@@ -1400,7 +1422,8 @@ for determining whether point is within a selector."
    :feature 'query
    :language 'css
    '((keyword_query) @font-lock-property-use-face
-     (feature_name) @font-lock-property-use-face)
+     (feature_name) @font-lock-property-use-face
+     (keyframes_name) @font-lock-property-use-face)
 
    :feature 'bracket
    :language 'css
@@ -1415,9 +1438,10 @@ for determining whether point is within a selector."
   "Return the defun name of NODE.
 Return nil if there is no name or if NODE is not a defun node."
   (pcase (treesit-node-type node)
-    ("rule_set" (treesit-node-text
-                 (treesit-node-child node 0) t))
-    ("media_statement"
+    ((or "rule_set" "keyframe_block")
+     (treesit-node-text
+      (treesit-node-child node 0) t))
+    ((or "media_statement" "keyframes_statement" "supports_statement")
      (let ((block (treesit-node-child node -1)))
        (string-trim
         (buffer-substring-no-properties
@@ -1762,6 +1786,69 @@ rgb()/rgba()."
               (replace-regexp-in-string "[\n ]+" " " s)))
            res)))))))
 
+(defvar css--treesit-thing-settings
+  `((css (sexp
+          (not (or (and named
+                        ,(rx bos (or "stylesheet" "comment") eos))
+                   (and anonymous
+                        ,(rx (or "{" "}" "[" "]"
+                                 "(" ")" ","))))))
+         (list
+          ,(rx bos (or "keyframe_block_list"
+                       "block"
+                       "pseudo_class_arguments"
+                       "pseudo_class_with_selector_arguments"
+                       "pseudo_class_nth_child_arguments"
+                       "pseudo_element_arguments"
+                       "feature_query"
+                       "parenthesized_query"
+                       "selector_query"
+                       "parenthesized_value"
+                       "grid_value"
+                       "arguments")
+               eos))
+         (sentence
+          ,(rx bos (or "import_statement"
+                       "charset_statement"
+                       "namespace_statement"
+                       "postcss_statement"
+                       "at_rule"
+                       "declaration")
+               eos))
+         (text
+          ,(rx bos (or "comment" "string_value") eos))))
+  "Settings for `treesit-thing-settings'.")
+
+(defvar css--treesit-font-lock-feature-list
+  '((selector comment query keyword)
+    (property constant string)
+    (error variable function operator bracket))
+  "Settings for `treesit-font-lock-feature-list'.")
+
+(defvar css--treesit-simple-imenu-settings
+  `(( nil ,(rx bos (or "rule_set"
+                       "media_statement"
+                       "keyframes_statement"
+                       "keyframe_block"
+                       "supports_statement")
+               eos)
+      nil nil))
+  "Settings for `treesit-simple-imenu'.")
+
+(defvar css-ts-mode--outline-predicate
+  (rx bos (or "rule_set"
+              "media_statement"
+              "keyframes_statement"
+              "keyframe_block"
+              "supports_statement"
+              "at_rule")
+      eos)
+  "Predicate for `treesit-outline-predicate'.")
+
+(defvar css--treesit-defun-type-regexp
+  (rx bos (or "rule_set" "keyframe_block") eos)
+  "Settings for `treesit-defun-type-regexp'.")
+
 (define-derived-mode css-base-mode prog-mode "CSS"
   "Generic mode to edit Cascading Style Sheets (CSS).
 
@@ -1801,7 +1888,9 @@ can also be used to fill comments.
 
 \\{css-mode-map}"
   :syntax-table css-mode-syntax-table
-  (when (treesit-ready-p 'css)
+  ;; `treesit-ready-p' also checks for buffer size.
+  (when (and (treesit-ensure-installed 'css)
+             (treesit-ready-p 'css))
     ;; Borrowed from `css-mode'.
     (setq-local syntax-propertize-function
                 css-syntax-propertize-function)
@@ -1814,23 +1903,24 @@ can also be used to fill comments.
     (setq-local font-lock-fontify-region-function #'css--fontify-region)
 
     ;; Tree-sitter specific setup.
-    (treesit-parser-create 'css)
+    (setq treesit-primary-parser (treesit-parser-create 'css))
     (setq-local treesit-simple-indent-rules css--treesit-indent-rules)
-    (setq-local treesit-defun-type-regexp "rule_set")
+    (setq-local treesit-defun-type-regexp css--treesit-defun-type-regexp)
     (setq-local treesit-defun-name-function #'css--treesit-defun-name)
     (setq-local treesit-font-lock-settings css--treesit-settings)
-    (setq-local treesit-font-lock-feature-list
-                '((selector comment query keyword)
-                  (property constant string)
-                  (error variable function operator bracket)))
-    (setq-local treesit-simple-imenu-settings
-                `(( nil ,(rx bos (or "rule_set" "media_statement") eos)
-                    nil nil)))
-    (treesit-major-mode-setup)
+    (setq-local treesit-font-lock-feature-list css--treesit-font-lock-feature-list)
+    (setq-local treesit-simple-imenu-settings css--treesit-simple-imenu-settings)
+    (setq-local treesit-outline-predicate css-ts-mode--outline-predicate)
+    (setq-local treesit-thing-settings css--treesit-thing-settings)
 
-    (add-to-list 'auto-mode-alist '("\\.css\\'" . css-ts-mode))))
+    (treesit-major-mode-setup)))
 
 (derived-mode-add-parents 'css-ts-mode '(css-mode))
+
+;;;###autoload
+(when (boundp 'treesit-major-mode-remap-alist)
+  (add-to-list 'treesit-major-mode-remap-alist
+               '(css-mode . css-ts-mode)))
 
 ;;;###autoload
 (define-derived-mode css-mode css-base-mode "CSS"

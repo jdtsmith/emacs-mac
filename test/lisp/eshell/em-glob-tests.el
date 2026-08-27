@@ -1,6 +1,6 @@
 ;;; em-glob-tests.el --- em-glob test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -25,12 +25,11 @@
 
 (require 'tramp)
 (require 'ert)
+(require 'ert-x)
 (require 'em-glob)
 
 (require 'eshell-tests-helpers
-         (expand-file-name "eshell-tests-helpers"
-                           (file-name-directory (or load-file-name
-                                                    default-directory))))
+         (ert-resource-file "eshell-tests-helpers"))
 
 (defvar eshell-prefer-lisp-functions)
 
@@ -134,17 +133,19 @@ value of `eshell-glob-splice-results'."
 
 (ert-deftest em-glob-test/convert/current-start-directory ()
   "Test converting a glob starting in the current directory."
-  (should (equal (eshell-glob-convert "*.el")
+  (should (equal (eshell-glob-convert (eshell-parse-glob-string "*.el"))
                  '("./" (("\\`.*\\.el\\'" . "\\`\\.")) nil))))
 
 (ert-deftest em-glob-test/convert/relative-start-directory ()
   "Test converting a glob starting in a relative directory."
-  (should (equal (eshell-glob-convert "some/where/*.el")
+  (should (equal (eshell-glob-convert
+                  (eshell-parse-glob-string "some/where/*.el"))
                  '("./some/where/" (("\\`.*\\.el\\'" . "\\`\\.")) nil))))
 
 (ert-deftest em-glob-test/convert/absolute-start-directory ()
   "Test converting a glob starting in an absolute directory."
-  (should (equal (eshell-glob-convert "/some/where/*.el")
+  (should (equal (eshell-glob-convert
+                  (eshell-parse-glob-string "/some/where/*.el"))
                  '("/some/where/" (("\\`.*\\.el\\'" . "\\`\\.")) nil))))
 
 (ert-deftest em-glob-test/convert/remote-start-directory ()
@@ -152,15 +153,29 @@ value of `eshell-glob-splice-results'."
   (skip-unless (eshell-tests-remote-accessible-p))
   (let* ((default-directory ert-remote-temporary-file-directory)
          (remote (file-remote-p default-directory)))
-    (should (equal (eshell-glob-convert (format "%s/some/where/*.el" remote))
+    (should (equal (eshell-glob-convert
+                    (format (eshell-parse-glob-string "%s/some/where/*.el")
+                            remote))
                  `(,(format "%s/some/where/" remote)
                    (("\\`.*\\.el\\'" . "\\`\\.")) nil)))))
 
-(ert-deftest em-glob-test/convert/quoted-start-directory ()
-  "Test converting a glob starting in a quoted directory name."
+(ert-deftest em-glob-test/convert/start-directory-with-spaces ()
+  "Test converting a glob starting in a directory with spaces in its name."
   (should (equal (eshell-glob-convert
-                  (concat (eshell-escape-arg "some where/") "*.el"))
+                  (eshell-parse-glob-string "some where/*.el"))
                  '("./some where/" (("\\`.*\\.el\\'" . "\\`\\.")) nil))))
+
+(ert-deftest em-glob-test/convert/literal-characters ()
+  "Test converting a \"glob\" with only literal characters."
+  (should (equal (eshell-glob-convert "*.el") '("./*.el" nil nil)))
+  (should (equal (eshell-glob-convert "**/") '("./**/" nil t))))
+
+(ert-deftest em-glob-test/convert/mixed-literal-characters ()
+  "Test converting a glob with some literal characters."
+  (should (equal (eshell-glob-convert (eshell-parse-glob-string "\\*\\*/*.el"))
+                  '("./**/" (("\\`.*\\.el\\'" . "\\`\\.")) nil)))
+  (should (equal (eshell-glob-convert (eshell-parse-glob-string "**/\\*.el"))
+                  '("./" (recurse ("\\`\\*\\.el\\'" . "\\`\\.")) nil))))
 
 
 ;; Glob matching
@@ -262,11 +277,11 @@ value of `eshell-glob-splice-results'."
 
 (ert-deftest em-glob-test/match-n-or-more-groups ()
   "Test that \"(x)#\" and \"(x)#\" match zero or more instances of \"(x)\"."
-  (with-fake-files '("h.el" "ha.el" "hi.el" "hii.el" "dir/hi.el")
-    (should (equal (eshell-extended-glob "hi#.el")
-                   '("h.el" "hi.el" "hii.el")))
-    (should (equal (eshell-extended-glob "hi##.el")
-                   '("hi.el" "hii.el")))))
+  (with-fake-files '("h.el" "ha.el" "hi.el" "hah.el" "hahah.el" "dir/hah.el")
+    (should (equal (eshell-extended-glob "h(ah)#.el")
+                   '("h.el" "hah.el" "hahah.el")))
+    (should (equal (eshell-extended-glob "h(ah)##.el")
+                   '("hah.el" "hahah.el")))))
 
 (ert-deftest em-glob-test/match-n-or-more-character-sets ()
   "Test that \"[x]#\" and \"[x]#\" match zero or more instances of \"[x]\"."
@@ -300,11 +315,11 @@ value of `eshell-glob-splice-results'."
 (ert-deftest em-glob-test/no-matches ()
   "Test behavior when a glob fails to match any files."
   (with-fake-files '("foo.el" "bar.el")
-    (should (equal (eshell-extended-glob "*.txt")
-                   "*.txt"))
+    (should (equal-including-properties (eshell-extended-glob "*.txt")
+             "*.txt"))
     (let ((eshell-glob-splice-results t))
-      (should (equal (eshell-extended-glob "*.txt")
-                     '("*.txt"))))
+      (should (equal-including-properties (eshell-extended-glob "*.txt")
+               '("*.txt"))))
     (let ((eshell-error-if-no-glob t))
       (should-error (eshell-extended-glob "*.txt")))))
 
@@ -316,5 +331,16 @@ value of `eshell-glob-splice-results'."
          (eshell-error-if-no-glob t))
     (should (equal (eshell-extended-glob (format "%s~/file.txt" remote))
                    (format "%s~/file.txt" remote)))))
+
+;; Compatibility tests
+
+
+(ert-deftest em-glob-test/test-command-without-pred ()
+  "Test that the \"[\" command works when `eshell-pred' is disabled."
+  (skip-unless (executable-find "["))
+  (let ((eshell-modules-list (remq 'eshell-pred eshell-modules-list)))
+    (with-temp-eshell
+      (eshell-match-command-output "[ foo = foo ]" "\\`\\'")
+      (should (= eshell-last-command-status 0)))))
 
 ;; em-glob-tests.el ends here

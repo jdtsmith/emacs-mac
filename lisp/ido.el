@@ -1,6 +1,6 @@
 ;;; ido.el --- interactively do things with buffers and files -*- lexical-binding: t -*-
 
-;; Copyright (C) 1996-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2026 Free Software Foundation, Inc.
 
 ;; Author: Kim F. Storm <storm@cua.dk>
 ;; Based on: iswitchb by Stephen Eglen <stephen@cns.ed.ac.uk>
@@ -214,7 +214,7 @@
 ;; `ido-buffer-completion-map'.
 ;;
 ;; (with-eval-after-load 'ido
-;;   (define-key ido-common-completion-map " " 'ido-next-match))
+;;   (keymap-set ido-common-completion-map "SPC" 'ido-next-match))
 
 ;; Seeing all the matching buffers or files
 ;; ----------------------------------------
@@ -3305,7 +3305,7 @@ instead removed from the current item list."
                            name))
                        (split-string
                         (shell-command-to-string
-                         (concat "find "
+                         (concat find-program " "
                                  (shell-quote-argument dir)
                                  (if ido-case-fold " -iname " " -name ")
                                  (shell-quote-argument

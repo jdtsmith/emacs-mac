@@ -1,6 +1,6 @@
 ;;; x-dnd.el --- drag and drop support for X  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2004-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
 ;; Author: Jan Djärv <jan.h.d@swipnet.se>
 ;; Maintainer: emacs-devel@gnu.org
@@ -58,21 +58,21 @@ The default value for this variable is `x-dnd-default-test-function'."
   :group 'x)
 
 (defcustom x-dnd-types-alist
-  `((,(purecopy "text/uri-list") . x-dnd-handle-uri-list)
-    (,(purecopy "text/x-moz-url") . x-dnd-handle-moz-url)
-    (,(purecopy "_NETSCAPE_URL") . x-dnd-handle-uri-list)
-    (,(purecopy "FILE_NAME") . x-dnd-handle-file-name)
-    (,(purecopy "UTF8_STRING") . x-dnd-insert-utf8-text)
-    (,(purecopy "text/plain;charset=UTF-8") . x-dnd-insert-utf8-text)
-    (,(purecopy "text/plain;charset=utf-8") . x-dnd-insert-utf8-text)
-    (,(purecopy "text/unicode") . x-dnd-insert-utf16-text)
-    (,(purecopy "text/plain") . dnd-insert-text)
-    (,(purecopy "COMPOUND_TEXT") . x-dnd-insert-ctext)
-    (,(purecopy "STRING") . dnd-insert-text)
-    (,(purecopy "TEXT")   . dnd-insert-text)
-    (,(purecopy "DndTypeFile") . x-dnd-handle-offix-file)
-    (,(purecopy "DndTypeFiles") . x-dnd-handle-offix-files)
-    (,(purecopy "DndTypeText") . dnd-insert-text))
+  '(("text/uri-list" . x-dnd-handle-uri-list)
+    ("text/x-moz-url" . x-dnd-handle-moz-url)
+    ("_NETSCAPE_URL" . x-dnd-handle-uri-list)
+    ("FILE_NAME" . x-dnd-handle-file-name)
+    ("UTF8_STRING" . x-dnd-insert-utf8-text)
+    ("text/plain;charset=UTF-8" . x-dnd-insert-utf8-text)
+    ("text/plain;charset=utf-8" . x-dnd-insert-utf8-text)
+    ("text/unicode" . x-dnd-insert-utf16-text)
+    ("text/plain" . dnd-insert-text)
+    ("COMPOUND_TEXT" . x-dnd-insert-ctext)
+    ("STRING" . dnd-insert-text)
+    ("TEXT"   . dnd-insert-text)
+    ("DndTypeFile" . x-dnd-handle-offix-file)
+    ("DndTypeFiles" . x-dnd-handle-offix-files)
+    ("DndTypeText" . dnd-insert-text))
   "Functions to call to handle drag-and-drop of known types.
 If the type of the drop is not present in the alist, or the
 function corresponding to the type is nil, the drop of that
@@ -90,22 +90,21 @@ excluding `ask') if drop is successful, nil if not."
   :group 'x)
 
 (defcustom x-dnd-known-types
-  (mapcar 'purecopy
-          '("XdndDirectSave0"
-            "text/uri-list"
-            "text/x-moz-url"
-            "_NETSCAPE_URL"
-            "FILE_NAME"
-            "UTF8_STRING"
-            "text/plain;charset=UTF-8"
-            "text/plain;charset=utf-8"
-            "text/unicode"
-            "text/plain"
-            "COMPOUND_TEXT"
-            "STRING"
-            "TEXT"
-            "DndTypeFile"
-            "DndTypeText"))
+  '("XdndDirectSave0"
+    "text/uri-list"
+    "text/x-moz-url"
+    "_NETSCAPE_URL"
+    "FILE_NAME"
+    "UTF8_STRING"
+    "text/plain;charset=UTF-8"
+    "text/plain;charset=utf-8"
+    "text/unicode"
+    "text/plain"
+    "COMPOUND_TEXT"
+    "STRING"
+    "TEXT"
+    "DndTypeFile"
+    "DndTypeText")
   "The types accepted by default for dropped data.
 The types are chosen in the order they appear in the list."
   :version "22.1"
@@ -470,13 +469,15 @@ Currently XDND, Motif and old KDE 1.x protocols are recognized."
         (progn
           (let ((action (cdr (assoc (symbol-name (cadr client-message))
                                     x-dnd-xdnd-to-action)))
-                (targets (cddr client-message))
+                (targets (cdddr client-message))
                 (local-value (nth 2 client-message)))
             (when (windowp window)
               (select-window window))
-            (x-dnd-save-state window nil nil
-                              (apply #'vector targets))
-            (x-dnd-maybe-call-test-function window action)
+            ;; Remove XdndDirectSave0 from this list--Emacs does not
+            ;; support this protocol for internal drops.
+            (setq targets (delete 'XdndDirectSave0 targets))
+            (x-dnd-save-state window nil nil (apply #'vector targets))
+            (x-dnd-maybe-call-test-function window action nil)
             (unwind-protect
                 (x-dnd-drop-data event (if (framep window) window
                                          (window-frame window))
@@ -1559,9 +1560,9 @@ was taken, or the direct save failed."
           (x-change-window-property "XdndDirectSave0" encoded-name
                                     frame "text/plain" 8 nil)
           (gui-set-selection 'XdndSelection (concat "file://" file-name))
-          ;; FIXME: this does not work with GTK file managers, since
-          ;; they always reach for `text/uri-list' first, contrary to
-          ;; the spec.
+          ;; FIXME: this does not work with GTK file managers,
+          ;; since they always reach for `text/uri-list' first,
+          ;; contrary to the spec.
           (let ((action (x-begin-drag '("XdndDirectSave0" "text/uri-list"
                                         "application/octet-stream")
                                       'XdndActionDirectSave
@@ -1579,7 +1580,8 @@ was taken, or the direct save failed."
       (unless prop-deleted
         (x-delete-window-property "XdndDirectSave0" frame))
       ;; Delete any remote copy that was made.
-      (when (not (equal file-name original-file-name))
+      (when (and (not (equal file-name original-file-name))
+                 x-dnd-xds-performed)
         (delete-file file-name)))))
 
 (defun x-dnd-save-direct (need-name filename)
@@ -1718,7 +1720,7 @@ VERSION is the version of the XDND protocol understood by SOURCE."
                                      (if (or (not success)
                                              (< version 5))
                                          0
-                                       "XdndDirectSave0")))))))
+                                       "XdndActionDirectSave")))))))
 
 ;; Internal wheel movement.
 

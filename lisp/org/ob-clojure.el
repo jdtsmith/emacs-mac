@@ -1,6 +1,6 @@
 ;;; ob-clojure.el --- Babel Functions for Clojure    -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2009-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
 ;; Author: Joel Boehland, Eric Schulte, Oleh Krehel, Frederick Giasson
 ;; Maintainer: Daniel Kraus <daniel@kraus.my>
@@ -53,7 +53,6 @@
 (require 'ob)
 
 (declare-function cider-current-connection "ext:cider-client" (&optional type))
-(declare-function cider-current-ns "ext:cider-client" ())
 (declare-function inf-clojure "ext:inf-clojure" (cmd))
 (declare-function inf-clojure-cmd "ext:inf-clojure" (project-type))
 (declare-function inf-clojure-eval-string "ext:inf-clojure" (code))
@@ -120,14 +119,14 @@
   :package-version '(Org . "9.6"))
 
 (defcustom ob-clojure-nbb-command (or (executable-find "nbb")
-                                      (when-let (npx (executable-find "npx"))
+                                      (when-let* ((npx (executable-find "npx")))
                                         (concat npx " nbb")))
   "Nbb command used by the ClojureScript `nbb' backend."
   :type '(choice string (const nil))
   :group 'org-babel
   :package-version '(Org . "9.7"))
 
-(defcustom ob-clojure-cli-command (when-let (cmd (executable-find "clojure"))
+(defcustom ob-clojure-cli-command (when-let* ((cmd (executable-find "clojure")))
                                     (concat cmd " -M"))
   "Clojure CLI command used by the Clojure `clojure-cli' backend."
   :type '(choice string (const nil))
@@ -155,21 +154,21 @@ or set the `:backend' header argument"))))
 	 (result-params (cdr (assq :result-params params)))
 	 (print-level nil)
 	 (print-length nil)
-	 ;; Remove comments, they break (let [...] ...) bindings
-	 (body (replace-regexp-in-string "^[ 	]*;+.*$" "" body))
 	 (body (org-trim
 		(concat
 		 ;; Source block specified namespace :ns.
 		 (and (cdr (assq :ns params)) (format "(ns %s)\n" ns))
 		 ;; Variables binding.
 		 (if (null vars) (org-trim body)
-		   (format "(let [%s]\n%s)"
+                   ;; Remove comments, they break (let [...] ...) bindings
+                   (let ((body (replace-regexp-in-string "^[    ]*;+.*$" "" body)))
+                     (format "(let [%s]\n%s)"
 			   (mapconcat
 			    (lambda (var)
 			      (format "%S '%S" (car var) (cdr var)))
 			    vars
 			    "\n      ")
-			   body))))))
+			   body)))))))
     ;; If the result param is set to "output" we don't have to do
     ;; anything special and just let the backend handle everything
     (if (member "output" result-params)
@@ -237,8 +236,8 @@ or set the `:backend' header argument"))))
 			     "clojure" (format "clojure -A%s" alias)
 			     cmd0)
 		    cmd0)))
-	(setq
-         org-babel-comint-prompt-regexp-old comint-prompt-regexp
+	(setq-local
+         org-babel-comint-prompt-regexp-fallback comint-prompt-regexp
          comint-prompt-regexp inf-clojure-comint-prompt-regexp)
 	(funcall-interactively #'inf-clojure cmd)
 	(goto-char (point-max))))

@@ -1,6 +1,6 @@
 ;;; emacsbug.el --- command to report Emacs bugs to appropriate mailing list  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1985-2026 Free Software Foundation, Inc.
 
 ;; Author: K. Shane Hartman
 ;; Maintainer: emacs-devel@gnu.org
@@ -36,6 +36,7 @@
 
 (require 'sendmail)
 (require 'message)
+(require 'lisp-mnt)
 
 (defgroup emacsbug nil
   "Sending Emacs bug reports."
@@ -440,6 +441,23 @@ copy text to your preferred mail program.\n"
 	    system-configuration-options "'\n\n")
     (fill-region (line-beginning-position -1) (point))))
 
+(defun report-emacs-bug-check-org ()
+  "Warn the user if the bug report mentions org-mode."
+  (unless report-emacs-bug-no-confirmation
+    (let* ((org-regex "\\(^\\|\\s-\\)[Oo]rg\\(-mode\\)?\\(\\s-\\|$\\)")
+           (count (lambda (r s)
+                    (let ((c 0) (start 0))
+                      (while (string-match r s start)
+                        (setq c (1+ c))
+                        (setq start (match-end 0)))
+                      c)))
+           (m (funcall count org-regex (buffer-string)))
+           (m-orig (funcall count org-regex report-emacs-bug-orig-text)))
+      (when (> m m-orig)
+        (when (yes-or-no-p "Is this bug about org-mode?")
+          (error (substitute-command-keys "\
+Not sending, use \\[org-submit-bug-report] to report an Org-mode bug.")))))))
+
 (defun report-emacs-bug-hook ()
   "Do some checking before sending a bug report."
   (goto-char (point-max))
@@ -472,6 +490,7 @@ and send the mail again%s."
   ;; questions about From header validity if the user is going to
   ;; use mailclient, anyway.
   (when (or (and (derived-mode-p 'message-mode)
+                 (not message-server-alist)
 		 (eq (message-default-send-mail-function) 'sendmail-query-once))
 	    (and (not (derived-mode-p 'message-mode))
 		 (eq send-mail-function 'sendmail-query-once)))
@@ -509,10 +528,15 @@ and send the mail again%s."
           (goto-char (point-min))
           (re-search-forward "^From: " nil t)
 	  (error "Please edit the From address and try again"))))
+  (report-emacs-bug-check-org)
   ;; Bury the help buffer (if it's shown).
-  (when-let ((help (get-buffer "*Bug Help*")))
+  (when-let* ((help (get-buffer "*Bug Help*")))
     (when (get-buffer-window help)
       (quit-window nil (get-buffer-window help)))))
+
+(defconst submit-emacs-patch-excluded-maintainers
+  '("emacs-devel@gnu.org")
+  "List of maintainer addresses for `submit-emacs-patch' to ignore.")
 
 ;;;###autoload
 (defun submit-emacs-patch (subject file)
@@ -549,10 +573,39 @@ Message buffer where you can explain more about the patch."
     (view-mode 1)
     (button-mode 1))
   (compose-mail-other-window report-emacs-bug-address subject)
+  (rfc822-goto-eoh)
+  (insert "X-Debbugs-Cc: ")
+  (let ((maint (let (files)
+                 (with-temp-buffer
+                   (insert-file-contents file)
+                   (while (search-forward-regexp "^\\+\\{3\\} ./\\(.*\\)" nil t)
+                     (let ((file (expand-file-name
+                                  (match-string-no-properties 1)
+                                  source-directory)))
+                       (when (file-readable-p file)
+                         (push file files)))))
+                 (mapcan
+                  (lambda (patch)
+                    (seq-remove
+                     (pcase-lambda (`(,_name . ,addr))
+                       (member addr submit-emacs-patch-excluded-maintainers))
+                     ;; TODO: Consult admin/MAINTAINERS for additional
+                     ;; information.  This either requires some
+                     ;; heuristics to parse the existing file or to
+                     ;; adjust the file format to make it more machine
+                     ;; readable (bug#69646).
+                     (lm-maintainers patch)))
+                  files))))
+    (when maint
+      (insert (mapconcat
+               (pcase-lambda (`(,name . ,addr))
+                 (format "%s <%s>" name addr))
+               maint ", "))))
+  (insert "\n")
   (message-goto-body)
   (insert "\n\n\n")
   (emacs-build-description)
-  (mml-attach-file file "text/patch" nil "attachment")
+  (mml-attach-file file "text/x-patch" nil "attachment")
   (message-goto-body)
   (message "Write a description of the patch and use %s to send it"
            (substitute-command-keys "\\[message-send-and-exit]"))
@@ -564,7 +617,7 @@ Message buffer where you can explain more about the patch."
   (message-add-action
    (lambda ()
      ;; Bury the help buffer (if it's shown).
-     (when-let ((help (get-buffer "*Patch Help*")))
+     (when-let* ((help (get-buffer "*Patch Help*")))
        (when (get-buffer-window help)
          (quit-window nil (get-buffer-window help)))))
    'send))

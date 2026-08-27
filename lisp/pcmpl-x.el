@@ -1,6 +1,6 @@
 ;;; pcmpl-x.el --- completion for miscellaneous tools  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2013-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2026 Free Software Foundation, Inc.
 
 ;; Author: Leo Liu <sdl.web@gmail.com>
 ;; Keywords: processes, tools, convenience
@@ -121,7 +121,7 @@
 
 (defun pcmpl-x-tlmgr-action-options (action)
   "Get the list of long options for ACTION."
-  (if (eq (gethash action pcmpl-x-tlmgr-options-cache 'missing) 'missing)
+  (if (not (hash-table-contains-p action pcmpl-x-tlmgr-options-cache))
       (with-temp-buffer
         (when (zerop
                (call-process pcmpl-x-tlmgr-program nil t nil action "-h"))

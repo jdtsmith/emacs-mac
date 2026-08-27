@@ -1,6 +1,6 @@
 ;;; data-debug.el --- Data structure debugger  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Old-Version: 0.2
@@ -29,7 +29,7 @@
 ;;
 ;; The best way to get started is to bind M-: to 'data-debug-eval-expression.
 ;;
-;; (global-set-key "\M-:" 'data-debug-eval-expression)
+;; (keymap-global-set "M-:" 'data-debug-eval-expression)
 ;;
 ;; If you write functions with complex output that need debugging, you
 ;; can make them interactive with data-debug-show-stuff.  For example:
@@ -392,10 +392,10 @@ PREBUTTONTEXT is some text between prefix and the stuff list button."
    (lambda (key value)
      (data-debug-insert-thing
       key prefix
-      (propertize "key " 'face font-lock-comment-face))
+      (propertize "key " 'face 'font-lock-comment-face))
      (data-debug-insert-thing
       value prefix
-      (propertize "val " 'face font-lock-comment-face)))
+      (propertize "val " 'face 'font-lock-comment-face)))
    hash-table))
 
 (defun data-debug-insert-hash-table-from-point (point)
@@ -446,7 +446,7 @@ in front of the button text."
 			       prefix
 			       (concat
 				(propertize (format "%s" (car rest))
-					       'face font-lock-comment-face)
+                                               'face 'font-lock-comment-face)
 				" : "))
       (setq rest (cdr (cdr rest))))
     ))
@@ -682,7 +682,7 @@ PREBUTTONTEXT is some text between prefix and the thing."
       (setq newstr (replace-match "\\t" t t newstr)))
     (insert prefix prebuttontext
 	    (propertize (format "\"%s\"" newstr)
-			'face font-lock-string-face)
+                        'face 'font-lock-string-face)
 	    "\n" )))
 
 ;;; Number
@@ -693,7 +693,7 @@ PREFIX is the text that precedes the button.
 PREBUTTONTEXT is some text between prefix and the thing."
   (insert prefix prebuttontext
 	  (propertize (format "%S" thing)
-			 'face font-lock-string-face)
+                         'face 'font-lock-string-face)
 	  "\n"))
 
 ;;; Lambda Expression

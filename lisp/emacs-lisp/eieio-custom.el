@@ -1,6 +1,6 @@
 ;;; eieio-custom.el --- eieio object customization  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2001, 2005, 2007-2025 Free Software Foundation,
+;; Copyright (C) 1999-2001, 2005, 2007-2026 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
@@ -31,6 +31,7 @@
 ;; `:custom'.
 
 (require 'eieio)
+(require 'eieio-base) ;; For `eieio-named's slot.
 (require 'widget)
 (require 'wid-edit)
 
@@ -75,7 +76,7 @@ of these.")
 				      (((class color)
 					(background light))
 				       (:foreground "blue"))
-				      (t (:italic t)))
+				      (t (:slant italic)))
   "Face used for unpushable variable tags."
   :group 'custom-faces)
 

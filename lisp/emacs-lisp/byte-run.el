@@ -1,6 +1,6 @@
 ;;; byte-run.el --- byte-compiler support for inlining  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1992, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1992, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Jamie Zawinski <jwz@lucid.com>
 ;;	Hallvard Furuseth <hbf@ulrik.uio.no>
@@ -75,7 +75,7 @@ This is done by destructively modifying ARG.  Return ARG."
             (setq elt (aref arg i))
             (cond
              ((symbol-with-pos-p elt)
-              (aset arg i elt))
+              (aset arg i (bare-symbol elt)))
              ((consp elt)
               (byte-run--strip-list elt))
              ((or (vectorp elt) (recordp elt))
@@ -222,14 +222,35 @@ So far, FUNCTION can only be a symbol, not a lambda expression."
                  (cadr elem)))
               val)))))
 
+(defalias 'byte-run--anonymize-arg-list
+  #'(lambda (arg-list)
+      (mapcar (lambda (x)
+                (if (memq x '(&optional &rest))
+                    x
+                 t))
+              arg-list)))
+
 (defalias 'byte-run--set-function-type
-  #'(lambda (f _args val &optional f2)
+  #'(lambda (f args val &optional f2)
       (when (and f2 (not (eq f2 f)))
         (error
          "`%s' does not match top level function `%s' inside function type \
 declaration" f2 f))
+      (unless (and  (length= val 3)
+                    (eq (car val) 'function)
+                    (listp (car (cdr val))))
+        (error "Type `%s' is not valid a function type" val))
+      (unless (equal (byte-run--anonymize-arg-list args)
+                     (byte-run--anonymize-arg-list (car (cdr val))))
+        (error "Type `%s' incompatible with function arguments `%s'" val args))
       (list 'function-put (list 'quote f)
             ''function-type (list 'quote val))))
+
+(defalias 'byte-run--dont-autoload
+  #'(lambda (fn)
+      #'(lambda (&rest args)
+          (let ((code (apply fn args)))
+            (list 'progn ':autoload-end code)))))
 
 ;; Add any new entries to info node `(elisp)Declare Form'.
 (defvar defun-declarations-alist
@@ -270,6 +291,12 @@ This is used by `declare'.")
       (list 'progn :autoload-end
 	    (list 'put (list 'quote name)
 		  ''edebug-form-spec (list 'quote spec)))))
+
+(defalias 'byte-run--set-autoload-macro
+  #'(lambda (name _args spec)
+      (list 'function-put (list 'quote name)
+	    ''autoload-macro (list 'quote spec)))
+  "Handle autoload-macro declarations")
 
 (defalias 'byte-run--set-no-font-lock-keyword
   #'(lambda (name _args val)
@@ -347,11 +374,18 @@ This is used by `declare'.")
         (cons actions cl-decls))))
 
 (defvar macro-declarations-alist
-  (cons
-   (list 'debug #'byte-run--set-debug)
-   (cons
-    (list 'no-font-lock-keyword #'byte-run--set-no-font-lock-keyword)
-    defun-declarations-alist))
+  (nconc
+   (list
+    (list 'debug #'byte-run--set-debug)
+    ;; macros can declare (autoload-macro expand) to request expansion
+    ;; during autoload generation of forms calling them.  See
+    ;; `loaddefs-generate--make-autoload'.
+    (list 'autoload-macro #'byte-run--set-autoload-macro)
+    ;; Override the entry from `defun-declarations-alist', because we
+    ;; prefer to autoload the macro when trying to indent it (bug#68818).
+    (list 'indent (byte-run--dont-autoload #'byte-run--set-indent))
+    (list 'no-font-lock-keyword #'byte-run--set-no-font-lock-keyword))
+   defun-declarations-alist)
   "List associating properties of macros to their macro expansion.
 Each element of the list takes the form (PROP FUN) where FUN is a function.
 For each (PROP . VALUES) in a macro's declaration, the FUN corresponding
@@ -397,6 +431,8 @@ The return value is undefined.
            (if declarations
 	       (cons 'prog1 (cons def (car declarations)))
 	     def))))))
+;; Expand to defalias and related forms on autoload gen
+(function-put 'defmacro 'autoload-macro 'expand) ; Since we cannot `declare' it
 
 ;; Now that we defined defmacro we can use it!
 (defmacro defun (name arglist &rest body)
@@ -409,7 +445,9 @@ INTERACTIVE is an optional `interactive' specification.
 The return value is undefined.
 
 \(fn NAME ARGLIST [DOCSTRING] [DECL] [INTERACTIVE] BODY...)"
-  (declare (doc-string 3) (indent 2))
+  (declare (doc-string 3) (indent 2)
+           ;; Expand to defalias on autoload gen
+           (autoload-macro expand))
   (or name (error "Cannot define '%s' as a function" name))
   (if (null
        (and (listp arglist)
@@ -528,7 +566,7 @@ was first made obsolete, for example a date or a release number."
   (put obsolete-name 'byte-obsolete-info
        ;; The second entry used to hold the `byte-compile' handler, but
        ;; is not used any more nowadays.
-       (purecopy (list current-name nil when)))
+       (list current-name nil when))
   obsolete-name)
 
 (defmacro define-obsolete-function-alias ( obsolete-name current-name when
@@ -556,14 +594,15 @@ See the docstrings of `defalias' and `make-obsolete' for more details."
                                 &optional access-type)
   "Make the byte-compiler warn that OBSOLETE-NAME is obsolete.
 The warning will say that CURRENT-NAME should be used instead.
-If CURRENT-NAME is a string, that is the `use instead' message.
+If CURRENT-NAME is a string, that is the `use instead' message.  If it
+is a string, it is passed through `substitute-command-keys'.
 WHEN should be a string indicating when the variable
 was first made obsolete, for example a date or a release number.
 ACCESS-TYPE if non-nil should specify the kind of access that will trigger
   obsolescence warnings; it can be either `get' or `set'."
   (byte-run--constant-obsolete-warning obsolete-name)
   (put obsolete-name 'byte-obsolete-variable
-       (purecopy (list current-name access-type when)))
+       (list current-name access-type when))
   obsolete-name)
 
 (defmacro define-obsolete-variable-alias ( obsolete-name current-name when
@@ -618,7 +657,7 @@ obsolete, for example a date or a release number."
   `(progn
      (put ,obsolete-face 'face-alias ,current-face)
      ;; Used by M-x describe-face.
-     (put ,obsolete-face 'obsolete-face (or (purecopy ,when) t))))
+     (put ,obsolete-face 'obsolete-face (or ,when t))))
 
 (defmacro dont-compile (&rest body)
   "Like `progn', but the body always runs interpreted (not compiled).
@@ -652,7 +691,8 @@ enabled."
   ;; When the byte-compiler expands code, this macro is not used, so we're
   ;; either about to run `body' (plain interpretation) or we're doing eager
   ;; macroexpansion.
-  (list 'quote (eval (cons 'progn body) lexical-binding)))
+  (list 'quote (eval (cons 'progn body)
+                     (when lexical-binding (or macroexp--dynvars t)))))
 
 (defun with-no-warnings (&rest body)
   "Like `progn', but prevents compiler warnings in the body."

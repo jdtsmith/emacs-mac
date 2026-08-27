@@ -1,6 +1,6 @@
 ;;; network-stream.el --- open network processes, possibly with encryption -*- lexical-binding: t -*-
 
-;; Copyright (C) 2010-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: network
@@ -249,7 +249,8 @@ gnutls-boot (as returned by `gnutls-boot-parameters')."
               (ignore-errors
                 (car (auth-source-search :max 1
                                          :host host
-                                         :port (format "%s" service)))))
+                                         :port (format "%s" service)
+                                         :require '(:key :cert)))))
 	     (key (plist-get auth-info :key))
 	     (cert (plist-get auth-info :cert)))
 	(and key cert (file-readable-p key) (file-readable-p cert)

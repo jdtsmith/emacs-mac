@@ -1,6 +1,6 @@
 ;;; dired-aux.el --- less commonly used parts of dired -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1985-2026 Free Software Foundation, Inc.
 
 ;; Author: Sebastian Kremer <sk@thp.uni-koeln.de>.
 ;; Maintainer: emacs-devel@gnu.org
@@ -214,8 +214,8 @@ the string of command switches used as the third argument of `diff'."
 			    (save-excursion (goto-char (mark t))
 					    (dired-get-filename t t))))
           (separate-dir (and oldf
-                             (not (equal (file-name-directory oldf)
-                                         (dired-current-directory)))))
+                             (not (equal default-directory
+                                         (file-name-directory oldf)))))
 	  (default-file (or file-at-mark
                             ;; If the file with which to compare
                             ;; doesn't exist, or we cannot intuit it,
@@ -223,9 +223,9 @@ the string of command switches used as the third argument of `diff'."
                             ;; as the default, as an indication to the
                             ;; user that she should type the file
                             ;; name.
-			    (and (if (and oldf (file-readable-p oldf)) oldf)
+			    (and oldf (file-readable-p oldf)
                                  (if separate-dir
-                                     oldf
+                                     (file-relative-name oldf)
                                    (file-name-nondirectory oldf)))))
 	  ;; Use it as default if it's not the same as the current file,
 	  ;; and the target dir is current or there is a default file.
@@ -330,14 +330,13 @@ only in the active region if `dired-mark-region' is non-nil."
   (interactive
    (list
     (let* ((target-dir (dired-dwim-target-directory))
-	   (defaults (dired-dwim-target-defaults nil target-dir)))
+           (defaults (dired-dwim-target-defaults nil target-dir)))
       (minibuffer-with-setup-hook
 	  (lambda ()
-            (setq-local minibuffer-default-add-function nil)
-	    (setq minibuffer-default defaults))
+            (setq-local minibuffer-default-add-function nil))
 	(read-directory-name (format "Compare %s with: "
 				     (dired-current-directory))
-			     target-dir target-dir t)))
+			     target-dir defaults t)))
     (read-from-minibuffer "Mark if (lisp expr or RET): " nil nil t nil "nil"))
    dired-mode)
   (let* ((dir1 (dired-current-directory))
@@ -362,12 +361,16 @@ only in the active region if `dired-mark-region' is non-nil."
      dir1 nil
      (lambda ()
        (dired-mark-if
-        (member (dired-get-filename nil t) file-list1) nil)))
+        (and (not (dired--hidden-p))
+             (member (dired-get-filename nil t) file-list1))
+        nil)))
     (dired-fun-in-all-buffers
      dir2 nil
      (lambda ()
        (dired-mark-if
-        (member (dired-get-filename nil t) file-list2) nil)))
+        (and (not (dired--hidden-p))
+             (member (dired-get-filename nil t) file-list2))
+        nil)))
     (message "Marked in dir1: %s, in dir2: %s"
              (format-message (ngettext "%d file" "%d files" (length file-list1))
                              (length file-list1))
@@ -805,7 +808,7 @@ to execute it asynchronously.
 When operating on multiple files, asynchronous commands
 are executed in the background on each file in parallel.
 In shell syntax this means separating the individual commands
-with `&'.  However, when COMMAND ends in `;' or `;&' then commands
+with `&'.  However, when COMMAND ends in `;&' then commands
 are executed in the background on each file sequentially waiting
 for each command to terminate before running the next command.
 In shell syntax this means separating the individual commands with `;'.
@@ -1098,6 +1101,7 @@ Return the result of `process-file' - zero for success."
 
 (autoload 'Man-support-local-filenames "man")
 (autoload 'vc-responsible-backend "vc")
+(autoload 'vc-backend-for-registration "vc")
 
 (defvar dired-guess-shell-alist-default
   (list
@@ -1445,7 +1449,7 @@ This excludes `dired-guess-shell-alist-user' and
    ((executable-find "run-mailcap")
     "run-mailcap"))
   "A shell command to open a file externally."
-  :type 'string
+  :type '(choice (const :tag "None" nil) string)
   :group 'dired
   :version "30.1")
 
@@ -1454,6 +1458,34 @@ This excludes `dired-guess-shell-alist-user' and
   (append (ensure-list shell-command-guess-open) commands))
 
 (declare-function w32-shell-execute "w32fns.c")
+
+;;;###autoload
+(defun shell-command-do-open (files)
+  "Open each of FILES using an external program.
+This \"opens\" the file(s) using the external command that is most
+appropriate for the file(s) according to the system conventions."
+  (let ((command shell-command-guess-open))
+    (when (and (memq system-type '(windows-nt))
+               (equal command "start"))
+      (setq command "open"))
+    (if command
+        (cond
+         ((memq system-type '(ms-dos))
+          (dolist (file files)
+            (shell-command (concat command " " (shell-quote-argument file)))))
+         ((memq system-type '(windows-nt))
+          (dolist (file files)
+            (w32-shell-execute command (convert-standard-filename file))))
+         ((memq system-type '(cygwin))
+          (dolist (file files)
+            (call-process command nil nil nil file)))
+         ((memq system-type '(darwin))
+          (dolist (file files)
+            (start-process (concat command " " file) nil command file)))
+         (t
+          (dolist (file files)
+            (call-process command nil 0 nil file))))
+      (error "Open not supported on this system"))))
 
 ;;;###autoload
 (defun dired-do-open (&optional arg)
@@ -1465,30 +1497,11 @@ run it on the next ARG files, or on the file at mouse-click, or on the
 file at point.  The appropriate command to \"open\" a file on each
 system is determined by `shell-command-guess-open'."
   (interactive "P" dired-mode)
-  (let ((files (if (mouse-event-p last-nonmenu-event)
-                   (save-excursion
-                     (mouse-set-point last-nonmenu-event)
-                     (dired-get-marked-files nil arg))
-                 (dired-get-marked-files nil arg)))
-        (command shell-command-guess-open))
-    (when (and (memq system-type '(windows-nt))
-               (equal command "start"))
-      (setq command "open"))
-    (when command
-      (dolist (file files)
-        (cond
-         ((memq system-type '(gnu/linux))
-          (call-process command nil 0 nil file))
-         ((memq system-type '(ms-dos))
-          (shell-command (concat command " " (shell-quote-argument file))))
-         ((memq system-type '(windows-nt))
-          (w32-shell-execute command (convert-standard-filename file)))
-         ((memq system-type '(cygwin))
-          (call-process command nil nil nil file))
-         ((memq system-type '(darwin))
-          (start-process (concat command " " file) nil command file))
-         (t
-          (error "Open not supported on this system")))))))
+  (shell-command-do-open (if (mouse-event-p last-nonmenu-event)
+                             (save-excursion
+                               (mouse-set-point last-nonmenu-event)
+                               (dired-get-marked-files nil arg))
+                           (dired-get-marked-files nil arg))))
 
 
 ;;; Commands that delete or redisplay part of the dired buffer
@@ -1908,7 +1921,7 @@ return t; if SYM is q or ESC, return nil."
 		 (concat (apply #'format-message prompt args)
 			 (if help-form
 			     (format " [Type yn!q or %s] "
-				     (key-description (vector help-char)))
+                                     (help-key))
 			   " [Type y, n, q or !] ")))
 	   (set sym (setq char (read-char-choice prompt char-choices)))
 	   (if (memq char '(?y ?\s ?!)) t)))))
@@ -2263,7 +2276,7 @@ that suppresses the confirmation, and backup files are always created."
 (declare-function make-symbolic-link "fileio.c")
 
 (defcustom dired-create-destination-dirs nil
-  "Whether Dired should create destination dirs when copying/removing files.
+  "Whether Dired should create destination dirs when copying/moving files.
 If nil, don't create non-existent destination directories.
 If `ask', ask the user whether to create them.
 If `always', create them without asking.
@@ -2349,9 +2362,11 @@ unless OK-IF-ALREADY-EXISTS is non-nil."
     (dired-handle-overwrite newname)
     (dired-maybe-create-dirs (file-name-directory newname))
     (if (and dired-vc-rename-file
-             (vc-backend file)
+             (if file-is-dir-p
+                 (ignore-errors (vc-responsible-backend file))
+               (vc-backend file))
              (ignore-errors (vc-responsible-backend newname)))
-        (vc-rename-file file newname)
+        (vc-rename-file file newname ok-if-already-exists)
       ;; error is caught in -create-files
       (rename-file file newname ok-if-already-exists))
     ;; Silently rename the visited file of any buffer visiting this file.
@@ -2658,17 +2673,12 @@ Optional arg HOW-TO determines how to treat the target.
 	   (dired-one-file	; fluid variable inside dired-create-files
 	    (and (consp fn-list) (null (cdr fn-list)) (car fn-list)))
 	   (target-dir (dired-dwim-target-directory))
-	   (default (and dired-one-file
-		         (not dired-dwim-target) ; Bug#25609
-		         (expand-file-name (file-name-nondirectory
-                                            (car fn-list))
-					   target-dir)))
 	   (defaults (dired-dwim-target-defaults fn-list target-dir))
 	   (target (expand-file-name ; fluid variable inside dired-create-files
 		    (minibuffer-with-setup-hook
 		        (lambda ()
-                          (setq-local minibuffer-default-add-function nil)
-			  (setq minibuffer-default defaults))
+                          ;; Don't run `read-file-name--defaults'
+                          (setq-local minibuffer-default-add-function nil))
 		      (dired-mark-read-file-name
                        (format "%s %%s %s: "
                                (if dired-one-file op1 operation)
@@ -2678,7 +2688,7 @@ Optional arg HOW-TO determines how to treat the target.
                                    ;; other operations copy (etc) to the
                                    ;; prompted file name.
                                    "from" "to"))
-		       target-dir op-symbol arg rfn-list default))))
+		       target-dir op-symbol arg rfn-list defaults))))
 	   (into-dir
             (progn
               (when
@@ -2803,28 +2813,26 @@ Optional arg HOW-TO determines how to treat the target.
       this-dir)))
 
 (defun dired-dwim-target-defaults (fn-list target-dir)
-  ;; Return a list of default values for file-reading functions in Dired.
-  ;; This list may contain directories from Dired buffers in other windows.
-  ;; `fn-list' is a list of file names used to build a list of defaults.
-  ;; When nil or more than one element, a list of defaults will
-  ;; contain only directory names.  `target-dir' is a directory name
-  ;; to exclude from the returned list, for the case when this
-  ;; directory name is already presented in initial input.
-  ;; For Dired operations that support `dired-dwim-target',
-  ;; the argument `target-dir' should have the value returned
-  ;; from `dired-dwim-target-directory'.
+  "Return a list of default values for file-reading functions in Dired.
+
+This list may contain directories from Dired buffers in other windows.
+FN-LIST is a list of file names used to build a list of defaults.
+When nil or more than one element, a list of defaults will
+contain only directory names.
+
+TARGET-DIR should be the initial input in the minibuffer for the
+file-reading function.  For Dired operations that support
+`dired-dwim-target', TARGET-DIR should have the value returned from
+`dired-dwim-target-directory'."
   (let ((dired-one-file
 	 (and (consp fn-list) (null (cdr fn-list)) (car fn-list)))
 	(current-dir (and (eq major-mode 'dired-mode)
 			  (dired-current-directory)))
 	;; Get a list of directories of visible buffers in dired-mode.
 	(dired-dirs (dired-dwim-target-directories)))
-    ;; Force the current dir to be the first in the list.
+    ;; Force TARGET-DIR then CURRENT-DIR to be first in the list.
     (setq dired-dirs
-	  (delete-dups (delq nil (cons current-dir dired-dirs))))
-    ;; Remove the target dir (if specified) or the current dir from
-    ;; default values, because it should be already in initial input.
-    (setq dired-dirs (delete (or target-dir current-dir) dired-dirs))
+	  (delete-dups (delq nil (cons target-dir (cons current-dir dired-dirs)))))
     ;; Return a list of default values.
     (if dired-one-file
 	;; For one file operation, provide a list that contains
@@ -2837,10 +2845,7 @@ Optional arg HOW-TO determines how to treat the target.
 		(mapcar (lambda (dir)
 			  (expand-file-name
 			   (file-name-nondirectory (car fn-list)) dir))
-			(reverse dired-dirs))
-		(list (expand-file-name
-		       (file-name-nondirectory (car fn-list))
-		       (or target-dir current-dir))))
+			(reverse dired-dirs)))
       ;; For multi-file operation, return only a list of other directories.
       dired-dirs)))
 
@@ -2875,13 +2880,33 @@ If DIRECTORY already exists, signal an error."
       (dired-add-file new)
       (dired-move-to-filename))))
 
+(defcustom dired-create-empty-file-in-current-directory nil
+  "Whether `dired-create-empty-file' acts on the current directory.
+If non-nil, `dired-create-empty-file' creates a new empty file and adds
+an entry for it (or its topmost new parent directory if created) under
+the current subdirectory in the Dired buffer by default (otherwise, it
+adds the new file (and new subdirectories if provided) to whichever
+directory the user enters at the prompt).  If nil,
+`dired-create-empty-file' acts on the default directory by default."
+  :type 'boolean
+  :group 'dired
+  :version "31.1")
+
 ;;;###autoload
 (defun dired-create-empty-file (file)
   "Create an empty file called FILE.
-Add a new entry for the new file in the Dired buffer.
 Parent directories of FILE are created as needed.
+Add an entry in the Dired buffer for the topmost new parent
+directory of FILE, if created, otherwise for the new file.
+If user option `dired-create-empty-file-in-current-directory' is
+non-nil, act on the current subdirectory by default, otherwise act on
+the default directory by default.
 If FILE already exists, signal an error."
-  (interactive (list (read-file-name "Create empty file: ")) dired-mode)
+  (interactive
+   (list (read-file-name "Create empty file: "
+                         (and dired-create-empty-file-in-current-directory
+                              (dired-current-directory))))
+   dired-mode)
   (let* ((expanded (expand-file-name file))
          new)
     (if (file-exists-p expanded)
@@ -3820,7 +3845,7 @@ resume the query replace with the command \\[fileloop-continue]."
   (interactive
    (let ((common
 	  (query-replace-read-args
-	   "Query replace regexp in marked files" t t)))
+	   "Query replace regexp in marked files" t t t)))
      (list (nth 0 common) (nth 1 common) (nth 2 common)))
    dired-mode)
   (dolist (file (dired-get-marked-files nil nil #'dired-nondirectory-p nil t))
@@ -3844,7 +3869,7 @@ you can later apply as a patch after reviewing the changes."
   (interactive
    (let ((common
           (query-replace-read-args
-           "Replace regexp as diff in marked files" t t)))
+           "Replace regexp as diff in marked files" t t t)))
      (list (nth 0 common) (nth 1 common) (nth 2 common))))
   (dired-post-do-command)
   (multi-file-replace-regexp-as-diff
@@ -3920,7 +3945,7 @@ function works."
   (interactive
    (let ((common
           (query-replace-read-args
-           "Query replace regexp in marked files" t t)))
+           "Query replace regexp in marked files" t t t)))
      (list (nth 0 common) (nth 1 common)))
    dired-mode)
   (require 'xref)
@@ -3971,12 +3996,12 @@ If only regular files are in the fileset, call `vc-next-action' with
 the same value of the VERBOSE argument (interactively, the prefix
 argument).
 
-If one or more directories are in the fileset, start `vc-dir' in the root
-directory of the repository that includes the current directory, with
-the same files/directories marked in the VC-Directory buffer that were
-marked in the original Dired buffer.  If the current directory doesn't
-belong to a VCS repository, prompt for a repository directory.  In this
-case, the VERBOSE argument is ignored."
+If one or more directories are in the fileset, start `vc-dir' in the
+root directory of the repository that includes the current directory,
+with all directories in the fileset marked in the VC-Directory buffer
+that were marked in the original Dired buffer.  If the current directory
+doesn't belong to a VCS repository, prompt for a repository directory.
+In this case, the VERBOSE argument is ignored."
   (interactive "P" dired-mode)
   (let* ((marked-files
           (dired-get-marked-files nil nil nil nil t))
@@ -4000,31 +4025,26 @@ case, the VERBOSE argument is ignored."
           (add-hook 'vc-dir-refresh-hook transient-hook nil t))
       (vc-next-action verbose))))
 
-(declare-function vc-compatible-state "vc")
+(declare-function vc-only-files-state-and-model "vc")
 
 ;;;###autoload
-(defun dired-vc-deduce-fileset (&optional state-model-only-files not-state-changing)
-  (let ((backend (vc-responsible-backend default-directory))
-        (files (dired-get-marked-files nil nil nil nil t))
-        only-files-list
-        state
-        model)
-    (when (and (not not-state-changing) (cl-some #'file-directory-p files))
-      (user-error "State changing VC operations on directories supported only in `vc-dir'"))
-
-    (when state-model-only-files
-      (setq only-files-list (mapcar (lambda (file) (cons file (vc-state file))) files))
-      (setq state (cdar only-files-list))
-      ;; Check that all files are in a consistent state, since we use that
-      ;; state to decide which operation to perform.
-      (dolist (crt (cdr only-files-list))
-        (unless (vc-compatible-state (cdr crt) state)
-          (error "When applying VC operations to multiple files, the files are required\nto  be in similar VC states.\n%s in state %s clashes with %s in state %s"
-                 (car crt) (cdr crt) (caar only-files-list) state)))
-      (setq only-files-list (mapcar 'car only-files-list))
-      (when (and state (not (eq state 'unregistered)))
-        (setq model (vc-checkout-model backend only-files-list))))
-    (list backend files only-files-list state model)))
+(defun dired-vc-deduce-fileset
+    (&optional state-model-only-files not-state-changing)
+  (let* ((files (dired-get-marked-files nil nil nil nil t))
+         (backend (or (vc-responsible-backend default-directory t)
+                      (vc-backend-for-registration (car files)))))
+    (when (and (not not-state-changing)
+               (cl-some #'file-directory-p files))
+      (user-error "\
+State-changing VC operations on directories supported only from VC-Dir"))
+    (if state-model-only-files
+        (let ((only-files-list (mapcar (lambda (file)
+                                         (cons file (vc-state file)))
+                                       files)))
+          (cl-list* backend files
+                    (vc-only-files-state-and-model only-files-list
+                                                   backend)))
+      (list backend files))))
 
 
 (provide 'dired-aux)

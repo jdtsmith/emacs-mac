@@ -1,6 +1,6 @@
 ;;; dns-mode.el --- a mode for viewing/editing Domain Name System master files  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: Simon Josefsson <simon@josefsson.org>
 ;; Keywords: DNS master zone file SOA comm
@@ -325,7 +325,7 @@ See `dns-mode-ipv6-to-nibbles' for examples."
                                           (string-to-number chunk 16)))))
          (rev-address-nibbles
           (nreverse (if (and prefix-length
-                             (cl-minusp prefix-length))
+                             (minusp prefix-length))
                         (substring expanded-address prefix-length-nibbles)
                       (substring expanded-address 0 prefix-length-nibbles)))))
     (with-temp-buffer
@@ -334,7 +334,7 @@ See `dns-mode-ipv6-to-nibbles' for examples."
                (insert char)
                (insert "."))
       (if (and prefix-length
-               (cl-minusp prefix-length))
+               (minusp prefix-length))
           (delete-char -1)
         (insert "ip6.arpa."))
       (insert " ")

@@ -1,6 +1,6 @@
 ;;; vera-mode.el --- major mode for editing Vera files  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2026 Free Software Foundation, Inc.
 
 ;; Author:      Reto Zimmermann <reto@gnu.org>
 ;; Version:     2.28
@@ -208,7 +208,7 @@ If nil, TAB always indents current line."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Mode definition
 
-;;;###autoload (add-to-list 'auto-mode-alist (cons (purecopy "\\.vr[hi]?\\'")  'vera-mode))
+;;;###autoload (add-to-list 'auto-mode-alist '("\\.vr[hi]?\\'" . vera-mode))
 
 ;;;###autoload
 (define-derived-mode vera-mode prog-mode "Vera"

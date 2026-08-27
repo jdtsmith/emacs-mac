@@ -1,6 +1,6 @@
 ;;; mouse.el --- window system-independent mouse support  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1993-2026 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: hardware, mouse
@@ -30,6 +30,7 @@
 ;;; Code:
 
 (eval-when-compile (require 'rect))
+(eval-when-compile (require 'send-to))
 
 ;; Indent track-mouse like progn.
 (put 'track-mouse 'lisp-indent-function 0)
@@ -393,7 +394,8 @@ not it is actually displayed."
                                     context-menu-region
                                     context-menu-middle-separator
                                     context-menu-local
-                                    context-menu-minor)
+                                    context-menu-minor
+                                    context-menu-send-to)
   "List of functions that produce the contents of the context menu.
 Each function receives the menu and the mouse click event as its arguments
 and should return the same menu with changes such as added new menu items."
@@ -405,6 +407,7 @@ and should return the same menu with changes such as added new menu items."
                   (function-item context-menu-global)
                   (function-item context-menu-local)
                   (function-item context-menu-minor)
+                  (function-item context-menu-send-to)
                   (function-item context-menu-buffers)
                   (function-item context-menu-project)
                   (function-item context-menu-vc)
@@ -536,6 +539,24 @@ Some context functions add menu items below the separator."
                   (cdr mode))))
   menu)
 
+(autoload 'send-to--resolve-handler "send-to")
+(defun context-menu-send-to (menu _click)
+  "Add a \"Send to...\" context MENU entry on supported platforms."
+  (run-hooks 'activate-menubar-hook 'menu-bar-update-hook)
+  (when-let* ((_ (send-to-supported-p))
+              (handler (send-to--resolve-handler))
+              (collect (map-elt handler :collect))
+              (items (funcall collect)))
+    (define-key-after menu [separator-send] menu-bar-separator)
+    (define-key-after menu [send]
+      `(menu-item "Send to..."
+                  ,(lambda ()
+                     (interactive)
+                     (send-to items))
+                  :help
+                  "Send item (region, buffer file, or Dired files) to applications or service")))
+  menu)
+
 (defun context-menu-buffers (menu _click)
   "Populate MENU with the buffer submenus to buffer switching."
   (run-hooks 'activate-menubar-hook 'menu-bar-update-hook)
@@ -632,7 +653,9 @@ Some context functions add menu items below the separator."
     (with-current-buffer (window-buffer (posn-window (event-end click)))
       (when (let* ((pos (posn-point (event-end click)))
                    (char (when pos (char-after pos))))
-              (or (and char (eq (char-syntax char) ?\"))
+              (or (and char (eq (syntax-class-to-char
+                                 (syntax-class (syntax-after pos)))
+                                ?\"))
                   (nth 3 (save-excursion (syntax-ppss pos)))))
         (define-key-after submenu [mark-string]
           `(menu-item "String"
@@ -664,13 +687,13 @@ Some context functions add menu items below the separator."
   menu)
 
 (defvar context-menu-entry
-  `(menu-item ,(purecopy "Context Menu") ,(make-sparse-keymap)
+  `(menu-item "Context Menu" ,(make-sparse-keymap)
               :filter ,(lambda (_) (context-menu-map)))
   "Menu item that creates the context menu and can be bound to a mouse key.")
 
 (defvar context-menu-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map [mouse-3] nil)
+    (define-key map [mouse-3] #'ignore)
     (define-key map [down-mouse-3]
       (if (featurep 'mac) #'mac-mouse-context-menu context-menu-entry))
     (define-key map [menu] #'context-menu-open)
@@ -721,6 +744,25 @@ This is the keyboard interface to \\[context-menu-map]."
   (or mouse-yank-at-point (mouse-set-point click))
   (push-mark)
   (insert string))
+
+
+;; Mouse shift adjustment mode.
+
+(defvar mouse-shift-adjust-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map [S-down-mouse-1] #'mouse-drag-region-shift-adjust)
+    (define-key map [S-mouse-1]      #'mouse-set-region)
+    (define-key map [S-drag-mouse-1] #'mouse-set-region)
+    map)
+  "Mouse shift adjustment mode map.")
+
+(define-minor-mode mouse-shift-adjust-mode
+  "Toggle mouse shift adjustment mode.
+
+When this mode is enabled, clicking the left mouse button
+with the <Shift> modifier (`S-down-mouse-1') adjusts the
+already selected region using `mouse-drag-region-shift-adjust'."
+  :global t)
 
 
 ;; Commands that operate on windows.
@@ -819,41 +861,110 @@ This command must be bound to a mouse click."
           (split-window-horizontally
            (min (max new-width first-col) last-col)))))))
 
+(defun mouse-position-for-drag-line (tty)
+  "Return the last mouse position observed for the purposes of `mouse-drag-line'.
+If TTY is non-nil, return the last attested position of the mouse
+relative to the root frame.  Otherwise, return the position of the mouse
+relative to the selected frame, unless the current drag operation was
+produced from a touch screen event, in which event, return the position
+of the active touch-screen tool relative to the same."
+  (if tty (mouse-position-in-root-frame)
+    (or (touch-screen-last-drag-position)
+        (mouse-absolute-pixel-position))))
+
 (defun mouse-drag-line (start-event line)
-  "Drag a mode line, header line, or vertical line with the mouse.
+  "Drag a mode, header, tab or vertical line with the mouse.
 START-EVENT is the starting mouse event of the drag action.  LINE
-must be one of the symbols `header', `mode', or `vertical'."
+must be one of the symbols `header', `mode', `tab' or `vertical'."
   ;; Give temporary modes such as isearch a chance to turn off.
   (run-hooks 'mouse-leave-buffer-hook)
+  ;; The earlier version of this was based on using the position of the
+  ;; start event for each sampled mouse movement.  That approach had the
+  ;; disadvantage that when, for example, dragging the mode line down,
+  ;; the 'posn-window' of that event was usually the window below the
+  ;; mode line and its coordinates were relative to that window.  So we
+  ;; had to add position and height of the window above the mode line in
+  ;; order to get a meaningful value for comparing the old and current
+  ;; mouse position.  However, when a user changed the direction during
+  ;; dragging, the mouse moved into the window above the mode line and
+  ;; the relative position changed to one of that window too.  Since
+  ;; keeping track of these changes was tricky, we now simply use
+  ;; absolute mouse positions and do not care about the window at the
+  ;; mouse position any more.
   (let* ((echo-keystrokes 0)
 	 (start (event-start start-event))
 	 (window (posn-window start))
 	 (frame (window-frame window))
-	 ;; `position' records the x- or y-coordinate of the last
-	 ;; sampled position.
+	 ;; tty is needed because `mouse-absolute-pixel-position' does
+	 ;; not return a meaningful value on ttys so there we have to
+	 ;; use `mouse-position-in-root-frame'.
+	 (tty (tty-type frame))
+	 ;; 'charwise' means to drag by character sizes on graphical
+	 ;; displays.
+	 (charwise (not (or window-resize-pixelwise tty)))
+	 ;; The initial absolute position of the mouse.  We
+	 ;; intentionally do not use the value of 'posn-x-y' of
+	 ;; START-EVENT here because that would give us coordinates for
+	 ;; 'posn-window' of that event and we don't want that (see the
+	 ;; comment above).
+	 (position-x-y (mouse-position-for-drag-line tty))
+	 ;; 'position' records the x- (for vertical dragging) or y- (for
+	 ;; mode, header and tab line dragging) coordinate of the
+	 ;; current mouse position
 	 (position (if (eq line 'vertical)
-		       (+ (window-pixel-left window)
-			  (car (posn-x-y start)))
-		     (+ (window-pixel-top window)
-			(cdr (posn-x-y start)))))
-	 ;; `last-position' records the x- or y-coordinate of the
-	 ;; previously sampled position.  The difference of `position'
-	 ;; and `last-position' determines the size change of WINDOW.
+		       (car position-x-y)
+		     (cdr position-x-y)))
+	 ;; 'last-position' records the the x- or y-coordinate of the
+	 ;; previously sampled position.  The difference of 'position'
+	 ;; and 'last-position' determines the size change of WINDOW.
 	 (last-position position)
-	 posn-window growth dragged)
-    ;; Decide on whether we are allowed to track at all and whose
-    ;; window's edge we drag.
+	 ;; The next two bindings are used for characterwise dragging
+	 ;; only.  'residue' is the remainder of the difference between
+	 ;; 'position' and 'last-position' divided by the frame's
+	 ;; character size and will be considered in the next difference
+	 ;; calculation.
+	 (residue 0)
+	 ;; 'forward' indicates the current dragging direction and is
+	 ;; non-nil when dragging to the right or down.  Its purpose is
+	 ;; to detect changes in the dragging direction in order to keep
+	 ;; the mouse cursor nearer to the dragged line.
+	 (forward t)
+	 ;; 'char-size' is the frame's character width) for vertical
+	 ;; dragging) or character height (for mode, header, tab line
+	 ;; dragging).
+	 char-size
+	 ;; 'growth' is the position change of the mouse in pixels if
+	 ;; 'charwise' is nil, in characters if 'charwise' is non-nil.
+	 growth
+	 ;; `dragged' is initially nil and sticks to non-nil after the
+	 ;; first time growth has become non-nil.  Its purpose is to
+	 ;; give characterwise dragging a head start to avoid that the
+	 ;; mouse cursor moves to far away from the line to drag.
+	 dragged)
+    ;; Set up the window whose edge to drag.
     (cond
-     ((eq line 'header)
-      ;; Drag bottom edge of window above the header line.
-      (setq window (window-in-direction 'above window t)))
-     ((eq line 'mode))
+     ((memq line '(header tab))
+      ;;  LINE is a header or tab line.  Drag the bottom edge of the
+      ;;  window above it.
+      (setq window (window-in-direction 'above window t))
+      (when charwise
+	(setq char-size (frame-char-height frame))))
+     ((eq line 'mode)
+      ;; LINE is a mode line or a bottom window divider.  Drag the bottom edge
+      ;; of its window.
+      (when charwise
+	(setq char-size (frame-char-height frame))))
      ((eq line 'vertical)
+      ;; LINE is a window divider on the right.  Drag the right edge of
+      ;; the window on its left.
       (let ((divider-width (frame-right-divider-width frame)))
         (when (and (or (not (numberp divider-width))
                        (zerop divider-width))
                    (eq (frame-parameter frame 'vertical-scroll-bars) 'left))
-          (setq window (window-in-direction 'left window t))))))
+          (setq window (window-in-direction 'left window t))))
+      (when charwise
+	(setq char-size (frame-char-width frame)))))
+
     (let* ((exitfun nil)
            (move
 	    (lambda (event) (interactive "e")
@@ -861,71 +972,72 @@ must be one of the symbols `header', `mode', or `vertical'."
 	       ((not (consp event))
 		nil)
 	       ((eq line 'vertical)
-		;; Drag right edge of `window'.
-		(setq start (event-start event))
-		(setq position (car (posn-x-y start)))
-		;; Set `posn-window' to the window where `event' was recorded.
-		;; This can be `window' or the window on the left or right of
-		;; `window'.
-		(when (window-live-p (setq posn-window (posn-window start)))
-		  ;; Add left edge of `posn-window' to `position'.
-		  (setq position (+ (window-pixel-left posn-window) position))
-		  (unless (posn-area start)
-		    ;; Add width of objects on the left of the text area to
-		    ;; `position'.
-		    (when (eq (window-current-scroll-bars posn-window) 'left)
-		      (setq position (+ (window-scroll-bar-width posn-window)
-					position)))
-		    (setq position (+ (car (window-fringes posn-window))
-				      (or (car (window-margins posn-window)) 0)
-				      position))))
-		;; When the cursor overshoots after shrinking a window to its
-		;; minimum size and the dragging direction changes, have the
-		;; cursor first catch up with the window edge.
-		(unless (or (zerop (setq growth (- position last-position)))
-			    (and (> growth 0)
-				 (< position (+ (window-pixel-left window)
-						(window-pixel-width window))))
-			    (and (< growth 0)
-				 (> position (+ (window-pixel-left window)
-						(window-pixel-width window)))))
+		;; Drag right edge of 'window'.
+		(setq position (car (mouse-position-for-drag-line tty)))
+		(unless (zerop (setq growth (- position last-position)))
+		  ;; When we drag characterwise and we either drag for
+		  ;; the first time or the dragging direction changes,
+		  ;; try to keep in synch cursor and dragged line.
+		  (when (and charwise
+			     (or (not dragged)
+				 (if forward
+				     (< growth 0)
+				   (> growth 0))))
+		    (setq forward (> growth 0))
+		    (setq growth
+			  (if (> growth 0)
+			      (+ growth (/ char-size 2))
+			    (- growth (/ char-size 2)))))
+
 		  (setq dragged t)
-		  (adjust-window-trailing-edge window growth t t))
-		(setq last-position position))
+		  (when charwise
+		    (setq residue (% growth char-size))
+		    (setq growth (/ growth char-size)))
+		  (unless (zerop growth)
+		    (adjust-window-trailing-edge window growth t (not charwise)))
+		  (setq last-position (- position residue))
+
+;; 		  ;; Debugging code.
+;; 		  (message "last %s pos %s growth %s residue %s char-size %s"
+;; 			   last-position position growth residue char-size)
+
+		  ))
 	       (t
-		;; Drag bottom edge of `window'.
-		(setq start (event-start event))
-		;; Set `posn-window' to the window where `event' was recorded.
-		;; This can be either `window' or the window above or below of
-		;; `window'.
-		(setq posn-window (posn-window start))
-		(setq position (cdr (posn-x-y start)))
-		(when (window-live-p posn-window)
-		  ;; Add top edge of `posn-window' to `position'.
-		  (setq position (+ (window-pixel-top posn-window) position))
-		  ;; If necessary, add height of header line to `position'
-		  (when (memq (posn-area start)
-			      '(nil left-fringe right-fringe left-margin right-margin))
-		    (setq position (+ (window-header-line-height posn-window) position))))
-		;; When the cursor overshoots after shrinking a window to its
-		;; minimum size and the dragging direction changes, have the
-		;; cursor first catch up with the window edge.
-		(unless (or (zerop (setq growth (- position last-position)))
-			    (and (> growth 0)
-				 (< position (+ (window-pixel-top window)
-						(window-pixel-height window))))
-			    (and (< growth 0)
-				 (> position (+ (window-pixel-top window)
-						(window-pixel-height window)))))
+		;; Drag bottom edge of 'window'.
+		(setq position (cdr (mouse-position-for-drag-line tty)))
+		(unless (zerop (setq growth (- position last-position)))
+		  ;; When we drag characterwise and we either drag for
+		  ;; the first time or the dragging direction changes,
+		  ;; try to keep in synch cursor and dragged line.
+		  (when (and charwise
+			     (or (not dragged)
+				 (if forward
+				     (< growth 0)
+				   (> growth 0))))
+		    (setq forward (> growth 0))
+		    (setq growth
+			  (if (> growth 0)
+			      (+ growth (/ char-size 2))
+			    (- growth (/ char-size 2)))))
+
 		  (setq dragged t)
-		  (adjust-window-trailing-edge window growth nil t))
-		(setq last-position position)))))
+		  (when charwise
+		    (setq residue (% growth char-size))
+		    (setq growth (/ growth char-size)))
+		  (unless (zerop growth)
+		    (adjust-window-trailing-edge window growth nil (not charwise)))
+		  (setq last-position (- position residue))
+
+;; 		  ;; Debugging code.
+;; 		  (message "last %s pos %s growth %s residue %s char-size %s"
+;; 			   last-position position growth residue char-size)
+
+		  )))))
            (old-track-mouse track-mouse))
       ;; Start tracking.  The special value 'dragging' signals the
       ;; display engine to freeze the mouse pointer shape for as long
       ;; as we drag.
       (setq track-mouse 'dragging)
-      ;; Loop reading events and sampling the position of the mouse.
       (setq exitfun
 	    (set-transient-map
 	     (let ((map (make-sparse-keymap)))
@@ -947,6 +1059,7 @@ must be one of the symbols `header', `mode', or `vertical'."
 	       ;; with a mode-line, header-line or vertical-line prefix ...
 	       (define-key map [mode-line] map)
 	       (define-key map [header-line] map)
+	       (define-key map [tab-line] map)
 	       (define-key map [vertical-line] map)
 	       ;; ... and some maybe even with a right- or bottom-divider
 	       ;; or left- or right-margin prefix ...
@@ -1035,8 +1148,9 @@ START-EVENT is the starting mouse event of the drag action."
   (interactive "e")
   (let* ((start (event-start start-event))
 	 (window (posn-window start)))
-    (when (and (window-live-p window)
-               (window-at-side-p window 'top))
+    (if (and (window-live-p window)
+             (not (window-at-side-p window 'top)))
+        (mouse-drag-line start-event 'tab)
       (let ((frame (window-frame window)))
         (when (frame-parameter frame 'drag-with-tab-line)
           (mouse-drag-frame-move start-event))))))
@@ -1106,7 +1220,10 @@ frame with the mouse."
 	 (drag-bottom (memq part '(bottom-right bottom bottom-left)))
 	 ;; Initial "first" mouse position.  While dragging we base all
 	 ;; calculations against that position.
-	 (first-x-y (mouse-absolute-pixel-position))
+	 (tty (tty-type frame))
+	 (first-x-y (if tty
+			(mouse-position-in-root-frame)
+		      (mouse-absolute-pixel-position)))
          (first-x (car first-x-y))
          (first-y (cdr first-x-y))
          (exitfun nil)
@@ -1114,7 +1231,9 @@ frame with the mouse."
           (lambda (event)
             (interactive "e")
             (when (consp event)
-              (let* ((last-x-y (mouse-absolute-pixel-position))
+              (let* ((last-x-y (if tty
+				   (mouse-position-in-root-frame)
+				 (mouse-absolute-pixel-position)))
 		     (last-x (car last-x-y))
 		     (last-y (cdr last-x-y))
 		     (left (- last-x first-x))
@@ -1223,10 +1342,13 @@ frame with the mouse."
          (parent-bottom (and parent-edges (nth 3 parent-edges)))
 	 ;; Initial "first" mouse position.  While dragging we base all
 	 ;; calculations against that position.
-	 (first-x-y (mouse-absolute-pixel-position))
-         (first-x (car first-x-y))
-         (first-y (cdr first-x-y))
-         ;; `snap-width' (maybe also a yet to be provided `snap-height')
+	 (tty (tty-type frame))
+	 (first-x-y (if tty
+			(mouse-position-in-root-frame)
+		      (mouse-absolute-pixel-position)))
+	 (first-x (car first-x-y))
+	 (first-y (cdr first-x-y))
+	 ;; `snap-width' (maybe also a yet to be provided `snap-height')
          ;; could become floats to handle proportionality wrt PARENT.
          ;; We don't do any checks on this parameter so far.
          (snap-width (frame-parameter frame 'snap-width))
@@ -1242,7 +1364,9 @@ frame with the mouse."
           (lambda (event)
             (interactive "e")
             (when (consp event)
-              (let* ((last-x-y (mouse-absolute-pixel-position))
+              (let* ((last-x-y (if tty
+				   (mouse-position-in-root-frame)
+				 (mouse-absolute-pixel-position)))
 		     (last-x (car last-x-y))
 		     (last-y (cdr last-x-y))
 		     (left (- last-x first-x))
@@ -1490,7 +1614,7 @@ point determined by `mouse-select-region-move-to-beginning'."
        (eq mouse-last-region-end (region-end))
        (eq mouse-last-region-tick (buffer-modified-tick))))
 
-(defvar mouse--drag-start-event nil)
+(defvar mouse-shift-adjust-point nil)
 
 (defun mouse-set-region (click)
   "Set the region to the text dragged over, and copy to kill ring.
@@ -1500,7 +1624,7 @@ command alters the kill ring or not."
   (interactive "e")
   (mouse-minibuffer-check click)
   (select-window (posn-window (event-start click)))
-  (let ((beg (posn-point (event-start click)))
+  (let ((beg (or mouse-shift-adjust-point (posn-point (event-start click))))
         (end
          (if (eq (posn-window (event-end click)) (selected-window))
              (posn-point (event-end click))
@@ -1509,7 +1633,7 @@ command alters the kill ring or not."
            (window-point)))
         (click-count (event-click-count click)))
     (let ((drag-start (terminal-parameter nil 'mouse-drag-start)))
-      (when drag-start
+      (when (and drag-start (not mouse-shift-adjust-point))
         ;; Drag events don't come with a click count, sadly, so we hack
         ;; our way around this problem by remembering the start-event in
         ;; `mouse-drag-start' and fetching the click-count from there.
@@ -1524,6 +1648,9 @@ command alters the kill ring or not."
                    (not (eq (car drag-start) 'mouse-movement)))
           (setq end beg))
         (setf (terminal-parameter nil 'mouse-drag-start) nil)))
+    (when mouse-shift-adjust-point
+      (setq click-count (1+ mouse-selection-click-count)))
+    (setq mouse-shift-adjust-point nil)
     (when (and (integerp beg) (integerp end))
       (let ((range (mouse-start-end beg end (1- click-count))))
         (if (< end beg)
@@ -1644,11 +1771,34 @@ is dragged over to."
     (ignore-preserving-kill-region)
     (mouse-drag-track start-event)))
 
+(defun mouse-drag-region-shift-adjust (start-event)
+  "Adjust the already active region while dragging the mouse."
+  (interactive "e")
+  ;; Give temporary modes such as isearch a chance to turn off.
+  (run-hooks 'mouse-leave-buffer-hook)
+  (ignore-preserving-kill-region)
+  (setq mouse-shift-adjust-point
+        (or (and (region-active-p) (mark t)) (point)))
+  (mouse-drag-track start-event))
+
 ;; Inhibit the region-confinement when undoing mouse-drag-region
 ;; immediately after the command.  Otherwise, the selection left
 ;; active around the dragged text would prevent an undo of the whole
 ;; operation.
 (put 'mouse-drag-region 'undo-inhibit-region t)
+(put 'mouse-drag-region-shift-adjust 'undo-inhibit-region t)
+
+(defvar mouse-event-areas-with-no-buffer-positions
+  '( mode-line header-line vertical-line
+     left-fringe right-fringe
+     left-margin right-margin
+     tab-bar menu-bar
+     tab-line)
+  "Event areas not containing buffer positions.
+Example: mouse clicks in the fringe come with a position in
+(nth 5).  This is useful but is not where we clicked, so
+don't look up that position's properties!  Likewise for
+the other event areas.")
 
 (defun mouse-posn-property (pos property)
   "Look for a property at click position.
@@ -1658,7 +1808,9 @@ a string, the text property PROPERTY is examined.
 If this is nil or the click is not on a string, then
 the corresponding buffer position is searched for PROPERTY.
 If PROPERTY is encountered in one of those places,
-its value is returned."
+its value is returned.  Mouse events in areas listed in
+`mouse-event-areas-with-no-buffer-positions' always return nil
+because such events do not contain buffer positions."
   (if (consp pos)
       (let ((w (posn-window pos)) (pt (posn-point pos))
 	    (str (posn-string pos)))
@@ -1669,12 +1821,12 @@ its value is returned."
 	(or (and str
                  (< (cdr str) (length (car str)))
 		 (get-text-property (cdr str) property (car str)))
-            ;; Mouse clicks in the fringe come with a position in
-            ;; (nth 5).  This is useful but is not exactly where we clicked, so
-            ;; don't look up that position's properties!
-            (and pt (not (memq (posn-area pos)
-                               '(left-fringe right-fringe
-                                 left-margin right-margin tab-bar)))
+            (and pt
+                 (not (memq (posn-area pos)
+                            ;; Don't return position of these mouse
+                            ;; events because they don't describe the
+                            ;; position of the click.
+                            mouse-event-areas-with-no-buffer-positions))
                  (get-char-property pt property w))))
     (get-char-property pos property)))
 
@@ -1714,18 +1866,26 @@ click is the local or global binding of that event.
 
 - Otherwise, the mouse-1 event is translated into a mouse-2 event
 at the same position."
-  (let ((action
-	 (and (or (not (consp pos))
-		  mouse-1-click-in-non-selected-windows
-		  (eq (selected-window) (posn-window pos)))
-	      (or (mouse-posn-property pos 'follow-link)
-                  (let ((area (posn-area pos)))
-                    (when area
-                      (key-binding (vector area 'follow-link) nil t pos)))
-		  (key-binding [follow-link] nil t pos)))))
+  (let* ((area (and (consp pos) (posn-area pos)))
+         (action
+	  (and (or (not (consp pos))
+		   mouse-1-click-in-non-selected-windows
+		   (eq (selected-window) (posn-window pos)))
+	       (or (mouse-posn-property pos 'follow-link)
+                   (when area
+                     (key-binding (vector area 'follow-link) nil t pos))
+		   (key-binding [follow-link] nil t pos)))))
     (cond
      ((eq action 'mouse-face)
-      (and (mouse-posn-property pos 'mouse-face) t))
+      ;; Inhibit follow-link when `mouse-1' is clicked on the tab-bar to
+      ;; prevent misdirected clicks in `dired-mode'.  This does not prevent
+      ;; remapping `mouse-1' to `mouse-2' on the tab-bar.  See bug#49247
+      ;; bug#81036.
+      ;; FIXME: The tab-bar is not associated with a buffer so a better fix
+      ;; might be not to honor the current buffer's keymap when considering
+      ;; tab-bar mouse clicks,
+      (and (not (eq area 'tab-bar))
+           (mouse-posn-property pos 'mouse-face) t))
      ((functionp action)
       ;; FIXME: This seems questionable if the click is not in a buffer.
       ;; Should we instead decide that `action' takes a `posn'?
@@ -1796,6 +1956,9 @@ The region will be defined with mark and point."
                     (setq scroll-margin scroll-margin-saved))))
     (condition-case err
         (progn
+          ;; Use previous click-count while adjusting previous selection.
+          (when mouse-shift-adjust-point
+            (setq click-count mouse-selection-click-count))
           (setq mouse-selection-click-count click-count)
 
           ;; Suppress automatic scrolling near the edges while tracking
@@ -1817,9 +1980,17 @@ The region will be defined with mark and point."
                       (if (eq transient-mark-mode 'lambda)
                           '(only)
                         (cons 'only transient-mark-mode)))
-          (let ((range (mouse-start-end start-point start-point click-count)))
-            (push-mark (nth 0 range) t t)
-            (goto-char (nth 1 range)))
+          (let ((range (mouse-start-end
+                        (or mouse-shift-adjust-point start-point)
+                        start-point click-count)))
+            (cond
+             ((and mouse-shift-adjust-point
+                   (> mouse-shift-adjust-point start-point))
+              (push-mark (nth 1 range) t t)
+              (goto-char (nth 0 range)))
+             (t
+              (push-mark (nth 0 range) t t)
+              (goto-char (nth 1 range)))))
 
           (setf (terminal-parameter nil 'mouse-drag-start) start-event)
           ;; Set 'track-mouse' to something neither nil nor t, so that mouse
@@ -1842,8 +2013,9 @@ The region will be defined with mark and point."
                      (setcar start-event 'mouse-movement))
                    (if (and (eq (posn-window end) start-window)
                             (integer-or-marker-p end-point))
-                       (mouse--drag-set-mark-and-point start-point
-                                                       end-point click-count)
+                       (mouse--drag-set-mark-and-point
+                        (or mouse-shift-adjust-point start-point)
+                        end-point click-count)
                      (let ((mouse-row (cdr (cdr (mouse-position)))))
                        (cond
                         ((null mouse-row))
@@ -1869,7 +2041,7 @@ The region will be defined with mark and point."
                  (pop-mark)))))
       ;; Cleanup on errors
       (error (funcall cleanup)
-             (signal (car err) (cdr err))))))
+             (signal err)))))
 
 (defun mouse--drag-set-mark-and-point (start click click-count)
   (let* ((range (mouse-start-end start click click-count))
@@ -1892,7 +2064,14 @@ The region will be defined with mark and point."
 If `mouse-1-double-click-prefer-symbols' is non-nil, skip over symbol.
 If DIR is positive skip forward; if negative, skip backward."
   (let* ((char (following-char))
-	 (syntax (char-to-string (char-syntax char)))
+         (syntax-after-pt (syntax-class (syntax-after (point))))
+	 (syntax (char-to-string
+                  (if syntax-after-pt
+                      (syntax-class-to-char syntax-after-pt)
+                    ;; Zero is what 'following-char' returns at EOB, so
+                    ;; we feed that to 'char-syntax' when 'syntax-class'
+                    ;; returns nil, which means we are at EOB.
+                    (char-syntax ?\0))))
          sym)
     (cond ((and mouse-1-double-click-prefer-symbols
                 (setq sym (bounds-of-thing-at-point 'symbol)))
@@ -1940,34 +2119,31 @@ If MODE is 2 then do the same for lines."
         ((and (= mode 1)
               (= start end)
 	      (char-after start)
-              (= (char-syntax (char-after start)) ?\())
-         (if (/= (syntax-class (syntax-after start)) 4) ; raw syntax code for ?\(
-             ;; This happens in CC Mode when unbalanced parens in CPP
-             ;; constructs are given punctuation syntax with
-             ;; syntax-table text properties.  (2016-02-21).
-             (signal 'scan-error (list "Containing expression ends prematurely"
-                                       start start))
-           (list start
-                 (save-excursion
-                   (goto-char start)
-                   (forward-sexp 1)
-                   (point)))))
+              (= (syntax-class-to-char
+                  (syntax-class (syntax-after start)))
+                 ?\())
+         (list start
+               (save-excursion
+                 (goto-char start)
+                 (forward-sexp 1)
+                 (point))))
         ((and (= mode 1)
               (= start end)
 	      (char-after start)
-              (= (char-syntax (char-after start)) ?\)))
-         (if (/= (syntax-class (syntax-after start)) 5) ; raw syntax code for ?\)
-             ;; See above comment about CC Mode.
-             (signal 'scan-error (list "Unbalanced parentheses" start start))
-           (list (save-excursion
-                   (goto-char (1+ start))
-                   (backward-sexp 1)
-                   (point))
-                 (1+ start))))
+              (= (syntax-class-to-char
+                  (syntax-class (syntax-after start)))
+                 ?\)))
+         (list (save-excursion
+                 (goto-char (1+ start))
+                 (backward-sexp 1)
+                 (point))
+               (1+ start)))
 	((and (= mode 1)
               (= start end)
 	      (char-after start)
-              (= (char-syntax (char-after start)) ?\"))
+              (= (syntax-class-to-char
+                  (syntax-class (syntax-after start)))
+                 ?\"))
 	 (let ((open (or (eq start (point-min))
 			 (save-excursion
 			   (goto-char (- start 1))
@@ -2015,27 +2191,6 @@ If MODE is 2 then do the same for lines."
     (select-window (posn-window posn))
     (if (numberp (posn-point posn))
 	(push-mark (posn-point posn) t t))))
-
-(defun mouse-undouble-last-event (events)
-  (let* ((index (1- (length events)))
-	 (last (nthcdr index events))
-	 (event (car last))
-	 (basic (event-basic-type event))
-	 (old-modifiers (event-modifiers event))
-	 (modifiers (delq 'double (delq 'triple (copy-sequence old-modifiers))))
-	 (new
-	  (if (consp event)
-	      ;; Use reverse, not nreverse, since event-modifiers
-	      ;; does not copy the list it returns.
-	      (cons (event-convert-list (reverse (cons basic modifiers)))
-		    (cdr event))
-	    event)))
-    (setcar last new)
-    (if (and (not (equal modifiers old-modifiers))
-	     (key-binding (apply #'vector events)))
-	t
-      (setcar last event)
-      nil)))
 
 ;; Momentarily show where the mark is, if highlighting doesn't show it.
 
@@ -2235,8 +2390,8 @@ if `mouse-drag-copy-region' is non-nil)."
       (exchange-point-and-mark)
       (mouse-set-region-1)
       (when (and mouse-drag-copy-region
-                 (or (not (eq mouse-drag-copy-region 'non-empty))
-                     (not (/= (mark t) (point)))))
+                 (not (and (eq mouse-drag-copy-region 'non-empty)
+                           (= (mark t) (point)))))
         (kill-new (filter-buffer-substring (mark t) (point))))
       (setq mouse-save-then-kill-posn click-pt)))))
 
@@ -2651,7 +2806,7 @@ This must be bound to a button-down mouse event."
       ;; Clean up in case something went wrong.
       (error (setq track-mouse old-track-mouse)
              (setq mouse-fine-grained-tracking old-mouse-fine-grained-tracking)
-             (signal (car err) (cdr err))))))
+             (signal err)))))
 
 ;; The drag event must be bound to something but does not need any effect,
 ;; as everything takes place in `mouse-drag-region-rectangle'.
@@ -2678,7 +2833,6 @@ a large number if you prefer a mixed multitude.  The default is 4."
   :version "20.3")
 
 (defvar mouse-buffer-menu-mode-groups
-  (mapcar (lambda (arg) (cons  (purecopy (car arg)) (purecopy (cdr arg))))
   '(("Info\\|Help\\|Apropos\\|Man" . "Help")
     ("\\bVM\\b\\|\\bMH\\b\\|Message\\b\\|Mail\\|Group\\|Score\\|Summary\\|Article"
      . "Mail/News")
@@ -2690,7 +2844,7 @@ a large number if you prefer a mixed multitude.  The default is 4."
     ("\\blog\\b\\|diff\\|\\bvc\\b\\|cvs\\|Git\\|Annotate" . "Version Control")
     ("Threads\\|Memory\\|Disassembly\\|Breakpoints\\|Frames\\|Locals\\|Registers\\|Inferior I/O\\|Debugger"
      . "GDB")
-    ("Lisp" . "Lisp")))
+    ("Lisp" . "Lisp"))
   "How to group various major modes together in \\[mouse-buffer-menu].
 Each element has the form (REGEXP . GROUPNAME).
 If the major mode's name string matches REGEXP, use GROUPNAME instead.")
@@ -2855,81 +3009,77 @@ and selects that window."
 
 (defvar x-fixed-font-alist
   (list
-   (purecopy "Font Menu")
+   "Font Menu"
    (cons
-    (purecopy "Misc")
-    (mapcar
-     (lambda (arg) (cons  (purecopy (car arg)) (purecopy (cdr arg))))
-     ;; For these, we specify the pixel height and width.
+    "Misc"
+    ;; For these, we specify the pixel height and width.
     '(("fixed" "fixed")
-     ("6x10" "-misc-fixed-medium-r-normal--10-*-*-*-c-60-iso8859-1" "6x10")
-     ("6x12"
-      "-misc-fixed-medium-r-semicondensed--12-*-*-*-c-60-iso8859-1" "6x12")
-     ("6x13"
-      "-misc-fixed-medium-r-semicondensed--13-*-*-*-c-60-iso8859-1" "6x13")
-     ("7x13" "-misc-fixed-medium-r-normal--13-*-*-*-c-70-iso8859-1" "7x13")
-     ("7x14" "-misc-fixed-medium-r-normal--14-*-*-*-c-70-iso8859-1" "7x14")
-     ("8x13" "-misc-fixed-medium-r-normal--13-*-*-*-c-80-iso8859-1" "8x13")
-     ("9x15" "-misc-fixed-medium-r-normal--15-*-*-*-c-90-iso8859-1" "9x15")
-     ("10x20" "-misc-fixed-medium-r-normal--20-*-*-*-c-100-iso8859-1" "10x20")
-     ("11x18" "-misc-fixed-medium-r-normal--18-*-*-*-c-110-iso8859-1" "11x18")
-     ("12x24" "-misc-fixed-medium-r-normal--24-*-*-*-c-120-iso8859-1" "12x24")
-     ("")
-     ("clean 5x8"
-      "-schumacher-clean-medium-r-normal--8-*-*-*-c-50-iso8859-1")
-     ("clean 6x8"
-      "-schumacher-clean-medium-r-normal--8-*-*-*-c-60-iso8859-1")
-     ("clean 8x8"
-      "-schumacher-clean-medium-r-normal--8-*-*-*-c-80-iso8859-1")
-     ("clean 8x10"
-      "-schumacher-clean-medium-r-normal--10-*-*-*-c-80-iso8859-1")
-     ("clean 8x14"
-      "-schumacher-clean-medium-r-normal--14-*-*-*-c-80-iso8859-1")
-     ("clean 8x16"
-      "-schumacher-clean-medium-r-normal--16-*-*-*-c-80-iso8859-1")
-     ("")
-     ("sony 8x16" "-sony-fixed-medium-r-normal--16-*-*-*-c-80-iso8859-1")
-     ;; We don't seem to have these; who knows what they are.
-     ;; ("fg-18" "fg-18")
-     ;; ("fg-25" "fg-25")
-     ("lucidasanstypewriter-12" "-b&h-lucidatypewriter-medium-r-normal-sans-*-120-*-*-*-*-iso8859-1")
-     ("lucidasanstypewriter-bold-14" "-b&h-lucidatypewriter-bold-r-normal-sans-*-140-*-*-*-*-iso8859-1")
-     ("lucidasanstypewriter-bold-24"
-      "-b&h-lucidatypewriter-bold-r-normal-sans-*-240-*-*-*-*-iso8859-1")
-     ;; ("lucidatypewriter-bold-r-24" "-b&h-lucidatypewriter-bold-r-normal-sans-24-240-75-75-m-140-iso8859-1")
-     ;; ("fixed-medium-20" "-misc-fixed-medium-*-*-*-20-*-*-*-*-*-*-*")
-     )))
+      ("6x10" "-misc-fixed-medium-r-normal--10-*-*-*-c-60-iso8859-1" "6x10")
+      ("6x12"
+       "-misc-fixed-medium-r-semicondensed--12-*-*-*-c-60-iso8859-1" "6x12")
+      ("6x13"
+       "-misc-fixed-medium-r-semicondensed--13-*-*-*-c-60-iso8859-1" "6x13")
+      ("7x13" "-misc-fixed-medium-r-normal--13-*-*-*-c-70-iso8859-1" "7x13")
+      ("7x14" "-misc-fixed-medium-r-normal--14-*-*-*-c-70-iso8859-1" "7x14")
+      ("8x13" "-misc-fixed-medium-r-normal--13-*-*-*-c-80-iso8859-1" "8x13")
+      ("9x15" "-misc-fixed-medium-r-normal--15-*-*-*-c-90-iso8859-1" "9x15")
+      ("10x20" "-misc-fixed-medium-r-normal--20-*-*-*-c-100-iso8859-1" "10x20")
+      ("11x18" "-misc-fixed-medium-r-normal--18-*-*-*-c-110-iso8859-1" "11x18")
+      ("12x24" "-misc-fixed-medium-r-normal--24-*-*-*-c-120-iso8859-1" "12x24")
+      ("")
+      ("clean 5x8"
+       "-schumacher-clean-medium-r-normal--8-*-*-*-c-50-iso8859-1")
+      ("clean 6x8"
+       "-schumacher-clean-medium-r-normal--8-*-*-*-c-60-iso8859-1")
+      ("clean 8x8"
+       "-schumacher-clean-medium-r-normal--8-*-*-*-c-80-iso8859-1")
+      ("clean 8x10"
+       "-schumacher-clean-medium-r-normal--10-*-*-*-c-80-iso8859-1")
+      ("clean 8x14"
+       "-schumacher-clean-medium-r-normal--14-*-*-*-c-80-iso8859-1")
+      ("clean 8x16"
+       "-schumacher-clean-medium-r-normal--16-*-*-*-c-80-iso8859-1")
+      ("")
+      ("sony 8x16" "-sony-fixed-medium-r-normal--16-*-*-*-c-80-iso8859-1")
+      ;; We don't seem to have these; who knows what they are.
+      ;; ("fg-18" "fg-18")
+      ;; ("fg-25" "fg-25")
+      ("lucidasanstypewriter-12" "-b&h-lucidatypewriter-medium-r-normal-sans-*-120-*-*-*-*-iso8859-1")
+      ("lucidasanstypewriter-bold-14" "-b&h-lucidatypewriter-bold-r-normal-sans-*-140-*-*-*-*-iso8859-1")
+      ("lucidasanstypewriter-bold-24"
+       "-b&h-lucidatypewriter-bold-r-normal-sans-*-240-*-*-*-*-iso8859-1")
+      ;; ("lucidatypewriter-bold-r-24" "-b&h-lucidatypewriter-bold-r-normal-sans-24-240-75-75-m-140-iso8859-1")
+      ;; ("fixed-medium-20" "-misc-fixed-medium-*-*-*-20-*-*-*-*-*-*-*")
+      ))
 
    (cons
-    (purecopy "Courier")
-    (mapcar
-     (lambda (arg) (cons  (purecopy (car arg)) (purecopy (cdr arg))))
-     ;; For these, we specify the point height.
-     '(("8" "-adobe-courier-medium-r-normal--*-80-*-*-m-*-iso8859-1")
-     ("10" "-adobe-courier-medium-r-normal--*-100-*-*-m-*-iso8859-1")
-     ("12" "-adobe-courier-medium-r-normal--*-120-*-*-m-*-iso8859-1")
-     ("14" "-adobe-courier-medium-r-normal--*-140-*-*-m-*-iso8859-1")
-     ("18" "-adobe-courier-medium-r-normal--*-180-*-*-m-*-iso8859-1")
-     ("24" "-adobe-courier-medium-r-normal--*-240-*-*-m-*-iso8859-1")
-     ("8 bold" "-adobe-courier-bold-r-normal--*-80-*-*-m-*-iso8859-1")
-     ("10 bold" "-adobe-courier-bold-r-normal--*-100-*-*-m-*-iso8859-1")
-     ("12 bold" "-adobe-courier-bold-r-normal--*-120-*-*-m-*-iso8859-1")
-     ("14 bold" "-adobe-courier-bold-r-normal--*-140-*-*-m-*-iso8859-1")
-     ("18 bold" "-adobe-courier-bold-r-normal--*-180-*-*-m-*-iso8859-1")
-     ("24 bold" "-adobe-courier-bold-r-normal--*-240-*-*-m-*-iso8859-1")
-     ("8 slant" "-adobe-courier-medium-o-normal--*-80-*-*-m-*-iso8859-1")
-     ("10 slant" "-adobe-courier-medium-o-normal--*-100-*-*-m-*-iso8859-1")
-     ("12 slant" "-adobe-courier-medium-o-normal--*-120-*-*-m-*-iso8859-1")
-     ("14 slant" "-adobe-courier-medium-o-normal--*-140-*-*-m-*-iso8859-1")
-     ("18 slant" "-adobe-courier-medium-o-normal--*-180-*-*-m-*-iso8859-1")
-     ("24 slant" "-adobe-courier-medium-o-normal--*-240-*-*-m-*-iso8859-1")
-     ("8 bold slant" "-adobe-courier-bold-o-normal--*-80-*-*-m-*-iso8859-1")
-     ("10 bold slant" "-adobe-courier-bold-o-normal--*-100-*-*-m-*-iso8859-1")
-     ("12 bold slant" "-adobe-courier-bold-o-normal--*-120-*-*-m-*-iso8859-1")
-     ("14 bold slant" "-adobe-courier-bold-o-normal--*-140-*-*-m-*-iso8859-1")
-     ("18 bold slant" "-adobe-courier-bold-o-normal--*-180-*-*-m-*-iso8859-1")
-     ("24 bold slant" "-adobe-courier-bold-o-normal--*-240-*-*-m-*-iso8859-1")
-    ))))
+    "Courier"
+    ;; For these, we specify the point height.
+    '(("8" "-adobe-courier-medium-r-normal--*-80-*-*-m-*-iso8859-1")
+      ("10" "-adobe-courier-medium-r-normal--*-100-*-*-m-*-iso8859-1")
+      ("12" "-adobe-courier-medium-r-normal--*-120-*-*-m-*-iso8859-1")
+      ("14" "-adobe-courier-medium-r-normal--*-140-*-*-m-*-iso8859-1")
+      ("18" "-adobe-courier-medium-r-normal--*-180-*-*-m-*-iso8859-1")
+      ("24" "-adobe-courier-medium-r-normal--*-240-*-*-m-*-iso8859-1")
+      ("8 bold" "-adobe-courier-bold-r-normal--*-80-*-*-m-*-iso8859-1")
+      ("10 bold" "-adobe-courier-bold-r-normal--*-100-*-*-m-*-iso8859-1")
+      ("12 bold" "-adobe-courier-bold-r-normal--*-120-*-*-m-*-iso8859-1")
+      ("14 bold" "-adobe-courier-bold-r-normal--*-140-*-*-m-*-iso8859-1")
+      ("18 bold" "-adobe-courier-bold-r-normal--*-180-*-*-m-*-iso8859-1")
+      ("24 bold" "-adobe-courier-bold-r-normal--*-240-*-*-m-*-iso8859-1")
+      ("8 slant" "-adobe-courier-medium-o-normal--*-80-*-*-m-*-iso8859-1")
+      ("10 slant" "-adobe-courier-medium-o-normal--*-100-*-*-m-*-iso8859-1")
+      ("12 slant" "-adobe-courier-medium-o-normal--*-120-*-*-m-*-iso8859-1")
+      ("14 slant" "-adobe-courier-medium-o-normal--*-140-*-*-m-*-iso8859-1")
+      ("18 slant" "-adobe-courier-medium-o-normal--*-180-*-*-m-*-iso8859-1")
+      ("24 slant" "-adobe-courier-medium-o-normal--*-240-*-*-m-*-iso8859-1")
+      ("8 bold slant" "-adobe-courier-bold-o-normal--*-80-*-*-m-*-iso8859-1")
+      ("10 bold slant" "-adobe-courier-bold-o-normal--*-100-*-*-m-*-iso8859-1")
+      ("12 bold slant" "-adobe-courier-bold-o-normal--*-120-*-*-m-*-iso8859-1")
+      ("14 bold slant" "-adobe-courier-bold-o-normal--*-140-*-*-m-*-iso8859-1")
+      ("18 bold slant" "-adobe-courier-bold-o-normal--*-180-*-*-m-*-iso8859-1")
+      ("24 bold slant" "-adobe-courier-bold-o-normal--*-240-*-*-m-*-iso8859-1")
+      )))
   "X fonts suitable for use in Emacs.")
 
 (declare-function generate-fontset-menu "fontset" ())
@@ -3655,7 +3805,7 @@ is copied instead of being cut."
     (global-set-key [S-down-mouse-1] #'mouse-appearance-menu))
 ;; C-down-mouse-2 is bound in facemenu.el.
 (global-set-key [C-down-mouse-3]
-  `(menu-item ,(purecopy "Menu Bar") ignore
+  `(menu-item "Menu Bar" ignore
     :filter ,(lambda (_)
                (if (zerop (or (frame-parameter nil 'menu-bar-lines) 0))
                    (mouse-menu-bar-map)

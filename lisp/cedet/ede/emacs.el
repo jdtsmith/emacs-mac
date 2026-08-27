@@ -1,6 +1,6 @@
 ;;; ede/emacs.el --- Special project for Emacs  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2008-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -118,7 +118,7 @@ All directories need at least one target.")
   "Make sure the targets slot is bound."
   (cl-call-next-method)
   (unless (slot-boundp this 'targets)
-    (oset this :targets nil)))
+    (oset this targets nil)))
 
 ;;; File Stuff
 ;;

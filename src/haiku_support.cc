@@ -1,5 +1,5 @@
 /* Haiku window system support.  Hey, Emacs, this is -*- C++ -*-
-   Copyright (C) 2021-2025 Free Software Foundation, Inc.
+   Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -2862,8 +2862,13 @@ class EmacsFontSelectionDialog : public BWindow
   BScrollView font_family_scroller;
   BScrollView font_style_scroller;
   TripleLayoutView style_view;
+#ifdef BOBJECTLIST_OWNERSHIP_IS_TEMPLATE_PARAMETER
+  BObjectList<BStringItem, true> all_families;
+  BObjectList<BStringItem, true> all_styles;
+#else /* !BOBJECTLIST_OWNERSHIP_IS_TEMPLATE_PARAMETER */
   BObjectList<BStringItem> all_families;
   BObjectList<BStringItem> all_styles;
+#endif /* !BOBJECTLIST_OWNERSHIP_IS_TEMPLATE_PARAMETER */
   BButton cancel_button, ok_button;
   BTextControl size_entry;
   port_id comm_port;
@@ -3126,8 +3131,13 @@ public:
 			   B_SUPPORTS_LAYOUT, false, true),
       style_view (&font_style_scroller, &antialias_checkbox,
 		  &preview_checkbox),
+#ifdef BOBJECTLIST_OWNERSHIP_IS_TEMPLATE_PARAMETER
+      all_families (20),
+      all_styles (20),
+#else /* !BOBJECTLIST_OWNERSHIP_IS_TEMPLATE_PARAMETER */
       all_families (20, true),
       all_styles (20, true),
+#endif /* !BOBJECTLIST_OWNERSHIP_IS_TEMPLATE_PARAMETER */
       cancel_button ("Cancel", "Cancel",
 		     new BMessage (B_CANCEL)),
       ok_button ("OK", "OK", new BMessage (B_OK)),

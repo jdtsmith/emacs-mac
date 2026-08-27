@@ -1,4 +1,4 @@
-/* Copyright (C) 2006-2025 Free Software Foundation, Inc.
+/* Copyright (C) 2006-2026 Free Software Foundation, Inc.
    Written by Paul Eggert, Bruno Haible, Derek Price.
    This file is part of gnulib.
 
@@ -913,11 +913,11 @@ extern "C" {
 #   undef imaxabs
 #   define imaxabs rpl_imaxabs
 #  endif
-_GL_FUNCDECL_RPL (imaxabs, intmax_t, (intmax_t x));
+_GL_FUNCDECL_RPL (imaxabs, intmax_t, (intmax_t x), );
 _GL_CXXALIAS_RPL (imaxabs, intmax_t, (intmax_t x));
 # else
 #  if !@HAVE_DECL_IMAXABS@
-_GL_FUNCDECL_SYS (imaxabs, intmax_t, (intmax_t x));
+_GL_FUNCDECL_SYS (imaxabs, intmax_t, (intmax_t x), );
 #  endif
 _GL_CXXALIAS_SYS (imaxabs, intmax_t, (intmax_t x));
 # endif
@@ -925,7 +925,6 @@ _GL_CXXALIAS_SYS (imaxabs, intmax_t, (intmax_t x));
 _GL_CXXALIASWARN (imaxabs);
 # endif
 #elif defined GNULIB_POSIXCHECK
-# undef imaxabs
 # if HAVE_RAW_DECL_IMAXABS
 _GL_WARN_ON_USE (imaxabs, "imaxabs is unportable - "
                  "use gnulib module imaxabs for portability");
@@ -944,11 +943,11 @@ typedef struct { intmax_t quot; intmax_t rem; } imaxdiv_t;
 #   undef imaxdiv
 #   define imaxdiv rpl_imaxdiv
 #  endif
-_GL_FUNCDECL_RPL (imaxdiv, imaxdiv_t, (intmax_t numer, intmax_t denom));
+_GL_FUNCDECL_RPL (imaxdiv, imaxdiv_t, (intmax_t numer, intmax_t denom), );
 _GL_CXXALIAS_RPL (imaxdiv, imaxdiv_t, (intmax_t numer, intmax_t denom));
 # else
 #  if !@HAVE_DECL_IMAXDIV@
-_GL_FUNCDECL_SYS (imaxdiv, imaxdiv_t, (intmax_t numer, intmax_t denom));
+_GL_FUNCDECL_SYS (imaxdiv, imaxdiv_t, (intmax_t numer, intmax_t denom), );
 #  endif
 _GL_CXXALIAS_SYS (imaxdiv, imaxdiv_t, (intmax_t numer, intmax_t denom));
 # endif
@@ -956,7 +955,6 @@ _GL_CXXALIAS_SYS (imaxdiv, imaxdiv_t, (intmax_t numer, intmax_t denom));
 _GL_CXXALIASWARN (imaxdiv);
 # endif
 #elif defined GNULIB_POSIXCHECK
-# undef imaxdiv
 # if HAVE_RAW_DECL_IMAXDIV
 _GL_WARN_ON_USE (imaxdiv, "imaxdiv is unportable - "
                  "use gnulib module imaxdiv for portability");
@@ -970,7 +968,7 @@ _GL_WARN_ON_USE (imaxdiv, "imaxdiv is unportable - "
 #   define strtoimax rpl_strtoimax
 #  endif
 _GL_FUNCDECL_RPL (strtoimax, intmax_t,
-                  (const char *restrict, char **restrict, int)
+                  (const char *restrict, char **restrict, int),
                   _GL_ARG_NONNULL ((1)));
 _GL_CXXALIAS_RPL (strtoimax, intmax_t,
                   (const char *restrict, char **restrict, int));
@@ -978,7 +976,7 @@ _GL_CXXALIAS_RPL (strtoimax, intmax_t,
 #  if !@HAVE_DECL_STRTOIMAX@
 #   undef strtoimax
 _GL_FUNCDECL_SYS (strtoimax, intmax_t,
-                  (const char *restrict, char **restrict, int)
+                  (const char *restrict, char **restrict, int),
                   _GL_ARG_NONNULL ((1)));
 #  endif
 _GL_CXXALIAS_SYS (strtoimax, intmax_t,
@@ -986,7 +984,6 @@ _GL_CXXALIAS_SYS (strtoimax, intmax_t,
 # endif
 _GL_CXXALIASWARN (strtoimax);
 #elif defined GNULIB_POSIXCHECK
-# undef strtoimax
 # if HAVE_RAW_DECL_STRTOIMAX
 _GL_WARN_ON_USE (strtoimax, "strtoimax is unportable - "
                  "use gnulib module strtoimax for portability");
@@ -1000,7 +997,7 @@ _GL_WARN_ON_USE (strtoimax, "strtoimax is unportable - "
 #   define strtoumax rpl_strtoumax
 #  endif
 _GL_FUNCDECL_RPL (strtoumax, uintmax_t,
-                  (const char *restrict, char **restrict, int)
+                  (const char *restrict, char **restrict, int),
                   _GL_ARG_NONNULL ((1)));
 _GL_CXXALIAS_RPL (strtoumax, uintmax_t,
                   (const char *restrict, char **restrict, int));
@@ -1008,7 +1005,7 @@ _GL_CXXALIAS_RPL (strtoumax, uintmax_t,
 #  if !@HAVE_DECL_STRTOUMAX@
 #   undef strtoumax
 _GL_FUNCDECL_SYS (strtoumax, uintmax_t,
-                  (const char *restrict, char **restrict, int)
+                  (const char *restrict, char **restrict, int),
                   _GL_ARG_NONNULL ((1)));
 #  endif
 _GL_CXXALIAS_SYS (strtoumax, uintmax_t,
@@ -1016,7 +1013,6 @@ _GL_CXXALIAS_SYS (strtoumax, uintmax_t,
 # endif
 _GL_CXXALIASWARN (strtoumax);
 #elif defined GNULIB_POSIXCHECK
-# undef strtoumax
 # if HAVE_RAW_DECL_STRTOUMAX
 _GL_WARN_ON_USE (strtoumax, "strtoumax is unportable - "
                  "use gnulib module strtoumax for portability");

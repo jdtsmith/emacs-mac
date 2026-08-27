@@ -1,6 +1,6 @@
 ;;; json.el --- JavaScript Object Notation parser / generator -*- lexical-binding: t -*-
 
-;; Copyright (C) 2006-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2026 Free Software Foundation, Inc.
 
 ;; Author: Theresa O'Connor <ted@oconnor.cx>
 ;; Version: 1.5
@@ -142,7 +142,7 @@ Used only when `json-encoding-pretty-print' is non-nil.")
   "Sorting predicate for JSON object keys during encoding.
 If nil, no sorting is performed.  Else, JSON object keys are
 ordered by the specified sort predicate during encoding.  For
-instance, setting this to `string<' will have JSON object keys
+instance, setting this to `value<' will have JSON object keys
 ordered alphabetically.")
 
 (defvar json-pre-element-read-function nil
@@ -609,12 +609,11 @@ transforms an unsortable MAP into a sortable alist."
   "Insert a JSON representation of ALIST at point.
 Sort ALIST first if `json-encoding-object-sort-predicate' is
 non-nil.  Sorting can optionally be DESTRUCTIVE for speed."
-  (json--print-map (if (and json-encoding-object-sort-predicate alist)
-                       (sort (if destructive alist (copy-sequence alist))
-                             (lambda (a b)
-                               (funcall json-encoding-object-sort-predicate
-                                        (car a) (car b))))
-                     alist)))
+  (json--print-map (let ((pred json-encoding-object-sort-predicate))
+                     (if (and pred alist)
+                         (sort alist :key #'car :lessp pred
+                               :in-place destructive)
+                       alist))))
 
 ;; The following two are unused but useful to keep around due to the
 ;; inherent ambiguity of lists.
@@ -800,71 +799,55 @@ With prefix argument MINIMIZE, minimize it instead."
         (json-object-type 'alist)
         ;; Ensure that keys survive roundtrip (bug#24252, bug#42545).
         (json-key-type 'string)
-        (orig-buf (current-buffer))
-        error)
+        (orig-buf (current-buffer)))
     ;; Strategy: Repeatedly `json-read' from the original buffer and
-    ;; write the pretty-printed snippet to a temporary buffer.  As
-    ;; soon as we get an error from `json-read', simply append the
-    ;; remainder which we couldn't pretty-print to the temporary
-    ;; buffer as well (probably the region ends _inside_ a JSON
-    ;; object).
-    ;;
-    ;; Finally, use `replace-region-contents' to swap the original
+    ;; write the pretty-printed snippet to a temporary buffer.
+    ;; Use `replace-region-contents' to swap the original
     ;; region with the contents of the temporary buffer so that point,
     ;; marks, etc. are kept.
+    ;; Stop as soon as we get an error from `json-read'.
     (with-temp-buffer
       (let ((tmp-buf (current-buffer)))
+        ;; This apparently affords decent performance gains in `json--print'.
+        (setq-local inhibit-modification-hooks t)
         (set-buffer orig-buf)
-        (replace-region-contents
-         begin end
-         (lambda ()
-           (let ((pos (point))
-                 (keep-going t))
-             (while keep-going
-               (condition-case err
-                   ;; We want to format only the JSON snippets in the
-                   ;; region without modifying the whitespace between
-                   ;; them.
-                   (let ((space (buffer-substring
-                                 (point)
-                                 (+ (point) (skip-chars-forward " \t\n"))))
-                         (json (json-read)))
-                     (setq pos (point)) ; End of last good json-read.
-                     (set-buffer tmp-buf)
-                     (insert space (json-encode json))
-                     (set-buffer orig-buf))
-                 (t
-                  (setq keep-going nil)
-                  (set-buffer orig-buf)
-                  ;; Rescue the remainder we couldn't pretty-print.
-                  (append-to-buffer tmp-buf pos (point-max))
-                  ;; EOF is expected because we json-read until we hit
-                  ;; the end of the narrow region.
-                  (unless (eq (car err) 'json-end-of-file)
-                    (setq error err)))))
-             tmp-buf))
-         json-pretty-print-max-secs
-         ;; FIXME: What's a good value here?  Can we use something better,
-         ;; e.g., by deriving a value from the size of the region?
-         64)))
-    ;; If we got an error during JSON processing (possibly the region
-    ;; starts or ends inside a JSON object), signal it to the user.
-    ;; We did our best.
-    (when error
-      (signal (car error) (cdr error)))))
+        (save-excursion
+          (save-restriction
+            (narrow-to-region begin end)
+            (goto-char begin)
+            (while
+                (progn
+                  (skip-chars-forward " \t\n")
+                  (condition-case nil
+                      (let ((beg (point))
+                            (json (json-read))
+                            (standard-output tmp-buf))
+                        (with-current-buffer tmp-buf
+                          (erase-buffer) (json--print json))
+                        (replace-region-contents
+                         beg (point) tmp-buf
+                         json-pretty-print-max-secs
+                         ;; FIXME: What's a good value here?  Can we use
+                         ;; something better, e.g., by deriving a value
+                         ;; from the size of the region?
+                         64)
+                        'keep-going)
+                    ;; EOF is expected because we json-read until we hit
+                    ;; the end of the narrow region.
+                    (json-end-of-file nil))))))))))
 
 (defun json-pretty-print-buffer-ordered (&optional minimize)
   "Pretty-print current buffer with object keys ordered.
 With prefix argument MINIMIZE, minimize it instead."
   (interactive "P")
-  (let ((json-encoding-object-sort-predicate #'string<))
+  (let ((json-encoding-object-sort-predicate #'value<))
     (json-pretty-print-buffer minimize)))
 
 (defun json-pretty-print-ordered (begin end &optional minimize)
   "Pretty-print the region with object keys ordered.
 With prefix argument MINIMIZE, minimize it instead."
   (interactive "r\nP")
-  (let ((json-encoding-object-sort-predicate #'string<))
+  (let ((json-encoding-object-sort-predicate #'value<))
     (json-pretty-print begin end minimize)))
 
 (provide 'json)

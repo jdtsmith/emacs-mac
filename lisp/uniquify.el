@@ -1,6 +1,6 @@
 ;;; uniquify.el --- unique buffer names dependent on file name -*- lexical-binding: t -*-
 
-;; Copyright (C) 1989, 1995-1997, 2001-2025 Free Software Foundation,
+;; Copyright (C) 1989, 1995-1997, 2001-2026 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Dick King <king@reasoning.com>
@@ -89,6 +89,21 @@
   "Unique buffer names dependent on file name."
   :group 'files)
 
+(defun uniquify--buffer-refresh ()
+  "Refreshes all `uniquify'-managed buffers with current options."
+  (when uniquify-buffer-name-style
+    (save-current-buffer
+      (dolist (buffer (buffer-list))
+        (set-buffer buffer)
+        (when uniquify-managed
+          (rename-buffer (uniquify-buffer-base-name) 'unique))))))
+
+(defun uniquify--set-option (variable value)
+  "Call in `defcustom' :set keyword when `uniquify--buffer-refresh' is needed.
+VARIABLE is set to VALUE if `uniquify' is loaded."
+  (when (featurep 'uniquify) ; in case `uniquify' was unloaded
+    (set-default variable value)
+    (uniquify--buffer-refresh)))
 
 (defcustom uniquify-buffer-name-style 'post-forward-angle-brackets
   "How to construct unique buffer names for files with the same base name.
@@ -113,46 +128,76 @@ post-forward-angle-brackets could be:
     (concat base \"<\" (mapconcat #\\='identity extra-string \"/\") \">\"))
 
 The \"mumble\" part may be stripped as well, depending on the
-setting of `uniquify-strip-common-suffix'.  For more options that
-you can set, browse the `uniquify' custom group."
+setting of `uniquify-strip-common-suffix'.
+
+Setting this variable directly will not usually take effect; use either
+\\[customize] or `setopt', or call `uniquify--set-option'; otherwise
+reload your buffers.
+
+For more options that you can set, browse the `uniquify' custom group."
   :type '(radio (const forward)
 		(const reverse)
 		(const post-forward)
 		(const post-forward-angle-brackets)
                 (function :tag "Other")
 		(const :tag "numeric suffixes" nil))
+  :initialize #'custom-initialize-default
+  :set #'uniquify--set-option
   :version "24.4"
   :require 'uniquify)
 
-(defcustom uniquify-after-kill-buffer-p t
+(define-obsolete-variable-alias 'uniquify-after-kill-buffer-p
+  'uniquify-after-kill-buffer-flag "31.1")
+(defcustom uniquify-after-kill-buffer-flag t
   "If non-nil, rerationalize buffer names after a buffer has been killed."
-  :type 'boolean)
+  :type 'boolean
+  :version "31.1")
 
 (defcustom uniquify-ignore-buffers-re nil
   "Regular expression matching buffer names that should not be uniquified.
-For instance, set this to \"^draft-[0-9]+$\" to avoid having uniquify rename
-draft buffers even if `uniquify-after-kill-buffer-p' is non-nil and the
-visited file name isn't the same as that of the buffer."
-  :type '(choice (const :tag "Uniquify all buffers" nil) regexp))
+For instance, set this to \"^draft-[0-9]+$\" to avoid having uniquify
+rename draft buffers even if `uniquify-after-kill-buffer-flag' is
+non-nil and the visited file name isn't the same as that of the buffer.
+
+Setting this variable directly will not usually take effect; use either
+\\[customize] or `setopt', or call `uniquify--set-option'; otherwise
+reload your buffers."
+  :type '(choice (const :tag "Uniquify all buffers" nil) regexp)
+  :initialize #'custom-initialize-default
+  :set #'uniquify--set-option)
 
 (defcustom uniquify-min-dir-content 0
-  "Minimum number of directory name components included in buffer name."
-  :type 'integer)
+  "Minimum number of directory name components included in buffer name.
+Setting this variable directly will not usually take effect; use either
+\\[customize] or `setopt', or call `uniquify--set-option'; otherwise
+reload your buffers."
+  :type 'integer
+  :initialize #'custom-initialize-default
+  :set #'uniquify--set-option)
 
 (defcustom uniquify-separator nil
   "String separator for buffer name components.
 When `uniquify-buffer-name-style' is `post-forward', separates
 base file name from directory part in buffer names (default \"|\").
 When `uniquify-buffer-name-style' is `reverse', separates all
-file name components (default \"\\\")."
-  :type '(choice (const nil) string))
+file name components (default \"\\\").
 
-(defcustom uniquify-trailing-separator-p nil
-  "If non-nil, add a file name separator to Dired buffer names.
+Setting this variable directly will not usually take effect; use either
+\\[customize] or `setopt', or call `uniquify--set-option'; otherwise
+reload your buffers."
+  :type '(choice (const nil) string)
+  :initialize #'custom-initialize-default
+  :set #'uniquify--set-option)
+
+(define-obsolete-variable-alias 'uniquify-trailing-separator-p
+  'uniquify-trailing-separator-flag "31.1")
+(defcustom uniquify-trailing-separator-flag nil
+  "Non-nil means add a file name separator to Dired buffer names.
 If `uniquify-buffer-name-style' is `forward', add the separator at the end;
 if it is `reverse', add the separator at the beginning; otherwise, this
 variable is ignored."
-  :type 'boolean)
+  :type 'boolean
+  :version "31.1")
 
 (defcustom uniquify-strip-common-suffix
   ;; Using it when uniquify-min-dir-content>0 doesn't make much sense.
@@ -160,8 +205,14 @@ variable is ignored."
   "If non-nil, strip common directory suffixes of conflicting files.
 E.g. if you open /a1/b/c/d and /a2/b/c/d, the buffer names will say
 \"d|a1\" and \"d|a2\" instead of \"d|a1/b/c\" and \"d|a2/b/c\".
-This can be handy when you have deep parallel hierarchies."
-  :type 'boolean)
+This can be handy when you have deep parallel hierarchies.
+
+Setting this variable directly will not usually take effect; use either
+\\[customize] or `setopt', or call `uniquify--set-option'; otherwise
+reload your buffers."
+  :type 'boolean
+  :initialize #'custom-initialize-default
+  :set #'uniquify--set-option)
 
 (defvar uniquify-list-buffers-directory-modes '(dired-mode cvs-mode vc-dir-mode)
   "List of modes for which uniquify should obey `list-buffers-directory'.
@@ -186,11 +237,17 @@ actually exist in the filesystem); the components of this file
 name will then be used to uniquify the buffer's name.
 
 To include components from the `project-name' of the buffer, set
-this variable to `project-uniquify-dirname-transform'."
+this variable to `project-uniquify-dirname-transform'.
+
+Setting this variable directly will not usually take effect; use either
+\\[customize] or `setopt', or call `uniquify--set-option'; otherwise
+reload your buffers."
   :type `(choice (function-item :tag "Use directory name as-is" identity)
                  (function-item :tag "Include project name in directory name"
                                 ,#'project-uniquify-dirname-transform)
                  function)
+  :initialize #'custom-initialize-default
+  :set #'uniquify--set-option
   :version "30.1"
   :group 'uniquify)
 
@@ -316,12 +373,17 @@ in `uniquify-list-buffers-directory-modes', otherwise returns nil."
   ;; if there is a conflict.
   (dolist (item fix-list)
     (with-current-buffer (uniquify-item-buffer item)
+      (setq uniquify-managed fix-list)))
+  (uniquify-rationalize--generic fix-list #'uniquify-rename-buffer #'get-buffer))
+
+(defun uniquify-rationalize--generic (fix-list rename-buffer-fn get-buffer-fn)
+  (dolist (item fix-list)
+    (with-current-buffer (uniquify-item-buffer item)
       ;; Refresh the dirnames and proposed names.
       (setf (uniquify-item-proposed item)
 	    (uniquify-get-proposed-name (uniquify-item-base item)
 					(uniquify-item-dirname item)
-                                        nil))
-      (setq uniquify-managed fix-list)))
+                                        nil))))
   ;; Strip any shared last directory names of the dirname.
   (when (and (cdr fix-list) uniquify-strip-common-suffix)
     (let ((strip t))
@@ -347,13 +409,13 @@ in `uniquify-list-buffers-directory-modes', otherwise returns nil."
 		fix-list)))))
   ;; If uniquify-min-dir-content is 0, this will end up just
   ;; passing fix-list to uniquify-rationalize-conflicting-sublist.
-  (uniquify-rationalize-a-list fix-list))
+  (uniquify-rationalize-a-list fix-list nil rename-buffer-fn get-buffer-fn))
 
 (defun uniquify-item-greaterp (item1 item2)
   (string-lessp (uniquify-item-proposed item2)
 		(uniquify-item-proposed item1)))
 
-(defun uniquify-rationalize-a-list (fix-list &optional depth)
+(defun uniquify-rationalize-a-list (fix-list depth rename-buffer-fn get-buffer-fn)
   (unless depth (setq depth uniquify-min-dir-content))
   (let (conflicting-sublist	; all elements have the same proposed name
 	(old-proposed "")
@@ -364,12 +426,14 @@ in `uniquify-list-buffers-directory-modes', otherwise returns nil."
       (setq proposed (uniquify-item-proposed item))
       (unless (equal proposed old-proposed)
 	(uniquify-rationalize-conflicting-sublist conflicting-sublist
-						  old-proposed depth)
+						  old-proposed depth
+                                                  rename-buffer-fn get-buffer-fn)
 	(setq conflicting-sublist nil))
       (push item conflicting-sublist)
       (setq old-proposed proposed))
     (uniquify-rationalize-conflicting-sublist conflicting-sublist
-					      old-proposed depth)))
+					      old-proposed depth
+                                              rename-buffer-fn get-buffer-fn)))
 
 (defun uniquify-get-proposed-name (base dirname &optional depth)
   (unless depth (setq depth uniquify-min-dir-content))
@@ -421,12 +485,12 @@ in `uniquify-list-buffers-directory-modes', otherwise returns nil."
 
 ;; Deal with conflicting-sublist, all of whose elements have identical
 ;; "base" components.
-(defun uniquify-rationalize-conflicting-sublist (conf-list old-name depth)
+(defun uniquify-rationalize-conflicting-sublist (conf-list old-name depth rename-buffer-fn get-buffer-fn)
   (when conf-list
     (if (or (cdr conf-list)
 	    ;; Check that the proposed name doesn't conflict with some
 	    ;; existing buffer.
-	    (let ((buf (get-buffer old-name)))
+	    (let ((buf (funcall get-buffer-fn old-name)))
 	      (and buf (not (eq buf (uniquify-item-buffer (car conf-list)))))))
 	(when uniquify-possibly-resolvable
 	  (setq uniquify-possibly-resolvable nil
@@ -437,10 +501,9 @@ in `uniquify-list-buffers-directory-modes', otherwise returns nil."
 		   (uniquify-item-base item)
 		   (uniquify-item-dirname item)
 		   depth)))
-	  (uniquify-rationalize-a-list conf-list depth))
+	  (uniquify-rationalize-a-list conf-list depth rename-buffer-fn get-buffer-fn))
       (unless (string= old-name "")
-	(uniquify-rename-buffer (car conf-list) old-name)))))
-
+	(funcall rename-buffer-fn (car conf-list) old-name)))))
 
 (defun uniquify-rename-buffer (item newname)
   (let ((buffer (uniquify-item-buffer item)))
@@ -449,6 +512,52 @@ in `uniquify-list-buffers-directory-modes', otherwise returns nil."
 	(let ((uniquify-buffer-name-style nil))	;Avoid hooks on rename-buffer.
 	  ;; Pass the `unique' arg, so the advice doesn't mark it as unmanaged.
 	  (rename-buffer newname t))))))
+
+(defvar-local uniquify--stateless-curname nil
+  "The current unique name of this buffer in `uniquify-get-unique-names'.")
+
+(defun uniquify-get-unique-names (buffers)
+  "Return a list with unique names for buffers in BUFFERS.
+
+The names are unique only among BUFFERS, and may conflict with other
+buffers not in that list.  Each string has a text property
+`uniquify-orig-buffer' that stores the corresponding buffer.
+
+This does not rename the buffers or change any state; the unique name is
+only present in the returned alist."
+  (let ((buffer-names (make-hash-table :size (length buffers) :test 'equal))
+        fix-lists-by-base)
+    (dolist (buf buffers)
+      (with-current-buffer buf
+        (setq uniquify--stateless-curname (buffer-name buf))
+        (puthash (buffer-name buf) buf buffer-names)
+        (when uniquify-managed
+          (let ((base (uniquify-item-base (car uniquify-managed))))
+            (push
+             (uniquify-make-item base (uniquify-buffer-file-name buf) buf nil)
+             (alist-get base fix-lists-by-base nil nil #'equal))))))
+    (dolist (pair fix-lists-by-base)
+      (uniquify-rationalize--generic
+       (cdr pair)
+       (lambda (item name)              ; rename-buffer
+         (with-current-buffer (uniquify-item-buffer item)
+           (remhash uniquify--stateless-curname buffer-names)
+           (setq uniquify--stateless-curname name)
+           (puthash name (current-buffer) buffer-names)))
+       (lambda (name)                   ; get-buffer
+         (gethash name buffer-names)))))
+  (mapcar (lambda (buf)
+            (with-current-buffer buf
+              (let ((name
+                     (if (eq uniquify--stateless-curname
+                             (buffer-name buf))
+                         (copy-sequence uniquify--stateless-curname)
+                       uniquify--stateless-curname)))
+                (when name
+                  (put-text-property 0 1 'uniquify-orig-buffer buf name))
+                (kill-local-variable 'uniquify--stateless-curname)
+                name)))
+          buffers))
 
 ;;; Hooks from the rest of Emacs
 
@@ -466,7 +575,7 @@ in `uniquify-list-buffers-directory-modes', otherwise returns nil."
 (defun uniquify-kill-buffer-function ()
   "Re-rationalize buffer names, ignoring current buffer.
 For use on `kill-buffer-hook'."
-  (and uniquify-after-kill-buffer-p
+  (and uniquify-after-kill-buffer-flag
        (uniquify-maybe-rerationalize-w/o-cb)))
 
 ;; Ideally we'd like to add it buffer-locally, but that doesn't work

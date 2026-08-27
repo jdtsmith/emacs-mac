@@ -1,6 +1,6 @@
 ;;; erc-common.el --- Macros and types for ERC  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 ;;
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
 ;; Keywords: comm, IRC, chat, client, internet
@@ -100,7 +100,7 @@ ERC only refolds `string', never `substxt'."))
                                 :named)
   "Object containing channel-specific data for a single user."
   ;; voice halfop op admin owner
-  (status 0 :type integer)
+  (status 0 :type natnum)
   ;; Last message time (in the form of the return value of
   ;; (current-time)
   ;;
@@ -267,9 +267,9 @@ instead of a `set' state, which precludes any actual saving."
                        (rassq known custom-current-group-alist)))
           (throw 'found known))
         (when (setq known (intern-soft (concat "erc-" downed "-mode")))
-          (when-let ((found (custom-group-of-mode known)))
+          (when-let* ((found (custom-group-of-mode known)))
             (throw 'found found))))
-      (when-let ((found (get (erc--normalize-module-symbol s) 'erc-group)))
+      (when-let* ((found (get (erc--normalize-module-symbol s) 'erc-group)))
         (throw 'found found)))
     'erc))
 
@@ -640,25 +640,6 @@ Otherwise, return LIST-OR-ATOM."
      (if (and (consp ,list-or-atom) (null (cdr ,list-or-atom)))
          (car ,list-or-atom)
        ,list-or-atom))))
-
-(defmacro erc--doarray (spec &rest body)
-  "Map over ARRAY, running BODY with VAR bound to iteration element.
-Behave more or less like `seq-doseq', but tailor operations for
-arrays.
-
-\(fn (VAR ARRAY [RESULT]) BODY...)"
-  (declare (indent 1) (debug ((symbolp form &optional form) body)))
-  (let ((array (make-symbol "array"))
-        (len (make-symbol "len"))
-        (i (make-symbol "i")))
-    `(let* ((,array ,(nth 1 spec))
-            (,len (length ,array))
-            (,i 0))
-       (while-let (((< ,i ,len))
-                   (,(car spec) (aref ,array ,i)))
-         ,@body
-         (cl-incf ,i))
-       ,(nth 2 spec))))
 
 (provide 'erc-common)
 

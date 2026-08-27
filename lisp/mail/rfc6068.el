@@ -1,6 +1,6 @@
 ;;; rfc6068.el --- support for rfc6068  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Keywords: mail
 
@@ -39,7 +39,8 @@ string instead of decoding as utf-8."
            (buffer-string))))
     (if inhibit-decode
         string
-      (decode-coding-string string 'utf-8))))
+      (let (inhibit-eol-conversion)
+        (decode-coding-string string 'utf-8-dos)))))
 
 (defun rfc6068-parse-mailto-url (mailto-url)
   "Parse MAILTO-URL, and return an alist of header-name, header-value pairs.
@@ -72,7 +73,7 @@ calling this function."
 	(when address
 	  (setq address (rfc6068-unhexify-string address))
 	  ;; Deal with multiple 'To' recipients.
-	  (if-let ((elem (assoc "To" headers-alist)))
+	  (if-let* ((elem (assoc "To" headers-alist)))
 	      (setcdr elem (concat address ", " (cdr elem)))
             (push (cons "To" address) headers-alist)))
 

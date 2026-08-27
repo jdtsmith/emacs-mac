@@ -1,6 +1,6 @@
 ;;; tramp-adb.el --- Functions for calling Android Debug Bridge from Tramp  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2011-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2026 Free Software Foundation, Inc.
 
 ;; Author: Jürgen Hötzel <juergen@archlinux.org>
 ;; Maintainer: Michael Albinus <michael.albinus@gmx.de>
@@ -43,14 +43,18 @@
   "Name of the Android Debug Bridge program."
   :group 'tramp
   :version "24.4"
-  :type 'string)
+  :type '(choice (const "adb")
+                 (string))
+  :link '(tramp-info-link :tag "Tramp manual" tramp-adb-program))
 
 (defcustom tramp-adb-connect-if-not-connected nil
   "Try to run `adb connect' if provided device is not connected currently.
 It is used for TCP/IP devices."
   :group 'tramp
   :version "25.1"
-  :type 'boolean)
+  :type 'boolean
+  :link '(tramp-info-link :tag "Tramp manual"
+			  tramp-adb-connect-if-not-connected))
 
 ;;;###tramp-autoload
 (defconst tramp-adb-method "adb"
@@ -228,7 +232,7 @@ arguments to pass to the OPERATION."
      (when (string-match
 	    (rx bol (group (+ (not blank))) (+ blank) "device" eol) line)
        ;; Replace ":" by "#".
-       `(nil ,(tramp-compat-string-replace
+       `(nil ,(string-replace
 	       ":" tramp-prefix-port-format (match-string 1 line)))))
    (tramp-process-lines nil tramp-adb-program "devices")))
 
@@ -262,11 +266,7 @@ arguments to pass to the OPERATION."
   (with-parsed-tramp-file-name filename nil
     (tramp-convert-file-attributes v localname id-format
       (and
-       (tramp-adb-send-command-and-check
-	v (format "(%s -d -l %s; echo tramp_exit_status $?) | cat"
-		  (tramp-adb-get-ls-command v)
-		  (tramp-shell-quote-argument localname))
-        nil t)
+       (tramp-adb-do-ls v "-d -l" localname)
        (with-current-buffer (tramp-get-buffer v)
 	 (tramp-adb-sh-fix-ls-output)
 	 (cdar (tramp-do-parse-file-attributes-with-ls v)))))))
@@ -316,26 +316,21 @@ arguments to pass to the OPERATION."
   (tramp-skeleton-directory-files-and-attributes
       directory full match nosort id-format count
     (with-current-buffer (tramp-get-buffer v)
-      (when (tramp-adb-send-command-and-check
-	     v (format "(%s -a -l %s; echo tramp_exit_status $?) | cat"
-		       (tramp-adb-get-ls-command v)
-		       (tramp-shell-quote-argument localname))
-             nil t)
-	;; We insert also filename/. and filename/.., because "ls"
-	;; doesn't on some file systems, like "sdcard".
-	(unless (search-backward-regexp (rx "." eol) nil t)
-	  (narrow-to-region (point-max) (point-max))
-	  (tramp-adb-send-command
-	   v (format "%s -d -a -l %s %s | cat"
-		     (tramp-adb-get-ls-command v)
-		     (tramp-shell-quote-argument
-		      (tramp-compat-file-name-concat localname "."))
-		     (tramp-shell-quote-argument
-		      (tramp-compat-file-name-concat localname ".."))))
-	  (tramp-compat-replace-regexp-in-region
-	   (rx (literal (file-name-unquote (file-name-as-directory localname))))
-	   "" (point-min))
-	  (widen)))
+      (save-restriction
+	(when (tramp-adb-do-ls v "-a -l" localname)
+	  ;; We insert also filename/. and filename/.., because "ls"
+	  ;; doesn't on some file systems, like "sdcard".
+	  (goto-char (point-max))
+	  (unless (search-backward-regexp (rx "." eol) nil t)
+	    (narrow-to-region (point-max) (point-max))
+	    (when (tramp-adb-do-ls
+		   v "-d -a -l"
+		   (file-name-concat localname ".")
+		   (file-name-concat localname ".."))
+	      (replace-regexp-in-region
+	       (rx
+		(literal (file-name-unquote (file-name-as-directory localname))))
+	       "" (point-min))))))
       (tramp-adb-sh-fix-ls-output)
       (tramp-do-parse-file-attributes-with-ls v))))
 
@@ -362,6 +357,24 @@ arguments to pass to the OPERATION."
       "ls --color=never")
      (t "ls"))))
 
+;; "ls" returns exit code 1 for permission problems and alike.  Ignore
+;; those messages.  (Bug#80054)
+(defun tramp-adb-do-ls (vec switches &rest filenames)
+  "Call \"ls\" on a remote adb device with SWITCHES.
+Return non-il if the call was successful.  Ignore return code 1 stderr
+output."
+  (ignore-errors
+    (and-let*
+	((ret (tramp-adb-send-command-and-check
+	       vec (format
+		    "(%s %s %s 2>%s; echo tramp_exit_status $?) | cat"
+		    (tramp-adb-get-ls-command vec) switches
+		    (mapconcat #'tramp-shell-quote-argument filenames " ")
+		    (tramp-get-remote-null-device vec))
+	       t t))
+	 ((natnump ret))
+	 ((<= ret 1))))))
+
 (defun tramp-adb-sh-fix-ls-output (&optional sort-by-time)
   "Insert dummy 0 in empty size columns.
 Android's \"ls\" command doesn't insert size column for directories:
@@ -373,7 +386,7 @@ Emacs dired can't find files."
 	(search-forward-regexp
 	 (rx blank (group blank (regexp tramp-adb-ls-date-year-regexp) blank))
 	 nil t)
-      (replace-match "0\\1" "\\1" nil)
+      (replace-match "0\\1" "\\1")
       ;; Insert missing "/".
       (when (looking-at-p
 	     (rx (regexp tramp-adb-ls-date-time-regexp) (+ blank) eol))
@@ -438,26 +451,13 @@ Emacs dired can't find files."
 (defun tramp-adb-handle-file-name-all-completions (filename directory)
   "Like `file-name-all-completions' for Tramp files."
   (tramp-skeleton-file-name-all-completions filename directory
-    (all-completions
-     filename
-     (with-parsed-tramp-file-name (expand-file-name directory) nil
-       (with-tramp-file-property v localname "file-name-all-completions"
-	 (unless (tramp-adb-send-command-and-check
-		  v (format "(%s -a %s; echo tramp_exit_status $?) | cat"
-			    (tramp-adb-get-ls-command v)
-			    (tramp-shell-quote-argument localname))
-                  nil t)
-	   (erase-buffer))
-	 (mapcar
-	  (lambda (f)
-	    (if (file-directory-p (expand-file-name f directory))
-		(file-name-as-directory f)
-	      f))
-	  (with-current-buffer (tramp-get-buffer v)
-	    (mapcar
-	     (lambda (l)
-	       (and (not (string-match-p (rx bol (* blank) eol) l)) l))
-	     (split-string (buffer-string) "\n" 'omit)))))))))
+    (with-parsed-tramp-file-name (expand-file-name directory) nil
+      (when (tramp-adb-do-ls v "-a" localname)
+	(with-current-buffer (tramp-get-buffer v)
+	  (mapcar
+	   (lambda (l)
+	     (and (not (string-match-p (rx bol (* blank) eol) l)) l))
+	   (split-string (buffer-string) "\n" 'omit)))))))
 
 (defun tramp-adb-handle-file-local-copy (filename)
   "Like `file-local-copy' for Tramp files."
@@ -569,9 +569,9 @@ Emacs dired can't find files."
 		  "touch -t %s %s %s")
 	  (format-time-string "%Y-%m-%dT%H:%M:%S.%NZ" time t)
 	  nofollow quoted-name (tramp-get-remote-null-device v)
-	  (format-time-string "%Y-%m-%dT%H:%M:%S" time t)
+	  (format-time-string "%Y-%m-%dT%H:%M:%S" time)
 	  nofollow quoted-name (tramp-get-remote-null-device v)
-	  (format-time-string "%Y%m%d%H%M.%S" time t)
+	  (format-time-string "%Y%m%d%H%M.%S" time)
 	  nofollow quoted-name)))))
 
 (defun tramp-adb-handle-copy-file
@@ -649,7 +649,7 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 
     ;; KEEP-DATE handling.
     (when keep-date
-      (tramp-compat-set-file-times
+      (set-file-times
        newname
        (file-attribute-modification-time (file-attributes filename))
        (unless ok-if-already-exists 'nofollow)))))
@@ -752,6 +752,7 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 	      (with-current-buffer outbuf
 		(insert-buffer-substring (tramp-get-connection-buffer v)))
 	      (when (and display (get-buffer-window outbuf t)) (redisplay))))
+
 	;; When the user did interrupt, we should do it also.  We use
 	;; return code -1 as marker.
 	(quit
@@ -762,9 +763,7 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 	 (kill-buffer (tramp-get-connection-buffer v))
 	 (setq ret 1)))
 
-      ;; Handle signals.  `process-file-return-signal-string' exists
-      ;; since Emacs 28.1.
-      (when (and (bound-and-true-p process-file-return-signal-string)
+      (when (and process-file-return-signal-string
 		 (natnump ret) (> ret 128))
 	(setq ret (nth (- ret 128) (tramp-adb-get-signal-strings v))))))
 
@@ -808,10 +807,10 @@ will be used."
 	   v 'file-error "Cannot apply multibyte command `%s'" command))
 
 	(with-tramp-saved-connection-properties
-	    v '("process-name" "process-buffer")
+	    v '(" process-name" " process-buffer")
 	  ;; Set the new process properties.
-	  (tramp-set-connection-property v "process-name" name)
-	  (tramp-set-connection-property v "process-buffer" buffer)
+	  (tramp-set-connection-property v " process-name" name)
+	  (tramp-set-connection-property v " process-buffer" buffer)
 	  (with-current-buffer (tramp-get-connection-buffer v)
 	    (unwind-protect
 		;; We catch this event.  Otherwise, `make-process'
@@ -843,8 +842,6 @@ will be used."
 		      (when filter
 			(set-process-filter p filter))
 		      (process-put p 'remote-command orig-command)
-		      (tramp-set-connection-property
-		       p "remote-command" orig-command)
 		      ;; Set query flag and process marker for this
 		      ;; process.  We ignore errors, because the
 		      ;; process could have finished already.
@@ -854,8 +851,8 @@ will be used."
 			;; We must flush them here already;
 			;; otherwise `rename-file', `delete-file'
 			;; or `insert-file-contents' will fail.
-			(tramp-flush-connection-property v "process-name")
-			(tramp-flush-connection-property v "process-buffer")
+			(tramp-flush-connection-property v " process-name")
+			(tramp-flush-connection-property v " process-buffer")
 			;; Copy tmpstderr file.
 			(when (and (stringp stderr)
 				   (not (tramp-tramp-file-p stderr)))
@@ -877,8 +874,8 @@ will be used."
 			;; is deleted.  The temporary file will exist
 			;; until the process is deleted.
 			(when (bufferp stderr)
+			  (tramp-taint-remote-process-buffer stderr)
 			  (ignore-errors
-			    (tramp-taint-remote-process-buffer stderr)
 			    (with-current-buffer stderr
 			      (insert-file-contents-literally
 			       remote-tmpstderr 'visit)))
@@ -945,7 +942,7 @@ E.g. a host name \"192.168.1.1#5555\" returns \"192.168.1.1:5555\"
     (let* ((host (tramp-file-name-host vec))
 	   (port (tramp-file-name-port-or-default vec))
 	   (devices (mapcar #'cadr (tramp-adb-parse-device-names nil))))
-      (tramp-compat-string-replace
+      (string-replace
        tramp-prefix-port-format ":"
        (cond ((member host devices) host)
 	     ;; This is the case when the host is connected to the default port.
@@ -955,28 +952,27 @@ E.g. a host name \"192.168.1.1#5555\" returns \"192.168.1.1:5555\"
 	     ;; An empty host name shall be mapped as well, when there
 	     ;; is exactly one entry in `devices'.
 	     ((and (tramp-string-empty-or-nil-p host)
-		   (tramp-compat-length= devices 1))
+		   (length= devices 1))
 	      (car devices))
 	     ;; Try to connect device.
 	     ((and tramp-adb-connect-if-not-connected
-		   (tramp-compat-length> host 0)
+		   (length> host 0)
 		   (tramp-adb-execute-adb-command
                     vec "connect"
-                    (tramp-compat-string-replace
-		     tramp-prefix-port-format ":" host)))
+                    (string-replace tramp-prefix-port-format ":" host)))
 	      ;; When new device connected, running other adb command (e.g.
 	      ;; adb shell) immediately will fail.  To get around this
 	      ;; problem, add sleep 0.1 second here.
 	      (sleep-for 0.1)
 	      host)
 	     (t (tramp-error
-		 vec 'file-error "Could not find device %s" host)))))))
+		 vec 'remote-file-error "Could not find device %s" host)))))))
 
 (defun tramp-adb-execute-adb-command (vec &rest args)
   "Execute an adb command.
 Insert the result into the connection buffer.  Return nil on
 error and non-nil on success."
-  (when (and (tramp-compat-length> (tramp-file-name-host vec) 0)
+  (when (and (length> (tramp-file-name-host vec) 0)
 	     ;; The -s switch is only available for ADB device commands.
 	     (not (member (car args) '("connect" "disconnect"))))
     (setq args (append (list "-s" (tramp-adb-get-device vec)) args)))
@@ -1020,7 +1016,7 @@ error and non-nil on success."
 	  ;; system, but this requires changes in core Tramp.
 	  (goto-char (point-min))
 	  (while (search-forward-regexp (rx (+ "\r") eol) nil t)
-	    (replace-match "" nil nil)))))))
+	    (replace-match "")))))))
 
 (defun tramp-adb-send-command-and-check
     (vec command &optional exit-status command-augmented-p)
@@ -1043,7 +1039,7 @@ the exit status."
   (with-current-buffer (tramp-get-connection-buffer vec)
     (unless (tramp-search-regexp (rx "tramp_exit_status " (+ digit)))
       (tramp-error
-       vec 'file-error "Couldn't find exit status of `%s'" command))
+       vec 'remote-file-error "Couldn't find exit status of `%s'" command))
     (skip-chars-forward "^ ")
     (prog1
 	(if exit-status
@@ -1056,13 +1052,14 @@ the exit status."
   "Run COMMAND, check exit status, throw error if exit status not okay.
 FMT and ARGS are passed to `error'."
   (unless (tramp-adb-send-command-and-check vec command)
-    (apply #'tramp-error vec 'file-error fmt args)))
+    (apply #'tramp-error vec 'remote-file-error fmt args)))
 
 (defun tramp-adb-wait-for-output (proc &optional timeout)
   "Wait for output from remote command."
   (unless (buffer-live-p (process-buffer proc))
     (delete-process proc)
-    (tramp-error proc 'file-error "Process `%s' not available, try again" proc))
+    (tramp-error
+     proc 'remote-file-error "Process `%s' not available, try again" proc))
   (let ((prompt (tramp-get-connection-property proc "prompt" tramp-adb-prompt)))
     (with-current-buffer (process-buffer proc)
       (if (tramp-wait-for-regexp proc timeout prompt)
@@ -1081,10 +1078,11 @@ FMT and ARGS are passed to `error'."
 	      (delete-region (point) (point-max))))
 	(if timeout
 	    (tramp-error
-	     proc 'file-error
+	     proc 'remote-file-error
 	     "[[Remote prompt `%s' not found in %d secs]]" prompt timeout)
 	  (tramp-error
-	   proc 'file-error "[[Remote prompt `%s' not found]]" prompt))))))
+	   proc 'remote-file-error
+	   "[[Remote prompt `%s' not found]]" prompt))))))
 
 (defun tramp-adb-maybe-open-connection (vec)
   "Maybe open a connection VEC.
@@ -1104,30 +1102,29 @@ connection if a previous connection has died for some reason."
       ;; Maybe we know already that "su" is not supported.  We cannot
       ;; use a connection property, because we have not checked yet
       ;; whether it is still the same device.
-      (when (and user (not (tramp-get-file-property vec "/" "su-command-p" t)))
-	(tramp-error vec 'file-error "Cannot switch to user `%s'" user))
+      (when
+	  (and user (not (tramp-get-connection-property vec " su-command-p" t)))
+	(tramp-error vec 'remote-file-error "Cannot switch to user `%s'" user))
 
       (unless (process-live-p p)
 	(save-match-data
 	  (when (and p (processp p)) (delete-process p))
 	  (if (tramp-string-empty-or-nil-p device)
-	      (tramp-error vec 'file-error "Device %s not connected" host))
+	      (tramp-error
+	       vec 'remote-file-error "Device %s not connected" host))
 	  (with-tramp-progress-reporter vec 3 "Opening adb shell connection"
 	    (let* ((coding-system-for-read 'utf-8-dos) ; Is this correct?
 		   (process-connection-type tramp-process-connection-type)
 		   (args (tramp-expand-args
 			  vec 'tramp-login-args nil ?d (or device "")))
-		   (p (let ((default-directory
-			     tramp-compat-temporary-file-directory))
-			(apply
-			 #'start-process (tramp-get-connection-name vec) buf
-			 tramp-adb-program args)))
+		   (p (apply
+		       #'tramp-start-process vec (tramp-get-connection-name vec)
+		       buf tramp-adb-program args))
 		   (prompt (md5 (concat (prin1-to-string process-environment)
 					(current-time-string)))))
 
-	      ;; Set sentinel.  Initialize variables.
+	      ;; Set sentinel.
 	      (set-process-sentinel p #'tramp-process-sentinel)
-	      (tramp-post-process-creation p vec)
 
 	      ;; Wait for initial prompt.  On some devices, it needs
 	      ;; an initial RET, in order to get it.
@@ -1135,7 +1132,7 @@ connection if a previous connection has died for some reason."
 	      (tramp-send-string vec tramp-rsh-end-of-line)
 	      (tramp-adb-wait-for-output p 30)
 	      (unless (process-live-p p)
-		(tramp-error vec 'file-error "Terminated!"))
+		(tramp-error vec 'remote-file-error "Terminated!"))
 
 	      ;; Set connection-local variables.
 	      (tramp-set-connection-local-variables vec)
@@ -1189,9 +1186,9 @@ connection if a previous connection has died for some reason."
 		(unless (tramp-adb-send-command-and-check vec nil)
 		  (delete-process p)
 		  ;; Do not flush, we need the nil value.
-		  (tramp-set-file-property vec "/" "su-command-p" nil)
+		  (tramp-set-connection-property vec " su-command-p" nil)
 		  (tramp-error
-		   vec 'file-error "Cannot switch to user `%s'" user)))
+		   vec 'remote-file-error "Cannot switch to user `%s'" user)))
 
 	      ;; Mark it as connected.
 	      (tramp-set-connection-property p "connected" t))))))))
@@ -1225,11 +1222,10 @@ connection if a previous connection has died for some reason."
  'tramp-adb-connection-local-default-ps-profile
  tramp-adb-connection-local-default-ps-variables)
 
-(with-eval-after-load 'shell
-  (connection-local-set-profiles
-   `(:application tramp :protocol ,tramp-adb-method)
-   'tramp-adb-connection-local-default-shell-profile
-   'tramp-adb-connection-local-default-ps-profile))
+(connection-local-set-profiles
+ `(:application tramp :protocol ,tramp-adb-method)
+ 'tramp-adb-connection-local-default-shell-profile
+ 'tramp-adb-connection-local-default-ps-profile)
 
 ;; `shell-mode' tries to open remote files like "/adb::~/.history".
 ;; This fails, because the tilde cannot be expanded.  Tell

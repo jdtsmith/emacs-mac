@@ -1,5 +1,5 @@
 @c This is part of the Emacs manual.
-@c Copyright (C) 1985--1987, 1993--1995, 1997, 2000--2025 Free Software
+@c Copyright (C) 1985--1987, 1993--1995, 1997, 2000--2026 Free Software
 @c Foundation, Inc.
 @c See file emacs.texi for copying conditions.
 @node Building
@@ -63,6 +63,12 @@ then executes the command by running a shell as a subprocess (or
 named @file{*compilation*}.  The current buffer's default directory is
 used as the working directory for the execution of the command, so by
 default compilation takes place in that directory.
+
+  When invoked with a prefix argument, the @file{*compilation*} buffer
+is using Comint mode as its major mode (@pxref{Shell Mode}).  By default
+Comint mode has the nice property of looking for any credential prompts
+in its contents and make Emacs asks for a password if this happens.
+This is useful should the compilation command need such a credential.
 
 @vindex compile-command
   The default compilation command is @samp{make -k}, which is usually
@@ -181,6 +187,22 @@ Emacs automatically visits the locus of the first error message that
 appears in the @file{*compilation*} buffer.  (This variable can also
 have the values @code{if-location-known} and @code{first-known}, which
 modify the conditions for automatically visiting the error locus.)
+
+@vindex compilation-search-path
+@vindex compilation-search-extra-path
+  The actual locus of an error message is determined by
+@code{compilation-search-path}, a list of directory names.  By default,
+Emacs visits the file indicated in the error message under the directory
+where the compilation happens, represented by the special directory name
+@code{nil} in the default value for @code{compilation-search-path}
+(i.e. @code{(nil)}).  To make Emacs try to find the file under a
+different directory (e.g. when compiling a nested project), customize
+@code{compilation-search-path} to include that directory.  For
+directory-local customization (@pxref{Directory Variables}), prefer
+setting @code{compilation-search-extra-path} instead, which Emacs
+considers in addition to @code{compilation-search-path}.  Entries in
+@code{compilation-search-extra-path} take precedence over entries in
+@code{compilation-search-path}.
 
   Compilation mode provides the following additional commands.  These
 commands can also be used in @file{*grep*} buffers, where the
@@ -537,6 +559,16 @@ grep-find-toggle-abbreviation}.  To disable this abbreviation of the
 shell commands, customize the option @code{grep-find-abbreviate} to a
 @code{nil} value.
 
+@findex grep-change-to-grep-edit-mode
+@cindex Grep Edit mode
+@cindex mode, Grep Edit
+  Typing @kbd{e} in the @file{*grep*} buffer makes the buffer writable
+and enters the Grep Edit mode.  Similar to Occur Edit mode (@pxref{Other
+Repeating Search}), you can edit the matching lines reported by
+@code{grep} and have those changes reflected in the buffer visiting the
+originating file.  Type @kbd{C-c C-c} to leave the Grep Edit mode and
+return to the Grep mode.
+
 @node Flymake
 @section Finding Syntax Errors On The Fly
 @cindex checking syntax
@@ -664,6 +696,9 @@ Run the SDB debugger.
 using the minibuffer.  The minibuffer's initial contents contain the
 standard executable name and options for the debugger, and sometimes
 also a guess for the name of the executable file you want to debug.
+For @code{pdb}, @code{perldb}, and @code{guiler}, if the current buffer
+visits a file, pressing @kbd{M-n} (@code{next-history-element})
+in the prompt suggests a full command line including that file name.
 Shell wildcards and variables are not allowed in this command line.
 Emacs assumes that the first command argument which does not start
 with a @samp{-} is the executable file name.
@@ -1570,7 +1605,7 @@ Emacs Lisp Reference Manual}.
 @cindex native compilation
   Emacs Lisp code can also be compiled into @dfn{native code}: machine
 code not unlike the one produced by a C or Fortran compiler.  Native
-code runs even faster than byte-code.  Natively-compiled Emacs Lisp
+code runs even faster than byte-code.  Natively compiled Emacs Lisp
 code is stored in files whose names end in @samp{.eln}.  @xref{Native
 Compilation,, Native Compilation, elisp, the Emacs Lisp Reference Manual}.
 
@@ -1650,7 +1685,7 @@ way, you don't need to modify the default value of @code{load-path}.
 
 @vindex native-comp-eln-load-path
   Similarly to @code{load-path}, the list of directories where Emacs
-looks for @file{*.eln} files with natively-compiled Lisp code is
+looks for @file{*.eln} files with native-compiled Lisp code is
 specified by the variable @code{native-comp-eln-load-path}.
 
 @cindex autoload
@@ -1855,6 +1890,16 @@ interface rather like Shell mode (@pxref{Shell Mode}) for evaluating
 Emacs Lisp expressions.  Type @kbd{M-x ielm} to create an
 @file{*ielm*} buffer which uses this mode.  For more information, see
 that command's documentation.
+
+@cindex persistent *scratch* buffer
+  By default, the @file{*scratch*} buffer is not associated with any
+file.  Therefore, any text in the buffer is lost when you quit Emacs.
+If you prefer, you can use Remember mode's notes buffer feature to make
+Emacs save and reload the contents of @file{*scratch*}.  Customize the
+variable @code{initial-buffer-choice} to the symbol
+@code{remember-notes} and the variable @code{remember-notes-buffer-name}
+to the string @code{"*scratch*"} to achieve this.  See also @xref{Quick
+Start,,, remember, the Remember mode manual}.
 
 @node External Lisp
 @section Running an External Lisp

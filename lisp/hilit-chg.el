@@ -1,6 +1,6 @@
 ;;; hilit-chg.el --- minor mode displaying buffer changes with special face  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1998, 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1998, 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: Richard Sharman <rsharman@pobox.com>
 ;; Keywords: faces
@@ -113,8 +113,8 @@
 
 
 ;;     Possible bindings:
-;; (global-set-key '[C-right] #'highlight-changes-next-change)
-;; (global-set-key '[C-left]  #'highlight-changes-previous-change)
+;; (keymap-global-set "C-<right>" #'highlight-changes-next-change)
+;; (keymap-global-set "C-<left>"  #'highlight-changes-previous-change)
 ;;
 ;;     Other interactive functions (that could be bound if desired):
 ;; `highlight-changes-mode'

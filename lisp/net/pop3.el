@@ -1,6 +1,6 @@
 ;;; pop3.el --- Post Office Protocol (RFC 1460) interface  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2026 Free Software Foundation, Inc.
 
 ;; Author: Richard L. Pieri <ratinox@peorth.gweep.net>
 ;; Maintainer: emacs-devel@gnu.org
@@ -33,8 +33,6 @@
 ;; This program was inspired by Kyle E. Jones's vm-pop program.
 
 ;;; Code:
-
-(eval-when-compile (require 'cl-lib))
 
 (require 'mail-utils)
 
@@ -233,8 +231,8 @@ Use streaming commands."
 	(setq start-point
 	      (pop3-wait-for-messages process pop3-stream-length
 				      total-size start-point))
-	(cl-incf waited-for pop3-stream-length))
-      (cl-incf i))
+        (incf waited-for pop3-stream-length))
+      (incf i))
     (pop3-wait-for-messages process (- count waited-for)
 			    total-size start-point)))
 
@@ -245,7 +243,7 @@ Use streaming commands."
 		    (or (not total-size)
 			(re-search-forward "^\\.\r?\n" nil t)))
 	       (re-search-forward "^-ERR " nil t))
-      (cl-decf count)
+      (decf count)
       (setq start-point (point)))
     (unless (memq (process-status process) '(open run))
       (error "pop3 process died"))
@@ -363,7 +361,7 @@ Use streaming commands."
 		(while (> i 0)
 		  (unless (member (nth (1- i) pop3-uidl) saved)
 		    (push i messages))
-		  (cl-decf i)))
+                  (decf i)))
 	      (when messages
 		(setq list (pop3-list process)
 		      size 0)
@@ -395,7 +393,7 @@ Return non-nil if it is necessary to update the local UIDL file."
 	     (unless (member (setq uidl (nth i pop3-uidl)) (cdr saved))
 	       (push ctime new)
 	       (push uidl new))
-	     (cl-decf i)))
+             (decf i)))
 	  (pop3-uidl
 	   (setq new (mapcan (lambda (elt) (list elt ctime)) pop3-uidl))))
     (when new (setq mod t))
@@ -416,7 +414,7 @@ Return non-nil if it is necessary to update the local UIDL file."
 	      (push uidl new)))
 	;; Mails having been deleted in the server.
 	(setq mod t))
-      (cl-decf i 2))
+      (decf i 2))
     (cond (saved
 	   (setcdr saved new))
 	  (srvr
@@ -432,7 +430,7 @@ Return non-nil if it is necessary to update the local UIDL file."
       (while (> i 0)
 	(when (member (nth (1- i) pop3-uidl) dele)
 	  (push i uidl))
-	(cl-decf i))
+        (decf i))
       (when uidl
 	(pop3-send-streaming-command process "DELE" uidl nil)))
     mod))

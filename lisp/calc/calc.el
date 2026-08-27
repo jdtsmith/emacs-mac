@@ -1,6 +1,6 @@
 ;;; calc.el --- the GNU Emacs calculator  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1990-1993, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1990-1993, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: David Gillespie <daveg@synaptics.com>
 ;; Keywords: convenience, extensions
@@ -627,6 +627,37 @@ Otherwise, 1 / 0 is changed to uinf (undirected infinity).")
 
 (defcalcmodevar calc-display-strings nil
   "If non-nil, display vectors of byte-sized integers as strings.")
+
+(defcustom calc-string-maximum-character #xFF
+  "Maximum value of vector contents to be displayed as a string.
+
+If a vector consists of characters up to this maximum value, the
+function `calc-display-strings' will toggle displaying the vector as a
+string.  This maximum value must represent a character (see `characterp').
+Some natural choices (and their resulting ranges) are:
+
+- `0x7F'     (`ASCII'),
+- `0xFF'     (`Latin-1', the default),
+- `0x10FFFF' (`Unicode'),
+- `0x3FFFFF' (`Emacs').
+
+Characters for low control codes are either caret or backslash escaped,
+while others without a glyph are displayed in backslash-octal notation.
+The display of strings containing higher character codes will depend on
+your display settings and system font coverage.
+
+See the following for further information:
+
+- info node `(calc)Strings',
+- info node `(elisp)Text Representations',
+- info node `(emacs)Text Display'."
+  :version "31.1"
+  :type '(choice (restricted-sexp :tag "Character Code"
+                                  :match-alternatives (characterp))
+                 (const :tag "ASCII"   #x7F)
+                 (const :tag "Latin-1" #xFF)
+                 (const :tag "Unicode" #x10FFFF)
+                 (const :tag "Emacs"   #x3FFFFF)))
 
 (defcalcmodevar calc-matrix-just 'center
   "If nil, vector elements are left-justified.
@@ -1347,7 +1378,8 @@ Notations:  3.14e6     3.14 * 10^6
       (equal calc-settings-file user-init-file)
       (progn
 	(setq calc-loaded-settings-file t)
-	(load (file-name-sans-extension calc-settings-file) t)))   ; t = missing-ok
+	(let ((warning-inhibit-types '((files missing-lexbind-cookie))))
+          (load (file-name-sans-extension calc-settings-file) t))))   ; t = missing-ok
   (let ((p command-line-args))
     (while p
       (and (equal (car p) "-f")
@@ -1436,10 +1468,16 @@ commands given here will actually operate on the *Calculator* stack."
       (calc-mode))
   (setq max-lisp-eval-depth (max max-lisp-eval-depth 1000))
   (when calc-always-load-extensions
-    (require 'calc-ext))
+    (require 'calc-ext)
+    (calc-load-everything))
   (when calc-language
     (require 'calc-ext)
     (calc-set-language calc-language calc-language-option t)))
+
+(defcustom calc-inhibit-startup-message nil
+  "If non-nil, inhibit the Calc startup message."
+  :version "31.1"
+  :type 'boolean)
 
 (defcustom calc-make-windows-dedicated nil
   "If non-nil, windows displaying Calc buffers will be marked dedicated.
@@ -1492,9 +1530,12 @@ See `window-dedicated-p' for what that means."
         (with-current-buffer (calc-trail-buffer)
           (and calc-display-trail
                (calc-trail-display 1 t)))
-        (message (substitute-command-keys
-                  (concat "Welcome to the GNU Emacs Calculator!  \\<calc-mode-map>"
-                          "Press \\[calc-help] or \\[calc-help-prefix] for help, \\[calc-quit] to quit")))
+        (unless calc-inhibit-startup-message
+          (message (substitute-command-keys
+                    (concat "Welcome to the GNU Emacs Calculator!  \\<calc-mode-map>"
+                            "Press \\[calc-help] "
+                            (if (featurep 'calc-ext) "or \\[calc-help-prefix] ")
+                            "for help, \\[calc-quit] to quit"))))
         (run-hooks 'calc-start-hook)
         (and (windowp full-display)
              (window-point full-display)
@@ -1502,10 +1543,11 @@ See `window-dedicated-p' for what that means."
         (and calc-make-windows-dedicated
              (set-window-dedicated-p nil t))
         (calc-check-defines)
-        (when (and calc-said-hello interactive)
-          (sit-for 2)
-          (message ""))
-        (setq calc-said-hello t)))))
+        (unless calc-inhibit-startup-message
+          (when (and calc-said-hello interactive)
+            (sit-for 2)
+            (message ""))
+          (setq calc-said-hello t))))))
 
 ;;;###autoload
 (defun full-calc (&optional interactive)
@@ -1646,7 +1688,7 @@ See calc-keypad for details."
                (error (substitute-command-keys
                        "Computation got stuck or ran too long.  Type \\`M' to increase the limit"))
 	     (setq calc-aborted-prefix nil)
-	     (signal (car err) (cdr err)))))
+	     (signal err))))
       (when calc-aborted-prefix
 	(calc-record "<Aborted>" calc-aborted-prefix))
       (and calc-start-time
@@ -3482,11 +3524,6 @@ See Info node `(calc)Defining Functions'."
 
 (defcalcmodevar math-half-2-word-size 2147483648
   "One-half of two to the power of `calc-word-size'.")
-
-(when calc-always-load-extensions
-  (require 'calc-ext)
-  (calc-load-everything))
-
 
 (run-hooks 'calc-load-hook)
 

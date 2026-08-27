@@ -1,6 +1,6 @@
 ;;; add-log.el --- change log maintenance commands for Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1986, 1988, 1993-1994, 1997-1998, 2000-2025 Free
+;; Copyright (C) 1985-1986, 1988, 1993-1994, 1997-1998, 2000-2026 Free
 ;; Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -129,6 +129,7 @@ this variable."
 (defcustom add-log-always-start-new-record nil
   "If non-nil, `add-change-log-entry' will always start a new record."
   :version "22.1"
+  :safe #'booleanp
   :type 'boolean)
 
 (defvar add-log-buffer-file-name-function 'buffer-file-name
@@ -318,6 +319,7 @@ as a list of strings."
   "Format and insert CHANGELOGS into current buffer.
 CHANGELOGS is a list in the form returned by
 `diff-add-log-current-defuns'."
+  (require 'log-edit)
   (cl-loop for (file . defuns) in changelogs do
            (insert "* " file)
            (if (not defuns)

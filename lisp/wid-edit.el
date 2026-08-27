@@ -1,6 +1,6 @@
 ;; wid-edit.el --- Functions for creating and using widgets -*- lexical-binding:t -*-
 ;;
-;; Copyright (C) 1996-1997, 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1997, 1999-2026 Free Software Foundation, Inc.
 ;;
 ;; Author: Per Abrahamsen <abraham@dina.kvl.dk>
 ;; Maintainer: emacs-devel@gnu.org
@@ -56,7 +56,6 @@
 
 ;;; Code:
 (require 'cl-lib)
-(eval-when-compile (require 'subr-x)) 	; when-let
 
 ;; The `string' widget completion uses this.
 (declare-function ispell-get-word "ispell"
@@ -417,6 +416,9 @@ the :notify function can't know the new value.")
       ;; character (so we don't do this for the character widget),
       ;; or if the size of the editable field isn't specified.
       (let ((overlay (make-overlay (1- to) to nil t nil)))
+        ;; Save it so that we can easily delete it in
+        ;; `widget-field-value-delete'.  (Bug#75646)
+        (widget-put widget :field-end-overlay overlay)
 	(overlay-put overlay 'field 'boundary)
         ;; We need the real field for tabbing.
 	(overlay-put overlay 'real-field widget)
@@ -425,7 +427,12 @@ the :notify function can't know the new value.")
 	(overlay-put overlay 'local-map keymap)
 	(overlay-put overlay 'face face)
 	(overlay-put overlay 'follow-link follow-link)
-	(overlay-put overlay 'help-echo help-echo))
+        (overlay-put overlay 'help-echo help-echo)
+        ;; Since the `widget-field' face has a :box attribute, we need to add
+        ;; some character with no face after the newline character, to avoid
+        ;; clashing with text that comes after the field and has a face with
+        ;; a :box attribute too.  (Bug#51550)
+        (overlay-put overlay 'after-string #(" " 0 1 (invisible t))))
       (setq to (1- to))
       (setq rear-sticky t))
     (let ((overlay (make-overlay from to nil nil rear-sticky)))
@@ -460,17 +467,18 @@ the :notify function can't know the new value.")
   "Specify button for WIDGET between FROM and TO."
   (let ((overlay (make-overlay from to nil t nil))
 	(follow-link (widget-get widget :follow-link))
-	(help-echo (widget-get widget :help-echo)))
+	(help-echo (widget-get widget :help-echo))
+	(face (unless (widget-get widget :suppress-face)
+		(widget-apply widget :button-face-get))))
     (widget-put widget :button-overlay overlay)
     (when (functionp help-echo)
       (setq help-echo 'widget-mouse-help))
-    (overlay-put overlay 'before-string #(" " 0 1 (invisible t)))
     (overlay-put overlay 'button widget)
     (overlay-put overlay 'keymap (widget-get widget :keymap))
     (overlay-put overlay 'evaporate t)
     ;; We want to avoid the face with image buttons.
-    (unless (widget-get widget :suppress-face)
-      (overlay-put overlay 'face (widget-apply widget :button-face-get))
+    (when face
+      (overlay-put overlay 'face face)
       (overlay-put overlay 'mouse-face
 		   ;; Make new list structure for the mouse-face value
 		   ;; so that different widgets will have
@@ -544,8 +552,15 @@ With CHECK-AFTER non-nil, considers also the content after point, if needed."
   :group 'widget-faces)
 
 (defun widget-specify-inactive (widget from to)
-  "Make WIDGET inactive for user modifications."
-  (unless (widget-get widget :inactive)
+  "Make WIDGET inactive for user modifications.
+
+If WIDGET is already inactive, moves the :inactive overlay to the positions
+indicated by FROM and TO, either numbers or markers.
+
+If WIDGET is not inactive, creates an overlay that spans from FROM to TO,
+and saves that overlay under the :inactive property for WIDGET."
+  (if (widget-get widget :inactive)
+      (move-overlay (widget-get widget :inactive) from to)
     (let ((overlay (make-overlay from to nil t nil)))
       (overlay-put overlay 'face 'widget-inactive)
       ;; This is disabled, as it makes the mouse cursor change shape.
@@ -606,6 +621,29 @@ With CHECK-AFTER non-nil, considers also the content after point, if needed."
 	 (symbolp (car widget))
 	 (get (car widget) 'widget-type))))
 
+;;;###autoload
+(defun widget-put (widget property value)
+  "In WIDGET, set PROPERTY to VALUE.
+The value can later be retrieved with `widget-get'."
+  (setcdr widget (plist-put (cdr widget) property value))
+  value)
+
+;;;###autoload
+(defun widget-get (widget property)
+  "In WIDGET, get the value of PROPERTY.
+The value could either be specified when the widget was created, or
+later with `widget-put'."
+  (let (value)
+    (while (and widget
+                (let ((found (plist-member (cdr widget) property)))
+                  (cond (found
+                         (setq value (cadr found))
+                         nil)
+                        (t
+                         (setq widget (get (widget-type widget) 'widget-type))
+                         t)))))
+    value))
+
 (defun widget-get-indirect (widget property)
   "In WIDGET, get the value of PROPERTY.
 If the value is a symbol, return its binding.
@@ -622,6 +660,13 @@ Otherwise, just return the value."
 	((car widget)
 	 (widget-member (get (car widget) 'widget-type) property))
 	(t nil)))
+
+;;;###autoload
+(defun widget-apply (widget property &rest args)
+  "Apply the value of WIDGET's PROPERTY to the widget itself.
+Return the result of applying the value of PROPERTY to WIDGET.
+ARGS are passed as extra arguments to the function."
+  (apply (widget-get widget property) widget args))
 
 (defun widget-value (widget)
   "Extract the current value of WIDGET."
@@ -823,7 +868,8 @@ extension (xpm, xbm, gif, jpg, or png) located in
 	 image)
 	((stringp image)
 	 ;; A string.  Look it up in relevant directories.
-	 (let* ((load-path (cons widget-image-directory load-path))
+	 (let* ((image-load-path (cons widget-image-directory
+				       image-load-path))
 		specs)
 	   (dolist (elt widget-image-conversion)
 	     (dolist (ext (cdr elt))
@@ -1042,18 +1088,12 @@ button end points."
 
 (defun widget-text (widget)
   "Get the text representation of the widget."
-  (when-let ((from (widget-get widget :from))
-             (to (widget-get widget :to)))
+  (when-let* ((from (widget-get widget :from))
+              (to (widget-get widget :to)))
     (when (eq (marker-buffer from) (marker-buffer to)) ; is this check necessary?
       (buffer-substring-no-properties from to))))
 
 ;;; Keymap and Commands.
-
-;; This alias exists only so that one can choose in doc-strings (e.g.
-;; Custom-mode) which key-binding of widget-keymap one wants to refer to.
-;; https://lists.gnu.org/r/emacs-devel/2008-11/msg00480.html
-(define-obsolete-function-alias 'advertised-widget-backward
-  #'widget-backward "23.2")
 
 ;;;###autoload
 (defvar widget-keymap
@@ -1295,10 +1335,10 @@ POS defaults to the value of (point).  If user option
 This is much faster.")
 
 (defun widget-move (arg &optional suppress-echo)
-  "Move point to the ARG next field or button.
+  "Move point to the ARGth next field or button.
 ARG may be negative to move backward.
-When the second optional argument is non-nil,
-nothing is shown in the echo area."
+If the optional argument SUPPRESS-ECHO is non-nil, suppress showing
+in the echo area the help-echo, if any, for the final position."
   (let* ((wrapped 0)
 	 (number arg)
          (fwd (> arg 0))                ; widget-forward is caller.
@@ -1329,7 +1369,7 @@ nothing is shown in the echo area."
 	  (when new
 	    (if (eq new old)
                 (setq pos (point))
-              (cl-incf tabable)
+              (incf tabable)
 	      (setq arg (cond (fwd (1- arg))
                               (bwd (1+ arg))))
 	      (setq old new))))))
@@ -1344,19 +1384,23 @@ nothing is shown in the echo area."
     (widget-echo-help (point)))
   (run-hooks 'widget-move-hook))
 
-(defun widget-forward (arg)
-  "Move point to the next field or button.
-With optional ARG, move across that many fields."
+(defun widget-forward (arg &optional suppress-echo)
+  "Move point forward across ARG fields or buttons.
+Interactively, ARG is the prefix numeric argument and defaults to 1.
+If the optional argument SUPPRESS-ECHO is non-nil, suppress showing
+in the echo area the help-echo, if any, for the final position."
   (interactive "p")
   (run-hooks 'widget-forward-hook)
-  (widget-move arg))
+  (widget-move arg suppress-echo))
 
-(defun widget-backward (arg)
-  "Move point to the previous field or button.
-With optional ARG, move across that many fields."
+(defun widget-backward (arg &optional suppress-echo)
+  "Move point back across ARG fields or buttons.
+Interactively, ARG is the prefix numeric argument and defaults to 1.
+If the optional argument SUPPRESS-ECHO is non-nil, suppress showing
+in the echo area the help-echo, if any, for the final position."
   (interactive "p")
   (run-hooks 'widget-backward-hook)
-  (widget-move (- arg)))
+  (widget-move (- arg) suppress-echo))
 
 ;; Since the widget code uses a `field' property to identify fields,
 ;; ordinary beginning-of-line does the right thing.
@@ -1725,20 +1769,66 @@ The value of the :type attribute should be an unconverted widget type."
           (call-interactively
            (widget-get widget :complete-function))))))))
 
+(defun widget--prepare-markers-for-inside-insertion (widget)
+  "Prepare the WIDGET's parent for insertions inside it, if necessary.
+
+Usually, the :from marker has type t, while the :to marker has type nil.
+When recreating a child or a button inside a composite widget right at these
+markers, they have to be changed to nil and t respectively,
+so that the WIDGET's parent (if any), properly contains all of its
+recreated children and buttons.
+
+Prepares also the markers of the WIDGET's grandparent, if necessary.
+
+Returns a list of the markers that had its type changed, for later resetting."
+  (let* ((parent (widget-get widget :parent))
+         (parent-from-marker (and parent (widget-get parent :from)))
+         (parent-to-marker (and parent (widget-get parent :to)))
+         (lst nil)
+         (pos (point)))
+    (when (and parent-from-marker
+               (eq pos (marker-position parent-from-marker))
+               (marker-insertion-type parent-from-marker))
+      (set-marker-insertion-type parent-from-marker nil)
+      (push (cons parent-from-marker t) lst))
+    (when (and parent-to-marker
+               (eq pos (marker-position parent-to-marker))
+               (not (marker-insertion-type parent-to-marker)))
+      (set-marker-insertion-type parent-to-marker t)
+      (push (cons parent-to-marker nil) lst))
+    (when lst
+      (nconc lst (widget--prepare-markers-for-inside-insertion parent)))))
+
+(defun widget--revert-markers-for-outside-insertion (markers)
+  "Revert MARKERS for insertions that do not belong to a widget.
+
+MARKERS is a list of the form (MARKER . NEW-TYPE), as returned by
+`widget--prepare-markers-for-inside-insertion' and this function sets MARKER
+to NEW-TYPE.
+
+Coupled with `widget--prepare-parent-for-inside-insertion', this has the effect
+of setting markers back to the type needed for insertions that do not belong
+to a given widget."
+  (dolist (marker markers)
+    (set-marker-insertion-type (car marker) (cdr marker))))
+
 (defun widget-default-create (widget)
   "Create WIDGET at point in the current buffer."
   (widget-specify-insert
-   (let ((from (point))
+   (let ((str (widget-get widget :format))
+         (onext 0) (next 0)
 	 button-begin button-end
 	 sample-begin sample-end
 	 doc-begin doc-end
-	 value-pos)
-     (insert (widget-get widget :format))
-     (goto-char from)
+         value-pos
+         (markers (widget--prepare-markers-for-inside-insertion widget)))
      ;; Parse escapes in format.
-     (while (re-search-forward "%\\(.\\)" nil t)
-       (let ((escape (char-after (match-beginning 1))))
-	 (delete-char -2)
+     (while (string-match "%\\(.\\)" str next)
+       (setq next (match-end 1))
+       ;; If we skipped some literal text, insert it.
+       (when (/= (- next onext) 2)
+         (insert (substring str onext (- next 2))))
+       (let ((escape (string-to-char (match-string 1 str))))
 	 (cond ((eq escape ?%)
 		(insert ?%))
 	       ((eq escape ?\[)
@@ -1782,7 +1872,11 @@ The value of the :type attribute should be an unconverted widget type."
 		    (widget-apply widget :value-create)
 		  (setq value-pos (point))))
 	       (t
-		(widget-apply widget :format-handler escape)))))
+		(widget-apply widget :format-handler escape))))
+       (setq onext next))
+     ;; Insert remaining literal text, if any.
+     (when (> (length str) next)
+       (insert (substring str next)))
      ;; Specify button, sample, and doc, and insert value.
      (and button-begin button-end
 	  (widget-specify-button widget button-begin button-end))
@@ -1792,7 +1886,8 @@ The value of the :type attribute should be an unconverted widget type."
 	  (widget-specify-doc widget doc-begin doc-end))
      (when value-pos
        (goto-char value-pos)
-       (widget-apply widget :value-create)))
+       (widget-apply widget :value-create))
+     (widget--revert-markers-for-outside-insertion markers))
    (let ((from (point-min-marker))
 	 (to (point-max-marker)))
      (set-marker-insertion-type from t)
@@ -2221,11 +2316,16 @@ the earlier input."
     (set-marker-insertion-type (car overlay) t)))
 
 (defun widget-field-value-delete (widget)
-  "Remove the widget from the list of active editing fields."
+  "Remove the field WIDGET from the list of active editing fields.
+
+Delete its overlays as well."
   (setq widget-field-list (delq widget widget-field-list))
   (setq widget-field-new (delq widget widget-field-new))
   ;; These are nil if the :format string doesn't contain `%v'.
   (let ((overlay (widget-get widget :field-overlay)))
+    (when (overlayp overlay)
+      (delete-overlay overlay)))
+  (let ((overlay (widget-get widget :field-end-overlay)))
     (when (overlayp overlay)
       (delete-overlay overlay))))
 
@@ -2523,14 +2623,15 @@ If the item is checked, CHOSEN is a cons whose cdr is the value."
 	  (buttons (widget-get widget :buttons))
 	  (button-args (or (widget-get type :sibling-args)
 			   (widget-get widget :button-args)))
-	  (from (point))
+          (str (widget-get widget :entry-format))
+          (onext 0) (next 0)
 	  child button)
-     (insert (widget-get widget :entry-format))
-     (goto-char from)
      ;; Parse % escapes in format.
-     (while (re-search-forward "%\\([bv%]\\)" nil t)
-       (let ((escape (char-after (match-beginning 1))))
-	 (delete-char -2)
+     (while (string-match "%\\([bv%]\\)" str next)
+       (setq next (match-end 1))
+       (when (/= (- next onext) 2)
+         (insert (substring str onext (- next 2))))
+       (let ((escape (string-to-char (match-string 1 str))))
 	 (cond ((eq escape ?%)
 		(insert ?%))
 	       ((eq escape ?b)
@@ -2554,7 +2655,10 @@ If the item is checked, CHOSEN is a cons whose cdr is the value."
                              (widget-create-child-value
                               widget type (car (cdr chosen)))))))
 	       (t
-		(error "Unknown escape `%c'" escape)))))
+		(error "Unknown escape `%c'" escape))))
+       (setq onext next))
+     (when (> (length str) next)
+       (insert (substring str next)))
      ;; Update properties.
      (and button child (widget-put child :button button))
      (and button (widget-put widget :buttons (cons button buttons)))
@@ -2701,16 +2805,17 @@ Return an alist of (TYPE MATCH)."
 	  (buttons (widget-get widget :buttons))
 	  (button-args (or (widget-get type :sibling-args)
 			   (widget-get widget :button-args)))
-	  (from (point))
+          (str (widget-get widget :entry-format))
+          (onext 0) (next 0)
 	  (chosen (and (null (widget-get widget :choice))
 		       (widget-apply type :match value)))
 	  child button)
-     (insert (widget-get widget :entry-format))
-     (goto-char from)
      ;; Parse % escapes in format.
-     (while (re-search-forward "%\\([bv%]\\)" nil t)
-       (let ((escape (char-after (match-beginning 1))))
-	 (delete-char -2)
+     (while (string-match "%\\([bv%]\\)" str next)
+       (setq next (match-end 1))
+       (when (/= (- next onext) 2)
+         (insert (substring str onext (- next 2))))
+       (let ((escape (string-to-char (match-string 1 str))))
 	 (cond ((eq escape ?%)
 		(insert ?%))
 	       ((eq escape ?b)
@@ -2729,7 +2834,10 @@ Return an alist of (TYPE MATCH)."
 			(to (widget-get child :to)))
                     (widget-specify-unselected child from to))))
 	       (t
-		(error "Unknown escape `%c'" escape)))))
+		(error "Unknown escape `%c'" escape))))
+       (setq onext next))
+     (when (> (length str) next)
+       (insert (substring str next)))
      ;; Update properties.
      (when chosen
        (widget-put widget :choice type))
@@ -2939,7 +3047,7 @@ Otherwise, the new widget is the default child of WIDGET.
 The new widget gets inserted at the position of the BEFORE child."
   (save-excursion
     (let ((children (widget-get widget :children))
-          (last-deleted (when-let ((lst (widget-get widget :last-deleted)))
+          (last-deleted (when-let* ((lst (widget-get widget :last-deleted)))
                           (prog1
                               (pop lst)
                             (widget-put widget :last-deleted lst)))))
@@ -2998,17 +3106,19 @@ Save CHILD into the :last-deleted list, so it can be inserted later."
   ;; Create a new entry to the list.
   (let ((type (nth 0 (widget-get widget :args)))
 	;; (widget-push-button-gui widget-editable-list-gui)
+        (str (widget-get widget :entry-format))
+        (onext 0) (next 0)
 	child delete insert)
     (widget-specify-insert
-     (save-excursion
-       (and (widget--should-indent-p)
-            (widget-get widget :indent)
-            (insert-char ?\s (widget-get widget :indent)))
-       (insert (widget-get widget :entry-format)))
+     (and (widget--should-indent-p)
+          (widget-get widget :indent)
+          (insert-char ?\s (widget-get widget :indent)))
      ;; Parse % escapes in format.
-     (while (re-search-forward "%\\(.\\)" nil t)
-       (let ((escape (char-after (match-beginning 1))))
-	 (delete-char -2)
+     (while (string-match "%\\(.\\)" str next)
+       (setq next (match-end 1))
+       (when (/= (- next onext) 2)
+         (insert (substring str onext (- next 2))))
+       (let ((escape (string-to-char (match-string 1 str))))
 	 (cond ((eq escape ?%)
 		(insert ?%))
 	       ((eq escape ?i)
@@ -3024,7 +3134,10 @@ Save CHILD into the :last-deleted list, so it can be inserted later."
 		             widget type
 		             (if conv value (widget-default-get type)))))
 	       (t
-		(error "Unknown escape `%c'" escape)))))
+		(error "Unknown escape `%c'" escape))))
+       (setq onext next))
+     (when (> (length str) next)
+       (insert (substring str next)))
      (let ((buttons (widget-get widget :buttons)))
        (if insert (push insert buttons))
        (if delete (push delete buttons))
@@ -3891,6 +4004,30 @@ or a list with the default value of each component of the list WIDGET."
   (and (consp value)
        (widget-group-match widget
 			   (widget-apply widget :value-to-internal value))))
+
+(defun widget-single-or-list-to-internal (widget val)
+  (if (listp val) val
+    (cons val (make-list (1- (length (widget-get widget :args))) nil))))
+
+(define-widget 'single-or-list 'group
+  "Either a single value (`nlistp') or a list of values (`listp').
+
+If the initial value is `nlistp', the first child widget gets
+that value and the other children get nil.
+
+If the first child's value is `nlistp' and the other children are
+nil, then `widget-value' just returns the first child's value."
+  ;; The internal value is always a list; only :value-to-internal and
+  ;; :match ever get called with the external value, which might be
+  ;; `nlistp'.
+  :value-to-external (lambda (_ val)
+                       (if (and (nlistp (car val))
+                                (cl-every #'null (cdr val)))
+                           (car val) val))
+  :value-to-internal #'widget-single-or-list-to-internal
+  :match (lambda (widget val)
+           (widget-group-match widget (widget-single-or-list-to-internal widget val))))
+
 
 ;;; The `lazy' Widget.
 ;;
@@ -4226,7 +4363,10 @@ is inline."
   "Non-nil if VALUE is a defined color or a RGB hex string."
   (and (stringp value)
        (or (color-defined-p value)
-           (string-match-p "^#\\(?:[[:xdigit:]]\\{3\\}\\)\\{1,4\\}$" value))))
+           (string-match-p "^#\\(?:[[:xdigit:]]\\{3\\}\\)\\{1,4\\}$" value)
+           ;; TTYs also allow unspecified-fg / unspecified-bg as color
+           ;; values even though they are technically not colors.
+           (string-match-p "^unspecified-\\(?:fg\\|bg\\)$" value))))
 
 (defun widget-color-validate (widget)
   "Check that WIDGET's value is a valid color."
@@ -4251,12 +4391,37 @@ is inline."
 
 ;;; Buffer predicates.
 (define-widget 'buffer-predicate 'lazy
-  "A buffer predicate."
+  "A buffer predicate for the condition argument of `buffer-match-p'."
   :tag "Buffer predicate"
   :type '(choice (const :tag "All buffers" t)
                  (const :tag "No buffers" nil)
-                 ;; FIXME: This should be expanded somehow.
-                 sexp))
+                 (regexp :tag "Buffer name regexp")
+                 (function :tag "Predicate function")
+                 (cons :tag "Derived mode"
+                       (const derived-mode)
+                       (choice
+                        (symbol :tag "Single mode" derived-mode)
+                        (repeat :tag "List of modes" (symbol derived-mode))))
+                 (cons :tag "Major mode"
+                       (const major-mode)
+                       (symbol major-mode))
+                 (cons :tag "Category"
+                       (const category)
+                       (symbol category))
+                 (cons :tag "This command"
+                       (const this-command)
+                       (symbol this-command))
+                 (cons :tag "Not"
+                       (const not)
+                       (list (buffer-predicate :tag "not-condition")))
+                 (cons :tag "Or"
+                       (const or)
+                       (repeat :tag "List of or-conditions"
+                               buffer-predicate))
+                 (cons :tag "And"
+                       (const and)
+                       (repeat :tag "List of and-conditions"
+                               buffer-predicate))))
 
 (provide 'wid-edit)
 

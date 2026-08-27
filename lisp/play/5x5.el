@@ -1,6 +1,6 @@
 ;;; 5x5.el --- simple little puzzle game  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
 ;; Author: Dave Pearson <davep@davep.org>
 ;; Created: 1998-10-03
@@ -312,7 +312,7 @@ Quit current game           \\[5x5-quit-game]"
 		  (forward-char  (+ 1 (/ (1+ 5x5-x-scale) 2)))
 		  (dotimes (x 5x5-grid-size)
 		    (when (5x5-cell solution-grid y x)
-		      (if (= 0 (mod 5x5-x-scale 2))
+		      (if (evenp 5x5-x-scale)
 			  (progn
 			    (insert "()")
 			    (delete-region (point) (+ (point) 2))
@@ -335,7 +335,7 @@ Quit current game           \\[5x5-quit-game]"
 
 (defun 5x5-made-move ()
   "Keep track of how many moves have been made."
-  (cl-incf 5x5-moves))
+  (incf 5x5-moves))
 
 (defun 5x5-make-random-grid (&optional move)
   "Make a random grid."
@@ -858,28 +858,28 @@ lest."
   "Move up."
   (interactive nil 5x5-mode)
   (unless (zerop 5x5-y-pos)
-    (cl-decf 5x5-y-pos)
+    (decf 5x5-y-pos)
     (5x5-position-cursor)))
 
 (defun 5x5-down ()
   "Move down."
   (interactive nil 5x5-mode)
   (unless (= 5x5-y-pos (1- 5x5-grid-size))
-    (cl-incf 5x5-y-pos)
+    (incf 5x5-y-pos)
     (5x5-position-cursor)))
 
 (defun 5x5-left ()
   "Move left."
   (interactive nil 5x5-mode)
   (unless (zerop 5x5-x-pos)
-    (cl-decf 5x5-x-pos)
+    (decf 5x5-x-pos)
     (5x5-position-cursor)))
 
 (defun 5x5-right ()
   "Move right."
   (interactive nil 5x5-mode)
   (unless (= 5x5-x-pos (1- 5x5-grid-size))
-    (cl-incf 5x5-x-pos)
+    (incf 5x5-x-pos)
     (5x5-position-cursor)))
 
 (defun 5x5-bol ()

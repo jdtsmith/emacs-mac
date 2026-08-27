@@ -1,8 +1,8 @@
 ;;; reftex-toc.el --- RefTeX's table of contents mode  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2000, 2003-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2026 Free Software Foundation, Inc.
 
-;; Author: Carsten Dominik <dominik@science.uva.nl>
+;; Author: Carsten Dominik <carsten.dominik@gmail.com>
 ;; Maintainer: auctex-devel@gnu.org
 
 ;; This file is part of GNU Emacs.
@@ -125,13 +125,13 @@ Press `?' for a summary of important key bindings.
 Here are all local bindings.
 
 \\{reftex-toc-mode-map}"
-  (set (make-local-variable 'transient-mark-mode) t)
-  (set (make-local-variable 'revert-buffer-function) #'reftex-toc-revert)
-  (set (make-local-variable 'reftex-toc-include-labels-indicator) "")
-  (set (make-local-variable 'reftex-toc-max-level-indicator)
-       (if (= reftex-toc-max-level 100)
-           "ALL"
-         (int-to-string reftex-toc-max-level)))
+  (setq-local transient-mark-mode t)
+  (setq-local revert-buffer-function #'reftex-toc-revert)
+  (setq-local reftex-toc-include-labels-indicator "")
+  (setq-local reftex-toc-max-level-indicator
+              (if (= reftex-toc-max-level 100)
+                  "ALL"
+                (int-to-string reftex-toc-max-level)))
   (setq mode-line-format
         (list "----  " 'mode-line-buffer-identification
               "  " 'global-mode-string "   (" mode-name ")"
@@ -162,14 +162,14 @@ Here are all local bindings.
 \\`C-c >'      Display Index. With prefix arg, restrict index to current section.
 \\`q' / \\`k'      Hide/Kill *toc* buffer, return to position of reftex-toc command.
 \\`l' \\`i' \\`c' \\`F'    Toggle display of  [l]abels,  [i]ndex,  [c]ontext,  [F]ile borders.
-\\`t'          Change maximum toc depth (e.g. `3 t' hides levels greater than 3).
+\\`t'          Change maximum toc depth (e.g., \\`3 t' hides levels greater than 3).
 \\`f' / \\`g'      Toggle follow mode / Refresh *toc* buffer.
 \\`a' / \\`d'      Toggle auto recenter / Toggle dedicated frame
-\\`r' / \\`C-u r'  Reparse the LaTeX document     / Reparse entire LaTeX document.
+\\`r' / \\`C-u r'  Reparse the LaTeX document / Reparse entire LaTeX document.
 \\`.'          In other window, show position from where `reftex-toc' was called.
 \\`M-%'        Global search and replace to rename label at point.
 \\`x'          Switch to TOC of external document (with LaTeX package `xr').
-\\`z'          Jump to a specific section (e.g. \\`3 z' goes to section 3).")
+\\`z'          Jump to a specific section (e.g., \\`3 z' goes to section 3).")
 
 (defvar reftex--rebuilding-toc nil)
 
@@ -184,14 +184,14 @@ When called with a raw \\[universal-argument] prefix, rescan the document first.
 
   (interactive)
 
-  (if (or (not (string= reftex-last-toc-master (reftex-TeX-master-file)))
+  (if (or (not (equal reftex-last-toc-master (reftex-TeX-master-file)))
           ;; FIXME: use (interactive "P") to receive current-prefix-arg as
           ;; an argument instead of using the var here, which forces us to set
           ;; current-prefix-arg in the callers.
           current-prefix-arg)
       (reftex-erase-buffer "*toc*"))
 
-  (setq reftex-last-toc-file   (buffer-file-name))
+  (setq reftex-last-toc-file   (reftex--get-buffer-identifier))
   (setq reftex-last-toc-master (reftex-TeX-master-file))
 
   (set-marker reftex-toc-return-marker (point))
@@ -211,7 +211,8 @@ When called with a raw \\[universal-argument] prefix, rescan the document first.
   (let* ((this-buf (current-buffer))
          (docstruct-symbol reftex-docstruct-symbol)
          (xr-data (assq 'xr (symbol-value reftex-docstruct-symbol)))
-         (xr-alist (cons (cons "" (buffer-file-name)) (nth 1 xr-data)))
+         (xr-alist (cons (cons "" (reftex--get-buffer-identifier))
+                         (nth 1 xr-data)))
          (here-I-am (if reftex--rebuilding-toc
                         (get 'reftex-toc :reftex-data)
                       (car (reftex-where-am-I))))
@@ -241,7 +242,7 @@ When called with a raw \\[universal-argument] prefix, rescan the document first.
       (switch-to-buffer "*toc*"))
 
     (or (eq major-mode 'reftex-toc-mode) (reftex-toc-mode))
-    (set (make-local-variable 'reftex-docstruct-symbol) docstruct-symbol)
+    (setq-local reftex-docstruct-symbol docstruct-symbol)
     (setq reftex-toc-include-labels-indicator
           (if (eq reftex-toc-include-labels t)
               "ALL"
@@ -261,7 +262,7 @@ When called with a raw \\[universal-argument] prefix, rescan the document first.
 "TABLE-OF-CONTENTS on %s
 SPC=view TAB=goto RET=goto+hide [q]uit [r]escan [l]abels [f]ollow [x]r [?]Help
 ------------------------------------------------------------------------------
-" (abbreviate-file-name reftex-last-toc-master)))
+" (reftex--abbreviate-name reftex-last-toc-master)))
 
       (if reftex-use-fonts
           (put-text-property (point-min) (point) 'font-lock-face reftex-toc-header-face))
@@ -997,7 +998,7 @@ label prefix determines the wording of a reference."
        (not (active-minibuffer-window))
        (fboundp 'reftex-toc-mode)
        (get-buffer-window "*toc*" 'visible)
-       (string= reftex-last-toc-master (reftex-TeX-master-file))
+       (equal reftex-last-toc-master (reftex-TeX-master-file))
        (let (current-prefix-arg)
          (reftex-toc-recenter))))
 

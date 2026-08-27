@@ -1,6 +1,6 @@
 ;;; nnimap.el --- IMAP interface for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2010-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;;         Simon Josefsson <simon@josefsson.org>
@@ -221,13 +221,13 @@ during splitting, which may be slow."
     (push "BODYSTRUCTURE" params)
     (push (format
 	   (if (nnimap-ver4-p)
-	       "BODY.PEEK[HEADER.FIELDS %s]"
-	     "RFC822.HEADER.LINES %s")
+	       "BODY.PEEK[HEADER.FIELDS %S]"
+	     "RFC822.HEADER.LINES %S")
 	   (append '(Subject From Date Message-Id
 			     References In-Reply-To Xref)
 		   nnmail-extra-headers))
 	  params)
-    (format "%s" (nreverse params))))
+    (format "(%s)" (mapconcat #'identity (nreverse params) " "))))
 
 (defvar nnimap--max-retrieve-headers 200)
 
@@ -448,13 +448,14 @@ during splitting, which may be slow."
 
 (defun nnimap-open-connection (buffer)
   ;; Be backwards-compatible -- the earlier value of nnimap-stream was
-  ;; `ssl' when nnimap-server-port was nil.  Sort of.
+  ;; `ssl' when nnimap-server-port was nil.  Sort of.  But it's `tls'
+  ;; now, because we're post the Great 2025 Spelling Reform.
   (when (and nnimap-server-port
 	     (eq nnimap-stream 'undecided))
-    (setq nnimap-stream 'ssl))
+    (setq nnimap-stream 'tls))
   (let ((stream
 	 (if (eq nnimap-stream 'undecided)
-	     (cl-loop for type in '(ssl network)
+	     (cl-loop for type in '(tls network)
 		   for stream = (let ((nnimap-stream type))
 				  (nnimap-open-connection-1 buffer))
 		   while (eq stream 'no-connect)
@@ -493,7 +494,7 @@ during splitting, which may be slow."
 	      (nnheader-message 7 "Opening connection to %s via shell..."
 				nnimap-address)
 	      '("imap"))
-	     ((memq nnimap-stream '(ssl tls))
+	     ((memq nnimap-stream '(tls ssl))
 	      (nnheader-message 7 "Opening connection to %s via tls..."
 				nnimap-address)
 	      '("imaps" "imap" "993" "143"))
@@ -894,7 +895,7 @@ during splitting, which may be slow."
 		      (equal id "1")
 		    (string-match nnimap-fetch-partial-articles type))
 	      (push id parts))))
-	(cl-incf num)))
+        (incf num)))
     (nreverse parts)))
 
 (deffoo nnimap-request-group (group &optional server dont-check info)
@@ -918,10 +919,10 @@ during splitting, which may be slow."
 	    (nnimap-finish-retrieve-group-infos server info sequences
 						t)
 	    (setq active (nth 2 (assoc group nnimap-current-infos)))))
-	(setq active (or active '(0 . 1)))
+	(setq active (or active '(1 . 0)))
 	(erase-buffer)
 	(insert (format "211 %d %d %d %S\n"
-			(- (cdr active) (car active))
+			(max (1+ (- (cdr active) (car active))) 0)
 			(car active)
 			(cdr active)
 			group))
@@ -1521,7 +1522,7 @@ If LIMIT, first try to limit the search to the N last articles."
 	      (if (and active uidvalidity unexist)
 		  ;; Fetch the last 100 flags.
 		  (setq start (max 1 (- (cdr active) 100)))
-		(cl-incf (nnimap-initial-resync nnimap-object))
+                (incf (nnimap-initial-resync nnimap-object))
 		(setq start 1))
 	      (push (list (nnimap-send-command "%s %S" command
 					       (nnimap-group-to-imap group))
@@ -1964,7 +1965,7 @@ Return the server's response to the SELECT or EXAMINE command."
    (get-buffer-process (current-buffer))
    (nnimap-log-command
     (format "%d %s%s\n"
-	    (cl-incf nnimap-sequence)
+            (incf nnimap-sequence)
 	    (apply #'format args)
 	    (if (nnimap-newlinep nnimap-object)
 		""
@@ -2004,7 +2005,7 @@ Return the server's response to the SELECT or EXAMINE command."
 	(cons t response)
       (nnheader-report 'nnimap "%s"
 		       (mapconcat (lambda (a)
-				    (format "%s" a))
+				    (format "%S" a))
 				  (car response) " "))
       nil)))
 

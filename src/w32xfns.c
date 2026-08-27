@@ -1,5 +1,5 @@
 /* Functions taken directly from X sources for use with the Microsoft Windows API.
-   Copyright (C) 1989, 1992-1995, 1999, 2001-2025 Free Software
+   Copyright (C) 1989, 1992-1995, 1999, 2001-2026 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -50,7 +50,8 @@ CRITICAL_SECTION critsect;
 extern HANDLE keyboard_handle;
 #endif /* WINDOWSNT */
 
-HANDLE input_available = NULL;
+static HANDLE input_available = NULL;
+extern HANDLE interrupt_handle;
 HANDLE interrupt_handle = NULL;
 
 void
@@ -176,7 +177,7 @@ get_frame_dc (struct frame *f)
   HGDIOBJ obj;
   struct w32_output *output;
 
-  if (f->output_method != output_w32)
+  if (!FRAME_W32_P (f))
     emacs_abort ();
 
   enter_crit ();
@@ -265,9 +266,9 @@ typedef struct int_msg
   struct int_msg *lpNext;
 } int_msg;
 
-int_msg *lpHead = NULL;
-int_msg *lpTail = NULL;
-int nQueue = 0;
+static int_msg *lpHead = NULL;
+static int_msg *lpTail = NULL;
+static int nQueue = 0;
 
 BOOL
 get_next_msg (W32Msg * lpmsg, BOOL bWait)

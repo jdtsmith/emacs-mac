@@ -1,6 +1,6 @@
 ;;; dired-tests.el --- Test suite. -*- lexical-binding: t -*-
 
-;; Copyright (C) 2015-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -190,7 +190,6 @@
   "Test for https://debbugs.gnu.org/cgi/bugreport.cgi?bug=27243#28 ."
   (ert-with-temp-directory test-dir
     (let ((dired-auto-revert-buffer t)
-          (dired-free-space nil)
           buffers)
       ;; On MS-Windows, get rid of 8+3 short names in test-dir, if the
       ;; corresponding long file names exist, otherwise such names trip
@@ -216,7 +215,9 @@
             ;; Sanity check: point should now be back on the subdirectory.
             (should (eq (point) pt1))
             (push (dired test-dir) buffers)
-            (should (eq (point) pt1)))
+            (should (equal (dired-file-name-at-point)
+                           (concat (file-name-as-directory test-dir)
+                                   (file-name-as-directory "test-subdir")))))
         (dolist (buf buffers)
           (when (buffer-live-p buf) (kill-buffer buf)))))))
 
@@ -369,7 +370,7 @@
 
 (defmacro dired-test-with-temp-dirs (just-empty-dirs &rest body)
   "Helper macro for Bug#27940 test."
-  (declare (indent 1) (debug body))
+  (declare (indent 1) (debug (body)))
   (let ((dir (make-symbol "dir")))
     `(ert-with-temp-directory ,dir
        (let* ((dired-deletion-confirmer (lambda (_) "yes")) ; Suppress prompts.
@@ -524,6 +525,52 @@
       (when (file-directory-p testdir)
         (delete-directory testdir t)))))
 
+(ert-deftest dired-test-hide-absolute-location-enabled ()
+  "Test for https://debbugs.gnu.org/72272 ."
+  (let* ((dired-hide-details-hide-absolute-location t)
+         (dir-name (expand-file-name "lisp" source-directory))
+         (buffer (prog1 (dired (list dir-name "dired.el" "play"))
+                   (dired-insert-subdir (file-name-concat default-directory
+                                                          "play")))))
+    (unwind-protect
+        (progn
+          (goto-char (point-min))
+          (re-search-forward dired-subdir-regexp)
+          (goto-char (match-beginning 1))
+          (should (equal "lisp" (file-name-nondirectory
+                                 (directory-file-name (dired-get-subdir)))))
+          (should (equal 'dired-hide-details-absolute-location
+                         (get-text-property (match-beginning 1) 'invisible)))
+          (re-search-forward dired-subdir-regexp)
+          (goto-char (match-beginning 1))
+          (should (equal "play" (file-name-nondirectory
+                                 (directory-file-name (dired-get-subdir)))))
+          (should (equal 'dired-hide-details-absolute-location
+                         (get-text-property (match-beginning 1) 'invisible))))
+      (kill-buffer buffer))))
+
+(ert-deftest dired-test-hide-absolute-location-disabled ()
+  "Test for https://debbugs.gnu.org/72272 ."
+  (let* ((dired-hide-details-hide-absolute-location nil)
+         (dir-name (expand-file-name "lisp" source-directory))
+         (buffer (prog1 (dired (list dir-name "dired.el" "play"))
+                   (dired-insert-subdir (file-name-concat default-directory
+                                                          "play")))))
+    (unwind-protect
+        (progn
+          (goto-char (point-min))
+          (re-search-forward dired-subdir-regexp)
+          (goto-char (match-beginning 1))
+          (should (equal "lisp" (file-name-nondirectory
+                                 (directory-file-name (dired-get-subdir)))))
+          (should-not (get-text-property (match-beginning 1) 'invisible))
+          (re-search-forward dired-subdir-regexp)
+          (goto-char (match-beginning 1))
+          (should (equal "play" (file-name-nondirectory
+                                 (directory-file-name (dired-get-subdir)))))
+          (should-not (get-text-property (match-beginning 1) 'invisible)))
+      (kill-buffer buffer))))
+
 ;; `dired-insert-directory' output tests.
 (let* ((data-dir "insert-directory")
        (test-dir (file-name-as-directory
@@ -610,6 +657,176 @@ The current directory at call time should not affect the result (Bug#50630)."
     (when (fboundp 'files-tests--insert-directory-shows-given-free)
       (let ((default-directory test-dir-other))
         (files-tests--insert-directory-shows-given-free test-dir)))))
+
+(ert-deftest dired-test-filename-with-newline-1 () ; bug#79528, bug#80499
+  "Test handling of file name with literal embedded newline."
+  ;; The handling of file names with embedded newlines requires an `ls'
+  ;; that supports the "--dired" switch.
+  (skip-unless (dired--check-use-ls-dired))
+  (with-current-buffer "*Messages*"
+    (let ((inhibit-read-only t))
+      (erase-buffer)))
+  (let* ((dired-auto-toggle-b-switch nil)
+         (dir (ert-resource-file
+               (file-name-as-directory "filename-with-newline")))
+         (file (concat dir "filename\nwith newline"))
+         (buf (progn (make-empty-file file t)
+                     (dired (file-name-directory file))))
+         (warnbuf (get-buffer "*Warnings*")))
+    (should (dired--filename-with-newline-p))
+    (let ((beg (point))               ; beginning of file name
+          (_ (dired-move-to-end-of-filename)))
+      (should (search-backward "with newline")) ; literal space in file name
+      (should (search-backward "\n" beg))) ; literal newline in file name
+    (if noninteractive
+        (with-current-buffer "*Messages*"
+          (goto-char (point-min))
+          (should (search-forward
+                   "Warning (dired): Literal newline in file name.")))
+      (should (get-buffer-window warnbuf))
+      (with-current-buffer warnbuf
+        (goto-char (point-min))
+        (should (string-match
+                 (regexp-quote "Warning (dired): Literal newline in file name.")
+                 (buffer-substring (pos-bol) (pos-eol))))))
+    (kill-buffer buf)
+    (kill-buffer warnbuf)
+    (delete-directory dir t)))
+
+(ert-deftest dired-test-filename-with-newline-2 () ; bug#79528, bug#80499
+  "Test handling of file name with embedded newline using `b' switch."
+  ;; The handling of file names with embedded newlines requires an `ls'
+  ;; that supports the "--dired" switch.
+  (skip-unless (dired--check-use-ls-dired))
+  (with-current-buffer "*Messages*"
+    (let ((inhibit-read-only t))
+      (erase-buffer)))
+  (let* ((dired-auto-toggle-b-switch t)
+         (dir (ert-resource-file
+               (file-name-as-directory "filename-with-newline")))
+         (file (concat dir "filename\nwith newline"))
+         (buf (progn (make-empty-file file t)
+                     (dired-noselect (file-name-directory file))))
+         (warnbuf (get-buffer "*Warnings*")))
+    (with-current-buffer buf
+      (should (dired--filename-with-newline-p))
+      (dired--toggle-b-switch)
+      (let ((beg (point))               ; beginning of file name
+            (_ (dired-move-to-end-of-filename)))
+        (should (search-backward "with\\ newline")) ; result of ls -b switch
+        (should (search-backward "\\n" beg)))) ; result of ls -b switch
+    (if noninteractive
+        (with-current-buffer "*Messages*"
+          (goto-char (point-min))
+          (should-error (search-forward
+                         "Warning (dired): Literal newline in file name.")))
+      (should-not (get-buffer "*Warnings*")))
+    (kill-buffer buf)
+    (kill-buffer warnbuf)
+    (delete-directory dir t)))
+
+(ert-deftest dired-test-ls-error-message () ; bug#80499
+  "Test invoking `dired' on a nonexistent file.
+A buffer should pop up containing the error emitted by ls.  The buffer
+visiting the nonexistent file should killed before `dired' returns,
+hence another buffer should be returned."
+  (let* ((dir (ert-resource-file (file-name-as-directory "empty-dir")))
+         (name (concat dir "bla"))
+         ;; Use PARENT = t in make-directory call to avoid failing if
+         ;; the directyory already exists for some reason.
+         (buf (progn (make-directory dir t)
+                     (dired name))))
+    ;; This is for MS-Windows and MS-DOS in the default configuration.
+    (when (and (featurep 'ls-lisp)
+               (boundp 'ls-lisp-use-insert-directory-program)
+               (null ls-lisp-use-insert-directory-program))
+      (should (bufferp buf))
+      (should (equal (buffer-name buf) (file-name-nondirectory name)))
+      (with-current-buffer buf
+        ;; 'ls-lisp' creates a Dired buffer of just 3 lines, with
+        ;; "(No match)" on the last line
+        (should (string-match "(No match)" (buffer-string)))
+        (should (= 3 (line-number-at-pos (buffer-size) t)))))
+    ;; This is for Posix systems and for MS-Windows/DOS when they use 'ls'.
+    (unless (and (featurep 'ls-lisp)
+                 (boundp 'ls-lisp-use-insert-directory-program)
+                 (null ls-lisp-use-insert-directory-program))
+      (let ((errbuf (get-buffer "*ls error*"))
+            ;; Since different `ls' programs can produce different
+            ;; messages for the nonexistent file error, we make a sample
+            ;; message to use for comparing the expected message with
+            ;; the string in the error buffer.
+            (ls-err (lambda (fn)
+		      (let* ((tmpname (make-temp-name "/bug80499-tests-"))
+                             (errlist (string-split
+                                       (shell-command-to-string
+                                        (concat insert-directory-program
+                                                " -al " tmpname))
+                                       tmpname)))
+                        (concat (car errlist) fn (cadr errlist))))))
+        (should (get-buffer-window errbuf))
+        (should-not (equal (buffer-name buf) (file-name-nondirectory name)))
+        (with-current-buffer errbuf
+          ;; The error message may report e.g. "/bin/ls" even though the
+          ;; value of `insert-directory-program' is "ls", so we can't
+          ;; test with `equal'.
+          (should (string-match-p (funcall ls-err (file-name-nondirectory name))
+                                  (buffer-string))))
+        (kill-buffer errbuf))
+      (delete-directory dir t))))
+
+
+(defun dired-test--filename-with-backslash-n ()
+  "Core of test `dired-test-filename-with-backslash-n'."
+  (let* ((dir (ert-resource-file
+               (file-name-as-directory "filename-with-backslash")))
+         (file (concat dir "C:\\nppdf32log\\debuglog.txt"))
+         (buf (progn (make-empty-file file t)
+                     (dired-noselect (file-name-directory file))))
+         (warnbuf (get-buffer "*Warnings*")))
+    (with-current-buffer buf
+      (should-not (dired--filename-with-newline-p))
+      (dired--toggle-b-switch)
+      (should-not (dired--filename-with-newline-p))
+      (let ((fn (car (directory-files dir t
+                                      directory-files-no-dot-files-regexp))))
+        (should (equal fn file))))
+    (if noninteractive
+        (with-current-buffer "*Messages*"
+          (goto-char (point-min))
+          (should-error (search-forward
+                         "Warning (dired): Literal newline in file name.")))
+      (should-not (get-buffer "*Warnings*")))
+    (kill-buffer buf)
+    (kill-buffer warnbuf)
+    (delete-directory dir t)))
+
+(ert-deftest dired-test-filename-with-backslash-n () ; bug#80608
+  "Test file name containing literal backslash-n sequence.
+Dired should not treat this sequence as a newline character, regardless
+of the value of `dired-auto-toggle-b-switch'."
+  ;; File names with backslashes in basename are not allowed on MS systems.
+  (skip-when (memq system-type '(windows-nt ms-dos)))
+  (with-current-buffer "*Messages*"
+    (let ((inhibit-read-only t))
+      (erase-buffer)))
+  (let ((dired-auto-toggle-b-switch nil))
+    (dired-test--filename-with-backslash-n))
+  (with-current-buffer "*Messages*"
+    (let ((inhibit-read-only t))
+      (erase-buffer)))
+  (let ((dired-auto-toggle-b-switch nil))
+    (dired-test--filename-with-backslash-n)))
+
+(ert-deftest dired-test-set-dired--ls-error-buffer () ; bug#80499, Message #218
+  "Test visiting a directory after setting `dired--ls-error-buffer'."
+  (let ((dir (ert-resource-file (file-name-as-directory "test-dir"))))
+    (make-directory dir t)
+    (setq dired--ls-error-buffer (get-buffer-create "*ls error*"))
+    (find-file dir)
+    (should (equal list-buffers-directory dir))
+    (kill-buffer (current-buffer))
+    (delete-directory dir)))
 
 (provide 'dired-tests)
 ;;; dired-tests.el ends here

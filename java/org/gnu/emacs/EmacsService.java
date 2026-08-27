@@ -1,6 +1,6 @@
 /* Communication module for Android terminals.  -*- c-file-style: "GNU" -*-
 
-Copyright (C) 2023-2025 Free Software Foundation, Inc.
+Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -54,6 +54,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 
+import android.content.ActivityNotFoundException;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.ContentResolver;
@@ -122,9 +123,6 @@ public final class EmacsService extends Service
   public static final int IC_MODE_TEXT     = 2;
   public static final int IC_MODE_PASSWORD = 3;
 
-  /* Display metrics used by font backends.  */
-  public DisplayMetrics metrics;
-
   /* Flag that says whether or not to print verbose debugging
      information when responding to an input method.  */
   public static final boolean DEBUG_IC = false;
@@ -148,8 +146,13 @@ public final class EmacsService extends Service
      thread.  */
   private Thread mainThread;
 
-  /* "Resources" object required by GContext bookkeeping.  */
-  public static Resources resources;
+  /* The display's horizontal and vertical density and that which is
+     consulted for font scaling.  */
+  private double dpiX, dpiY, dpiScaled;
+
+  /* The display's previously observed UI mode as it relates to the
+     system theme.  */
+  private int uiMode;
 
   static
   {
@@ -235,10 +238,13 @@ public final class EmacsService extends Service
     final AssetManager manager;
     Context app_context;
     final String filesDir, libDir, cacheDir, classPath;
-    final double pixelDensityX;
-    final double pixelDensityY;
-    final double scaledDensity;
-    double tempScaledDensity;
+    final float pixelDensityX;
+    final float pixelDensityY;
+    final float scaledDensity;
+    float tempScaledDensity;
+    Resources resources;
+    DisplayMetrics metrics;
+    Configuration configuration;
 
     super.onCreate ();
 
@@ -253,6 +259,8 @@ public final class EmacsService extends Service
     tempScaledDensity = ((getScaledDensity (metrics)
 			  / metrics.density)
 			 * pixelDensityX);
+    configuration = resources.getConfiguration ();
+    uiMode = configuration.uiMode & Configuration.UI_MODE_NIGHT_MASK;
     resolver = getContentResolver ();
     mainThread = Thread.currentThread ();
 
@@ -264,12 +272,17 @@ public final class EmacsService extends Service
        corresponds to 1 pixel, not 72 or 96 as used elsewhere.  This
        difference is codified in PT_PER_INCH defined in font.h.  */
 
-    if (tempScaledDensity < 160)
-      tempScaledDensity = 160;
+    if (tempScaledDensity < 160.0f)
+      tempScaledDensity = 160.0f;
 
     /* scaledDensity is const as required to refer to it from within
        the nested function below.  */
     scaledDensity = tempScaledDensity;
+
+    /* Save these fields for future reference.  */
+    dpiX = pixelDensityX;
+    dpiY = pixelDensityY;
+    dpiScaled = scaledDensity;
 
     /* Remove all tasks from previous Emacs sessions but the task
        created by the system at startup.  */
@@ -303,10 +316,10 @@ public final class EmacsService extends Service
 	    run ()
 	    {
 	      EmacsNative.setEmacsParams (manager, filesDir, libDir,
-					  cacheDir, (float) pixelDensityX,
-					  (float) pixelDensityY,
-					  (float) scaledDensity,
-					  classPath, EmacsService.this,
+					  cacheDir, pixelDensityX,
+					  pixelDensityY, scaledDensity,
+					  uiMode, classPath,
+					  EmacsService.this,
 					  Build.VERSION.SDK_INT);
 	    }
 	  }, extraStartupArguments);
@@ -341,6 +354,46 @@ public final class EmacsService extends Service
   {
     EmacsNative.onLowMemory ();
     super.onLowMemory ();
+  }
+
+  @Override
+  public void
+  onConfigurationChanged (Configuration newConfig)
+  {
+    DisplayMetrics metrics;
+    float pixelDensityX, pixelDensityY, scaledDensity;
+
+    metrics = getResources ().getDisplayMetrics ();
+
+    /* The display configuration may have been altered.  Retrieve the
+       revised display density and deliver an event if so.  */
+    pixelDensityX = metrics.xdpi;
+    pixelDensityY = metrics.ydpi;
+    scaledDensity = ((getScaledDensity (metrics)
+		      / metrics.density) * pixelDensityX);
+
+    /* A density below 160 probably indicates a system bug.  See
+       onCreate for more commentary.  */
+    if (scaledDensity < 160.0f)
+      scaledDensity = 160.0f;
+
+    if (pixelDensityX != dpiX || pixelDensityY != dpiY
+	|| scaledDensity != dpiScaled)
+      {
+	dpiX = pixelDensityX;
+	dpiY = pixelDensityY;
+	dpiScaled = scaledDensity;
+	EmacsNative.sendConfigurationChanged (0, pixelDensityX, pixelDensityY,
+					      scaledDensity, 0);
+      }
+
+    if ((newConfig.uiMode & Configuration.UI_MODE_NIGHT_MASK) != uiMode)
+      {
+	uiMode = newConfig.uiMode & Configuration.UI_MODE_NIGHT_MASK;
+	EmacsNative.sendConfigurationChanged (1, 0.0f, 0.0f, 0.0f, uiMode);
+      }
+
+    super.onConfigurationChanged (newConfig);
   }
 
 
@@ -2097,7 +2150,15 @@ public final class EmacsService extends Service
 
 	  /* Now request these permissions.  */
 
-	  activity.startActivity (intent);
+	  try
+	    {
+	      activity.startActivity (intent);
+	    }
+	  catch (ActivityNotFoundException exception)
+	    {
+	      Log.w (TAG, "Failed to request storage access permissions: ");
+	      exception.printStackTrace ();
+	    }
 	}
       };
 

@@ -1,6 +1,6 @@
 ;;; wid-edit-tests.el --- tests for wid-edit.el -*- lexical-binding: t -*-
 
-;; Copyright (C) 2019-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -22,8 +22,31 @@
 (require 'ert)
 (require 'wid-edit)
 
+(ert-deftest widget-test-editable-field-widget-get/put ()
+  (with-temp-buffer
+    (let ((widget (widget-create 'editable-field
+                                 :size 13
+                                 :format "Name: %v "
+                                 "My Name")))
+      (should (eq (widget-get widget :size) 13))
+      (should (equal (widget-get widget :format) "Name: %v "))
+      (should (eq (widget-put widget :size 1) 1))
+      (should (equal (widget-put widget :format "foo") "foo"))
+      (should (eq (widget-get widget :size) 1))
+      (should (equal (widget-get widget :format) "foo"))
+
+      ;; test get/put for inherited properties
+      (should-not (plist-member (cdr widget) :validate))
+      (should (eq (widget-get widget :validate) 'widget-field-validate))
+      (should (eq (widget-put widget :validate 'my-silly-validate)
+                  'my-silly-validate))
+      (should (plist-member (cdr widget) :validate))
+      (should (eq (widget-get widget :validate) 'my-silly-validate))
+      (should (eq (widget-get (get (widget-type widget) 'widget-type)
+                              :validate)
+                  'widget-field-validate)))))
+
 (ert-deftest widget-at ()
-  "Test `widget-at' behavior."
   (with-temp-buffer
     (should-not (widget-at))
     (let ((marco (widget-create 'link "link widget"))
@@ -413,5 +436,86 @@ return nil, even with a non-nil bubblep argument."
       (widget-backward 1)
       (delete-char 1)
       (should (string= (widget-value w) "")))))
+
+(ert-deftest widget-test-delete-field-overlays ()
+  "Test that we delete all the field's overlays when deleting it."
+  (with-temp-buffer
+    (let ((field (widget-create 'editable-field
+                                :format "%t: %v "
+                                :tag "Delete me"))
+          field-overlay field-end-overlay)
+      (widget-insert "\n")
+      (widget-setup)
+      (widget-backward 1)
+      (setq field-overlay (widget-get field :field-overlay))
+      (setq field-end-overlay (car (overlays-at (point))))
+      (widget-delete field)
+      (should-not (overlay-buffer field-overlay))
+      (should-not (overlay-buffer field-end-overlay)))))
+
+;; The following two tests are for Bug#69941.  Markers need to be prepared
+;; against "inside" insertions at them.  That is, a recreated child should
+;; still be covered by the parent's :from and :to markers.
+(ert-deftest widget-test-insertion-at-parent-markers ()
+  "Test that recreating a child keeps the parent's markers covering it.
+
+Test the most common situation, where only one parent needs to be adjusted."
+  (with-temp-buffer
+    (let* ((group (widget-create 'group
+                                 :format "%v"
+                                 '(item :value 1 :format "%v")))
+           (item (car (widget-get group :children)))
+           (ofrom (marker-position (widget-get group :from)))
+           (oto (marker-position (widget-get group :to))))
+      (widget-insert "\n")
+      (widget-setup)
+      ;; Change item, without recreating the group.  This causes changes
+      ;; right at the :from and :to markers, and if they don't have
+      ;; the right type, the group's :from-:to span won't include its
+      ;; child, the item widget, anymore.
+      (widget-value-set item 2)
+      ;; The positions should be the same as they were when the group
+      ;; widget was first created.
+      (should (= ofrom (widget-get group :from)))
+      (should (= oto (widget-get group :to))))))
+
+(ert-deftest widget-test-insertion-at-parent-markers-2 ()
+  "Test that recreating a child keeps the parent's marker covering it.
+
+Test the uncommon situation in which we might need to prepare the grandparent's
+markers (and so on) as well."
+  (with-temp-buffer
+    (let* ((group (widget-create '(group
+                                   :format "%v"
+                                   (group
+                                    :format "%v"
+                                    (item :value 1 :format "%v")))))
+           (group2 (car (widget-get group :children)))
+           (item (car (widget-get group2 :children)))
+           (ofrom (marker-position (widget-get group :from)))
+           (oto (marker-position (widget-get group :to)))
+           (ofrom2 (marker-position (widget-get group2 :from)))
+           (oto2 (marker-position (widget-get group2 :to))))
+      (widget-insert "\n")
+      (widget-setup)
+      (widget-value-set item 2)
+      (should (= ofrom (widget-get group :from)))
+      (should (= oto (widget-get group :to)))
+      (should (= ofrom2 (widget-get group2 :from)))
+      (should (= oto2 (widget-get group2 :to))))))
+
+(ert-deftest widget-test-modification-of-inactive-widget ()
+  "Test that modifications to an inactive widget keep all of it inactive."
+  (with-temp-buffer
+    (let* ((radio (widget-create 'radio-button-choice
+                                 '(item "One") '(item "Two") '(item "Confirm")))
+           (from (widget-get radio :from))
+           (to (widget-get radio :to))
+           (ov (progn (widget-apply radio :deactivate)
+                      (widget-get radio :inactive))))
+      (widget-value-set radio "")
+      (widget-apply radio :deactivate)
+      (should (= (overlay-start ov) from))
+      (should (= (overlay-end ov) to)))))
 
 ;;; wid-edit-tests.el ends here

@@ -1,6 +1,6 @@
 ;;; calc-ext.el --- various extension functions for Calc  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1990-1993, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1990-1993, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: David Gillespie <daveg@synaptics.com>
 
@@ -25,7 +25,6 @@
 
 (require 'calc)
 (require 'calc-macs)
-(require 'cl-lib)
 
 ;; Declare functions which are defined elsewhere.
 (declare-function math-clip "calc-bin" (a &optional w))
@@ -877,7 +876,7 @@ calcFunc-tanh math-arccos-raw math-arcsin-raw math-arctan-raw
 math-arctan2-raw math-cos-raw math-cot-raw math-csc-raw
 math-exp-minus-1-raw math-exp-raw
 math-from-radians math-from-radians-2 math-hypot math-infinite-dir
-math-ln-raw math-nearly-equal math-nearly-equal-float
+math-ln-10 math-ln-raw math-nearly-equal math-nearly-equal-float
 math-nearly-zerop math-nearly-zerop-float math-nth-root
 math-sin-cos-raw math-sin-raw math-sqrt math-sqrt-float math-sqrt-raw
 math-tan-raw math-to-radians math-to-radians-2)
@@ -1728,8 +1727,11 @@ calc-kill calc-kill-region calc-yank))))
   (interactive "P")
   (let* ((prompt (concat (calc-num-prefix-name n) "M-x "))
 	 (cmd (intern
-               (completing-read prompt obarray 'commandp t "calc-"
-                                'calc-extended-command-history))))
+               (let ((completion-extra-properties
+                      (list :affixation-function
+                            #'read-extended-command--affixation)))
+                 (completing-read prompt obarray 'commandp t "calc-"
+                                  'calc-extended-command-history)))))
     (setq prefix-arg n)
     (command-execute cmd)))
 
@@ -2108,7 +2110,7 @@ calc-kill calc-kill-region calc-yank))))
 
 ;;; True if A is an odd integer.  [P R R] [Public]
 (defun math-oddp (a)
-  (and (integerp a) (cl-oddp a)))
+  (and (integerp a) (oddp a)))
 
 ;;; True if A is an integer.  [P x] [Public]
 (defalias 'math-integerp #'integerp)

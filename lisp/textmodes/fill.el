@@ -1,6 +1,6 @@
 ;;; fill.el --- fill commands for Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1986, 1992, 1994-1997, 1999, 2001-2025 Free
+;; Copyright (C) 1985-1986, 1992, 1994-1997, 1999, 2001-2026 Free
 ;; Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -50,7 +50,7 @@ A value of nil means that any change in indentation starts a new paragraph."
   :safe #'booleanp)
 
 (defcustom fill-separate-heterogeneous-words-with-space nil
-  "Non-nil means to use a space to separate words of a different kind.
+  "Non-nil means to use a space to separate words of different scripts.
 For example, when an English word at the end of a line and a CJK word
 at the beginning of the next line are joined into a single line, they
 will be separated by a space if this variable is non-nil.
@@ -78,21 +78,24 @@ placed at the beginning or end of a line by filling.
 See the documentation of `kinsoku' for more information."
   :type 'boolean)
 
-(defun set-fill-prefix ()
+(defun set-fill-prefix (&optional arg)
   "Set the fill prefix to the current line up to point.
 Filling expects lines to start with the fill prefix and
-reinserts the fill prefix in each resulting line."
-  (interactive)
-  (let ((left-margin-pos (save-excursion (move-to-left-margin) (point))))
-    (if (> (point) left-margin-pos)
-	(progn
-	  (setq fill-prefix (buffer-substring left-margin-pos (point)))
-	  (if (equal fill-prefix "")
+reinserts the fill prefix in each resulting line.
+With a prefix argument, cancel the fill prefix."
+  (interactive "P")
+  (if arg
+      (setq fill-prefix nil)
+    (let ((left-margin-pos (save-excursion (move-to-left-margin) (point))))
+      (if (> (point) left-margin-pos)
+	  (progn
+	    (setq fill-prefix (buffer-substring left-margin-pos (point)))
+	    (when (equal fill-prefix "")
 	      (setq fill-prefix nil)))
-      (setq fill-prefix nil)))
+        (setq fill-prefix nil))))
   (if fill-prefix
       (message "fill-prefix: \"%s\"" fill-prefix)
-    (message "fill-prefix canceled")))
+    (message "fill-prefix cancelled")))
 
 (defcustom adaptive-fill-mode t
   "Non-nil means determine a paragraph's fill prefix from its text."
@@ -103,7 +106,7 @@ reinserts the fill prefix in each resulting line."
   ;; Added `%' for TeX comments.
   ;; RMS: deleted the code to match `1.' and `(1)'.
   ;; Update mail-mode's paragraph-separate if you change this.
-  (purecopy "[-–!|#%;>*·•‣⁃◦ \t]*")
+  "[-–!|#%;>*·•‣⁃◦ \t]*"
   "Regexp to match text at start of line that constitutes indentation.
 If Adaptive Fill mode is enabled, a prefix matching this pattern
 on the first and second lines of a paragraph is used as the
@@ -114,7 +117,7 @@ line, but in that case `adaptive-fill-first-line-regexp' also plays
 a role."
   :type 'regexp)
 
-(defcustom adaptive-fill-first-line-regexp (purecopy "\\`[ \t]*\\'")
+(defcustom adaptive-fill-first-line-regexp "\\`[ \t]*\\'"
   "Regexp specifying whether to set fill prefix from a one-line paragraph.
 When a paragraph has just one line, then after `adaptive-fill-regexp'
 finds the prefix at the beginning of the line, if it doesn't
@@ -644,8 +647,8 @@ The break position will be always after LINEBEG and generally before point."
     (indent-line-to (current-left-margin))
     (put-text-property beg (point) 'face 'default)))
 
-(defun fill-region-as-paragraph (from to &optional justify
-				      nosqueeze squeeze-after)
+(defun fill-region-as-paragraph-default (from to &optional justify
+				              nosqueeze squeeze-after)
   "Fill the region as if it were a single paragraph.
 This command removes any paragraph breaks in the region and
 extra newlines at the end, and indents and fills lines between the
@@ -653,6 +656,10 @@ margins given by the `current-left-margin' and `current-fill-column'
 functions.  (In most cases, the variable `fill-column' controls the
 width.)  It leaves point at the beginning of the line following the
 region.
+
+Note that how paragraph breaks are removed in text that includes
+characters from different scripts is affected by the value
+of `fill-separate-heterogeneous-words-with-space', which see.
 
 Normally, the command performs justification according to
 the `current-justification' function, but with a prefix arg, it
@@ -797,6 +804,39 @@ space does not end a sentence, so don't break a line there."
       ;; Return the fill-prefix we used
       fill-prefix)))
 
+(defvar fill-region-as-paragraph-function #'fill-region-as-paragraph-default
+  "Function to fill the region as if it were a single paragraph.
+It should accept the arguments defined by `fill-region-as-paragraph' and
+return the `fill-prefix' used for filling.")
+
+(defun fill-region-as-paragraph (from to &optional justify
+				      nosqueeze squeeze-after)
+  "Fill the region as if it were a single paragraph.
+The behavior of this command is controlled by the variable
+`fill-region-as-paragraph-function', with the default implementation
+being `fill-region-as-paragraph-default'.
+
+The arguments FROM and TO define the boundaries of the region.
+
+The optional third argument JUSTIFY, when called interactively with a
+prefix arg, is assigned the value `full'.
+When called from Lisp, JUSTIFY can specify any type of justification;
+see `default-justification' for the possible values.
+Optional fourth arg NOSQUEEZE non-nil means not to make spaces between
+words canonical before filling.
+Fifth arg SQUEEZE-AFTER, if non-nil, should be a buffer position; it
+means canonicalize spaces only starting from that position.
+See `canonically-space-region' for the meaning of canonicalization of
+spaces.
+
+It returns the `fill-prefix' used for filling."
+  (interactive (progn
+		 (barf-if-buffer-read-only)
+		 (list (region-beginning) (region-end)
+		       (if current-prefix-arg 'full))))
+  (funcall fill-region-as-paragraph-function
+           from to justify nosqueeze squeeze-after))
+
 (defsubst skip-line-prefix (prefix)
   "If point is inside the string PREFIX at the beginning of line, move past it."
   (when (and prefix
@@ -871,6 +911,7 @@ region, instead of just filling the current paragraph."
             (fill-comment-paragraph justify)))
      ;; 4. If it all fails, default to the good ol' text paragraph filling.
      (let ((before (point))
+           (paragraph-start-orig paragraph-start)
            (paragraph-start paragraph-start)
            ;; Fill prefix used for filling the paragraph.
            fill-pfx)
@@ -893,6 +934,18 @@ region, instead of just filling the current paragraph."
              (setq fill-pfx "")
            (let ((end (point))
                  (beg (progn (fill-forward-paragraph -1) (point))))
+             ;; If the paragraph starts with a comment line preceding point
+             ;; on a non-comment line, skip such comment lines, so they
+             ;; are not filled together (bug#80449).
+             (when (and fill-paragraph-handle-comment comment-start-skip
+                        (< beg before))
+               (save-excursion
+                 (goto-char beg)
+                 (when (looking-at paragraph-start-orig)
+                   (goto-char (1+ (match-end 0))))
+                 (when (looking-at comment-start-skip)
+                   (forward-line 1)
+                   (setq beg (point)))))
              (goto-char before)
              (setq fill-pfx
                    (if use-hard-newlines
@@ -902,6 +955,45 @@ region, instead of just filling the current paragraph."
                        (fill-region beg end justify)
                      (fill-region-as-paragraph beg end justify))))))
        fill-pfx))))
+
+(defun unfill-paragraph (arg &optional beg end)
+  "Join lines of this paragraph and fix up whitespace at joins.
+Interactively, if the region is active, join lines of each paragraph in
+the region.  A numeric prefix argument means join the lines of the
+following ARG paragraphs.  In this case an active region is ignored.
+
+With an active region and no prefix argument this is roughly the same as
+`delete-indentation' with that active region, except that this command
+only joins lines within paragraphs, preserving the paragraphs
+themselves.
+
+When called from Lisp, ARG is the number of following paragraphs to join
+lines within, or if ARG is nil, optional arguments BEG and END non-nil
+means to join the lines of each paragraph in the region delimited by BEG
+and END."
+  (interactive "P\nR")
+  (when (or arg (not beg))
+    (let ((arg (prefix-numeric-value arg)))
+      (when (zerop arg)
+        (user-error "Invalid numeric argument to `unfill-paragraph'"))
+      (save-excursion
+        (fill-forward-paragraph 1)
+        (fill-forward-paragraph -1)
+        (setq beg (point))
+        (fill-forward-paragraph arg)
+        (setq end (point)))))
+  ;; FIXME: It would be better to use
+  ;;
+  ;;    (let ((fill-column (* (max 2 tab-width) (point-max))))
+  ;;      (fill-region beg end))
+  ;;
+  ;; multiplying by at least 2 to account for any wide characters in the
+  ;; region to be filled and by at least `tab-width' to account for any
+  ;; tab characters in the region to be filled.  Then we can easily
+  ;; prove that filling the region will actually unfill it.
+  ;; However, `fill-region' fails if `fill-column' is not a fixnum.
+  (let ((fill-column most-positive-fixnum))
+    (fill-region beg end)))
 
 (declare-function comment-search-forward "newcomment" (limit &optional noerror))
 (declare-function comment-string-strip "newcomment" (str beforep afterp))
@@ -1058,7 +1150,10 @@ if variable `use-hard-newlines' is on).
 Return the `fill-prefix' used for filling the last paragraph.
 
 If `sentence-end-double-space' is non-nil, then period followed by one
-space does not end a sentence, so don't break a line there."
+space does not end a sentence, so don't break a line there.
+
+The variable `fill-region-as-paragraph-function' can be used to override
+how paragraphs are filled."
   (interactive (progn
 		 (barf-if-buffer-read-only)
 		 (list (region-beginning) (region-end)
@@ -1115,9 +1210,9 @@ The `justification' text-property can locally override this variable."
 		 (const right)
 		 (const full)
 		 (const center)
-		 (const none))
+                 (const none))
+  :local t
   :safe 'symbolp)
-(make-variable-buffer-local 'default-justification)
 
 (defun current-justification ()
   "How should we justify this line?
@@ -1582,5 +1677,87 @@ Also, if CITATION-REGEXP is non-nil, don't fill header lines."
 	  (match-string 0 string)
 	"")
     string))
+
+(defun fill-region-as-paragraph-semlf (from to &optional justify
+                                            nosqueeze squeeze-after)
+  "Fill the region using semantic linefeeds as if it were a single paragraph.
+This command removes any paragraph breaks in the region and extra
+newlines at the end, and fills lines within the region.  Text is
+refilled putting a newline character after each sentence, calling
+`forward-sentence' to find the ends of sentences.  If
+`sentence-end-double-space' is non-nil, period followed by one space is
+not the end of a sentence.
+
+If JUSTIFY is non-nil (interactively, with prefix argument), justify as
+well.  If NOSQUEEZE is non-nil, do not to make spaces between words
+canonical before filling.  SQUEEZE-AFTER, if non-nil, should be a buffer
+position; it means canonicalize spaces only starting from that position.
+See `canonically-space-region' for the meaning of canonicalization of
+spaces.  The variable `fill-column' controls the width for filling.
+
+Return the `fill-prefix' used for filling.
+
+This function can be assigned to `fill-region-as-paragraph-function' to
+override how functions like `fill-paragraph' and `fill-region' fill
+text.
+
+For more details about semantic linefeeds, see URL `https://sembr.org/'
+and URL `https://rhodesmill.org/brandon/2012/one-sentence-per-line/'."
+  (interactive (progn
+		 (barf-if-buffer-read-only)
+		 (list (region-beginning)
+                       (region-end)
+		       (if current-prefix-arg 'full))))
+
+  (let ((from (min from to))
+        (to (copy-marker (max from to) t))
+        pfx)
+    (goto-char from)
+    (let ((fill-column most-positive-fixnum))
+      (setq pfx (or (save-excursion
+                      (fill-region-as-paragraph-default (point)
+                                                        to
+                                                        nil
+                                                        nosqueeze
+                                                        squeeze-after))
+                    "")))
+    (while (< (point) to)
+      (let ((fill-to (copy-marker
+                      (min to
+                           (save-excursion
+                             (forward-sentence)
+                             (point)))
+                      t))
+            (fill-prefix pfx))
+	(fill-region-as-paragraph-default (point)
+				          fill-to
+				          justify
+                                          t)
+        (goto-char fill-to))
+      (when (and (> (point) (line-beginning-position))
+		 (< (point) (line-end-position))
+                 (< (point) to))
+	(delete-horizontal-space)
+	(insert "\n")
+	(insert pfx)))
+    pfx))
+
+(defun fill-paragraph-semlf (&optional justify region)
+  "Fill paragraph at or after point using semantic linefeeds.
+Refill text putting a newline character after each sentence.
+
+If JUSTIFY is non-nil (interactively, with prefix argument), justify as
+well.  The REGION argument is non-nil if called interactively; in that
+case, if Transient Mark mode is enabled and the mark is active, fill the
+active region.
+
+See `fill-paragraph' and `fill-region-as-paragraph-semlf' for more
+details."
+  (interactive (progn
+		 (barf-if-buffer-read-only)
+		 (list (if current-prefix-arg 'full) t)))
+
+  (let ((fill-region-as-paragraph-function #'fill-region-as-paragraph-semlf))
+    (fill-paragraph justify region)))
 
 ;;; fill.el ends here

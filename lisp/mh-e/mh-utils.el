@@ -1,6 +1,6 @@
 ;;; mh-utils.el --- MH-E general utilities  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993, 1995, 1997, 2000-2025 Free Software Foundation,
+;; Copyright (C) 1993, 1995, 1997, 2000-2026 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Bill Wohler <wohler@newt.com>
@@ -528,11 +528,10 @@ nested folders within them."
   (let* ((folder (mh-normalize-folder-name folder nil
                                            (string= folder "+/")
                                            t))
-         (match (gethash folder mh-sub-folders-cache 'no-result))
-         (sub-folders (cond ((eq match 'no-result)
-                             (setf (gethash folder mh-sub-folders-cache)
-                                   (mh-sub-folders-actual folder)))
-                            (t match))))
+         (sub-folders (if (hash-table-contains-p folder mh-sub-folders-cache)
+                          (gethash folder mh-sub-folders-cache)
+                        (setf (gethash folder mh-sub-folders-cache)
+                              (mh-sub-folders-actual folder)))))
     (if add-trailing-slash-flag
         (mapcar (lambda (x)
                   (if (cdr x) (cons (concat (car x) "/") (cdr x)) x))
@@ -578,10 +577,10 @@ This function is a testable helper of `mh-sub-folders-actual'."
                                       (line-beginning-position) t)))
         (when (integerp has-pos)
           (while (equal (char-after has-pos) ? )
-            (cl-decf has-pos))
-          (cl-incf has-pos)
+            (decf has-pos))
+          (incf has-pos)
           (while (equal (char-after start-pos) ? )
-            (cl-incf start-pos))
+            (incf start-pos))
           (let* ((name (buffer-substring start-pos has-pos))
                  (first-char (aref name 0))
                  (second-char (and (length> name 1) (aref name 1)))
@@ -603,7 +602,7 @@ This function is a testable helper of `mh-sub-folders-actual'."
       (let ((folder-name-len (length (format "%s/" (substring folder 1)))))
         (when (equal "+/" folder)
           ;; folder "+/" includes a trailing slash
-          (cl-decf folder-name-len))
+          (decf folder-name-len))
         (setq results (mapcar (lambda (f)
                                 (cons (substring (car f) folder-name-len)
                                       (cdr f)))
@@ -629,7 +628,7 @@ otherwise completion on +foo won't tell us about the option
           last-slash)
       (while (setq last-slash (mh-search-from-end ?/ parent))
         (setq parent (substring parent 0 last-slash))
-        (unless (eq (gethash parent  mh-sub-folders-cache 'none) 'none)
+        (when (hash-table-contains-p parent mh-sub-folders-cache)
           (remhash parent mh-sub-folders-cache)
           (if one-ancestor-found
               (cl-return-from ancestor-found)
@@ -920,10 +919,8 @@ Handle RFC 822 (or later) continuation lines."
              when (equal (downcase x) field) return t
              finally return nil)))
 
-(defvar mh-hidden-header-keymap
-  (let ((map (make-sparse-keymap)))
-    (define-key map [mouse-2] #'mh-letter-toggle-header-field-display-button)
-    map))
+(defvar-keymap mh-hidden-header-keymap
+  "<mouse-2>" #'mh-letter-toggle-header-field-display-button)
 
 ;;;###mh-autoload
 (defun mh-letter-toggle-header-field-display (arg)

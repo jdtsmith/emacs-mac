@@ -1,6 +1,6 @@
 ;;; mail-source.el --- functions for fetching mail  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news, mail
@@ -246,8 +246,9 @@ If non-nil, this maildrop will be checked periodically for new mail."
   "Directory where incoming mail source files (if any) will be stored."
   :type 'directory)
 
-(defcustom mail-source-default-file-modes 384
-  "Set the mode bits of all new mail files to this integer."
+(defcustom mail-source-default-file-modes #o600
+  "Set the mode bits of all new mail files to this integer.
+This is decimal, not octal.  The default is 384 (0600 in octal)."
   :type 'integer)
 
 (defcustom mail-source-delete-incoming
@@ -772,7 +773,7 @@ Deleting old (> %s day(s)) incoming mail file `%s'." diff bfile)
 	(when (and (file-regular-p file)
 		   (funcall predicate file)
 		   (mail-source-movemail file mail-source-crash-box))
-	  (cl-incf found (mail-source-callback callback file))
+          (incf found (mail-source-callback callback file))
           (mail-source-run-script postscript `((?t . ,path)))
 	  (mail-source-delete-crash-box)))
       found)))
@@ -830,7 +831,7 @@ Deleting old (> %s day(s)) incoming mail file `%s'." diff bfile)
 		     (setq mail-source-password-cache
 			   (delq (assoc from mail-source-password-cache)
 				 mail-source-password-cache))
-		     (signal (car err) (cdr err)))))))))
+		     (signal err))))))))
       (if result
 	  (progn
 	    (when (eq authentication 'password)
@@ -895,7 +896,7 @@ Deleting old (> %s day(s)) incoming mail file `%s'." diff bfile)
 		     (setq mail-source-password-cache
 			   (delq (assoc from mail-source-password-cache)
 				 mail-source-password-cache))
-		     (signal (car err) (cdr err)))))))))
+		     (signal err))))))))
       (if result
 	  ;; Inform display-time that we have new mail.
 	  (setq mail-source-new-mail-available (> result 0))
@@ -954,9 +955,8 @@ See the Gnus manual for details."
     ;; Since idle timers created when Emacs is already in the idle
     ;; state don't get activated until Emacs _next_ becomes idle, we
     ;; need to force our timer to be considered active now.  We do
-    ;; this by being naughty and poking the timer internals directly
-    ;; (element 0 of the vector is nil if the timer is active).
-    (aset mail-source-report-new-mail-idle-timer 0 nil)))
+    ;; this by being naughty and poking the timer internals directly.
+    (setf (timer--triggered mail-source-report-new-mail-idle-timer) nil)))
 
 (declare-function display-time-event-handler "time" ())
 
@@ -1029,7 +1029,7 @@ This only works when `display-time' is enabled."
 				  (insert "\001\001\001\001\n"))
 				(delete-file file)
 				nil))))
-	      (cl-incf found (mail-source-callback callback file))
+              (incf found (mail-source-callback callback file))
 	      (mail-source-delete-crash-box)))))
       found)))
 
@@ -1104,7 +1104,7 @@ This only works when `display-time' is enabled."
 		    (replace-match ">From "))
 		  (goto-char (point-max))))
 	      (nnheader-ms-strip-cr))
-	    (cl-incf found (mail-source-callback callback server))
+            (incf found (mail-source-callback callback server))
 	    (mail-source-delete-crash-box)
 	    (when (and remove fetchflag)
 	      (setq remove (nreverse remove))

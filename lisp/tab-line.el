@@ -1,6 +1,6 @@
 ;;; tab-line.el --- window-local tabs with window buffers -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2019-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
 ;; Author: Juri Linkov <juri@linkov.net>
 ;; Keywords: windows tabs
@@ -42,7 +42,9 @@
   "Functions called to modify tab faces.
 Each function is called with five arguments: the tab, a list of
 all tabs, the face returned by the previously called modifier,
-whether the tab is a buffer, and whether the tab is selected."
+whether the tab is a buffer (when nil, the buffer is extracted from
+the association list using the key `buffer'), and whether the tab
+is selected."
   :type '(repeat
           (choice (function-item tab-line-tab-face-special)
                   (function-item tab-line-tab-face-modified)
@@ -52,7 +54,11 @@ whether the tab is a buffer, and whether the tab is selected."
   :group 'tab-line
   :version "28.1")
 
-(defgroup tab-line-faces '((tab-line custom-face)) ; tab-line is defined in faces.el
+(defgroup tab-line-faces
+  ;; These faces are defined in faces.el
+  '((tab-line custom-face)
+    (tab-line-active custom-face)
+    (tab-line-inactive custom-face))
   "Faces used in the tab line."
   :group 'tab-line
   :group 'faces
@@ -60,20 +66,26 @@ whether the tab is a buffer, and whether the tab is selected."
 
 (defface tab-line-tab
   '((default :inherit tab-line)
-    (((class color) (min-colors 88))
+    (((class color) (min-colors 88) (background light))
      :box (:line-width 1 :style released-button))
+    (((class color) (min-colors 88) (background dark))
+     :box (:line-width 1 :style released-button)
+     :background "grey40"
+     :foreground "white")
     (t :inverse-video nil))
   "Tab line face for selected tab."
-  :version "27.1"
+  :version "31.1"
   :group 'tab-line-faces)
 
 (defface tab-line-tab-inactive
   '((default :inherit tab-line-tab)
-    (((class color) (min-colors 88))
+    (((class color) (min-colors 88) (background light))
      :background "grey75")
+    (((class color) (min-colors 88) (background dark))
+     :background "grey20")
     (t :inverse-video t))
   "Tab line face for non-selected tab."
-  :version "27.1"
+  :version "31.1"
   :group 'tab-line-faces)
 
 (defface tab-line-tab-inactive-alternate
@@ -113,20 +125,26 @@ function `tab-line-tab-face-group'."
 
 (defface tab-line-tab-current
   '((default :inherit tab-line-tab)
-    (((class color) (min-colors 88))
-     :background "grey85"))
+    (((class color) (min-colors 88) (background light))
+     :background "grey85")
+    (((class color) (min-colors 88) (background dark))
+     :background "grey40"))
   "Tab line face for tab with current buffer in selected window."
-  :version "27.1"
+  :version "31.1"
   :group 'tab-line-faces)
 
 (defface tab-line-highlight
-  '((((class color) (min-colors 88))
+  '((((class color) (min-colors 88) (background light))
      :box (:line-width 1 :style released-button)
      :background "grey85"
      :foreground "black")
+    (((class color) (min-colors 88) (background dark))
+     :box (:line-width 1 :style released-button)
+     :background "grey40"
+     :foreground "white")
     (t :inverse-video nil))
   "Tab line face for highlighting."
-  :version "27.1"
+  :version "31.1"
   :group 'tab-line-faces)
 
 (defface tab-line-close-highlight
@@ -250,6 +268,36 @@ If nil, don't show it at all."
               'mouse-face 'tab-line-close-highlight
               'help-echo "Click to close tab")
   "Button for closing the clicked tab.")
+
+(defcustom tab-line-close-modified-button-show t
+  "If non-nil, the close button appearance will change when its buffer is modified."
+  :type 'boolean
+  :initialize 'custom-initialize-default
+  :set (lambda (sym val)
+         (set-default sym val)
+         (force-mode-line-update t))
+  :group 'tab-line
+  :version "31.1")
+
+(define-icon tab-line-close-modified nil
+  `((image "symbols/dot_medium_16.svg" "tabs/close-modified.xpm"
+           :face shadow
+           :height (1 . em)
+           :margin (2 . 0)
+           :ascent center)
+    (symbol ,(concat " " [#x2022])) ; bullet
+    (text " *"))
+  "Icon for closing the clicked tab when tab is modified."
+  :version "31.1"
+  :help-echo "Click to close tab")
+
+(defvar tab-line-close-modified-button
+  (propertize (icon-string 'tab-line-close-modified)
+              'rear-nonsticky nil
+              'keymap tab-line-tab-close-map
+              'mouse-face 'tab-line-close-highlight
+              'help-echo "Click to close tab")
+  "Button for closing the clicked tab when tab is modified.")
 
 (define-icon tab-line-left nil
   `((image "symbols/chevron_left_16.svg" "tabs/left-arrow.xpm"
@@ -387,6 +435,14 @@ Used only for `tab-line-tabs-mode-buffers' and `tab-line-tabs-buffer-groups'.")
                                            (derived-mode-p mode)))
                              (funcall tab-line-tabs-buffer-list-function)))))
 
+(defun tab-line-tab-modified-p (tab buffer-p)
+  "Return t if TAB's buffer is modified.
+BUFFER-P specifies whether the tab is a buffer; if nil, the buffer
+is extracted from the association list TAB using the key `buffer'."
+  (let ((buffer (if buffer-p tab (cdr (assq 'buffer tab)))))
+    (when (and buffer (buffer-file-name buffer) (buffer-modified-p buffer))
+      t)))
+
 (defcustom tab-line-tabs-buffer-group-function
   #'tab-line-tabs-buffer-group-by-mode
   "Function to add a buffer to the appropriate group of tabs.
@@ -461,7 +517,7 @@ named the same as the mode.")
 (defun tab-line-tabs-buffer-group-by-project (&optional buffer)
   "Group tab buffers by project name."
   (with-current-buffer buffer
-    (if-let ((project (project-current)))
+    (if-let* ((project (project-current)))
         (project-name project)
       "No project")))
 
@@ -529,6 +585,30 @@ generate the group name."
                          sorted-buffers)))
       (cons group-tab tabs))))
 
+(defcustom tab-line-tabs-window-buffers-filter-function
+  #'identity
+  "Filter which buffers should be displayed in the tab line."
+  :type '(choice function
+                 (const :tag "Show all buffers" identity)
+                 (const :tag "Omit excluded buffers" tab-line-tabs-non-excluded))
+  :group 'tab-line
+  :version "31.1")
+
+(defvar tab-line-exclude-buffers)
+(defvar tab-line-exclude-modes)
+
+(defun tab-line-tabs-non-excluded (buffers)
+  "Filter BUFFERS to remove excluded buffers from the list.
+Intended to be used in `tab-line-tabs-window-buffers-filter-function'."
+  (seq-remove
+   (lambda (b)
+     (or (memq (buffer-local-value 'major-mode b)
+               tab-line-exclude-modes)
+         (buffer-match-p tab-line-exclude-buffers b)
+         (get (buffer-local-value 'major-mode b) 'tab-line-exclude)
+         (buffer-local-value 'tab-line-exclude b)))
+   buffers))
+
 (defun tab-line-tabs-window-buffers ()
   "Return a list of tabs that should be displayed in the tab line.
 By default returns a list of window buffers, i.e. buffers previously
@@ -545,9 +625,11 @@ variable `tab-line-tabs-function'."
          (prev-buffers (seq-filter #'buffer-live-p prev-buffers))
          ;; Remove next-buffers from prev-buffers
          (prev-buffers (seq-difference prev-buffers next-buffers)))
-    (append (reverse prev-buffers)
-            (list buffer)
-            next-buffers)))
+    (funcall
+     tab-line-tabs-window-buffers-filter-function
+     (append (reverse prev-buffers)
+             (list buffer)
+             next-buffers))))
 
 (defun tab-line-tabs-fixed-window-buffers ()
   "Like `tab-line-tabs-window-buffers' but keep stable sorting order.
@@ -555,12 +637,15 @@ This means that switching to a buffer previously shown in the same
 window will keep the same order of tabs that was before switching.
 And newly displayed buffers are added to the end of the tab line."
   (let* ((old-buffers (window-parameter nil 'tab-line-buffers))
-         (buffer-positions (let ((index-table (make-hash-table :test 'eq)))
+         (buffer-positions (let ((index-table (make-hash-table
+                                               :size (length old-buffers)
+                                               :test #'eq)))
                              (seq-do-indexed
                               (lambda (buf idx) (puthash buf idx index-table))
                               old-buffers)
                              index-table))
          (new-buffers (sort (tab-line-tabs-window-buffers)
+                            :in-place t
                             :key (lambda (buffer)
                                    (gethash buffer buffer-positions
                                             most-positive-fixnum)))))
@@ -616,7 +701,10 @@ using `tab-line-cache-key-function'."
                                          (not (eq tab-line-close-button-show
                                                   (if selected-p 'non-selected
                                                     'selected)))
-                                         tab-line-close-button)
+                                         (if (and tab-line-close-modified-button-show
+                                                  (tab-line-tab-modified-p tab buffer-p))
+                                             tab-line-close-modified-button
+                                           tab-line-close-button))
                                     "")))
                      (setq close (copy-sequence close))
                      ;; Don't overwrite the icon face
@@ -665,15 +753,17 @@ SELECTED-P nil means TAB is not the selected tab.
 When TAB is not selected and is even-numbered, make FACE
 inherit from `tab-line-tab-inactive-alternate'.  For use in
 `tab-line-tab-face-functions'."
-  (when (and (not selected-p) (cl-evenp (cl-position tab tabs)))
+  (when (and (not selected-p) (evenp (cl-position tab tabs)))
     (setf face `(:inherit (tab-line-tab-inactive-alternate ,face))))
   face)
 
 (defun tab-line-tab-face-special (tab _tabs face buffer-p _selected-p)
   "Return FACE for TAB according to whether its buffer is special.
-When TAB is a non-file-visiting buffer, make FACE inherit from
-`tab-line-tab-special'.  For use in
-`tab-line-tab-face-functions'."
+TAB is either a buffer (if BUFFER-P is non-nil), or an association
+list with the buffer given by the key `buffer'.
+When TAB specifies a non-file-visiting buffer, make FACE inherit
+from `tab-line-tab-special'.
+For use in `tab-line-tab-face-functions'."
   (let ((buffer (if buffer-p tab (cdr (assq 'buffer tab)))))
     (when (and buffer (not (buffer-file-name buffer)))
       (setf face `(:inherit (tab-line-tab-special ,face)))))
@@ -681,16 +771,19 @@ When TAB is a non-file-visiting buffer, make FACE inherit from
 
 (defun tab-line-tab-face-modified (tab _tabs face buffer-p _selected-p)
   "Return FACE for TAB according to whether its buffer is modified.
-When TAB is a modified, file-backed buffer, make FACE inherit
-from `tab-line-tab-modified'.  For use in
-`tab-line-tab-face-functions'."
-  (let ((buffer (if buffer-p tab (cdr (assq 'buffer tab)))))
-    (when (and buffer (buffer-file-name buffer) (buffer-modified-p buffer))
-      (setf face `(:inherit (tab-line-tab-modified ,face)))))
+TAB is either a buffer (if BUFFER-P is non-nil), or an association
+list with the buffer given by the key `buffer'.
+When TAB's buffer is a modified, file-backed buffer, make FACE inherit
+from `tab-line-tab-modified'.
+For use in `tab-line-tab-face-functions'."
+  (when (tab-line-tab-modified-p tab buffer-p)
+    (setf face `(:inherit (tab-line-tab-modified ,face))))
   face)
 
 (defun tab-line-tab-face-group (tab _tabs face _buffer-p _selected-p)
   "Return FACE for TAB according to whether it's a group tab.
+TAB is either a buffer (if BUFFER-P is non-nil), or an association
+list with the buffer given by the key `buffer'.
 For use in `tab-line-tab-face-functions'."
   (when (alist-get 'group-tab tab)
     (setf face `(:inherit (tab-line-tab-group ,face))))
@@ -721,8 +814,9 @@ it clears the tab-line cache of all tab lines and forces their redisplay."
    ;; for setting face 'tab-line-tab-current'
    (mode-line-window-selected-p)
    ;; for `tab-line-tab-face-modified'
-   (and (memq 'tab-line-tab-face-modified
-              tab-line-tab-face-functions)
+   (and (or tab-line-close-modified-button-show
+            (memq 'tab-line-tab-face-modified
+                  tab-line-tab-face-functions))
         (buffer-file-name)
         (buffer-modified-p))))
 
@@ -770,13 +864,16 @@ the selected tab visible."
   (with-current-buffer tab-line-auto-hscroll-buffer
     (let ((truncate-partial-width-windows nil)
           (inhibit-modification-hooks t)
+          (face (if (mode-line-window-selected-p)
+                    'tab-line-active
+                  'tab-line-inactive))
           show-arrows)
       (setq truncate-lines nil
             word-wrap nil)
       (erase-buffer)
       (apply 'insert strings)
       (goto-char (point-min))
-      (add-face-text-property (point-min) (point-max) 'tab-line t)
+      (add-face-text-property (point-min) (point-max) face t)
       ;; Continuation means tab-line doesn't fit completely,
       ;; thus scroll arrows are needed for scrolling.
       (setq show-arrows (> (vertical-motion 1) 0))
@@ -798,7 +895,7 @@ the selected tab visible."
             (erase-buffer)
             (apply 'insert (reverse (seq-subseq strings 0 (1+ selected))))
             (goto-char (point-min))
-            (add-face-text-property (point-min) (point-max) 'tab-line)
+            (add-face-text-property (point-min) (point-max) face)
             (if (> (vertical-motion 1) 0)
                 (let* ((point (previous-single-property-change (point) 'tab))
                        (tab-prop (when point
@@ -819,13 +916,13 @@ the selected tab visible."
             (erase-buffer)
             (apply 'insert (seq-subseq strings (truncate hscroll) (1+ selected)))
             (goto-char (point-min))
-            (add-face-text-property (point-min) (point-max) 'tab-line)
+            (add-face-text-property (point-min) (point-max) face)
             (when (> (vertical-motion 1) 0)
               ;; Not visible already
               (erase-buffer)
               (apply 'insert (reverse (seq-subseq strings 0 (1+ selected))))
               (goto-char (point-min))
-              (add-face-text-property (point-min) (point-max) 'tab-line)
+              (add-face-text-property (point-min) (point-max) face)
               (when (> (vertical-motion 1) 0)
                 (let* ((point (previous-single-property-change (point) 'tab))
                        (tab-prop (when point
@@ -859,8 +956,7 @@ the selected tab visible."
 Interactively, ARG is the prefix numeric argument and defaults to 1."
   (interactive (list current-prefix-arg last-nonmenu-event))
   (when (tab-line-track-tap event)
-    (let ((window (and (listp event)
-                       (posn-window (tab-line-event-start event)))))
+    (let ((window (posn-window (tab-line-event-start event))))
       (tab-line-hscroll arg window)
       (force-mode-line-update window))))
 
@@ -869,8 +965,7 @@ Interactively, ARG is the prefix numeric argument and defaults to 1."
 Interactively, ARG is the prefix numeric argument and defaults to 1."
   (interactive (list current-prefix-arg last-nonmenu-event))
   (when (tab-line-track-tap event)
-    (let ((window (and (listp event)
-                       (posn-window (tab-line-event-start event)))))
+    (let ((window (posn-window (tab-line-event-start event))))
       (tab-line-hscroll (- (or arg 1)) window)
       (force-mode-line-update window))))
 
@@ -885,7 +980,7 @@ corresponding to the new buffer shown in the window."
     (if (functionp tab-line-new-tab-choice)
         (funcall tab-line-new-tab-choice)
       (let ((tab-line-tabs-buffer-groups mouse-buffer-menu-mode-groups))
-        (if (and (listp event)
+        (if (and (consp event)
                  (display-popup-menus-p)
                  (not tty-menu-open-use-tmm))
             (mouse-buffer-menu event) ; like (buffer-menu-open)
@@ -951,27 +1046,26 @@ switches to the previous buffer in the sequence defined by
 is possible when `tab-line-switch-cycling' is non-nil."
   (interactive (list last-nonmenu-event
                      (prefix-numeric-value current-prefix-arg)))
-  (let ((window (and (listp event) (posn-window (event-start event)))))
-    (with-selected-window (or window (selected-window))
-      (if (eq tab-line-tabs-function #'tab-line-tabs-window-buffers)
-          (previous-buffer arg t)
-        (let* ((buffers (seq-keep
-                         (lambda (tab) (or (and (bufferp tab) tab)
-                                           (alist-get 'buffer tab)))
-                         (funcall tab-line-tabs-function)))
-               (old-pos (seq-position buffers (current-buffer)))
-               (new-pos (when old-pos (- old-pos (or arg 1))))
-               (new-pos (when new-pos
-                          (if tab-line-switch-cycling
-                              (mod new-pos (length buffers))
-                            (max new-pos 0))))
-               (buffer (when new-pos (nth new-pos buffers))))
-          (when (bufferp buffer)
-            (let ((switch-to-buffer-obey-display-actions nil))
-              (switch-to-buffer buffer))))))))
+  (with-selected-window (posn-window (tab-line-event-start event))
+    (if (eq tab-line-tabs-function #'tab-line-tabs-window-buffers)
+        (previous-buffer arg t)
+      (let* ((buffers (seq-keep
+                       (lambda (tab) (or (and (bufferp tab) tab)
+                                         (alist-get 'buffer tab)))
+                       (funcall tab-line-tabs-function)))
+             (old-pos (seq-position buffers (current-buffer)))
+             (new-pos (when old-pos (- old-pos (or arg 1))))
+             (new-pos (when new-pos
+                        (if tab-line-switch-cycling
+                            (mod new-pos (length buffers))
+                          (max new-pos 0))))
+             (buffer (when new-pos (nth new-pos buffers))))
+        (when (bufferp buffer)
+          (let ((switch-to-buffer-obey-display-actions nil))
+            (switch-to-buffer buffer)))))))
 
 (defun tab-line-switch-to-next-tab (&optional event arg)
- "Switch to the next ARGth tab's buffer.
+  "Switch to the next ARGth tab's buffer.
 When `tab-line-tabs-function' is `tab-line-tabs-window-buffers',
 its effect is the same as using the `next-buffer' command
 \(\\[next-buffer]).
@@ -981,27 +1075,26 @@ switches to the next buffer in the sequence defined by
 is possible when `tab-line-switch-cycling' is non-nil."
   (interactive (list last-nonmenu-event
                      (prefix-numeric-value current-prefix-arg)))
-  (let ((window (and (listp event) (posn-window (event-start event)))))
-    (with-selected-window (or window (selected-window))
-      (if (eq tab-line-tabs-function #'tab-line-tabs-window-buffers)
-          (next-buffer arg t)
-        (let* ((buffers (seq-keep
-                         (lambda (tab) (or (and (bufferp tab) tab)
-                                           (alist-get 'buffer tab)))
-                         (funcall tab-line-tabs-function)))
-               (old-pos (seq-position buffers (current-buffer)))
-               (new-pos (when old-pos (+ old-pos (or arg 1))))
-               (new-pos (when new-pos
-                          (if tab-line-switch-cycling
-                              (mod new-pos (length buffers))
-                            (min new-pos (1- (length buffers))))))
-               (buffer (when new-pos (nth new-pos buffers))))
-          (when (bufferp buffer)
-            (let ((switch-to-buffer-obey-display-actions nil))
-              (switch-to-buffer buffer))))))))
+  (with-selected-window (posn-window (tab-line-event-start event))
+    (if (eq tab-line-tabs-function #'tab-line-tabs-window-buffers)
+        (next-buffer arg t)
+      (let* ((buffers (seq-keep
+                       (lambda (tab) (or (and (bufferp tab) tab)
+                                         (alist-get 'buffer tab)))
+                       (funcall tab-line-tabs-function)))
+             (old-pos (seq-position buffers (current-buffer)))
+             (new-pos (when old-pos (+ old-pos (or arg 1))))
+             (new-pos (when new-pos
+                        (if tab-line-switch-cycling
+                            (mod new-pos (length buffers))
+                          (min new-pos (1- (length buffers))))))
+             (buffer (when new-pos (nth new-pos buffers))))
+        (when (bufferp buffer)
+          (let ((switch-to-buffer-obey-display-actions nil))
+            (switch-to-buffer buffer)))))))
 
 (defun tab-line-mouse-move-tab (event)
-  "Move a tab to a different position on the tab line.
+  "Move a tab to a different position on the tab line using mouse.
 This command should be bound to a drag event.  It moves the tab
 at the mouse-down event to the position at mouse-up event.
 It can be used only when `tab-line-tabs-function' is
@@ -1025,6 +1118,46 @@ customized to `tab-line-tabs-fixed-window-buffers'."
         (set-window-parameter window1 'tab-line-cache nil)
         (with-selected-window window1 (force-mode-line-update))))))
 
+(defun tab-line-move-tab-forward (&optional arg)
+  "Move a tab to a different position on the tab line.
+ARG specifies the number of positions to move:
+- When positive, move the current tab ARG positions to the right.
+- When negative, move the current tab -ARG positions to the left.
+- When nil, act as if ARG is 1, moving one position to the right.
+It can be used only when `tab-line-tabs-function' is
+customized to `tab-line-tabs-fixed-window-buffers'."
+  (interactive "p")
+  (when (eq tab-line-tabs-function #'tab-line-tabs-fixed-window-buffers)
+    (let* ((window (selected-window))
+           (buffers (window-parameter window 'tab-line-buffers))
+           (buffer (current-buffer))
+           (pos (seq-position buffers buffer))
+           (len (length buffers))
+           (new-pos (+ pos (or arg 1))))
+      (when (and pos (> len 1))
+        (setq new-pos (if tab-line-switch-cycling
+                          (mod new-pos len)
+                        (max 0 (min new-pos (1- len)))))
+        (setq buffers (delq buffer buffers))
+        (setq buffers (append
+                       (seq-take buffers new-pos)
+                       (list buffer)
+                       (seq-drop buffers new-pos)))
+        (set-window-parameter window 'tab-line-buffers buffers)
+        (set-window-parameter window 'tab-line-cache nil)
+        (force-mode-line-update)))))
+
+(defun tab-line-move-tab-backward (&optional arg)
+  "Move a tab to a different position on the tab line.
+ARG specifies the number of positions to move:
+- When positive, move the current tab ARG positions to the left.
+- When negative, move the current tab -ARG positions to the right.
+- When nil, act as if ARG is 1, moving one position to the left.
+It can be used only when `tab-line-tabs-function' is
+customized to `tab-line-tabs-fixed-window-buffers'."
+  (interactive "p")
+  (tab-line-move-tab-forward (- (or arg 1))))
+
 
 (defcustom tab-line-close-tab-function 'bury-buffer
   "What to do upon closing a tab on the tab line.
@@ -1040,6 +1173,13 @@ This option is useful when `tab-line-tabs-function' has the value
   :group 'tab-line
   :version "27.1")
 
+(defun tab-line--current-tab ()
+  "Return the current tab in the tab line."
+  (seq-find (lambda (tab)
+              (eq (if (bufferp tab) tab (alist-get 'buffer tab))
+                  (current-buffer)))
+            (funcall tab-line-tabs-function)))
+
 (defun tab-line-close-tab (&optional event)
   "Close the selected tab.
 This command is usually invoked by clicking on the close button on the
@@ -1047,13 +1187,13 @@ right side of the tab.  This command buries the buffer, so it goes out of
 sight of the tab line."
   (interactive (list last-nonmenu-event))
   (when (tab-line-track-tap event)
-    (let* ((posnp (and (listp event)
-                       (tab-line-event-start event)))
-           (window (and posnp (posn-window posnp)))
-           (tab (tab-line--get-tab-property 'tab (car (posn-string posnp))))
+    (let* ((posnp (tab-line-event-start event))
+           (tab (if (consp event)
+                    (tab-line--get-tab-property 'tab (car (posn-string posnp)))
+                  (tab-line--current-tab)))
            (buffer (if (bufferp tab) tab (cdr (assq 'buffer tab))))
            (close-function (unless (bufferp tab) (cdr (assq 'close tab)))))
-      (with-selected-window (or window (selected-window))
+      (with-selected-window (posn-window posnp)
         (cond
          ((functionp close-function)
           (funcall close-function))
@@ -1068,12 +1208,42 @@ sight of the tab line."
           (funcall tab-line-close-tab-function tab)))
         (force-mode-line-update)))))
 
+(defun tab-line-close-other-tabs (&optional event)
+  "Close all tabs on the selected window, except the tab on EVENT.
+It preforms the same actions on the closed tabs as in `tab-line-close-tab'."
+  (interactive (list last-nonmenu-event))
+  (when (tab-line-track-tap event)
+    (let* ((posnp (tab-line-event-start event))
+           (keep-tab (if (consp event)
+                         (tab-line--get-tab-property 'tab (car (posn-string posnp)))
+                       (tab-line--current-tab))))
+      (with-selected-window (posn-window posnp)
+        (dolist (tab (delete keep-tab (funcall tab-line-tabs-function)))
+          (let ((buffer (if (bufferp tab) tab (cdr (assq 'buffer tab))))
+                (close-function (unless (bufferp tab) (cdr (assq 'close tab)))))
+            (cond
+             ((functionp close-function)
+              (funcall close-function))
+             ((eq tab-line-close-tab-function 'kill-buffer)
+              (kill-buffer buffer))
+             ((eq tab-line-close-tab-function 'bury-buffer)
+              (if (eq buffer (current-buffer))
+                  (bury-buffer)
+                (set-window-prev-buffers nil (assq-delete-all buffer (window-prev-buffers)))
+                (set-window-next-buffers nil (delq buffer (window-next-buffers)))))
+             ((functionp tab-line-close-tab-function)
+              (funcall tab-line-close-tab-function tab)))))
+        (force-mode-line-update)))))
+
 (defun tab-line-tab-context-menu (&optional event)
   "Pop up the context menu for a tab-line tab."
   (interactive "e")
   (let ((menu (make-sparse-keymap (propertize "Context Menu" 'hide t))))
     (define-key-after menu [close]
       '(menu-item "Close" tab-line-close-tab :help "Close the tab"))
+    (define-key-after menu [close-other]
+      '(menu-item "Close other tabs" tab-line-close-other-tabs
+                  :help "Close all other tabs"))
     (popup-menu menu event)))
 
 (defun tab-line-context-menu (&optional event)
@@ -1126,18 +1296,62 @@ However, return the correct mouse position list if EVENT is a
       (event-start event)))
 
 
+(defcustom tab-line-define-keys t
+  "Define specific tab-line key bindings.
+If t, the default, key mappings for switching and moving tabs
+are defined.  If nil, do not define any key mappings."
+  :type 'boolean
+  :initialize #'custom-initialize-default
+  :set (lambda (sym val)
+         (tab-line--undefine-keys)
+         (set-default sym val)
+         ;; Enable the new keybindings
+         (tab-line--define-keys))
+  :group 'tab-line
+  :version "31.1")
+
+(defun tab-line--define-keys ()
+  "Install key bindings to switch between tabs if so configured."
+  (when tab-line-define-keys
+    (when (eq (keymap-lookup ctl-x-map "<left>") 'previous-buffer)
+      (keymap-set ctl-x-map "<left>" #'tab-line-switch-to-prev-tab))
+    (when (eq (keymap-lookup ctl-x-map "C-<left>") 'previous-buffer)
+      (keymap-set ctl-x-map "C-<left>" #'tab-line-switch-to-prev-tab))
+    (unless (keymap-lookup ctl-x-map "M-<left>")
+      (keymap-set ctl-x-map "M-<left>" #'tab-line-move-tab-backward))
+    (when (eq (keymap-lookup ctl-x-map "<right>") 'next-buffer)
+      (keymap-set ctl-x-map "<right>" #'tab-line-switch-to-next-tab))
+    (when (eq (keymap-lookup ctl-x-map "C-<right>") 'next-buffer)
+      (keymap-set ctl-x-map "C-<right>" #'tab-line-switch-to-next-tab))
+    (unless (keymap-lookup ctl-x-map "M-<right>")
+      (keymap-set ctl-x-map "M-<right>" #'tab-line-move-tab-forward))))
+
+(defun tab-line--undefine-keys ()
+  "Uninstall key bindings previously bound by `tab-line--define-keys'."
+  (when tab-line-define-keys
+    (when (eq (keymap-lookup ctl-x-map "<left>") 'tab-line-switch-to-prev-tab)
+      (keymap-set ctl-x-map "<left>" #'previous-buffer))
+    (when (eq (keymap-lookup ctl-x-map "C-<left>") 'tab-line-switch-to-prev-tab)
+      (keymap-set ctl-x-map "C-<left>" #'previous-buffer))
+    (when (eq (keymap-lookup ctl-x-map "M-<left>") 'tab-line-move-tab-backward)
+      (keymap-set ctl-x-map "M-<left>" nil))
+    (when (eq (keymap-lookup ctl-x-map "<right>") 'tab-line-switch-to-next-tab)
+      (keymap-set ctl-x-map "<right>" #'next-buffer))
+    (when (eq (keymap-lookup ctl-x-map "C-<right>") 'tab-line-switch-to-next-tab)
+      (keymap-set ctl-x-map "C-<right>" #'next-buffer))
+    (when (eq (keymap-lookup ctl-x-map "M-<right>") 'tab-line-move-tab-forward)
+      (keymap-set ctl-x-map "M-<right>" nil))))
+
 (defvar-keymap tab-line-mode-map
-  :doc "Keymap for keys of `tab-line-mode'."
-  "C-x <left>"    #'tab-line-switch-to-prev-tab
-  "C-x C-<left>"  #'tab-line-switch-to-prev-tab
-  "C-x <right>"   #'tab-line-switch-to-next-tab
-  "C-x C-<right>" #'tab-line-switch-to-next-tab)
+  :doc "Keymap for keys of `tab-line-mode'.")
 
 (defvar-keymap tab-line-switch-repeat-map
   :doc "Keymap to repeat tab/buffer cycling.  Used in `repeat-mode'."
   :repeat t
-  "<left>"  #'tab-line-switch-to-prev-tab
-  "<right>" #'tab-line-switch-to-next-tab)
+  "<left>"    #'tab-line-switch-to-prev-tab
+  "M-<left>"  #'tab-line-move-tab-backward
+  "<right>"   #'tab-line-switch-to-next-tab
+  "M-<right>" #'tab-line-move-tab-forward)
 
 ;;;###autoload
 (define-minor-mode tab-line-mode
@@ -1165,10 +1379,37 @@ button, so you could have one more buffer shown on the tab line."
   '(completion-list-mode)
   "List of major modes for which the tab-line display is not enabled.
 Buffers under any of these major modes will not show the tab line in
-their windows, even if `global-tab-line-mode' is enabled."
+their windows, even if `global-tab-line-mode' is enabled.
+
+See also `tab-line-exclude-buffers', for exclude buffers."
   :type '(repeat symbol)
   :group 'tab-line
   :version "27.1")
+
+(defcustom tab-line-exclude-buffers nil
+  "Whether tab-line should not be enabled in a buffer.
+
+The value must be a condition which is passed to `buffer-match-p' (which
+see).
+
+You can include multiple conditions, for example:
+
+  To exclude multiple modes and buffer names:
+  \\='(or \"\\*eshell\\*\"
+         (derived-mode completion-list-mode
+                       eshell-mode
+                       term-mode
+                       ...)
+         ...)
+
+If the condition yields a non-nil value, tab line will not be enabled in
+those buffers.
+
+See also `tab-line-exclude-modes', for only exclude major modes."
+  :type '(buffer-predicate :tag "Predicate for `buffer-match-p'")
+  :safe #'booleanp
+  :group 'tab-line
+  :version "31.1")
 
 ;;;###autoload
 (defvar-local tab-line-exclude nil)
@@ -1183,6 +1424,7 @@ of `tab-line-exclude', are exempt from `tab-line-mode'."
   (unless (or (minibufferp)
               (string-match-p "\\` " (buffer-name))
               (memq major-mode tab-line-exclude-modes)
+              (buffer-match-p tab-line-exclude-buffers (buffer-name))
               (get major-mode 'tab-line-exclude)
               (buffer-local-value 'tab-line-exclude (current-buffer)))
     (tab-line-mode 1)))
@@ -1191,7 +1433,10 @@ of `tab-line-exclude', are exempt from `tab-line-mode'."
 (define-globalized-minor-mode global-tab-line-mode
   tab-line-mode tab-line-mode--turn-on
   :group 'tab-line
-  :version "27.1")
+  :version "27.1"
+  (if global-tab-line-mode
+      (tab-line--define-keys)
+    (tab-line--undefine-keys)))
 
 
 (global-set-key [tab-line down-mouse-3] 'tab-line-context-menu)

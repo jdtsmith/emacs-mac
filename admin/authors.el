@@ -1,6 +1,6 @@
 ;;; authors.el --- utility for maintaining Emacs's AUTHORS file  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: Gerd Moellmann <gerd@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -43,14 +43,17 @@ files.")
     (nil "A\\. N\\. Other")  ; unknown author 2014-12-03, later removed
     (nil "Anticrisis")
     (nil "akater")
+    ("Aaron L. Zeng" "Aaron Zeng")
     ("Aaron S. Hawley" "Aaron Hawley")
     ("Alan Third" "Alan J Third")
     ("Alexander Gramiak" "Alex Gramiak")
     ("Alexandru Harsanyi" "Alex Harsanyi")
     ("Álvar Jesús Ibeas Martín" "Álvar Ibeas")
+    ("Álvaro Ramírez" "Alvaro Ramirez" "xenodium")
     (nil "ambihelical")
     ("Andrea Corallo" "AndreaCorallo")
     ("Andrii Kolomoiets" "andreyk\\.mad@gmail\\.com")
+    ("André A. Gomes" "Andre A. Gomes")
     ("Andrew Csillag" "Drew Csillag")
     ("Andrew G Cohen" "Andrew Cohen")
     ("Anna M. Bigatti" "Anna Bigatti")
@@ -69,6 +72,7 @@ files.")
     (nil "BlaCk_Void" "alstjr7375@daum\\.net")
     (nil "bug-gnu-emacs@gnu\\.org")  ; mistake
     ("Björn Torkelsson" "Bjorn Torkelsson")
+    ("Boris Buliga" "boris@d12frosted\\.io")
     (nil "brandon\\.irizarry@gmail\\.com")
     ("Brian Fox" "Brian J\\. Fox")
     ("Brian P Templeton" "BT Templeton")
@@ -102,6 +106,7 @@ files.")
     ("Eric M. Ludlam" "Eric Ludlam")
     ("Eric S. Raymond" "Eric Raymond")
     ("Etienne Prud’Homme" "Etienne Prud'Homme")
+    ("Ewan Townshend" "ewan@etown\\.dev")
     ("Fabián Ezequiel Gallina" "Fabian Ezequiel Gallina" "Fabi.n E\\. Gallina")
     (nil "felix.*EmacsWiki")
     (nil "felix\\.dick@web\\.de")
@@ -124,6 +129,7 @@ files.")
     ("Hallvard B. Furuseth" "Hallvard B Furuseth" "Hallvard Furuseth")
     (nil "hokomo@airmail\\.cc" "hokomo")
     ("Hrvoje Nikšić" "Hrvoje Niksic")
+    ("Huang Jing" "rne\\.kou@icloud\\.com" "RadioNoiseE")
     ("Ian Dunn" "^Ian D\\>")
     ;; lisp/org/ChangeLog.1 2010-11-11.
     ("Ignacio Casso" "ignacio\\.decasso@imdea\\.org" "ignaciocasso@hotmail\\.com")
@@ -187,6 +193,7 @@ files.")
     ("Mark D. Baushke" "Mark D Baushke")
     ("Mark E. Shoulson" "Mark Shoulson")
     ("Marko Kohtala" "Kohtala Marko")
+    ("Mattias Roux" "mattias@kojin\\.tech")
     ("Maxim Nikulin" "Max Nikulin")
     ("Agustín Martín" "Agustin Martin" "Agustín Martín Domingo")
     ("Martin Lorentzon" "Martin Lorentzson")
@@ -215,12 +222,13 @@ files.")
     ("Noorul Islam" "Noorul Islam K M")
 ;;;    ("Tetsurou Okazaki" "OKAZAKI Tetsurou") ; FIXME?
     (nil "odanoburu@")
-    ("Xie Qi" "one\\.last\\.kiss@outlook\\.com" "shynur")
+    ("谢骐 Xie Qi" "one\\.last\\.kiss@outlook\\.com" "shynur")
     ("Cao ZhenXiang" "mail@ookami\\.one")
     ("Óscar Fuentes" "Oscar Fuentes")
     (nil "pillule")
     (nil "psyberbits@gmail\\.com")
     ("Paul Eggert" "Paul R\\. Eggert")
+    ("Paul Nelson" "Paul D. Nelson")
     ("Pavel Janík" "Pavel Janík Ml\\." "Pavel Janik Ml\\." "Pavel Janik")
     ("Pavel Kobiakov" "Pavel Kobyakov")
     ("Per Abrahamsen" "Per Abhiddenware")
@@ -299,11 +307,14 @@ files.")
     (nil "vjoki@")
     (nil "whatacold@gmail\\.com")
     ("William M. Perry" "Bill Perry")
+    ("William O'Brien" "will\\.08rien@gmail.com")
     ("Włodzimierz Bzyl" "W.*dek Bzyl")
     (nil "xyblor")
+    ("Yifei Yao" "donplat@barrensea\\.org")
     ("Yilkal Argaw" "yilkalargaw" "yilkalargawworkneh@gmail\\.com")
     ("Yoni Rabkin" "Yoni Rabkin Katzenell")
     ("Yoshinori Koseki" "KOSEKI Yoshinori" "小関 吉則")
+    ("Yuhei Kikuchi" "8\\.slashes@gmail\\.com")
     ("Yuzhana Ego" "YugaEgo" "yet@ego\\.team")
     ("Yutaka NIIBE" "NIIBE Yutaka")
     (nil "stardiviner")
@@ -381,7 +392,6 @@ If REALNAME is nil, ignore that author.")
     "nnmaildir\\.el"
     "nnil\\.el"
     "b2m\\.c"
-    "unexhp9k800\\.c"
     "emacsclient\\.1"
     "check-doc-strings")
   "List of regexps matching files for which the FSF doesn't need papers.")
@@ -694,7 +704,11 @@ Changes to files matching one of the regexps in this list are not listed.")
     "lisp/org/ob-picolisp.el"
     "lisp/obsolete/levents.el"
     "lisp/obsolete/lucid.el"
-    "lisp/obsolete/old-whitespace.el")
+    "lisp/obsolete/old-whitespace.el"
+    "doc/misc/modus-themes.texi"
+    "doc/misc/elisp-semantic-highlighting.org"
+    "lisp/emacs-lisp/scope.el"
+    "etc/yow.lines")
   "List of files and directories to ignore.
 Changes to files in this list are not listed.")
 
@@ -920,7 +934,8 @@ Changes to files in this list are not listed.")
     ("Dale R. Worley" :changed "mail-extr.el")
     ("Jamie Zawinski" :changed "bytecode.c" :wrote "tar-mode.el"
      :cowrote "disass.el")
-    ("Andrea Corallo" :wrote "comp.c"))
+    ("Andrea Corallo" :wrote "comp.c" "[native compilation of Emacs Lisp]")
+    ("Ewan Townshend" :wrote "[24-bit color support for MS-Windows console]"))
   "Manual fixes to the list of actions taken.
 These are mostly taken from the original, manually (un)maintained
 AUTHORS file.  There are also some more recent manual additions.")
@@ -1157,7 +1172,42 @@ AUTHORS file.  There are also some more recent manual additions.")
     "admin/notes/tree-sitter/build-module/batch.sh"
     "doc/misc/gnus-coding.texi"
     "gnus-coding.texi"
-    "doc/misc/org.texi")
+    "doc/misc/org.texi"
+    ;; Unexec & pure space removal.
+    "src/puresize.h"
+    "src/sheap.c"
+    "src/sheap.h"
+    "src/unexec.h"
+    "src/unexaix.c"
+    "src/unexcoff.c"
+    "src/unexcw.c"
+    "src/unexelf.c"
+    "src/unexhp9k800.c"
+    "src/unexmacosx.c"
+    "src/unexsol.c"
+    "src/unexw32.c"
+    "src/firstfile.c"
+    "src/lastfile.c"
+    ;; Removed.
+    "nt/configure.bat"
+    "lisp/obsolete/cc-compat.el"
+    "lisp/obsolete/info-edit.el"
+    "lisp/obsolete/otodo-mode.el"
+    "lisp/obsolete/rcompile.el"
+    "lisp/terminal.el"
+    "lisp/obsolete/vi.el"
+    "lisp/obsolete/vip.el"
+    "doc/misc/vip.texi"
+    "lisp/obsolete/ws-mode.el"
+    "lisp/obsolete/yow.el"
+    "test/lisp/erc/resources/base/reconnect/ping-pong.eld"
+    "test/lisp/erc/resources/base/reconnect/proxy-solo.eld"
+    "test/lisp/erc/resources/erc-d/resources/proxy-solo.eld"
+    "admin/coccinelle/process.cocci"
+    "admin/coccinelle/window.cocci"
+    "admin/coccinelle/frame.cocci"
+    ;; Merged into various files in cl-lib.
+    "lisp/emacs-lisp/cl-types.el" "test/lisp/emacs-lisp/cl-types-tests.el")
   "File names which are valid, but no longer exist (or cannot be found)
 in the repository.")
 
@@ -1409,7 +1459,7 @@ in the repository.")
     ("lisp/new/eww.el" . "eww.el") ; an actual typo in ChangeLog.3
     ("gssapi.el" . "gssapi.el")
     ("lisp/gnus/gssapi.el" . "gssapi.el")
-    ("imap.el" . "net/imap.el")
+    ("imap.el" . "imap.el")
     ("mailcap.el" . "mailcap.el")
     ("gnus/mailcap.el" . "mailcap.el")
     ("lisp/gnus/mailcap.el" . "mailcap.el")
@@ -1472,7 +1522,6 @@ in the repository.")
     ("org/COPYRIGHT-AND-LICENSE" . "org/README")
     ("lisp/net/idna.el" . "puny.el")
     ;; Moved to different directories.
-    ("ctags.1" . "ctags.1")
     ("etags.1" . "etags.1")
     ("emacs.1" . "emacs.1")
     ("emacsclient.1" . "emacsclient.1")
@@ -1502,6 +1551,8 @@ in the repository.")
     ;; module.* moved to emacs-module.*
     ("src/module.h" . "emacs-module.h")
     ("src/module.c" . "emacs-module.c")
+    ;; Renamed from .h.in to .in.h.
+    ("src/emacs-module.h.in" . "emacs-module.in.h")
     ("test/src/regex-tests.el" . "regex-emacs-tests.el")
     ("test/lisp/emacs-lisp/cl-tests.el" . "cl-tests.el")
     ("url-ns.el" . "url-ns.el")
@@ -1718,7 +1769,17 @@ in the repository.")
     ("lisp/vt100-led.el" . "lisp/obsolete/vt100-led.el")
     ("lisp/mail/metamail.el" . "lisp/obsolete/metamail.el")
     ("lisp/sb-image.el" . "lisp/obsolete/sb-image.el")
-    ("lisp/cedet/semantic/grammar-wy.el" . "lisp/cedet/semantic/grm-wy-boot.el"))
+    ("lisp/cedet/semantic/grammar-wy.el" . "lisp/cedet/semantic/grm-wy-boot.el")
+    ("lisp/vc/vc-dav.el" . "vc-dav.el")
+    ("test/lisp/vc/vc-tests.el" . "vc-tests.el")
+    ("admin/notes/elpa" . "elpa.md")
+    ("etc/NEWS.unknown" . "symbol-releases.eld")
+    ("test/lisp/eshell/eshell-tests-helpers.el" . "eshell-tests-helpers.el")
+    ("test/lisp/package-vc-tests.el" . "package-vc-tests.el")
+    ("test/lisp/vc/vc-misc-tests.el" . "vc-test-misc.el")
+    ("admin/treesit-admin.el" . "treesit-admin.el")
+    ("java/incrementing-version-code" . "AndroidManifest.xml.in")
+    ("etc/ctags.1" "ctags.1"))
   "Alist of files which have been renamed during their lifetime.
 Elements are (OLDNAME . NEWNAME).")
 

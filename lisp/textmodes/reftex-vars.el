@@ -1,8 +1,8 @@
 ;;; reftex-vars.el --- configuration variables for RefTeX  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-1999, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997-1999, 2001-2026 Free Software Foundation, Inc.
 
-;; Author: Carsten Dominik <dominik@science.uva.nl>
+;; Author: Carsten Dominik <carsten.dominik@gmail.com>
 ;; Maintainer: auctex-devel@gnu.org
 
 ;; This file is part of GNU Emacs.
@@ -59,51 +59,54 @@
     (fancybox "The Beqnarray environment"
      (("Beqnarray" ?e nil nil eqnarray-like)))
 
-    (floatfig "The floatingfigure environment"
-     (("floatingfigure" ?f nil nil caption)))
+    (floatflt "The floatingfigure and floatingtable environments"
+     (("floatingfigure" ?f nil nil caption)
+      ("floatingtable"  ?t nil nil caption)))
 
     (longtable   "The longtable environment"
      (("longtable"  ?t nil nil caption)))
 
     (picinpar    "The figwindow and tabwindow environments"
      (("figwindow" ?f nil nil 1)
-      ("tabwindow" ?f nil nil 1)))
+      ("tabwindow" ?t nil nil 1)))
 
-    (rotating    "Sidewaysfigure and table"
+    (rotating    "The sidewaysfigure and sidewaystable environments"
      (("sidewaysfigure"  ?f nil nil caption)
       ("sidewaysfigure*" ?f nil nil caption)
       ("sidewaystable"   ?t nil nil caption)
       ("sidewaystable*"  ?t nil nil caption)))
 
-    (sidecap      "SCfigure and SCtable"
+    (sidecap      "The SCfigure and SCtable environments"
      (("SCfigure"  ?f nil nil caption)
       ("SCfigure*" ?f nil nil caption)
       ("SCtable"   ?t nil nil caption)
       ("SCtable*"  ?t nil nil caption)))
 
-    (subfigure   "Subfigure environments/macro"
-     (("subfigure"   ?f nil nil caption)
-      ("subfigure*"  ?f nil nil caption)
-      ("\\subfigure[]{}" ?f nil nil 1)))
+    (subfig       "The \\subfigure and \\subtable macros"
+     ;; The main macro \subfloat is ambiguous, so we only support the
+     ;; compat macros for the old subfigure package.  The context regexp
+     ;; must match combinations of
+     ;; \subfigure[list-capt.][sub-capt.]{body}
+     (("\\subfigure[][]{}" ?f "fig:" nil
+       "\\\\subfigure\\(?:\\(?:\\[[^]]*\\]\\)?\\[\\|{\\)")
+      ("\\subtable[][]{}"  ?t "tab:" nil
+       "\\\\subtable\\(?:\\(?:\\[[^]]*\\]\\)?\\[\\|{\\)")))
 
-    (supertab    "Supertabular environment"
-     (("supertabular" ?t nil nil "\\tablecaption{")))
-
-    (wrapfig     "The wrapfig package"
+    (wrapfig     "The wrapfigure and wraptable environments"
      (("wrapfigure" ?f nil nil caption)
       ("wraptable"  ?t nil nil caption)))
 
-    (ctable	"The ctable package"
+    (ctable	"The \\ctable macro"
      (("\\ctable[]{}{}{}" ?t "tab:" "~\\ref{%s}" 1 ("table" "Tabelle"))))
 
-    (listings	"The listings package"
+    (listings	"The lstlisting environment"
      (("lstlisting" ?l "lst:" "~\\ref{%s}" nil (regexp "[Ll]isting"))))
 
-    (minted	"The minted package"
+    (minted	"The listing environment"
      (("listing" ?l "lst:" "~\\ref{%s}" nil (regexp "[Ll]isting"))))
 
     ;; The LaTeX core stuff
-    (LaTeX       "LaTeX default environments"
+    (LaTeX       "LaTeX default macros and environments"
      (("section"   ?s "%S" "~\\ref{%s}" (nil . t)
        (regexp "parts?" "chapters?" "chap\\." "sections?" "sect?\\."
                "paragraphs?" "par\\."
@@ -357,11 +360,11 @@ more than `reftex-idle-time' seconds.
 Value t means, turn on immediately when RefTeX gets started.  Then,
 recentering will work for any TOC window created during the session.
 
-Value `frame' (the default) means, turn automatic recentering on only while the
-dedicated TOC frame does exist, and do the recentering only in that frame.  So
-when creating that frame (with `d' key in an ordinary TOC window), the
-automatic recentering is turned on.  When the frame gets destroyed, automatic
-recentering is turned off again.
+Value \\+`frame' (the default) means, turn automatic recentering on only
+while the dedicated TOC frame does exist, and do the recentering only in
+that frame.  So when creating that frame (with `d' key in an ordinary
+TOC window), the automatic recentering is turned on.  When the frame
+gets destroyed, automatic recentering is turned off again.
 
 This feature can be turned on and off from the menu
 \(Ref->Options)."
@@ -381,9 +384,6 @@ This feature can be turned on and off from the menu
 See also `reftex-toc-split-windows-horizontally'."
   :group 'reftex-table-of-contents-browser
   :type 'number)
-
-(defvar reftex-toc-split-windows-horizontally-fraction 0.5
-  "This variable is obsolete, use `reftex-toc-split-windows-fraction' instead.")
 
 (defcustom reftex-toc-keep-other-windows t
   "Non-nil means, split the selected window to display the *toc* buffer.
@@ -459,9 +459,9 @@ If nil, `follow-mode' will be suspended for stuff in unvisited files."
   :group 'reftex-label-support)
 
 (defcustom reftex-default-label-alist-entries
-  '(amsmath endnotes fancybox floatfig longtable picinpar
-            rotating sidecap subfigure supertab wrapfig
-	    listings minted ctable LaTeX)
+  '( amsmath endnotes fancybox floatflt longtable picinpar
+     rotating sidecap subfig wrapfig
+     listings minted ctable LaTeX)
   "Default label alist specifications.  LaTeX should always be the last entry.
 The value of this variable is a list of symbols with associations in the
 constant `reftex-label-alist-builtin'.  Check that constant for a full list
@@ -477,7 +477,8 @@ of options."
                (list 'const :tag (concat (symbol-name (nth 0 x))
                                          ": " (nth 1 x))
                      (nth 0 x)))
-             reftex-label-alist-builtin)))
+             reftex-label-alist-builtin))
+  :version "31.1")
 
 (defcustom reftex-label-alist nil
   "Alist with information on environments for \\label-\\ref use.
@@ -488,7 +489,7 @@ examples in the manual.  Looking at the builtin defaults in the constant
 
 Set this variable to define additions and changes to the default.  The only
 things you MUST NOT change is that `?s' is the type indicator for section
-labels, and SPC for the `any' label type.  These are hard-coded at other
+labels, and SPC for the \\+`any' label type.  These are hard-coded at other
 places in the code.
 
 The value of the variable must be a list of items.  Each item is a list
@@ -508,7 +509,7 @@ ENV-OR-MACRO
     a star to mark the label argument, if any.  The macro does not have to
     have a label argument - you could also use \\label{..} inside one of
     its arguments.
-    Special names: `section' for section labels, `any' to define a group
+    Special names: `section' for section labels, \\+`any' to define a group
     which contains all labels.
 
     This may also be a function to do local parsing and identify point to
@@ -534,7 +535,7 @@ TYPE-KEY
 LABEL-PREFIX
     Label prefix string, like \"tab:\".
     The prefix is a short string used as the start of a label.  It may be the
-    empty string.  The prefix may contain the following `%' escapes:
+    empty string.  The prefix may contain the following \\+`%' escapes:
        %f   Current file name with directory and extension stripped.
        %F   Current file name relative to directory of master file.
        %m   Master file name, directory and extension stripped.
@@ -1533,27 +1534,27 @@ This extension will be added to the base name of the master file."
   :type 'string)
 
 (defcustom reftex-index-phrases-logical-and-regexp " *&& *"
-  "Regexp matching the `and' operator for index arguments in phrases file.
+  "Regexp matching the \\+`and' operator for index arguments in phrases file.
 When several index arguments in a phrase line are separated by this
 operator, each part will generate an index macro.  So each match of
 the search phrase will produce *several* different index entries.
 
 Note: make sure this does no match things which are not separators.
-This logical `and' has higher priority than the logical `or' specified in
+This logical \\+`and' has higher priority than the logical \\+`or' specified in
 `reftex-index-phrases-logical-or-regexp'."
   :group 'reftex-index-support
   :type 'regexp)
 
 (defcustom reftex-index-phrases-logical-or-regexp " *|| *"
-  "Regexp matching the `or' operator for index arguments in phrases file.
+  "Regexp matching the \\+`or' operator for index arguments in phrases file.
 When several index arguments in a phrase line are separated by this
 operator, the user will be asked to select one of them at each match
 of the search phrase.  The first index arg will be the default - a
 number key 1-9 must be pressed to switch to another.
 
 Note: make sure this does no match things which are not separators.
-The logical `and' specified in `reftex-index-phrases-logical-or-regexp'
-has higher priority than this logical `or'."
+The logical \\+`and' specified in `reftex-index-phrases-logical-or-regexp'
+has higher priority than this logical \\+`or'."
   :group 'reftex-index-support
   :type 'regexp)
 
@@ -2112,6 +2113,9 @@ the following construct: \\bbb [xxx] {aaa}."
   :group 'reftex-miscellaneous-configurations
   :type 'hook)
 
+(defvar reftex-toc-split-windows-horizontally-fraction 0.5)
+(make-obsolete-variable 'reftex-toc-split-windows-horizontally-fraction
+                        'reftex-toc-split-windows-fraction "31.1")
 
 (provide 'reftex-vars)
 

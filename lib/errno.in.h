@@ -1,6 +1,6 @@
 /* A POSIX-like <errno.h>.
 
-   Copyright (C) 2008-2025 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is free software: you can redistribute it and/or modify
    it under the terms of the GNU Lesser General Public License as
@@ -133,7 +133,7 @@
 
 /* These are intentionally the same values as the WSA* error numbers, defined
    in <winsock2.h>.  */
-#  define ESOCKTNOSUPPORT 10044  /* not required by POSIX */
+#  define ESOCKTNOSUPPORT 10044
 #  define EPFNOSUPPORT    10046  /* not required by POSIX */
 #  define ESHUTDOWN       10058  /* not required by POSIX */
 #  define ETOOMANYREFS    10059  /* not required by POSIX */
@@ -148,27 +148,11 @@
 # endif
 
 
-/* On OSF/1 5.1, when _XOPEN_SOURCE_EXTENDED is not defined, the macros
-   EMULTIHOP, ENOLINK, EOVERFLOW are not defined.  */
-# if @EMULTIHOP_HIDDEN@
-#  define EMULTIHOP @EMULTIHOP_VALUE@
-#  define GNULIB_defined_EMULTIHOP 1
-# endif
-# if @ENOLINK_HIDDEN@
-#  define ENOLINK   @ENOLINK_VALUE@
-#  define GNULIB_defined_ENOLINK 1
-# endif
-# if @EOVERFLOW_HIDDEN@
-#  define EOVERFLOW @EOVERFLOW_VALUE@
-#  define GNULIB_defined_EOVERFLOW 1
-# endif
-
-
 /* On OpenBSD 4.0 and on native Windows, the macros ENOMSG, EIDRM, ENOLINK,
    EPROTO, EMULTIHOP, EBADMSG, EOVERFLOW, ENOTSUP, ECANCELED are not defined.
    Likewise, on NonStop Kernel, EDQUOT is not defined.
    Define them here.  Values >= 2000 seem safe to use: Solaris ESTALE = 151,
-   HP-UX EWOULDBLOCK = 246, IRIX EDQUOT = 1133.
+   HP-UX EWOULDBLOCK = 246.
 
    Note: When one of these systems defines some of these macros some day,
    binaries will have to be recompiled so that they recognizes the new
@@ -270,9 +254,16 @@
 #  define GNULIB_defined_ENOTRECOVERABLE 1
 # endif
 
+/* On LynxOS, the macro EILSEQ is not defined.  */
 # ifndef EILSEQ
 #  define EILSEQ 2015
 #  define GNULIB_defined_EILSEQ 1
+# endif
+
+/* On Haiku, the macro ESOCKTNOSUPPORT is not defined.  */
+# ifndef ESOCKTNOSUPPORT
+#  define ESOCKTNOSUPPORT 2016
+#  define GNULIB_defined_ESOCKTNOSUPPORT 1
 # endif
 
 #endif /* _@GUARD_PREFIX@_ERRNO_H */

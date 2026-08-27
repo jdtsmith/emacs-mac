@@ -1,6 +1,6 @@
 ;;; crm.el --- read multiple strings with completion  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1986, 1993-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1985-1986, 1993-2026 Free Software Foundation, Inc.
 
 ;; Author: Sen Nagata <sen@eccosys.com>
 ;; Keywords: completion, minibuffer, multiple elements
@@ -79,9 +79,25 @@
 
 (define-obsolete-variable-alias 'crm-default-separator 'crm-separator "29.1")
 
-(defvar crm-separator "[ \t]*,[ \t]*"
+(defvar crm-separator
+  (propertize "[ \t]*,[ \t]*" 'separator "," 'description "comma-separated list")
   "Separator regexp used for separating strings in `completing-read-multiple'.
-It should be a regexp that does not match the list of completion candidates.")
+It should be a regexp that does not match the list of completion
+candidates.  The regexp string can carry the text properties `separator'
+and `description', which if present `completing-read-multiple' will show
+as part of the prompt.  See the user option `crm-prompt'.")
+
+(defcustom crm-prompt "[%d] %p"
+  "Prompt format for `completing-read-multiple'.
+The prompt is formatted by `format-spec' with the keys %d, %s and %p
+standing for the separator description, the separator itself and the
+original prompt respectively."
+  :type '(choice (const :tag "Original prompt" "%p")
+                 (const :tag "Description and prompt" "[%d] %p")
+                 (const :tag "Short CRM indication" "[CRM%s] %p")
+                 (string :tag "Custom string"))
+  :group 'minibuffer
+  :version "31.1")
 
 (defvar-keymap crm-local-completion-map
   :doc "Local keymap for minibuffer multiple input with completion.
@@ -176,14 +192,15 @@ Like `minibuffer-complete-word' but for `completing-read-multiple'."
   (crm--completion-command beg end
     (completion-in-region--single-word beg end)))
 
-(defun crm-complete-and-exit ()
-  "If all of the minibuffer elements are valid completions then exit.
-All elements in the minibuffer must match.  If there is a mismatch, move point
-to the location of mismatch and do not exit.
-
-This function is modeled after `minibuffer-complete-and-exit'."
-  (interactive)
-  (let ((doexit t))
+(defun crm-complete-and-exit (&optional no-exit)
+  "Exit if all of the minibuffer elements are valid completions.
+Otherwise, try to complete the minibuffer contents.
+This behaves like `minibuffer-complete-and-exit' (which see),
+adjusted for the presence of multiple elements."
+  (interactive "P")
+  (when (completion--selected-candidate)
+    (minibuffer-choose-completion t t))
+  (let ((doexit (not no-exit)))
     (goto-char (minibuffer-prompt-end))
     (while
         (and doexit
@@ -238,18 +255,12 @@ with empty strings removed."
   (let* ((map (if require-match
                   crm-local-must-match-map
                 crm-local-completion-map))
-         (map (if minibuffer-visible-completions
-                  (make-composed-keymap
-                   (list minibuffer-visible-completions-map
-                         map))
-                map))
+         (map (minibuffer-visible-completions--maybe-compose-map map))
          input)
     (minibuffer-with-setup-hook
         (lambda ()
           (add-hook 'choose-completion-string-functions
                     'crm--choose-completion-string nil 'local)
-          (setq-local minibuffer-completion-table #'crm--collection-fn)
-          (setq-local minibuffer-completion-predicate predicate)
           (setq-local completion-list-insert-choice-function
                       (lambda (_start _end choice)
                         (let* ((beg (save-excursion
@@ -263,17 +274,18 @@ with empty strings removed."
                                           (1- (point))
                                         (point-max)))))
                           (completion--replace beg end choice))))
-          ;; see completing_read in src/minibuf.c
-          (setq-local minibuffer-completion-confirm
-                      (unless (eq require-match t) require-match))
-          (setq-local crm-completion-table table))
-      (setq input (read-from-minibuffer
-                   prompt initial-input map
-                   nil hist def inherit-input-method)))
-    ;; If the user enters empty input, `read-from-minibuffer'
-    ;; returns the empty string, not DEF.
-    (when (and def (string-equal input ""))
-      (setq input (if (consp def) (car def) def)))
+          (setq-local crm-completion-table table)
+          (use-local-map map))
+      (setq input (completing-read
+                   (format-spec
+                    crm-prompt
+                    (let* ((sep (or (get-text-property 0 'separator crm-separator)
+                                    (string-replace "[ \t]*" "" crm-separator)))
+                           (desc (or (get-text-property 0 'description crm-separator)
+                                     (concat "list separated by " sep))))
+                      `((?s . ,sep) (?d . ,desc) (?p . ,prompt))))
+                   #'crm--collection-fn predicate
+                   require-match initial-input hist def inherit-input-method)))
     ;; Remove empty strings in the list of read strings.
     (split-string input crm-separator t)))
 

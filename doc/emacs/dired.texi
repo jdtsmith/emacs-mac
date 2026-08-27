@@ -1,5 +1,5 @@
 @c This is part of the Emacs manual.
-@c Copyright (C) 1985--1987, 1993--1995, 1997, 2000--2025 Free Software
+@c Copyright (C) 1985--1987, 1993--1995, 1997, 2000--2026 Free Software
 @c Foundation, Inc.
 @c See file emacs.texi for copying conditions.
 @node Dired
@@ -136,15 +136,57 @@ options (that is, single characters) requiring no arguments, and long
 options (starting with @samp{--}) whose arguments are specified with
 @samp{=}.
 
-  Dired does not handle files that have names with embedded newline
-characters well.  If you have many such files, you may consider adding
-@samp{-b} to @code{dired-listing-switches}.  This will quote all
-special characters and allow Dired to handle them better.  (You can
-also use the @kbd{C-u C-x d} command to add @samp{-b} temporarily.)
+You can declare @code{dired-listing-switches} as a connection-local
+variable in order to adjust its value to match what a remote system
+expects (@pxref{Connection Variables}).
 
-@code{dired-listing-switches} can be declared as connection-local
-variable to adjust it to match what a remote system expects
-(@pxref{Connection Variables}).
+@cindex file names with newline character in Dired
+@cindex newline character in file names in Dired
+@anchor{File names with newline}
+  When a file name contains a newline character, Dired displays it by
+default as a literal newline, so the display of this file name occupies
+more than one line in the Dired buffer.  If you invoke a Dired operation
+on such a file listing, in many cases it will fail and signal an error.
+For this reason, when Dired displays a file name containing a literal
+newline, Emacs recognizes this and automatically pops up a buffer with
+an informative warning.  For such file names, Dired offers an
+alternative display, using the @command{ls} switch @samp{-b}, in which
+newline characters are represented by @samp{\n} and the Dired listing of
+the file occupies one line as usual, so you can execute all applicable
+Dired operations on it.@footnote{Note that with the @samp{-b} switch
+Dired displays tab characters in file names as @samp{\t} and escapes
+other control characters and also spaces in file names with @samp{\}.}
+
+  Emacs provides two different ways to make Dired use the @samp{-b}
+switch:
+
+@itemize @bullet
+@item
+You can add @samp{-b} to @code{dired-listing-switches} before invoking
+@code{dired}.  Since this variable is a user option, you can alter its
+value persistently either by using the Customization interface
+(@pxref{Saving Customizations}) or by using the @code{setopt} macro in
+your initialization file (@pxref{Examining}).@footnote{If
+@code{dired-listing-switches} contains @samp{-b} when you invoke dired
+on a directory containing a file name with a newline, the newline is
+displayed as @samp{\n}, so Emacs will not pop up a warning.}  You can
+also add @samp{-b} just for the next @code{dired} invocation by typing
+@kbd{C-u C-x d}.
+
+@item
+@vindex dired-auto-toggle-b-switch
+If you enable the user option @code{dired-auto-toggle-b-switch}, then
+when you visit a directory containing a file whose name has a newline,
+Emacs will automatically add the @samp{-b} switch and redisplay the
+directory in Dired to show @samp{\n} in the file name.  If you edit the
+file name and remove the @samp{\n} character, then on completing the
+edit Emacs automatically removes the @samp{-b} switch and redisplays the
+Dired buffer, so that file names with tab or space characters now show
+literal spaces without a backslash.  If you enable or disable
+@code{dired-auto-toggle-b-switch} after visiting a directory containing
+a file name with a newline, Emacs will add or remove the @samp{-b}
+switch as appropriate and automatically redisplay the Dired buffer.
+@end itemize
 
 @vindex dired-switches-in-mode-line
   Dired displays in the mode line an indication of what were the
@@ -461,6 +503,15 @@ View the file described on the current line, with View mode
 (@code{dired-view-file}).  View mode provides convenient commands to
 navigate the buffer but forbids changing it; @xref{View Mode}.
 
+@item @@
+@kindex @@ @r{(Dired)}
+@findex tramp-dired-find-file-with-sudo
+Open the file described on the current line, with superuser, or root,
+permissions (@code{tramp-dired-find-file-with-sudo}).  If called with a
+@kbd{C-u} prefix argument, it prompts for another Tramp method to use
+other than the default, @option{sudo}.  @xref{Ad-hoc multi-hops, Tramp,,
+tramp, The Tramp Manual}.
+
 @item ^
 @kindex ^ @r{(Dired)}
 @findex dired-up-directory
@@ -682,7 +733,8 @@ Auto-Revert mode, you might want to set
 Undo changes in the Dired buffer, such as adding or removing
 marks (@code{dired-undo}).  @emph{This command does not revert the
 actual file operations, nor recover lost files!}  It just undoes
-changes in the buffer itself.
+changes in the buffer itself.  Like with @code{undo}, a numeric prefix
+argument specifies a repeat count.
 
 In some cases, using this after commands that operate on files can
 cause trouble.  For example, after renaming one or more files,
@@ -709,7 +761,7 @@ that operates on the marked files finishes.
 @cindex operating on files in Dired
 
   This section describes the basic Dired commands to operate on one file
-or several files.  All of these commands are capital letters; all of
+or several files.  Many of these commands are capital letters; all of
 them use the minibuffer, either to read an argument or to ask for
 confirmation, before they act.  All of them let you specify the
 files to manipulate in these ways:
@@ -969,6 +1021,21 @@ Compress the specified files (@code{dired-do-compress-to}) into a
 single archive anywhere on the file system.  The default archive is
 controlled by the @code{dired-compress-directory-default-suffix} user
 option.  Also see @code{dired-compress-files-alist}.
+
+@cindex Dired and version control
+@findex dired-vc-next-action
+@kindex C-x v v @r{(Dired)}
+@item C-x v v
+@itemx C-x v = @r{(Dired)}
+@itemx C-x v l @r{(Dired)}
+  If the directory you are visiting is under version control
+(@pxref{Version Control}), then the normal VC commands will operate on
+the selected files.  For example, @kbd{C-x v v} invokes
+@code{dired-vc-next-action}, which does the same as
+@code{vc-next-action} in a buffer visiting a file under version control
+(@pxref{Basic VC Editing}).  Similarly, @kbd{C-x v =} shows the diffs
+between the marked files and their committed versions, and @code{C-x v l}
+shows the VC change history for the marked files.
 
 @findex epa-dired-do-decrypt
 @kindex :d @r{(Dired)}
@@ -1818,6 +1885,16 @@ the files in the current directory as well as the available disk
 space.  If you set this to @code{nil}, the available disk space
 information will not be displayed at all.
 
+@vindex dired-check-symlinks
+  Dired fontifies the items in the Dired buffer.  If the
+@code{default-directory} of that buffer is remote, this might be
+expensive for symbolic links, because their @code{file-truename} needs
+to be accessed.  To avoid slowdown in Dired due to this, set user option
+@code{dired-check-symlinks} to @code{nil} for remote directories which
+suffer from a slow connection.  It can be declared as connection-local
+variable to match how a remote system is connectable (@pxref{Connection
+Variables}).
+
 @kindex + @r{(Dired)}
 @findex dired-create-directory
   The command @kbd{+} (@code{dired-create-directory}) reads a
@@ -1851,8 +1928,9 @@ names of the marked (or next @var{n}) files into the kill ring, as if
 you had killed them with @kbd{C-w}.  The names are separated by a
 space.
 
-  With a zero prefix argument, this uses the absolute file name of
-each marked file.  With just @kbd{C-u} as the prefix argument, it uses
+  With a zero prefix argument, this uses the absolute file name of each
+marked file.  With prefix value 1, it uses names relative to the
+project root.  With just @kbd{C-u} as the prefix argument, it uses
 file names relative to the Dired buffer's default directory.  (This
 can still contain slashes if in a subdirectory.)  As a special case,
 if point is on a directory header line, @kbd{w} gives you the absolute
@@ -1883,11 +1961,6 @@ symbolic links, and all lines other than the header line and
 file/directory listings.  To change this, customize the options
 @code{dired-hide-details-hide-symlink-targets} and
 @code{dired-hide-details-hide-information-lines}, respectively.
-
-@cindex Dired and version control
-  If the directory you are visiting is under version control
-(@pxref{Version Control}), then the normal VC diff and log commands
-will operate on the selected files.
 
 @findex dired-compare-directories
   The command @kbd{M-x dired-compare-directories} is used to compare

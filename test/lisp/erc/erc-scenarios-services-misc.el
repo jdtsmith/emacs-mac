@@ -1,6 +1,6 @@
 ;;; erc-scenarios-services-misc.el --- Services-misc scenarios -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -73,11 +73,12 @@
                                 :nick "tester"
                                 :full-name "tester")
         (should (string= (buffer-name) (format "127.0.0.1:%d" port)))
-        (ert-simulate-keys "changeme\r"
-          (erc-d-t-wait-for 10 (eq erc-network 'Libera.Chat))
-          (funcall expect 3 "This nickname is registered.")
-          (funcall expect 3 "You are now identified")
-          (funcall expect 3 "Last login from"))
+        (let ((inhibit-message noninteractive))
+          (ert-simulate-keys "changeme\r"
+            (erc-d-t-wait-for 10 (eq erc-network 'Libera.Chat))
+            (funcall expect 3 "This nickname is registered.")
+            (funcall expect 3 "You are now identified")
+            (funcall expect 3 "Last login from")))
         (erc-cmd-QUIT "")))
 
     (erc-services-mode -1)
@@ -155,6 +156,7 @@
        (dumb-server (erc-d-run "localhost" t 'reconnect-retry
                                'reconnect-retry-again))
        (port (process-contact dumb-server :service))
+       (erc-server-reconnect-function #'erc-server-delayed-reconnect)
        (erc-server-auto-reconnect t)
        (erc-modules `(services-regain sasl ,@erc-modules))
        (erc-services-regain-alist
@@ -221,6 +223,31 @@
       (funcall expect 10 "*** Your new nickname is dummy")
       ;; Works with "given" `:id'.
       (should (and (erc-network) (not (eq (erc-network) 'ExampleNet)))))))
+
+(ert-deftest erc-scenarios-services-misc--regain-command/oftc ()
+  :tags '(:expensive-test)
+  (erc-scenarios-common-with-cleanup
+      ((erc-server-flood-penalty 0.1)
+       (erc-scenarios-common-dialog "services/regain")
+       (dumb-server (erc-d-run "localhost" t 'taken-regain-oftc))
+       (port (process-contact dumb-server :service))
+       (erc-modules `(services-regain ,@erc-modules))
+       (erc-services-regain-timeout-seconds 1)
+       (use-id-p (cl-evenp (truncate (float-time))))
+       (erc-services-regain-alist (list (cons (if use-id-p 'oftc 'OFTC)
+                                              #'erc-services-issue-regain)))
+       (expect (erc-d-t-make-expecter)))
+
+    (with-current-buffer (erc :server "127.0.0.1"
+                              :port port
+                              :nick "dummy"
+                              :user "tester"
+                              :full-name "tester"
+                              :id (and use-id-p 'oftc))
+      (funcall expect 10 "Nickname dummy is already in use, trying dummy`")
+      (funcall expect 10 "-NickServ- REGAIN succeed on nickname")
+      (funcall expect 10 "*** Your new nickname is dummy")
+      (funcall expect 10 "*** dummy has changed mode for dummy to +R"))))
 
 (ert-deftest erc-scenarios-services-misc--ghost-and-retry-nick ()
   :tags '(:expensive-test)

@@ -1,6 +1,6 @@
 ;;; tooltip.el --- show tooltip windows  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997, 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 1999-2026 Free Software Foundation, Inc.
 
 ;; Author: Gerd Moellmann <gerd@acm.org>
 ;; Keywords: help c mouse tools
@@ -53,19 +53,19 @@ echo area, instead of making a pop-up window."
   ;; Even if we start on a text-only terminal, make this non-nil by
   ;; default because we can open a graphical frame later (multi-tty).
   :init-value t
-  :initialize 'custom-initialize-delay
+  :initialize #'custom-initialize-after-file-load
   :group 'tooltip
   (if (and tooltip-mode (fboundp 'x-show-tip))
       (progn
-	(add-hook 'pre-command-hook 'tooltip-hide)
-	(add-hook 'tooltip-functions 'tooltip-help-tips)
-        (add-hook 'x-pre-popup-menu-hook 'tooltip-hide))
+	(add-hook 'pre-command-hook #'tooltip-hide)
+	(add-hook 'tooltip-functions #'tooltip-help-tips)
+        (add-hook 'x-pre-popup-menu-hook #'tooltip-hide))
     (unless (and (boundp 'gud-tooltip-mode) gud-tooltip-mode)
-      (remove-hook 'pre-command-hook 'tooltip-hide)
-      (remove-hook 'x-pre-popup-menu-hook 'tooltip-hide))
-    (remove-hook 'tooltip-functions 'tooltip-help-tips))
+      (remove-hook 'pre-command-hook #'tooltip-hide)
+      (remove-hook 'x-pre-popup-menu-hook #'tooltip-hide))
+    (remove-hook 'tooltip-functions #'tooltip-help-tips))
   (setq show-help-function
-	(if tooltip-mode 'tooltip-show-help 'tooltip-show-help-non-mode)))
+	(if tooltip-mode #'tooltip-show-help #'tooltip-show-help-non-mode)))
 
 
 ;;; Customizable settings
@@ -251,7 +251,8 @@ Note that the last two arguments are not respected when
 `use-system-tooltips' is non-nil and Emacs is built with support
 for system tooltips, such as on NS, Haiku, and with the GTK
 toolkit."
-  (if use-echo-area
+  (if (or use-echo-area
+          (not (display-graphic-p)))
       (tooltip-show-help-non-mode text)
     (condition-case error
 	(let ((params (copy-sequence tooltip-frame-parameters))
@@ -285,8 +286,13 @@ toolkit."
   "Hide a tooltip, if one is displayed.
 Value is non-nil if tooltip was open."
   (tooltip-cancel-delayed-tip)
-  (when (x-hide-tip)
-    (setq tooltip-hide-time (float-time))))
+  (if (display-graphic-p)
+      (when (x-hide-tip)
+        (setq tooltip-hide-time (float-time)))
+    (let ((msg (current-message)))
+      (message "")
+      (when (not (or (null msg) (equal msg "")))
+        (setq tooltip-hide-time (float-time))))))
 
 
 ;;; Debugger-related functions
@@ -386,11 +392,10 @@ It is also called if Tooltip mode is on, for text-only displays."
 (defun tooltip-show-help (msg)
   "Function installed as `show-help-function'.
 MSG is either a help string to display, or nil to cancel the display."
-  (if (and (display-graphic-p)
-           ;; Tooltips can't be displayed on top of the global menu
-           ;; bar on NS.
-           (or (not (eq window-system 'ns))
-               (not (menu-or-popup-active-p))))
+  (if ;; Tooltips can't be displayed on top of the global menu bar on
+      ;; NS.
+      (not (and (eq window-system 'ns)
+                (menu-or-popup-active-p)))
       (let ((previous-help tooltip-help-message))
 	(setq tooltip-help-message msg)
 	(cond ((null msg)
@@ -408,9 +413,7 @@ MSG is either a help string to display, or nil to cancel the display."
 	       ;; A different help.  Remove a previous tooltip, and
 	       ;; display a new one, with some delay.
 	       (tooltip-hide)
-	       (tooltip-start-delayed-tip))))
-    ;; On text-only displays, try `tooltip-show-help-non-mode'.
-    (tooltip-show-help-non-mode msg)))
+	       (tooltip-start-delayed-tip))))))
 
 (defun tooltip-help-tips (_event)
   "Hook function to display a help tooltip.

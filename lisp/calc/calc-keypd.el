@@ -1,6 +1,6 @@
 ;;; calc-keypd.el --- mouse-capable keypad input for Calc  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1990-1993, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1990-1993, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: David Gillespie <daveg@synaptics.com>
 
@@ -172,13 +172,13 @@
 ;; |PACK|UNPK|INDX|BLD |LEN |... |
 
 (defvar calc-keypad-vector-menu
-  '( ( ( "SUM"   calc-vector-sum calc-vector-alt-sum calc-vector-mean )
+  `( ( ( "SUM"   calc-vector-sum calc-vector-alt-sum calc-vector-mean )
        ( "PROD"  calc-vector-product nil calc-vector-sdev )
        ( "MAX"   calc-vector-max calc-vector-min calc-vector-median )
-       ( "MAP*"  (lambda () (interactive)
-		   (calc-map '(2 calcFunc-mul "*"))) )
-       ( "MAP^"  (lambda () (interactive)
-		   (calc-map '(2 calcFunc-pow "^"))) )
+       ( "MAP*"  ,(lambda () (interactive)
+		    (calc-map '(2 calcFunc-mul "*"))) )
+       ( "MAP^"  ,(lambda () (interactive)
+		    (calc-map '(2 calcFunc-pow "^"))) )
        ( "MAP$"  calc-map-stack ) )
      ( ( "MINV"  calc-inv )
        ( "MDET"  calc-mdet )
@@ -411,7 +411,7 @@
     (if invhyp (calc-wrapper))  ; clear Inv and Hyp flags
     (unwind-protect
 	(cond ((or (null cmd)
-		   (= (% row 2) 0))
+		   (evenp row))
 	       (beep))
 	      ((and (> (minibuffer-depth) 0))
 	       (cond (isstring

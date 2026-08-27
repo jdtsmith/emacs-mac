@@ -1,6 +1,6 @@
 /* Android virtual file-system support for GNU Emacs.
 
-Copyright (C) 2023-2025 Free Software Foundation, Inc.
+Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -259,7 +259,7 @@ struct android_special_vnode
   Lisp_Object special_coding_system;
 };
 
-verify (NIL_IS_ZERO); /* special_coding_system above.  */
+static_assert (NIL_IS_ZERO); /* special_coding_system above.  */
 
 enum android_vnode_type
   {
@@ -1323,7 +1323,7 @@ android_hack_asset_fd_fallback (AAsset *asset)
   if (fd < 0)
     return -1;
 
-  if (unlink (filename))
+  if (unlink (filename) && errno != ENOENT)
     goto fail;
 
   if (ftruncate (fd, size))
@@ -7911,7 +7911,7 @@ files will be removed.  */)
 
   file = ENCODE_FILE (Fexpand_file_name (file, Qnil));
 
-  if (!NILP (call1 (Qfile_remote_p, file)))
+  if (!NILP (calln (Qfile_remote_p, file)))
     signal_error ("Cannot relinquish access to remote file", file);
 
   vp = android_name_file (SSDATA (file));

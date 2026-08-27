@@ -1,6 +1,6 @@
-@c -*- mode: texinfo; coding: utf-8 -*-
+@c -*- mode: texinfo -*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1994, 1998--2025 Free Software Foundation, Inc.
+@c Copyright (C) 1990--1994, 1998--2026 Free Software Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Keymaps
 @chapter Keymaps
@@ -133,14 +133,14 @@ A three key sequence of the keys @kbd{S}, @kbd{o} and @kbd{m}.
 A two key sequence of the keys @kbd{c} with the control modifier and
 then the key @kbd{o}
 
-@item H-<left>
-The key named @kbd{left} with the hyper modifier.
+@item H-@key{LEFT}
+The key named @key{LEFT} with the hyper modifier.
 
-@item M-RET
-The @kbd{return} key with a meta modifier.
+@item M-@key{RET}
+The @key{RET} or @key{Return} key with a meta modifier.
 
-@item C-M-<space>
-The @kbd{space} key with both the control and meta modifiers.
+@item C-M-@key{SPC}
+The @key{SPC} key with both the control and meta modifiers.
 @end table
 
 The only keys that have a special shorthand syntax are @kbd{NUL},
@@ -151,16 +151,12 @@ The modifiers have to be specified in alphabetical order:
 
 @findex keymap-set
 @defun keymap-set keymap key binding
-This function sets the binding for @var{key} in @var{keymap}.  (If
-@var{key} is more than one event long, the change is actually made
-in another keymap reached from @var{keymap}.)  The argument
-@var{binding} can be any Lisp object, but only certain types are
-meaningful.  (For a list of meaningful types, see @ref{Key Lookup}.)
-The value returned by @code{keymap-set} is @var{binding}.
-
-If @var{key} is @kbd{<t>}, this sets the default binding in
-@var{keymap}.  When an event has no binding of its own, the Emacs
-command loop uses the keymap's default binding, if there is one.
+This function sets the binding for @var{key} in @var{keymap}.  The
+argument @var{key} is a string that must satisfy @code{key-valid-p}
+(@pxref{Key Sequences}).  The argument @var{binding} can be any Lisp
+object, but only certain types are meaningful.  (For a list of
+meaningful types, see @ref{Key Lookup}.)  The value returned by
+@code{keymap-set} is @var{binding}.
 
 @cindex invalid prefix key error
 @cindex key sequence error
@@ -650,11 +646,9 @@ and @var{pairs} to @code{define-keymap}, and uses the result as the
 default value for the variable.  It signals an error if there are
 duplicate key bindings in @var{pairs}.
 
-@var{options} is like the keywords in @code{define-keymap}, but
-there's an additional @code{:doc} keyword that provides the doc
-string for the defined variable.
-
-Here's an example:
+@var{options} is mostly like the keywords in @code{define-keymap}.
+There's an additional @code{:doc} keyword that provides the doc string
+for the defined variable.  Here's an example:
 
 @lisp
 (defvar-keymap eww-textarea-map
@@ -662,6 +656,24 @@ Here's an example:
   :doc "Keymap for the eww text area."
   "RET" #'forward-line
   "TAB" #'shr-next-link)
+@end lisp
+
+The @code{:prefix} keyword can take an additional value, @code{t}, which
+is an abbreviation for using @var{name} as the value of that option.
+I.e. instead of writing
+
+@lisp
+(defvar-keymap foo-map
+  :prefix 'foo-map
+  ...)
+@end lisp
+
+you can write
+
+@lisp
+(defvar-keymap foo-map
+  :prefix t
+  ...)
 @end lisp
 
 @kindex :repeat
@@ -688,7 +700,8 @@ following values are available:
 This means all the commands in the keymap are repeatable, and is the
 most common usage.
 
-@item (:enter (commands ...) :exit (commands ...) :hints ((command . "hint") ...))
+@item (:enter (commands ...) :exit (commands ...)
+@itemx :continue (commands ...) :hints ((command . "hint") ...))
 This specifies that the commands in the @code{:enter} list enter
 @code{repeat-mode}, and the commands in the @code{:exit} list exit
 repeat mode.
@@ -702,6 +715,10 @@ If the @code{:exit} list is empty then no commands in the map exit
 @code{repeat-mode}.  Specifying one or more commands in this list is
 useful if the keymap being defined contains a command that should not
 have the @code{repeat-map} property.
+
+The @code{:continue} list specifies the commands that should not
+enter @code{repeat-mode}.  These command should only continue the
+already activated repeating sequence.
 
 The @code{:hints} list can contain cons pairs where the @sc{car} is
 a command and the @sc{cdr} is a string that is displayed alongside of
@@ -1249,8 +1266,8 @@ When more than one minor mode keymap is active, the earlier one in
 minor modes so that they don't interfere with each other.  If you do
 this properly, the order will not matter.
 
-See @ref{Keymaps and Minor Modes}, for more information about minor
-modes.  See also @code{minor-mode-key-binding} (@pxref{Functions for Key
+@xref{Keymaps and Minor Modes}, for more information about minor modes.
+See also @code{minor-mode-key-binding} (@pxref{Functions for Key
 Lookup}).
 @end defvar
 
@@ -1407,7 +1424,7 @@ and @var{command} is its binding.  @xref{What Is a Function}.
 @cindex string in keymap
 The array (either a string or a vector) is a keyboard macro.  The events
 used so far in the lookup form a complete key, and the array is its
-binding.  See @ref{Keyboard Macros}, for more information.
+binding.  @xref{Keyboard Macros}, for more information.
 
 @item @var{keymap}
 @cindex keymap in keymap
@@ -2122,7 +2139,7 @@ they usually will be in a Lisp file (@pxref{Loading Non-ASCII}), you
 must type the keys as multibyte too.  For instance, if you use this:
 
 @smallexample
-(keymap-global-set "ö" 'my-function) ; bind o-umlaut
+(keymap-global-set "@"o" 'my-function) ; bind o-umlaut
 @end smallexample
 
 @noindent
@@ -2471,6 +2488,7 @@ is on that item in the same way as @code{help-echo} text properties
   If @var{real-binding} is @code{nil}, then @var{item-string} appears in
 the menu but cannot be selected.
 
+@cindex @code{menu-enable} (symbol property)
   If @var{real-binding} is a symbol and has a non-@code{nil}
 @code{menu-enable} property, that property is an expression that
 controls whether the menu item is enabled.  Every time the keymap is
@@ -2714,6 +2732,7 @@ items.  Here's an example that makes two aliases for
 (put 'make-writable 'menu-enable 'buffer-read-only)
 @end example
 
+@cindex @code{menu-alias} (symbol property)
 When using aliases in menus, often it is useful to display the
 equivalent key bindings for the real command name, not the aliases
 (which typically don't have any key bindings except for the menu
@@ -3054,7 +3073,7 @@ By default, the global map binds @code{[tool-bar]} as follows:
 
 @example
 (keymap-global-set "<tool-bar>"
-                   `(menu-item ,(purecopy "tool bar") ignore
+                   '(menu-item "tool bar" ignore
                                :filter tool-bar-make-keymap))
 @end example
 

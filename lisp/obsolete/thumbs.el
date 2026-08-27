@@ -1,6 +1,6 @@
 ;;; thumbs.el --- Thumbnails previewer for images files  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2004-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
 ;; Author: Jean-Philippe Theberge <jphiltheberge@videotron.ca>
 ;; Maintainer: emacs-devel@gnu.org
@@ -60,7 +60,7 @@
 ;;; Code:
 
 (require 'dired)
-(require 'cl-lib)			; for cl-gensym
+(require 'cl-lib)
 
 ;; CUSTOMIZATIONS
 
@@ -176,7 +176,7 @@ this value can let another user see some of your images."
   (format "%s%s-%s.jpg"
           (thumbs-temp-dir)
           thumbs-temp-prefix
-          (cl-gensym "T")))
+          (gensym "T")))
 
 (defun thumbs-thumbsdir ()
   "Return the current thumbnails directory (from `thumbs-thumbsdir').
@@ -204,7 +204,7 @@ reached."
 		    ,f)))
 	      (directory-files (thumbs-thumbsdir) t (image-file-name-regexp)))
 	     (lambda (l1 l2) (time-less-p (car l1) (car l2)))))
-           (dirsize (apply #'+ (mapcar (lambda (x) (cadr x)) files-list))))
+           (dirsize (apply #'+ (mapcar #'cadr files-list))))
       (while (> dirsize thumbs-thumbsdir-max-size)
         (progn
 	  (message "Deleting file %s" (cadr (cdar files-list))))
@@ -628,7 +628,7 @@ ACTION and ARG should be a valid convert command."
 (defun thumbs-emboss-image (emboss)
   "Emboss the image with value EMBOSS."
   (interactive "nEmboss value: ")
-  (if (or (< emboss 3) (> emboss 31) (zerop (% emboss 2)))
+  (if (or (< emboss 3) (> emboss 31) (cl-evenp emboss))
       (error "Arg must be an odd number between 3 and 31"))
   (thumbs-modify-image "emboss" (number-to-string emboss)))
 

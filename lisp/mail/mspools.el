@@ -1,6 +1,6 @@
 ;;; mspools.el --- show mail spools waiting to be read  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Stephen Eglen <stephen@gnu.org>
 ;; Created: 22 Jan 1997
@@ -62,8 +62,8 @@
 
 ;; Extras.
 ;;
-;; (global-set-key '[S-f1] 'mspools-show) ;Bind mspools-show to Shift F1.
-;; (setq mspools-update t)                ;Automatically update buffer.
+;; (keymap-global-set "S-<f1>" #'mspools-show) ;Bind mspools-show to Shift F1.
+;; (setopt mspools-update t)                ;Automatically update buffer.
 
 ;; Interface with the mail filter.
 ;; We assume that the mail filter drops new mail into the spool

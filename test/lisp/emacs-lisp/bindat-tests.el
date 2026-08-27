@@ -1,6 +1,6 @@
 ;;; bindat-tests.el --- tests for bindat.el  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2019-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -125,7 +125,7 @@
 (ert-deftest bindat-test--sint ()
   (dotimes (kind 32)
     (let ((bitlen (* 8 (/ kind 2)))
-          (r (zerop (% kind 2))))
+          (r (evenp kind)))
       (dotimes (_ 100)
         (let* ((n (random (ash 1 bitlen)))
                (i (- n (ash 1 (1- bitlen))))

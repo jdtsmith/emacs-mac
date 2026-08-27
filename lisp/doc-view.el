@@ -1,6 +1,6 @@
 ;;; doc-view.el --- Document viewer for Emacs -*- lexical-binding: t -*-
 
-;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2026 Free Software Foundation, Inc.
 ;;
 ;; Author: Tassilo Horn <tsdh@gnu.org>
 ;; Keywords: files, pdf, ps, dvi, djvu, epub, cbz, fb2, xps, openxps
@@ -27,8 +27,10 @@
 ;; `pdftotext', which comes with xpdf (https://www.foolabs.com/xpdf/)
 ;; or poppler (https://poppler.freedesktop.org/). EPUB, CBZ, FB2, XPS
 ;; and OXPS documents require `mutool' which comes with mupdf
-;; (https://mupdf.com/index.html). Djvu documents require `ddjvu'
+;; (https://mupdf.com/index.html). DjVu documents require `ddjvu'
 ;; (from DjVuLibre).  ODF files require `soffice' (from LibreOffice).
+;; `djvused' (from DjVuLibre) can be optionally used to generate imenu
+;; outline for DjVu documents when available.
 
 ;;; Commentary:
 
@@ -185,13 +187,13 @@ are available (see Info node `(emacs)Document View')."
 
 (defcustom doc-view-pdfdraw-program
   (cond
+   ((executable-find "mutool") "mutool")
    ((executable-find "pdfdraw") "pdfdraw")
    ((executable-find "mudraw") "mudraw")
-   ((executable-find "mutool") "mutool")
    (t "mudraw"))
   "Name of MuPDF's program to convert PDF files to PNG."
   :type 'file
-  :version "24.4")
+  :version "31.1")
 
 (defcustom doc-view-pdftotext-program-args '("-raw")
   "Parameters to give to the pdftotext command."
@@ -216,10 +218,23 @@ are available (see Info node `(emacs)Document View')."
   :type 'boolean
   :version "30.1")
 
-(defcustom doc-view-imenu-enabled (and (executable-find "mutool") t)
-  "Whether to generate an imenu outline when \"mutool\" is available."
+(defcustom doc-view-djvused-program (and (executable-find "djvused")
+                                         "djvused")
+  "Name of \"djvused\" program to generate imenu outline for DjVu files.
+This is part of DjVuLibre."
+  :type '(choice (const nil) file)
+  :version "31.1")
+
+(defcustom doc-view-imenu-enabled (and (or (executable-find "mutool")
+                                           (executable-find "djvused"))
+                                       t)
+  "Whether to generate imenu outline for PDF and DjVu files.
+This uses \"mutool\" for PDF files and \"djvused\" for DjVu files."
   :type 'boolean
-  :version "29.1")
+  :version "31.1")
+(make-obsolete-variable 'doc-view-imenu-enabled
+   "Imenu index is generated unconditionally when available."
+   "31.1")
 
 (defcustom doc-view-imenu-title-format "%t (%p)"
   "Format spec for imenu's display of section titles from docview documents.
@@ -305,9 +320,6 @@ stylesheet is switched, or its contents modified."
                  (file :must-match t))
   :version "29.1"
   :set #'doc-view-custom-set-epub-user-stylesheet)
-
-(defvar-local doc-view--current-cache-dir nil
-  "Only used internally.")
 
 (defun doc-view-custom-set-epub-font-size (option-name new-value)
   (set-default option-name new-value)
@@ -561,7 +573,10 @@ Typically \"page-%s.png\".")
   "C-c C-c" #'doc-view-toggle-display
   ;; Open a new buffer with doc's text contents
   "C-c C-t" #'doc-view-open-text
-  "r"       #'revert-buffer)
+  "r"       #'revert-buffer
+  ;; Registers
+  "m"       #'doc-view-page-to-register
+  "'"       #'doc-view-jump-to-register)
 
 (define-obsolete-function-alias 'doc-view-revert-buffer #'revert-buffer "27.1")
 (defvar revert-buffer-preserve-modes)
@@ -573,11 +588,15 @@ Typically \"page-%s.png\".")
   (cl-labels ((revert ()
                 (let ((revert-buffer-preserve-modes t))
                   (apply orig-fun args)
-                  ;; Update the cached version of the pdf file,
-                  ;; too.  This is the one that's used when
-                  ;; rendering (bug#26996).
-                  (unless (equal buffer-file-name
-                                 doc-view--buffer-file-name)
+                  ;; Update the cached version of the pdf file, too.
+                  ;; This is the one that's used when rendering
+                  ;; (bug#26996).  doc-view--buffer-file-name is nil in
+                  ;; the case where we've switched to the editing mode
+                  ;; (bug#76478).  In that case, we'll update the cached
+                  ;; version when switching back to doc-view-mode.
+                  (when (and doc-view--buffer-file-name
+                             (not (equal buffer-file-name
+                                         doc-view--buffer-file-name)))
                     ;; FIXME: Lars says he needed to recreate
                     ;; the dir, we should figure out why.
                     (doc-view-make-safe-dir doc-view-cache-directory)
@@ -936,7 +955,7 @@ It's a subdirectory of `doc-view-cache-directory'."
 (defun doc-view-mode-p (type)
   "Return non-nil if document type TYPE is available for `doc-view'.
 Document types are symbols like `dvi', `ps', `pdf', `epub',
-`cbz', `fb2', `xps', `oxps', or`odf' (any OpenDocument format)."
+`cbz', `fb2', `xps', `oxps', or `odf' (any OpenDocument format)."
   (and (display-graphic-p)
        (image-type-available-p 'png)
        (cond
@@ -1577,15 +1596,18 @@ to do that.  To reset the slice use `doc-view-reset-slice'."
   ;; Redisplay
   (doc-view-goto-page (doc-view-current-page)))
 
+(defvar touch-screen-simple-mouse-conversion) ; Defined in touch-screen.el.
+
 (defun doc-view-set-slice-using-mouse ()
   "Set the slice of the images that should be displayed.
 You set the slice by pressing mouse-1 at its top-left corner and
 dragging it to its bottom-right corner.  See also
 `doc-view-set-slice' and `doc-view-reset-slice'."
   (interactive)
-  (let (x y w h done)
+  (let ((touch-screen-simple-mouse-conversion t)
+        x y w h done)
     (while (not done)
-      (let ((e (read-event
+      (let ((e (read-key
 		(concat "Press mouse-1 at the top-left corner and "
 			"drag it to the bottom-right corner!"))))
 	(when (eq (car e) 'drag-mouse-1)
@@ -1707,7 +1729,8 @@ ARGS is a list of image descriptors."
                             (setq args `(,@args :transform-smoothing t)))
                           (when (eq doc-view--image-type 'svg)
                             (setq args `(,@args :background ,(face-background 'doc-view-svg-face)
-                                                :foreground ,(face-foreground 'doc-view-svg-face))))
+                                                :foreground ,(face-foreground 'doc-view-svg-face)
+                                                :css "svg{fill:currentcolor;}")))
 			  (apply #'create-image file doc-view--image-type nil args))))
 	     (slice (doc-view-current-slice))
 	     (img-width (and image (car (image-size image))))
@@ -1829,36 +1852,29 @@ For now these keys are useful:
   (if doc-view--current-converter-processes
       (message "DocView: please wait till conversion finished.")
     (let ((txt (expand-file-name "doc.txt" (doc-view--current-cache-dir)))
-          (page (doc-view-current-page)))
+          (page (or (doc-view-current-page) 1)))
       (if (file-readable-p txt)
-	  (let ((inhibit-read-only t)
-		(buffer-undo-list t)
-		(dv-bfn doc-view--buffer-file-name))
-	    (erase-buffer)
-            ;; FIXME: Replacing the buffer's PDF content with its txt rendering
-            ;; is pretty risky.  We should probably use *another*
-            ;; buffer instead, so there's much less risk of
-            ;; overwriting the PDF file with some text rendering.
-	    (set-buffer-multibyte t)
-	    (insert-file-contents txt)
-	    (doc-view--text-view-mode)
-	    (setq-local doc-view--buffer-file-name dv-bfn)
-	    (set-buffer-modified-p nil)
-	    (doc-view-minor-mode)
-            (goto-char (point-min))
-            ;; Put point at the start of the page the user was
-            ;; reading.  Pages are separated by Control-L characters.
-            (re-search-forward page-delimiter nil t (1- page))
-	    (add-hook 'write-file-functions
-		      (lambda ()
-                        ;; FIXME: If the user changes major mode and then
-                        ;; saves the buffer, the PDF file will be clobbered
-                        ;; with its txt rendering!
-			(when (eq major-mode 'doc-view--text-view-mode)
-			  (error "Cannot save text contents of document %s"
-				 buffer-file-name)))
-		      nil t))
-	(doc-view-doc->txt txt 'doc-view-open-text)))))
+          (let ((dv-bfn doc-view--buffer-file-name)
+                (dv-text-buffer-name (format "%s/text" (buffer-name))))
+            ;; Prepare the text buffer
+            (with-current-buffer (get-buffer-create dv-text-buffer-name)
+              (let ((inhibit-read-only t)
+                    (buffer-undo-list t))
+                (erase-buffer)
+                (set-buffer-multibyte t)
+                (insert-file-contents txt)
+                (doc-view--text-view-mode)
+                (setq-local doc-view--buffer-file-name dv-bfn)
+                ;; Pages are separated by form feed characters.
+                (setq-local page-delimiter "")
+                (set-buffer-modified-p nil)
+                (doc-view-minor-mode)
+                (goto-char (point-min))
+                ;; Put point at the start of the page the user was
+                ;; reading.  Pages are separated by Control-L characters.
+                (re-search-forward page-delimiter nil t (1- page))))
+            (switch-to-buffer (get-buffer dv-text-buffer-name)))
+        (doc-view-doc->txt txt 'doc-view-open-text)))))
 
 ;;;;; Toggle between editing and viewing
 
@@ -1879,14 +1895,11 @@ For now these keys are useful:
     (doc-view-fallback-mode)
     (doc-view-minor-mode 1))
    ((eq major-mode 'doc-view--text-view-mode)
-    (let ((buffer-undo-list t))
-      ;; We're currently viewing the document's text contents, so switch
-      ;; back to .
-      (setq buffer-read-only nil)
-      (insert-file-contents doc-view--buffer-file-name nil nil nil t)
-      (doc-view-fallback-mode)
-      (doc-view-minor-mode 1)
-      (set-buffer-modified-p nil)))
+    ;; We're currently viewing the document's text contents, switch to
+    ;; the buffer visiting the real document and kill myself.
+    (let ((dv-buffer (find-buffer-visiting doc-view--buffer-file-name)))
+      (kill-buffer)
+      (switch-to-buffer dv-buffer)))
    (t
     ;; Switch to doc-view-mode
     (when (and (buffer-modified-p)
@@ -2010,11 +2023,25 @@ the document text."
 	(doc-view-goto-page (caar (last doc-view--current-search-matches)))))))
 
 ;;;; Imenu support
-(defconst doc-view--outline-rx
-  "[^\t]+\\(\t+\\)\"\\(.+\\)\"\t#\\(?:page=\\)?\\([0-9]+\\)")
-
 (defvar-local doc-view--outline nil
-  "Cached PDF outline, so that it is only computed once per document.")
+  "Cached document outline, so that it is only computed once per document.
+It can be the symbol `unavailable' to indicate that outline is
+unavailable for the document.")
+
+(defvar doc-view--mutool-pdf-outline-script
+  "var document = new Document.openDocument(\"%s\", \"application/pdf\");
+var outline = document.loadOutline();
+if(!outline) quit();
+function pp(outl, level){print(\"((level . \" + level + \")\");\
+print(\"(title . \" + repr(outl.title) + \")\");\
+print(\"(page . \" + (document.resolveLink(outl.uri)+1) + \"))\");\
+if(outl.down){for(var i=0; i<outl.down.length; i++){pp(outl.down[i], level+1);}}};
+function run(){print(\"BEGIN(\");\
+for(var i=0; i<outline.length; i++){pp(outline[i], 1);}print(\")\");};
+run()"
+  "JS script to extract the PDF's outline using mutool.
+The script has to be minified to pass it to the REPL.  The \"BEGIN\"
+marker is here to skip past the prompt characters.")
 
 (defun doc-view--pdf-outline (&optional file-name)
   "Return a list describing the outline of FILE-NAME.
@@ -2025,19 +2052,64 @@ title, nesting level and page number.  The list is flat: its tree
 structure is extracted by `doc-view--imenu-subtree'."
   (let ((fn (or file-name (buffer-file-name))))
     (when fn
-      (let ((outline nil)
-            (fn (expand-file-name fn)))
-        (with-temp-buffer
-          (unless (eql 0 (call-process "mutool" nil (current-buffer) nil "show" fn "outline"))
+      (with-temp-buffer
+        (let ((proc (make-process
+                     :name "doc-view-pdf-outline"
+                     :command (list "mutool" "run")
+                     :buffer (current-buffer))))
+          (process-send-string proc (format doc-view--mutool-pdf-outline-script
+                                            (expand-file-name fn)))
+          ;; Need to send this twice for some reason...
+          (process-send-eof)
+          (process-send-eof)
+          (while (accept-process-output proc))
+          (unless (eq (process-status proc) 'exit)
+            (setq doc-view--outline 'unavailable)
             (imenu-unavailable-error "Unable to create imenu index using `mutool'"))
           (goto-char (point-min))
-          (while (re-search-forward doc-view--outline-rx nil t)
-            (push `((level . ,(length (match-string 1)))
-                    (title . ,(replace-regexp-in-string "\\\\[rt]" " "
-                                                        (match-string 2)))
-                    (page . ,(string-to-number (match-string 3))))
-                  outline)))
-        (nreverse outline)))))
+          (when (search-forward "BEGIN" nil t)
+            (condition-case nil
+                (read (current-buffer))
+              (end-of-file nil))))))))
+
+(defun doc-view--djvu-outline (&optional file-name)
+  "Return a list describing the outline of FILE-NAME.
+If FILE-NAME is nil or omitted, it defaults to the current buffer's file
+name.
+
+For the format, see `doc-view--pdf-outline'."
+  (unless file-name (setq file-name (buffer-file-name)))
+  (with-temp-buffer
+    (let ((coding-system-for-read 'utf-8))
+      ;; Pass "-u" to make `djvused' emit UTF-8 encoded text to avoid
+      ;; unescaping octal escapes for non-ASCII text.
+      (call-process doc-view-djvused-program nil (current-buffer) nil
+                    "-u" "-e" "print-outline" file-name)
+      (goto-char (point-min))
+      (when (eobp)
+        (setq doc-view--outline 'unavailable)
+        (imenu-unavailable-error "Unable to create imenu index using `djvused'"))
+      (nreverse (doc-view--parse-djvu-outline (read (current-buffer)))))))
+
+(defun doc-view--parse-djvu-outline (bookmark &optional level)
+  "Return a list describing the djvu outline from BOOKMARK.
+Optional argument LEVEL is the current heading level, which defaults to 1."
+  (unless level (setq level 1))
+  (let ((res))
+    (unless (eq (car bookmark) 'bookmarks)
+      (user-error "Unknown outline type: %S" (car bookmark)))
+    (pcase-dolist (`(,title ,page . ,rest) (cdr bookmark))
+      (push `((level . ,level)
+              (title . ,title)
+              (page . ,(string-to-number (string-remove-prefix "#" page))))
+            res)
+      (when (and rest (listp (car rest)))
+        (setq res (append
+                   (doc-view--parse-djvu-outline
+                    (cons 'bookmarks rest)
+                    (+ level 1))
+                   res))))
+    res))
 
 (defun doc-view--imenu-subtree (outline act)
   "Construct a tree of imenu items for the given outline list and action.
@@ -2071,19 +2143,38 @@ entries at an upper level."
 For extensibility, callers can specify a FILE-NAME to indicate
 the buffer other than the current buffer, and a jumping function
 GOTO-PAGE-FN other than `doc-view-goto-page'."
-  (let* ((goto (or goto-page-fn 'doc-view-goto-page))
-         (act (lambda (_name _pos page) (funcall goto page)))
-         (outline (or doc-view--outline (doc-view--pdf-outline file-name))))
-    (car (doc-view--imenu-subtree outline act))))
+  (unless doc-view--outline
+    (setq doc-view--outline (doc-view--outline file-name)))
+  (unless (eq doc-view--outline 'unavailable)
+    (let* ((goto (or goto-page-fn #'doc-view-goto-page))
+           (act (lambda (_name _pos page) (funcall goto page)))
+           (outline doc-view--outline))
+      (car (doc-view--imenu-subtree outline act)))))
+
+(defun doc-view--outline (&optional file-name)
+  "Return the outline for the file FILE-NAME.
+If FILE-NAME is nil, use the current file instead."
+  (unless file-name (setq file-name (buffer-file-name)))
+  (let ((outline
+         (pcase doc-view-doc-type
+           ('djvu
+            (when doc-view-djvused-program
+              (doc-view--djvu-outline file-name)))
+           ('odf
+            (doc-view--pdf-outline (doc-view-current-cache-doc-pdf)))
+           (_
+            (doc-view--pdf-outline file-name)))))
+    (when outline (imenu-add-to-menubar "Outline"))
+    ;; When the outline could not be made due to unavailability of the
+    ;; required program, or its absence from the document, return
+    ;; 'unavailable'.
+    (or outline 'unavailable)))
 
 (defun doc-view-imenu-setup ()
   "Set up local state in the current buffer for imenu, if needed."
-  (when doc-view-imenu-enabled
-    (setq-local imenu-create-index-function #'doc-view-imenu-index
-                imenu-submenus-on-top nil
-                imenu-sort-function nil
-                doc-view--outline (doc-view--pdf-outline))
-    (when doc-view--outline (imenu-add-to-menubar "Outline"))))
+  (setq-local imenu-create-index-function #'doc-view-imenu-index
+              imenu-submenus-on-top nil
+              imenu-sort-function nil))
 
 ;;;; User interface commands and the mode
 
@@ -2104,7 +2195,11 @@ GOTO-PAGE-FN other than `doc-view-goto-page'."
 (defun doc-view-initiate-display ()
   ;; Switch to image display if possible.
   (if (doc-view-mode-p doc-view-doc-type)
-      (progn
+      ;; Inhibit the echo area display of the "Type C-c C-c..." message
+      ;; if the doc-view buffer is not shown in the selected window
+      ;; which can happen due to auto-reverting the buffer (bug#79145).
+      (let ((inhibit-message (not (eq (current-buffer)
+                                      (window-buffer)))))
 	(doc-view-buffer-message)
 	(setf (doc-view-current-page) (or (doc-view-current-page) 1))
 	(if (doc-view-already-converted-p)
@@ -2406,7 +2501,20 @@ to the next best mode."
 See the command `doc-view-mode' for more information on this mode."
   :lighter " DocView"
   (when doc-view-minor-mode
-    (add-hook 'change-major-mode-hook (lambda () (doc-view-minor-mode -1)) nil t)
+    (add-hook 'change-major-mode-hook
+              (lambda ()
+                (doc-view-minor-mode -1))
+              nil t)
+    ;; OpenDocuments are archive files, so their editing mode is
+    ;; archive-mode.  When editing and saving a file in that archive,
+    ;; it'll automatically revert the archive buffer.  Take care to
+    ;; re-enable `doc-view-minor-mode' in that case.
+    (add-hook 'revert-buffer-restore-functions
+              (lambda ()
+                (lambda ()
+                  (unless (derived-mode-p 'doc-view-mode)
+                    (doc-view-minor-mode 1))))
+              nil t)
     (message
      "%s"
      (substitute-command-keys
@@ -2531,6 +2639,56 @@ See the command `doc-view-mode' for more information on this mode."
     (bookmark-default-handler bmk)))
 
 (put 'doc-view-bookmark-jump 'bookmark-handler-type "DocView")
+
+;;; Register integration
+
+(defvar-local doc-view-register-alist nil
+  "Register alist containing only doc-view registers for current buffer.
+Each doc-view register entry is of the form (doc-view . ALIST) where
+ALIST has the keys `buffer', `file', and `page'.  The value of `buffer'
+is the buffer which visits the file specified by the value of `file'.
+The value of `page' is the page stored in the register.")
+
+(defun doc-view-page-to-register (register)
+  "Store the current page to the specified REGISTER."
+  (interactive
+   (let ((register-alist doc-view-register-alist))
+     (list (register-read-with-preview "Page to register: "))))
+  (let ((register-alist doc-view-register-alist))
+    (set-register register
+                  `(doc-view
+                    (buffer . ,(current-buffer))
+                    (file . ,(buffer-file-name))
+                    (page . ,(doc-view-current-page))))
+    (setq doc-view-register-alist register-alist)))
+
+(defun doc-view-jump-to-register (register)
+  "Jump to the specified REGISTER."
+  (interactive
+   (let ((register-alist doc-view-register-alist))
+     (list (register-read-with-preview "Jump to register: "))))
+  (let ((register-alist doc-view-register-alist))
+    (jump-to-register register)))
+
+(cl-defmethod register-val-insert ((val (head doc-view)))
+  (prin1 val))
+
+(cl-defmethod register-val-describe ((val (head doc-view)) _verbose)
+  (let* ((alist (cdr val))
+         (name (or (file-name-nondirectory (alist-get 'file alist))
+                   (buffer-name (alist-get 'buffer alist)))))
+    (princ name)
+    (princ " p. ")
+    (princ (alist-get 'page alist))))
+
+(cl-defmethod register-val-jump-to ((val (head doc-view)) _arg)
+  (let* ((alist (cdr val))
+         (buffer (or (alist-get 'buffer alist)
+                     (find-buffer-visiting (alist-get 'file alist)))))
+    (unless buffer
+      (user-error "Cannot find the doc-view buffer to jump to"))
+    (switch-to-buffer buffer)
+    (doc-view-goto-page (alist-get 'page alist))))
 
 ;; Obsolete.
 

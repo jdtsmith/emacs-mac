@@ -1,6 +1,6 @@
 /* TrueType format font support for GNU Emacs.
 
-Copyright (C) 2023-2025 Free Software Foundation, Inc.
+Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -263,7 +263,7 @@ sfnt_read_table_directory (int fd)
 
   rc = read (fd, subtable->subtables, subtable_size);
 
-  if (rc == -1 || rc < offset)
+  if (rc == -1 || rc < subtable_size)
     {
       xfree (subtable);
       return NULL;
@@ -736,6 +736,7 @@ sfnt_read_cmap_format_12 (int fd,
     return NULL;
 
   /* Allocate a buffer of sufficient size.  */
+  eassert (length < UINT32_MAX - sizeof *format12);
   format12 = xmalloc (length + sizeof *format12);
   format12->format = header->format;
   format12->reserved = header->length;
@@ -5792,6 +5793,10 @@ sfnt_read_name_table (int fd, struct sfnt_offset_subtable *subtable)
   if (directory->length < required)
     return NULL;
 
+  /* Avoid overflow in xmalloc argument below.  */
+  if (directory->length > UINT_MAX - sizeof *name)
+    return NULL;
+
   /* Allocate enough to hold the name table and variable length
      data.  */
   name = xmalloc (sizeof *name + directory->length);
@@ -7685,7 +7690,7 @@ sfnt_interpret_trap (struct sfnt_interpreter *interpreter,
     PUSH_UNCHECKED (c);				\
   }
 
-#define _MAX()					\
+#define INS_MAX()				\
   {						\
     int32_t e1, e2;				\
 						\
@@ -7695,7 +7700,7 @@ sfnt_interpret_trap (struct sfnt_interpreter *interpreter,
     PUSH_UNCHECKED (MAX (e1, e2));		\
   }
 
-#define _MIN()					\
+#define INS_MIN()				\
   {						\
     int32_t e1, e2;				\
 						\
@@ -12190,11 +12195,11 @@ sfnt_interpret_run (struct sfnt_interpreter *interpreter,
 	  break;
 
 	case 0x8B:  /* MAX */
-	  _MAX ();
+	  INS_MAX ();
 	  break;
 
 	case 0x8C:  /* MIN */
-	  _MIN ();
+	  INS_MIN ();
 	  break;
 
 	  /* Scan or dropout control is not implemented.  Instead, 256
@@ -15900,8 +15905,8 @@ sfnt_vary_simple_glyph (struct sfnt_blend *blend, sfnt_glyph id,
 	      sfnt_swap16 (&coords[j]);
 	    }
 	}
-      else if ((index & 0xfff) > gvar->shared_coord_count)
-	/* index exceeds the number of shared tuples present.  */
+      else if (gvar->shared_coord_count <= (index & 0xfff))
+	/* The index is too large.  */
 	goto fail1;
       else
 	/* index points into gvar->axis_count coordinates making up
@@ -16272,8 +16277,8 @@ sfnt_vary_compound_glyph (struct sfnt_blend *blend, sfnt_glyph id,
 	      sfnt_swap16 (&coords[j]);
 	    }
 	}
-      else if ((index & 0xfff) > gvar->shared_coord_count)
-	/* index exceeds the number of shared tuples present.  */
+      else if (gvar->shared_coord_count <= (index & 0xfff))
+	/* The index is too large.  */
 	goto fail1;
       else
 	/* index points into gvar->axis_count coordinates making up

@@ -1,6 +1,6 @@
 ;;; grep.el --- run `grep' and display the results  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1987, 1993-1999, 2001-2025 Free Software
+;; Copyright (C) 1985-1987, 1993-1999, 2001-2026 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Roland McGrath <roland@gnu.org>
@@ -29,7 +29,6 @@
 
 ;;; Code:
 
-(eval-when-compile (require 'cl-lib))
 (require 'compile)
 
 (defgroup grep nil
@@ -297,22 +296,22 @@ See `compilation-error-screen-columns'."
   "List of hook functions run by `grep-process-setup' (see `run-hooks')."
   :type 'hook)
 
-(defvar grep-mode-map
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map compilation-minor-mode-map)
-    (define-key map " " #'scroll-up-command)
-    (define-key map [?\S-\ ] #'scroll-down-command)
-    (define-key map "\^?" #'scroll-down-command)
-    (define-key map "\C-c\C-f" #'next-error-follow-minor-mode)
+(defvar-keymap grep-mode-map
+  :doc "Keymap for grep buffers.
+This keymap inherits from `compilation-minor-mode-map'."
+  :parent compilation-minor-mode-map
+  "SPC"       #'scroll-up-command
+  "S-SPC"     #'scroll-down-command
+  "DEL"       #'scroll-down-command
+  "C-c C-f"   #'next-error-follow-minor-mode
 
-    (define-key map "\r" #'compile-goto-error)  ;; ?
-    (define-key map "{" #'compilation-previous-file)
-    (define-key map "}" #'compilation-next-file)
-    (define-key map "\t" #'compilation-next-error)
-    (define-key map [backtab] #'compilation-previous-error)
-    map)
-  "Keymap for grep buffers.
-`compilation-minor-mode-map' is a cdr of this.")
+  "RET"       #'compile-goto-error
+  "{"         #'compilation-previous-file
+  "}"         #'compilation-next-file
+  "TAB"       #'compilation-next-error
+  "<backtab>" #'compilation-previous-error
+
+  "e"         #'grep-change-to-grep-edit-mode)
 
 (easy-menu-define grep-menu-map grep-mode-map
   "Menu for grep buffers."
@@ -341,7 +340,9 @@ See `compilation-error-screen-columns'."
      :help "Kill the currently running grep process"]
     "----"
     ["Toggle command abbreviation" grep-find-toggle-abbreviation
-     :help "Toggle showing verbose command options"]))
+     :help "Toggle showing verbose command options"]
+    ["Edit Grep Buffer" grep-change-to-grep-edit-mode
+     :help "Edit the *grep* buffer and apply changes to the original buffers."]))
 
 (defvar grep-mode-tool-bar-map
   ;; When bootstrapping, tool-bar-map is not properly initialized yet,
@@ -542,19 +543,26 @@ redundant).")
    "Additional things to highlight in grep output.
 This gets tacked on the end of the generated expressions.")
 
+(defvar grep-compilation-transform-finished-rules
+  '(("^Grep[/a-zA-Z]* finished with \\(?:\\(\\(?:[0-9]+ \\)?match\\(?:es\\)? found\\)\\|\\(no matches found\\)\\).*" . nil)
+    ("^Grep[/a-zA-Z]* \\(exited abnormally\\|interrupt\\|killed\\|terminated\\)\\(?:.*with code \\([0-9]+\\)\\)?.*" . nil))
+  "Rules added to `compilation-transform-file-match-alist' in `grep-mode'
+These prevent the \"Grep finished\" lines from being misinterpreted as
+matches (bug#77732).")
+
 ;;;###autoload
-(defvar grep-program (purecopy "grep")
+(defvar grep-program "grep"
   "The default grep program for `grep-command' and `grep-find-command'.
 This variable's value takes effect when `grep-compute-defaults' is called.")
 
 ;;;###autoload
-(defvar find-program (purecopy "find")
+(defvar find-program "find"
   "The default find program.
 This is used by commands like `grep-find-command', `find-dired'
 and others.")
 
 ;;;###autoload
-(defvar xargs-program (purecopy "xargs")
+(defvar xargs-program "xargs"
   "The default xargs program for `grep-find-command'.
 See `grep-find-use-xargs'.
 This variable's value takes effect when `grep-compute-defaults' is called.")
@@ -648,7 +656,7 @@ This function is called from `compilation-filter-hook'."
           (replace-match (propertize (match-string 1)
                                      'face nil 'font-lock-face grep-match-face)
                          t t)
-          (cl-incf grep-num-matches-found))
+          (incf grep-num-matches-found))
         ;; Delete all remaining escape sequences
         (goto-char beg)
         (while (re-search-forward "\033\\[[0-9;]*[mK]" end 1)
@@ -696,13 +704,27 @@ first capture group of `grep-heading-regexp'.")
 	   (or result 0))))
 
 (defun grep-hello-file ()
-  (let ((result
-         (if (file-remote-p default-directory)
-             (make-temp-file (file-name-as-directory (temporary-file-directory)))
-           (expand-file-name "HELLO" data-directory))))
-    (when (file-remote-p result)
-      (write-region "Copyright\n" nil result))
-    result))
+  (cond ((file-remote-p default-directory)
+         (let ((file-name (make-temp-file
+                           (file-name-as-directory
+                            (temporary-file-directory)))))
+           (when (file-remote-p file-name)
+             (write-region "Copyright\n" nil file-name))
+           file-name))
+        ((and (eq system-type 'android) (featurep 'android))
+         ;; /assets/etc is not accessible to grep or other shell
+         ;; commands on Android, and therefore the template must
+         ;; be copied to a location that is.
+         (let ((temp-file (concat temporary-file-directory
+                                  "grep-test.txt")))
+           (prog1 temp-file
+             (unless (file-regular-p temp-file)
+               ;; Create a temporary file if grep-text.txt can't be
+               ;; overwritten.
+               (when (file-exists-p temp-file)
+                 (setq temp-file (make-temp-file "grep-test-")))
+               (write-region "Copyright\n" nil temp-file)))))
+        (t (expand-file-name "HELLO" data-directory))))
 
 ;;;###autoload
 (defun grep-compute-defaults ()
@@ -731,7 +753,13 @@ The value depends on `grep-command', `grep-template',
 	 (host-defaults (assq host-id grep-host-defaults-alist))
 	 (defaults (assq nil grep-host-defaults-alist))
          (quot-braces (shell-quote-argument "{}" remote))
-         (quot-scolon (shell-quote-argument ";" remote)))
+         (quot-scolon (shell-quote-argument ";" remote))
+	 ;; Windows shells need the program file name after the pipe
+	 ;; symbol be quoted if they use forward slashes as directory
+	 ;; separators.
+         (quot-xargs-program
+          (if (and (memq system-type '(ms-dos windows-nt)) (not remote))
+              (format "\"%s\"" xargs-program) xargs-program)))
     ;; There are different defaults on different hosts.  They must be
     ;; computed for every host once.
     (dolist (setting '(grep-command grep-template
@@ -827,28 +855,33 @@ The value depends on `grep-command', `grep-template',
 	(unless grep-find-use-xargs
 	  (setq grep-find-use-xargs
 		(cond
-		 ((grep-probe find-program
-			      `(nil nil nil ,(null-device) "-exec" "echo"
-				    "{}" "+"))
-		  'exec-plus)
+                 ;; For performance, we want:
+                 ;; A. Run grep on batches of files (instead of one grep per file)
+                 ;; B. If the directory is large and we need multiple batches,
+                 ;;    run find in parallel with a running grep.
+                 ;; "find | xargs grep" gives both A and B
 		 ((and
+                   (not (eq system-type 'windows-nt))
 		   (grep-probe
                     find-program `(nil nil nil ,(null-device) "-print0"))
 		   (grep-probe xargs-program '(nil nil nil "-0" "echo")))
 		  'gnu)
+                 ;; "find -exec {} +" gives A but not B
+		 ((grep-probe find-program
+			      `(nil nil nil ,(null-device) "-exec" "echo"
+				    "{}" "+"))
+		  'exec-plus)
+                 ;; "find -exec {} ;" gives neither A nor B.
 		 (t
 		  'exec))))
 	(unless grep-find-command
 	  (setq grep-find-command
 		(cond ((eq grep-find-use-xargs 'gnu)
-		       ;; Windows shells need the program file name
-		       ;; after the pipe symbol be quoted if they use
-		       ;; forward slashes as directory separators.
-		       (format "%s . -type f -print0 | \"%s\" -0 %s"
-			       find-program xargs-program grep-command))
+		       (format "%s . -type f -print0 | %s -0 %s"
+			       find-program quot-xargs-program grep-command))
 		      ((eq grep-find-use-xargs 'gnu-sort)
-		       (format "%s . -type f -print0 | sort -z | \"%s\" -0 %s"
-			       find-program xargs-program grep-command))
+		       (format "%s . -type f -print0 | sort -z | %s -0 %s"
+			       find-program quot-xargs-program grep-command))
 		      ((memq grep-find-use-xargs '(exec exec-plus))
 		       (let ((cmd0 (format "%s . -type f -exec %s"
 					   find-program grep-command))
@@ -862,8 +895,8 @@ The value depends on `grep-command', `grep-template',
                                     cmd0 quot-braces null quot-scolon))
 			  (1+ (length cmd0)))))
 		      (t
-		       (format "%s . -type f -print | \"%s\" %s"
-			       find-program xargs-program grep-command)))))
+		       (format "%s . -type f -print | %s %s"
+			       find-program quot-xargs-program grep-command)))))
 	(unless grep-find-template
 	  (setq grep-find-template
 		(let ((gcmd (format "%s <C> %s <R>"
@@ -872,11 +905,11 @@ The value depends on `grep-command', `grep-template',
                                 (format "%s " (null-device))
                               "")))
                   (cond ((eq grep-find-use-xargs 'gnu)
-                         (format "%s -H <D> <X> -type f <F> -print0 | \"%s\" -0 %s"
-                                 find-program xargs-program gcmd))
+                         (format "%s -H <D> <X> -type f <F> -print0 | %s -0 %s"
+                                 find-program quot-xargs-program gcmd))
                         ((eq grep-find-use-xargs 'gnu-sort)
-                         (format "%s -H <D> <X> -type f <F> -print0 | sort -z | \"%s\" -0 %s"
-                                 find-program xargs-program gcmd))
+                         (format "%s -H <D> <X> -type f <F> -print0 | sort -z | %s -0 %s"
+                                 find-program quot-xargs-program gcmd))
                         ((eq grep-find-use-xargs 'exec)
                          (format "%s -H <D> <X> -type f <F> -exec %s %s %s%s"
                                  find-program gcmd quot-braces null quot-scolon))
@@ -884,8 +917,8 @@ The value depends on `grep-command', `grep-template',
                          (format "%s -H <D> <X> -type f <F> -exec %s %s%s +"
                                  find-program gcmd null quot-braces))
                         (t
-                         (format "%s -H <D> <X> -type f <F> -print | \"%s\" %s"
-                                 find-program xargs-program gcmd))))))
+                         (format "%s -H <D> <X> -type f <F> -print | %s %s"
+                                 find-program quot-xargs-program gcmd))))))
 
         (setq grep-quoting-style (and remote 'posix))))
 
@@ -963,6 +996,9 @@ The value depends on `grep-command', `grep-template',
               grep-hit-face)
   (setq-local compilation-error-regexp-alist
               grep-regexp-alist)
+  (setq-local compilation-transform-file-match-alist
+              (append grep-compilation-transform-finished-rules
+                      compilation-transform-file-match-alist))
   (setq-local compilation-mode-line-errors
               grep-mode-line-matches)
   ;; compilation-directory-matcher can't be nil, so we set it to a regexp that
@@ -1044,6 +1080,96 @@ list is empty)."
 		       command-args)
 		     #'grep-mode))
 
+(defun grep-edit--prepare-buffer ()
+  "Mark relevant regions read-only, and add relevant occur text-properties."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((inhibit-read-only t)
+          (dummy (make-marker))
+          match)
+      (while (setq match (text-property-search-forward 'compilation-annotation))
+        (add-text-properties (prop-match-beginning match) (prop-match-end match)
+                             '(read-only t front-sticky t)))
+      (goto-char (point-min))
+      (while (setq match (text-property-search-forward 'compilation-message))
+        (add-text-properties (prop-match-beginning match) (prop-match-end match)
+                             '( read-only t occur-prefix t
+                                ;; Allow insertion of text right
+                                ;; after prefix, but not before.
+                                front-sticky t
+                                rear-nonsticky t))
+        (let ((loc (compilation--message->loc (prop-match-value match)))
+              m)
+          ;; Update the markers if necessary.
+          (unless (and (compilation--loc->marker loc)
+                       (marker-buffer (compilation--loc->marker loc)))
+            (compilation--update-markers loc dummy compilation-error-screen-columns compilation-first-column))
+          (setq m (compilation--loc->marker loc))
+          (add-text-properties (prop-match-beginning match)
+                               (or (next-single-property-change
+                                    (prop-match-end match)
+                                    'compilation-message)
+                                   (1+ (pos-eol)))
+                               `(occur-target ((,m . ,m)))))))))
+
+(defvar-keymap grep-edit-mode-map
+  :doc "Keymap for `grep-edit-mode'."
+  :parent text-mode-map
+  "C-c C-c" #'grep-edit-save-changes)
+
+(defvar grep-edit-mode-hook nil
+  "Hooks run when changing to Grep-Edit mode.")
+
+(defvar grep-edit-original-mode-map nil)
+
+(defun grep-edit-mode ()
+  "Major mode for editing *grep* buffers.
+In this mode, changes to the *grep* buffer are applied to the
+originating files.
+\\<grep-edit-mode-map>
+Type \\[grep-edit-save-changes] to exit Grep-Edit mode, return to Grep
+mode.
+
+The only editable texts in a Grep-Edit buffer are the match results."
+  (interactive)
+  (error "This mode can be enabled only by `grep-change-to-grep-edit-mode'"))
+(put 'grep-edit-mode 'mode-class 'special)
+
+(defun grep-change-to-grep-edit-mode ()
+  "Switch to `grep-edit-mode' to edit *grep* buffer."
+  (interactive)
+  (unless (derived-mode-p 'grep-mode)
+    (error "Not a Grep buffer"))
+  (when (get-buffer-process (current-buffer))
+    (error "Cannot switch when grep is running"))
+  (setq-local grep-edit-original-mode-map (current-local-map))
+  (use-local-map grep-edit-mode-map)
+  (grep-edit--prepare-buffer)
+  (setq buffer-read-only nil)
+  (setq major-mode 'grep-edit-mode)
+  (setq mode-name "Grep-Edit")
+  (buffer-enable-undo)
+  (set-buffer-modified-p nil)
+  (setq buffer-undo-list nil)
+  (add-hook 'after-change-functions #'occur-after-change-function nil t)
+  (run-mode-hooks 'grep-edit-mode-hook)
+  (message (substitute-command-keys
+            "Editing: Type \\[grep-edit-save-changes] to return to Grep mode")))
+
+(defun grep-edit-save-changes ()
+  "Switch back to Grep mode."
+  (interactive)
+  (unless (derived-mode-p 'grep-edit-mode)
+    (error "Not a Grep-Edit buffer"))
+  (remove-hook 'after-change-functions #'occur-after-change-function t)
+  (use-local-map grep-edit-original-mode-map)
+  (setq buffer-read-only t)
+  (setq major-mode 'grep-mode)
+  (setq mode-name "Grep")
+  (force-mode-line-update)
+  (buffer-disable-undo)
+  (setq buffer-undo-list t)
+  (message "Switching to Grep mode"))
 
 ;;;###autoload
 (defun grep-find (command-args)
@@ -1241,7 +1367,7 @@ command before it's run."
 	   (list regexp files dir confirm))))))
   (when (and (stringp regexp) (> (length regexp) 0))
     (unless (and dir (file-accessible-directory-p dir))
-      (setq dir default-directory))
+      (user-error "Unable to open directory: %s" dir))
     (unless (string-equal (file-remote-p dir) (file-remote-p default-directory))
       (let ((default-directory dir))
         (grep-compute-defaults)))
@@ -1262,7 +1388,7 @@ command before it's run."
 		       regexp
 		       files
 		       nil
-                       (when-let ((ignores (grep-find-ignored-files dir)))
+                       (when-let* ((ignores (grep-find-ignored-files dir)))
 			 (concat " --exclude="
 				 (mapconcat
                                   (lambda (ignore)
@@ -1346,7 +1472,7 @@ to indicate whether the grep should be case sensitive or not."
     (grep-compute-defaults))
   (when (and (stringp regexp) (> (length regexp) 0))
     (unless (and dir (file-accessible-directory-p dir))
-      (setq dir default-directory))
+      (user-error "Unable to open directory: %s" dir))
     (unless (string-equal (file-remote-p dir) (file-remote-p default-directory))
       (let ((default-directory dir))
         (grep-compute-defaults)))
@@ -1379,7 +1505,7 @@ to indicate whether the grep should be case sensitive or not."
   "Compute the command for \\[rgrep] to use by default."
   (require 'find-dired)                 ; for `find-name-arg'
   (let ((ignored-files-arg
-         (when-let ((ignored-files (grep-find-ignored-files dir)))
+         (when-let* ((ignored-files (grep-find-ignored-files dir)))
            (concat (shell-quote-argument "(" grep-quoting-style)
                    ;; we should use shell-quote-argument here
                    " -name "
@@ -1403,7 +1529,7 @@ to indicate whether the grep should be case sensitive or not."
                (concat " " (shell-quote-argument "!" grep-quoting-style) " " ignored-files-arg)))
      dir
      (concat
-      (when-let ((ignored-dirs (rgrep-find-ignored-directories dir)))
+      (when-let* ((ignored-dirs (rgrep-find-ignored-directories dir)))
         (concat "-type d "
                 (shell-quote-argument "(" grep-quoting-style)
                 ;; we should use shell-quote-argument here
@@ -1483,8 +1609,8 @@ command before it's run."
 (defun grep-file-at-point (point)
   "Return the name of the file at POINT a `grep-mode' buffer.
 The returned file name is relative."
-  (when-let ((msg (get-text-property point 'compilation-message))
-             (loc (compilation--message->loc msg)))
+  (when-let* ((msg (get-text-property point 'compilation-message))
+              (loc (compilation--message->loc msg)))
     (caar (compilation--loc->file-struct loc))))
 
 ;;;###autoload

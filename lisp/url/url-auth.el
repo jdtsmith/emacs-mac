@@ -1,6 +1,6 @@
 ;;; url-auth.el --- Uniform Resource Locator authorization modules -*- lexical-binding: t -*-
 
-;; Copyright (C) 1996-1999, 2004-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1999, 2004-2026 Free Software Foundation, Inc.
 
 ;; Keywords: comm, data, processes, hypermedia
 
@@ -71,14 +71,14 @@ instead of the filename inheritance method."
 	 (user (url-user href))
 	 (pass (url-password href))
 	 (enable-recursive-minibuffers t) ; for url-handler-mode (bug#10298)
+	 (serverport (format "%s:%d" server port))
 	 byserv retval data)
-    (setq server (format "%s:%d" server port)
-	  file (cond
+    (setq file (cond
 		(realm realm)
 		((string= "" file) "/")
 		((string-match "/$" file) file)
 		(t (url-file-directory file)))
-	  byserv (cdr-safe (assoc server
+	  byserv (cdr-safe (assoc serverport
 				  (symbol-value url-basic-auth-storage))))
     (cond
      ((and user pass)
@@ -91,11 +91,11 @@ instead of the filename inheritance method."
 		       (read-string (url-auth-user-prompt href realm)
 			            (or user (user-real-login-name)))))
 	    pass (or
-		  (url-do-auth-source-search server type :secret)
+		  (url-do-auth-source-search server type :secret user)
                   (and (url-interactive-p)
 		       (read-passwd "Password: " nil (or pass "")))))
       (set url-basic-auth-storage
-	   (cons (list server
+	   (cons (list serverport
 		       (cons file
 			     (setq retval
 				   (base64-encode-string
@@ -126,11 +126,11 @@ instead of the filename inheritance method."
 			     (read-string (url-auth-user-prompt href realm)
 				          (user-real-login-name))))
 		  pass (or
-			(url-do-auth-source-search server type :secret)
+			(url-do-auth-source-search server type :secret user)
                         (and (url-interactive-p)
 			     (read-passwd "Password: ")))
 		  retval (base64-encode-string (format "%s:%s" user pass) t)
-		  byserv (assoc server (symbol-value url-basic-auth-storage)))
+		  byserv (assoc serverport (symbol-value url-basic-auth-storage)))
 	    (setcdr byserv
 		    (cons (cons file retval) (cdr byserv))))))
      (t (setq retval nil)))
@@ -460,8 +460,8 @@ challenge such as nonce and opaque."
   "A list of the registered authorization schemes and various and sundry
 information associated with them.")
 
-(defun url-do-auth-source-search (server type parameter)
-  (let* ((auth-info (auth-source-search :max 1 :host server :port type))
+(defun url-do-auth-source-search (server type parameter &optional user)
+  (let* ((auth-info (auth-source-search :max 1 :host server :port type :user user))
          (auth-info (nth 0 auth-info))
          (token (plist-get auth-info parameter))
          (token (if (functionp token) (funcall token) token)))

@@ -1,6 +1,6 @@
 ;;; rust-ts-mode.el --- tree-sitter support for Rust  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; Author     : Randy Taylor <dev@rjt.dev>
 ;; Maintainer : Randy Taylor <dev@rjt.dev>
@@ -22,6 +22,15 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
+;;; Tree-sitter language versions
+;;
+;; rust-ts-mode has been tested with the following grammars and version:
+;; - tree-sitter-rust: v0.24.0
+;;
+;; We try our best to make builtin modes work with latest grammar
+;; versions, so a more recent grammar has a good chance to work too.
+;; Send us a bug report if it doesn't.
+
 ;;; Commentary:
 ;;
 
@@ -30,18 +39,20 @@
 (require 'treesit)
 (eval-when-compile (require 'rx))
 (require 'c-ts-common) ; For comment indent and filling.
+(treesit-declare-unavailable-functions)
 
-(declare-function treesit-parser-create "treesit.c")
-(declare-function treesit-induce-sparse-tree "treesit.c")
-(declare-function treesit-node-child "treesit.c")
-(declare-function treesit-node-child-by-field-name "treesit.c")
-(declare-function treesit-node-start "treesit.c")
-(declare-function treesit-node-end "treesit.c")
-(declare-function treesit-node-type "treesit.c")
-(declare-function treesit-node-parent "treesit.c")
-(declare-function treesit-query-compile "treesit.c")
+(add-to-list
+ 'treesit-language-source-alist
+ `(rust "https://github.com/tree-sitter/tree-sitter-rust"
+        :commit ,(if (and (treesit-available-p)
+                          (< (treesit-library-abi-version) 15))
+                     "1f63b33efee17e833e0ea29266dd3d713e27e321"
+                   "18b0515fca567f5a10aee9978c6d2640e878671a"))
+ t)
 
-(defcustom rust-ts-mode-indent-offset 4
+(define-obsolete-variable-alias 'rust-ts-mode-indent-offset
+  'rust-ts-indent-offset "31")
+(defcustom rust-ts-indent-offset 4
   "Number of spaces for each indentation step in `rust-ts-mode'."
   :version "29.1"
   :type 'integer
@@ -60,6 +71,15 @@ to be checked as its standard input."
                  ;; Or annotate them with file names, at least.
                  (const :tag "Clippy cargo" ("cargo" "clippy"))
                  (repeat :tag "Custom command" string))
+  :group 'rust)
+
+(defcustom rust-ts-mode-fontify-number-suffix-as-type nil
+  "If non-nil, suffixes of number literals are fontified as types.
+In Rust, number literals can possess an optional type suffix.  When this
+variable is non-nil, these suffixes are fontified using
+`font-lock-type-face' instead of `font-lock-number-face'."
+  :version "31.1"
+  :type 'boolean
   :group 'rust)
 
 (defvar rust-ts-mode-prettify-symbols-alist
@@ -98,23 +118,29 @@ to be checked as its standard input."
      ((and (parent-is "comment") c-ts-common-looking-at-star)
       c-ts-common-comment-start-after-first-star -1)
      ((parent-is "comment") prev-adaptive-prefix 0)
-     ((parent-is "arguments") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "await_expression") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "array_expression") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "binary_expression") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "block") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "declaration_list") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "enum_variant_list") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "field_declaration_list") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "field_expression") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "field_initializer_list") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "let_declaration") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "macro_definition") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "parameters") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "struct_pattern") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "token_tree") parent-bol rust-ts-mode-indent-offset)
-     ((parent-is "use_list") parent-bol rust-ts-mode-indent-offset)))
+     ((parent-is "arguments") parent-bol rust-ts-indent-offset)
+     ((parent-is "await_expression") parent-bol rust-ts-indent-offset)
+     ((parent-is "array_expression") parent-bol rust-ts-indent-offset)
+     ((parent-is "binary_expression") parent-bol rust-ts-indent-offset)
+     ((parent-is "block") parent-bol rust-ts-indent-offset)
+     ((parent-is "declaration_list") parent-bol rust-ts-indent-offset)
+     ((parent-is "enum_variant_list") parent-bol rust-ts-indent-offset)
+     ((parent-is "field_declaration_list") parent-bol rust-ts-indent-offset)
+     ((parent-is "field_expression") parent-bol rust-ts-indent-offset)
+     ((parent-is "field_initializer_list") parent-bol rust-ts-indent-offset)
+     ((parent-is "let_declaration") parent-bol rust-ts-indent-offset)
+     ((parent-is "macro_definition") parent-bol rust-ts-indent-offset)
+     ((parent-is "parameters") parent-bol rust-ts-indent-offset)
+     ((parent-is "struct_pattern") parent-bol rust-ts-indent-offset)
+     ((parent-is "token_tree") parent-bol rust-ts-indent-offset)
+     ((parent-is "use_list") parent-bol rust-ts-indent-offset)))
   "Tree-sitter indent rules for `rust-ts-mode'.")
+
+(defconst rust-ts-mode--number-types
+  (regexp-opt '("u8" "i8" "u16" "i16" "u32" "i32" "u64"
+                "i64" "u128" "i128" "usize" "isize" "f32" "f64"))
+  "Regexp matching type suffixes of number literals.
+See https://doc.rust-lang.org/reference/tokens.html#suffixes.")
 
 (defvar rust-ts-mode--builtin-macros
   '("concat_bytes" "concat_idents" "const_format_args"
@@ -221,7 +247,8 @@ to be checked as its standard input."
 
    :language 'rust
    :feature 'number
-   '([(float_literal) (integer_literal)] @font-lock-number-face)
+   '([(float_literal) (integer_literal)]
+     @rust-ts-mode--fontify-number-literal)
 
    :language 'rust
    :feature 'operator
@@ -267,7 +294,11 @@ to be checked as its standard input."
                    eos)
               @font-lock-type-face))
      ((scoped_identifier path: (identifier) @rust-ts-mode--fontify-scope))
-     ((scoped_type_identifier path: (identifier) @rust-ts-mode--fontify-scope)))
+     ((scoped_type_identifier path: (identifier) @rust-ts-mode--fontify-scope))
+     ;; Sometimes the parser can't determine if an identifier is a type,
+     ;; so we use this heuristic. See bug#69625 for the full discussion.
+     ((identifier) @font-lock-type-face
+      (:match ,(rx bos upper) @font-lock-type-face)))
 
    :language 'rust
    :feature 'property
@@ -337,7 +368,8 @@ to be checked as its standard input."
              tail-p
              (string-match-p
               "\\`\\(?:use_list\\|call_expression\\|use_as_clause\\|use_declaration\\)\\'"
-              (treesit-node-type (treesit-node-parent (treesit-node-parent node)))))
+              (or (treesit-node-type (treesit-node-parent (treesit-node-parent node)))
+                  "no_parent")))
             nil)
            (t 'font-lock-constant-face))))
     (when face
@@ -358,12 +390,31 @@ to be checked as its standard input."
                        ,(treesit-query-compile 'rust '((identifier) @id
                                                        (shorthand_field_identifier) @id)))))
         (pcase-dolist (`(_name . ,id) captures)
-          (unless (string-match-p "\\`scoped_\\(?:type_\\)?identifier\\'"
-                                  (treesit-node-type
-                                   (treesit-node-parent id)))
+          (unless (string-match-p
+                   "\\`scoped_\\(?:type_\\)?identifier\\'"
+                   (or (treesit-node-type (treesit-node-parent id)) "no_parent"))
             (treesit-fontify-with-override
              (treesit-node-start id) (treesit-node-end id)
              'font-lock-variable-name-face override start end)))))))
+
+(defun rust-ts-mode--fontify-number-literal (node override start stop &rest _)
+  "Fontify number literals, highlighting the optional type suffix.
+If `rust-ts-mode-fontify-number-suffix-as-type' is non-nil, use
+`font-lock-type-face' to highlight the suffix."
+  (let* ((beg (treesit-node-start node))
+         (end (treesit-node-end node)))
+    (save-excursion
+      (goto-char end)
+      (if (and rust-ts-mode-fontify-number-suffix-as-type
+               (looking-back rust-ts-mode--number-types beg))
+          (let* ((ty (match-beginning 0))
+                 (nb (if (eq (char-before ty) ?_) (1- ty) ty)))
+            (treesit-fontify-with-override
+             ty end 'font-lock-type-face override start stop)
+            (treesit-fontify-with-override
+             beg nb 'font-lock-number-face override start stop))
+          (treesit-fontify-with-override
+           beg end 'font-lock-number-face override start stop)))))
 
 (defun rust-ts-mode--defun-name (node)
   "Return the defun name of NODE.
@@ -506,8 +557,10 @@ See `prettify-symbols-compose-predicate'."
   :group 'rust
   :syntax-table rust-ts-mode--syntax-table
 
-  (when (treesit-ready-p 'rust)
-    (treesit-parser-create 'rust)
+  ;; `treesit-ready-p' also checks for buffer size.
+  (when (and (treesit-ensure-installed 'rust)
+             (treesit-ready-p 'rust))
+    (setq treesit-primary-parser (treesit-parser-create 'rust))
 
     ;; Syntax.
     (setq-local syntax-propertize-function
@@ -539,6 +592,16 @@ See `prettify-symbols-compose-predicate'."
                   ("Struct" "\\`struct_item\\'" nil nil)
                   ("Fn" "\\`function_item\\'" nil nil)))
 
+    ;; Outline.
+    (setq-local treesit-outline-predicate
+                (rx bos (or "mod_item"
+                            "enum_item"
+                            "impl_item"
+                            "type_item"
+                            "struct_item"
+                            "function_item"
+                            "trait_item")
+                    eos))
     ;; Indent.
     (setq-local indent-tabs-mode nil
                 treesit-simple-indent-rules rust-ts-mode--indent-rules)
@@ -558,12 +621,62 @@ See `prettify-symbols-compose-predicate'."
                               "struct_item")))
     (setq-local treesit-defun-name-function #'rust-ts-mode--defun-name)
 
+    (setq-local treesit-thing-settings
+                `((rust
+                   (list
+                    ,(rx bos (or "token_tree_pattern"
+                                 "token_tree"
+                                 "attribute_item"
+                                 "inner_attribute_item"
+                                 "declaration_list"
+                                 "enum_variant_list"
+                                 "field_declaration_list"
+                                 "ordered_field_declaration_list"
+                                 "type_parameters"
+                                 "use_list"
+                                 "parameters"
+                                 "bracketed_type"
+                                 "array_type"
+                                 "for_lifetimes"
+                                 "tuple_type"
+                                 "unit_type"
+                                 "use_bounds"
+                                 "type_arguments"
+                                 "delim_token_tree"
+                                 "arguments"
+                                 "array_expression"
+                                 "parenthesized_expression"
+                                 "tuple_expression"
+                                 "unit_expression"
+                                 "field_initializer_list"
+                                 "match_block"
+                                 "block"
+                                 "tuple_pattern"
+                                 "slice_pattern")
+                         eos)))))
+
     (treesit-major-mode-setup)))
 
 (derived-mode-add-parents 'rust-ts-mode '(rust-mode))
 
-(if (treesit-ready-p 'rust)
-    (add-to-list 'auto-mode-alist '("\\.rs\\'" . rust-ts-mode)))
+;;;###autoload
+(defun rust-ts-mode-maybe ()
+  "Enable `rust-ts-mode' when its grammar is available.
+Also propose to install the grammar when `treesit-enabled-modes'
+is t or contains the mode name."
+  (declare-function treesit-language-available-p "treesit.c")
+  (if (or (treesit-language-available-p 'rust)
+          (eq treesit-enabled-modes t)
+          (memq 'rust-ts-mode treesit-enabled-modes))
+      (rust-ts-mode)
+    (fundamental-mode)))
+
+;;;###autoload
+(when (boundp 'treesit-major-mode-remap-alist)
+  (add-to-list 'auto-mode-alist '("\\.rs\\'" . rust-ts-mode-maybe))
+  ;; To be able to toggle between an external package and core ts-mode:
+  (add-to-list 'treesit-major-mode-remap-alist
+               '(rust-mode . rust-ts-mode)))
 
 (provide 'rust-ts-mode)
 

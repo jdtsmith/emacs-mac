@@ -1,6 +1,6 @@
 ;;; emacs-module-tests.el --- Test GNU Emacs modules.  -*- lexical-binding: t; -*-
 
-;; Copyright 2015-2025 Free Software Foundation, Inc.
+;; Copyright 2015-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -121,7 +121,7 @@ changes."
                    (setq handler-err err
                          backtrace (with-output-to-string (backtrace))))))
        (mod-test-signal)))
-    (should (equal handler-err '(error . 56)))
+    (should (equal handler-err '(error 56)))
     (should (string-match-p
              (rx bol "  mod-test-signal()" eol)
              backtrace))))
@@ -145,6 +145,16 @@ changes."
 (ert-deftest mod-test-non-local-exit-funcall-throw ()
   (should (equal (mod-test-non-local-exit-funcall (lambda () (throw 'tag 32)))
                  '(throw tag 32))))
+
+(ert-deftest mod-test-non-local-exit-funcall-debug-on-error ()
+  (let* ((debugger-entered nil)
+         (debugger (lambda (&rest _) (setq debugger-entered t))))
+    (should (equal
+             (let ((debug-on-error t))
+               (mod-test-non-local-exit-funcall
+                (lambda () (error "test error"))))
+             '(signal error ("test error"))))
+    (should debugger-entered)))
 
 ;;; String tests
 
@@ -376,7 +386,7 @@ Interactively, you can try hitting \\[keyboard-quit] to quit."
         (should (consp result))
         (should (integerp (car result)))
         (should (integerp (cdr result)))
-        (should (cl-plusp (cdr result)))
+        (should (plusp (cdr result)))
         (should (time-equal-p result desired-result))))))
 
 (ert-deftest mod-test-add-nanosecond/nil ()

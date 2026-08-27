@@ -1,6 +1,6 @@
 ;;; ert-x-tests.el --- Tests for ert-x.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2008, 2010-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2008, 2010-2026 Free Software Foundation, Inc.
 
 ;; Author: Phil Hagelberg
 ;; 	   Christian Ohler <ohler@gnu.org>
@@ -45,97 +45,6 @@
                     "       world)"))
     (emacs-lisp-mode)
     (should-not (equal (ert-buffer-string-reindented) (buffer-string)))))
-
-(defun ert--hash-table-to-alist (table)
-  (let ((accu nil))
-    (maphash (lambda (key value)
-	       (push (cons key value) accu))
-	     table)
-    (nreverse accu)))
-
-(ert-deftest ert-test-test-buffers ()
-  (let (buffer-1
-        buffer-2)
-    (let ((test-1
-           (make-ert-test
-            :name 'test-1
-            :body (lambda ()
-                    (ert-with-test-buffer (:name "foo")
-                      (should (string-match
-                               "[*]Test buffer (ert-test-test-buffers): foo[*]"
-                               (buffer-name)))
-                      (setq buffer-1 (current-buffer))))))
-          (test-2
-           (make-ert-test
-            :name 'test-2
-            :body (lambda ()
-                    (ert-with-test-buffer (:name "bar")
-                      (should (string-match
-                               "[*]Test buffer (ert-test-test-buffers): bar[*]"
-                               (buffer-name)))
-                      (setq buffer-2 (current-buffer))
-                      (ert-fail "fail for test"))))))
-      (let ((ert--test-buffers (make-hash-table :weakness t)))
-        (ert-run-tests `(member ,test-1 ,test-2) #'ignore)
-        (should (equal (ert--hash-table-to-alist ert--test-buffers)
-                       `((,buffer-2 . t))))
-        (should-not (buffer-live-p buffer-1))
-        (should (buffer-live-p buffer-2))))))
-
-(ert-deftest ert-test-with-buffer-selected/current ()
-  (let ((origbuf (current-buffer)))
-    (ert-with-test-buffer ()
-      (let ((buf (current-buffer)))
-        (should (not (eq buf origbuf)))
-        (with-current-buffer origbuf
-          (ert-with-buffer-selected buf
-            (should (eq (current-buffer) buf))))))))
-
-(ert-deftest ert-test-with-buffer-selected/selected ()
-  (ert-with-test-buffer ()
-    (ert-with-buffer-selected (current-buffer)
-      (should (eq (window-buffer) (current-buffer))))))
-
-(ert-deftest ert-test-with-buffer-selected/nil-buffer ()
-  (ert-with-test-buffer ()
-    (let ((buf (current-buffer)))
-      (ert-with-buffer-selected nil
-        (should (eq (window-buffer) buf))))))
-
-(ert-deftest ert-test-with-buffer-selected/modification-hooks ()
-  (ert-with-test-buffer ()
-    (ert-with-buffer-selected (current-buffer)
-      (should (null inhibit-modification-hooks)))))
-
-(ert-deftest ert-test-with-buffer-selected/read-only ()
-  (ert-with-test-buffer ()
-    (ert-with-buffer-selected (current-buffer)
-      (should (null inhibit-read-only))
-      (should (null buffer-read-only)))))
-
-(ert-deftest ert-test-with-buffer-selected/return-value ()
-  (should (equal (ert-with-buffer-selected nil "foo") "foo")))
-
-(ert-deftest ert-test-with-test-buffer-selected/selected ()
-  (ert-with-test-buffer-selected ()
-    (should (eq (window-buffer) (current-buffer)))))
-
-(ert-deftest ert-test-with-test-buffer-selected/modification-hooks ()
-  (ert-with-test-buffer-selected ()
-    (should (null inhibit-modification-hooks))))
-
-(ert-deftest ert-test-with-test-buffer-selected/read-only ()
-  (ert-with-test-buffer-selected ()
-    (should (null inhibit-read-only))
-    (should (null buffer-read-only))))
-
-(ert-deftest ert-test-with-test-buffer-selected/return-value ()
-  (should (equal (ert-with-test-buffer-selected () "foo") "foo")))
-
-(ert-deftest ert-test-with-test-buffer-selected/buffer-name ()
-  (should (equal (ert-with-test-buffer (:name "foo") (buffer-name))
-                 (ert-with-test-buffer-selected (:name "foo")
-                   (buffer-name)))))
 
 (ert-deftest ert-filter-string ()
   (should (equal (ert-filter-string "foo bar baz" "quux")
@@ -383,6 +292,77 @@ desired effect."
 (ert-deftest ert-x-tests-with-temp-directory/text-signals-error ()
   (should-error
    (ert-with-temp-directory dir :text "foo" nil)))
+
+(ert-deftest ert-x-tests-play-keys ()
+  "Test `ert-play-keys'.
+Send one symbolic event, some inserted text, and some key event to the
+test buffer, and check all of them are processed."
+  (ert-with-test-buffer (:selected t)
+    (let (verdict-event verdict-key verdict-pre-command-hook verdict-post-command-hook)
+      (let ((pre-command-hook (lambda () (setq verdict-pre-command-hook t)))
+            (post-command-hook (lambda () (setq verdict-post-command-hook t)))
+            (map (let ((map (make-sparse-keymap)))
+                    (define-key map [event]
+                                (lambda ()
+                                  (interactive)
+                                  (setq verdict-event
+                                        (list t
+                                              (called-interactively-p 'any)
+                                              (called-interactively-p 'interactive)))))
+                    (define-key map [?$]
+                                (lambda ()
+                                  (interactive)
+                                  (setq verdict-key
+                                        (list t
+                                              (called-interactively-p 'any)
+                                              (called-interactively-p 'interactive)))))
+                    map)))
+        (let ((minor-mode-map-alist (cons (cons t map) minor-mode-map-alist)))
+	  (ert-play-keys (vconcat [event] "n'importe $quoi"))))
+      (should (equal verdict-event '(t  t nil)))
+      (should (equal verdict-key '(t  t nil)))
+      (should (eq verdict-pre-command-hook t))
+      (should (eq verdict-post-command-hook t)))
+    (should (string= "n'importe quoi"
+		     (buffer-substring (point-min) (point-max))))))
+
+(ert-deftest ert-x-tests-simulate-command ()
+  "Test `ert-simulate-command'."
+  (ert-with-test-buffer ()
+    (let (verdict-interactive verdict-pre-command-hook verdict-post-command-hook)
+      (let ((pre-command-hook (lambda () (setq verdict-pre-command-hook t)))
+            (post-command-hook (lambda () (setq verdict-post-command-hook t))))
+        (should (eq (ert-simulate-command
+                     (list
+                      (lambda (x)
+                        (interactive (list "un rien"))
+                        (insert x)
+                        (setq verdict-interactive (list t
+                                                        (called-interactively-p 'any)
+                                                        (called-interactively-p 'interactive)))
+                        :ok)
+                      "n'importe quoi"))
+                    :ok)))
+      (should (equal verdict-interactive '(t nil nil)))
+      (should (eq verdict-pre-command-hook t))
+      (should (eq verdict-post-command-hook t)))
+    (should (string= "n'importe quoi"
+		     (buffer-substring (point-min) (point-max))))))
+
+(ert-deftest ert-x-tests-simulate-keys ()
+  "Test `ert-simulate-keys'."
+  (ert-with-test-buffer ()
+    (let* ((map (let ((map (make-sparse-keymap)))
+                  (define-key map [?b]
+                              (lambda ()
+                                (interactive)
+                                (insert "r"))) map))
+           (minor-mode-map-alist (cons (cons t map) minor-mode-map-alist)))
+      (ert-simulate-keys
+       (listify-key-sequence "un bien\nn'importe quoi")
+       (should (string= (read-from-minibuffer "Please enter something: ") "un rien")))
+      (should (string= "" (buffer-substring (point-min) (point-max)))))))
+
 
 (provide 'ert-x-tests)
 

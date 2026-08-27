@@ -1,6 +1,6 @@
 /* Program execution for Emacs.
 
-Copyright (C) 2023-2025 Free Software Foundation, Inc.
+Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -24,7 +24,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <fcntl.h>
 #include <assert.h>
 #include <string.h>
-#include <ctype.h>
 #include <stdlib.h>
 
 #include <sys/ptrace.h>
@@ -116,11 +115,11 @@ check_interpreter (const char *name, int fd, const char **extra)
 
   /* Strip leading whitespace.  */
   start = buffer;
-  while (*start && ((unsigned char) *start) < 128 && isspace (*start))
+  while (start < buffer + rc && (*start == ' ' || *start == '\t'))
     ++start;
 
   /* Look for a newline character.  */
-  end = memchr (start, '\n', rc);
+  end = memchr (start, '\n', buffer + rc - start);
 
   if (!end)
     goto fail;
@@ -130,11 +129,12 @@ check_interpreter (const char *name, int fd, const char **extra)
   *end = '\0';
 
   /* Now look for any whitespace characters.  */
-  ws = strchr (start, ' ');
+  for (ws = start; *ws && *ws != ' ' && *ws != '\t'; ws++)
+    continue;
 
   /* If there's no whitespace, return the entire start.  */
 
-  if (!ws)
+  if (!*ws)
     {
       if (lseek (fd, 0, SEEK_SET))
 	goto fail;
@@ -231,10 +231,10 @@ struct exec_jump_command
   /* The value of AT_BASE inside the aux vector.  */
   USER_WORD at_base;
 
-#if defined __mips__ && !defined MIPS_NABI
-  /* The FPU mode to apply.  */
+#if defined __mips__ && !defined __LP64__
+  /* The FPU mode to apply.  Not used when !MIPS_NABI.  */
   USER_WORD fpu_mode;
-#endif /* defined __mips__ && !defined MIPS_NABI */
+#endif /* defined __mips__ && !defined __LP64__ */
 };
 
 
@@ -292,7 +292,9 @@ write_load_command (program_header *header, bool use_alternate,
   struct exec_map_command command1;
   USER_WORD start, end;
   bool need_command1;
+#ifndef PAGE_MASK
   static long pagesize;
+#endif /* !PAGE_MASK */
 
   /* First, write the commands necessary to map the specified segment
      itself.
@@ -306,14 +308,14 @@ write_load_command (program_header *header, bool use_alternate,
 #ifdef HAVE_GETPAGESIZE
   if (!pagesize)
     pagesize = getpagesize ();
-#else /* HAVE_GETPAGESIZE */
+#else /* !HAVE_GETPAGESIZE */
   if (!pagesize)
     pagesize = sysconf (_SC_PAGESIZE);
-#endif /* HAVE_GETPAGESIZE */
+#endif /* !HAVE_GETPAGESIZE */
 
 #define PAGE_MASK (~(pagesize - 1))
 #define PAGE_SIZE (pagesize)
-#endif /* PAGE_MASK */
+#endif /* !PAGE_MASK */
 
   start = header->p_vaddr & PAGE_MASK;
   end = ((header->p_vaddr + header->p_filesz
@@ -829,7 +831,7 @@ insert_args (struct exec_tracee *tracee, USER_REGS_STRUCT *regs,
   assert (new3 == new + effective_size);
 
   /* And that it is properly aligned.  */
-  assert (!(new3 & (sizeof new3 - 2)));
+  assert (!(new3 & (sizeof new3 - 1)));
 
   /* Now modify the system call argument to point to new +
      text_size.  */
@@ -895,10 +897,6 @@ format_pid (char *in, unsigned int pid)
    with #!; in that case, find the program to open and use that
    instead.
 
-   If REENTRANT is not defined, NAME is actually a buffer of size
-   PATH_MAX + 80.  In that case, copy over the file name actually
-   opened.
-
    Next, read the executable header, and add the necessary memory
    mappings for each file.  Finally, return the action data and its
    size in *SIZE.
@@ -918,7 +916,9 @@ exec_0 (char *name, struct exec_tracee *tracee,
   program_header program;
   USER_WORD entry, program_entry, offset;
   USER_WORD header_offset;
+  USER_WORD name_len, aligned_len;
   struct exec_jump_command jump;
+  /* This also encompasses !__LP64__.  */
 #if defined __mips__ && !defined MIPS_NABI
   int fpu_mode;
 #endif /* defined __mips__ && !defined MIPS_NABI */
@@ -978,9 +978,7 @@ exec_0 (char *name, struct exec_tracee *tracee,
 	  memcpy (rewrite, name, strnlen (name, remaining));
 
 	  /* Replace name with buffer1.  */
-#ifndef REENTRANT
 	  strcpy (name, buffer1);
-#endif /* REENTRANT */
 	}
     }
 
@@ -1133,7 +1131,9 @@ exec_0 (char *name, struct exec_tracee *tracee,
     fpu_mode = FP_FRE;
 
   jump.fpu_mode = fpu_mode;
-#endif /* defined __mips__ && !defined MIPS_NABI */
+#elif defined __mips__ && !defined __LP64__
+  jump.fpu_mode = 0;
+#endif /* defined __mips__ && defined MIPS_NABI && !defined __LP64__ */
 
   /* The offset used for at_phdr should be that of the first
      mapping.  */
@@ -1149,6 +1149,23 @@ exec_0 (char *name, struct exec_tracee *tracee,
   memcpy (loader_area + loader_area_used, &jump,
 	  sizeof jump);
   loader_area_used += sizeof jump;
+
+  /* Copy the length of NAME and NAME itself to the loader area.  */
+  name_len = strlen (name);
+  aligned_len = ((name_len + 1 + sizeof name_len - 1)
+		 & -sizeof name_len);
+  if (sizeof loader_area - loader_area_used
+      < aligned_len + sizeof name_len)
+    goto fail1;
+  memcpy (loader_area + loader_area_used, &name_len, sizeof name_len);
+  loader_area_used += sizeof name_len;
+  memcpy (loader_area + loader_area_used, name, name_len + 1);
+  loader_area_used += name_len + 1;
+
+  /* Properly align the loader area.  */
+  offset = aligned_len - (name_len + 1);
+  while (offset--)
+    loader_area[loader_area_used++] = '\0';
 
   /* Close the file descriptor and return the number of bytes
      used.  */

@@ -1,6 +1,6 @@
 ;;; mule-conf.el --- configure multilingual environment  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2026 Free Software Foundation, Inc.
 ;; Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
 ;;   Registration Number H14PRO021
@@ -1633,7 +1633,6 @@ for decoding and encoding files, process I/O, etc."
 ;; Tar files are not decoded at all, but we treat them as raw bytes.
 
 (setq file-coding-system-alist
-      (mapcar (lambda (arg) (cons (purecopy (car arg)) (cdr arg)))
       '(("\\.elc\\'" . utf-8-emacs)
 	("\\.el\\'" . prefer-utf-8)
 	("\\.utf\\(-8\\)?\\'" . utf-8)
@@ -1647,7 +1646,7 @@ for decoding and encoding files, process I/O, etc."
 	("\\.tar\\'" . (no-conversion . no-conversion))
 	( "\\.po[tx]?\\'\\|\\.po\\." . po-find-file-coding-system)
 	("\\.\\(tex\\|ltx\\|dtx\\|drv\\)\\'" . latexenc-find-file-coding-system)
-	("" . (undecided . nil)))))
+        ("" . (undecided . nil))))
 
 
 ;;; Setting coding categories and their priorities.

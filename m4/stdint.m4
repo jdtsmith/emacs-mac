@@ -1,9 +1,10 @@
 # stdint.m4
-# serial 63
-dnl Copyright (C) 2001-2025 Free Software Foundation, Inc.
+# serial 65
+dnl Copyright (C) 2001-2026 Free Software Foundation, Inc.
 dnl This file is free software; the Free Software Foundation
 dnl gives unlimited permission to copy and/or distribute it,
 dnl with or without modifications, as long as this notice is preserved.
+dnl This file is offered as-is, without any warranty.
 
 dnl From Paul Eggert and Bruno Haible.
 dnl Test whether <stdint.h> is supported or must be substituted.
@@ -157,7 +158,7 @@ uintmax_t j = UINTMAX_MAX;
         || defined __clang__)
 int k = _Generic (SIZE_MAX, size_t: 0);
 #elif (2 <= __GNUC__ || 4 <= __clang_major__ || defined __IBM__TYPEOF__ \
-       || (0x5110 <= __SUNPRO_C && !__STDC__))
+       || (0x5110 <= __SUNPRO_C && !__STDC__) || 1939 <= _MSC_VER)
 extern size_t k;
 extern __typeof__ (SIZE_MAX) k;
 #endif
@@ -390,9 +391,9 @@ AC_DEFUN([gl_STDINT_BITSIZEOF],
       ])
     eval result=\$gl_cv_bitsizeof_${gltype}
     if test $result = unknown; then
-      dnl Use a nonempty default, because some compilers, such as IRIX 5 cc,
-      dnl do a syntax check even on unused #if conditions and give an error
-      dnl on valid C code like this:
+      dnl Use a nonempty default, because some old compilers do a syntax check
+      dnl even on unused #if conditions and give an error on valid C code like
+      dnl this:
       dnl   #if 0
       dnl   # if  > 32
       dnl   # endif

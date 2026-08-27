@@ -1,6 +1,6 @@
 /* Communication module for window systems using GTK.
 
-Copyright (C) 1989, 1993-1994, 2005-2006, 2008-2025 Free Software
+Copyright (C) 1989, 1993-1994, 2005-2006, 2008-2026 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -18,9 +18,12 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
-/* This should be the first include, as it may set up #defines affecting
-   interpretation of even the system includes. */
 #include <config.h>
+
+/* Work around GCC bug 102671.  */
+#if 10 <= __GNUC__
+# pragma GCC diagnostic ignored "-Wanalyzer-null-dereference"
+#endif
 
 #include <cairo.h>
 #include <fcntl.h>
@@ -106,6 +109,7 @@ static bool current_drop_context_drop;
 static guint32 current_drop_time;
 
 static void pgtk_delete_display (struct pgtk_display_info *);
+static void pgtk_new_focus_frame (struct pgtk_display_info *, struct frame *);
 static void pgtk_clear_frame_area (struct frame *, int, int, int, int);
 static void pgtk_fill_rectangle (struct frame *, unsigned long, int, int,
 				 int, int, bool);
@@ -153,8 +157,6 @@ pgtk_enumerate_devices (struct pgtk_display_info *dpyinfo,
   struct pgtk_device_t *rec;
   GList *all_seats, *devices_on_seat, *tem, *t1;
   GdkSeat *seat;
-  char printbuf[1026]; /* Believe it or not, some device names are
-			  actually almost this long.  */
 
   block_input ();
   all_seats = gdk_display_list_seats (dpyinfo->gdpy);
@@ -184,17 +186,18 @@ pgtk_enumerate_devices (struct pgtk_display_info *dpyinfo,
 
 	  if (t1->data)
 	    {
-	      rec->device = GDK_DEVICE (t1->data);
-	      snprintf (printbuf, 1026, "%u:%s",
-			gdk_device_get_source (rec->device),
-			gdk_device_get_name (rec->device));
+	      GdkInputSource source;
+	      const char *name;
 
-	      rec->name = build_string (printbuf);
+	      rec->device = GDK_DEVICE (t1->data);
+	      source = gdk_device_get_source (rec->device);
+	      name = gdk_device_get_name (rec->device);
+	      rec->name = make_formatted_string ("%u:%s", source, name);
 	    }
 	  else
 	    {
 	      /* GTK bug 7737 results in GDK seats being initialized
-		 with NULL devices in some cirumstances.  As events will
+		 with NULL devices in some circumstances.  As events will
 		 presumably also be delivered with their device fields
 		 set to NULL, insert a ersatz device record associated
 		 with NULL.  (bug#76239) */
@@ -465,9 +468,62 @@ pgtk_free_frame_resources (struct frame *f)
 #define CLEAR_IF_EQ(FIELD)	\
   do { if (f == dpyinfo->FIELD) dpyinfo->FIELD = 0; } while (false)
 
-  CLEAR_IF_EQ (x_focus_frame);
+  /* If this frame currently holds keyboard focus, explicitly transfer
+     focus to its parent frame before releasing resources.
+
+     On X11 the X server delivers a FocusIn event to the parent when a
+     child window is destroyed, so focus was restored automatically.
+     On Wayland there is no such mechanism: the compositor does nothing,
+     leaving Emacs with x_focus_frame == NULL permanently and ignoring
+     all keyboard input (bug#64625).
+
+     IMPORTANT: we must clear highlight_frame from f BEFORE calling
+     pgtk_new_focus_frame.  pgtk_new_focus_frame calls
+     pgtk_frame_rehighlight, which calls frame_unhighlight(old_highlight)
+     where old_highlight = dpyinfo->highlight_frame.  If that is still f,
+     frame_unhighlight -> gui_update_cursor(f) would try to use f's face
+     cache, which was already freed by free_frame_faces(f) above ->
+     segfault.  By clearing highlight_frame first, pgtk_frame_rehighlight
+     sees old_highlight == NULL and skips frame_unhighlight entirely.  */
+  if (f == dpyinfo->x_focus_frame)
+    {
+      struct frame *new_focus = FRAME_PARENT_FRAME (f);
+
+      /* Clear highlight_frame from f so pgtk_frame_rehighlight will not
+         call frame_unhighlight on the dying frame whose faces are freed. */
+      if (dpyinfo->highlight_frame == f)
+        dpyinfo->highlight_frame = NULL;
+
+      if (new_focus != NULL
+          && FRAME_LIVE_P (new_focus)
+          && FRAME_GTK_WIDGET (new_focus) != NULL
+          && gtk_widget_get_realized (FRAME_GTK_WIDGET (new_focus)))
+        {
+          /* Transfer Emacs's internal focus/highlight to the parent.  */
+          pgtk_new_focus_frame (dpyinfo, new_focus);
+          /* Physically move the GTK/Wayland keyboard focus to the parent
+             widget.  The Wayland compositor will not do this automatically
+             when the child widget is destroyed.  */
+          gtk_widget_grab_focus (FRAME_GTK_WIDGET (new_focus));
+        }
+      else
+        {
+          /* Parent is gone or unrealized; just clear focus state.  */
+          dpyinfo->x_focus_frame = NULL;
+          pgtk_frame_rehighlight (dpyinfo);
+        }
+    }
+
+  /* CLEAR_IF_EQ is now a no-op for highlight_frame if we already cleared
+     it above, which is correct.  */
   CLEAR_IF_EQ (highlight_frame);
-  CLEAR_IF_EQ (x_focus_event_frame);
+
+  /* Clear x_focus_event_frame directly so that any focus-out event
+     emitted by gtk_widget_destroy below is a no-op in
+     pgtk_focus_changed, preventing a spurious
+     pgtk_new_focus_frame(dpyinfo, NULL) that would undo the transfer.  */
+  if (f == dpyinfo->x_focus_event_frame)
+    dpyinfo->x_focus_event_frame = NULL;
   CLEAR_IF_EQ (last_mouse_frame);
   CLEAR_IF_EQ (last_mouse_motion_frame);
   CLEAR_IF_EQ (last_mouse_glyph_frame);
@@ -566,12 +622,12 @@ pgtk_calc_absolute_position (struct frame *f)
 
   /* We have nothing to do if the current position
      is already for the top-left corner.  */
-  if (! ((flags & XNegative) || (flags & YNegative)))
+  if (!((flags & XNegative) || (flags & YNegative)))
     return;
 
   /* Treat negative positions as relative to the leftmost bottommost
      position that fits on the screen.  */
-  if ((flags & XNegative) && (f->left_pos <= 0))
+  if (flags & XNegative)
     {
       int width = FRAME_PIXEL_WIDTH (f);
 
@@ -598,7 +654,7 @@ pgtk_calc_absolute_position (struct frame *f)
 
     }
 
-  if ((flags & YNegative) && (f->top_pos <= 0))
+  if (flags & YNegative)
     {
       int height = FRAME_PIXEL_HEIGHT (f);
 
@@ -674,33 +730,16 @@ pgtk_set_offset (struct frame *f, int xoff, int yoff, int change_gravity)
 
 static void
 pgtk_set_window_size (struct frame *f, bool change_gravity,
-		      int width, int height)
+		      int pixelwidth, int pixelheight)
 /* --------------------------------------------------------------------------
-     Adjust window pixel size based on given character grid size
-     Impl is a bit more complex than other terms, need to do some
-     internal clipping.
+     Adjust window pixel size based on given width and height.
    -------------------------------------------------------------------------- */
 {
-  int pixelwidth, pixelheight;
-
   block_input ();
-
-  gtk_widget_get_size_request (FRAME_GTK_WIDGET (f), &pixelwidth,
-			       &pixelheight);
-
-  pixelwidth = width;
-  pixelheight = height;
-
-  for (GtkWidget * w = FRAME_GTK_WIDGET (f); w != NULL;
-       w = gtk_widget_get_parent (w))
-    {
-      gint wd, hi;
-      gtk_widget_get_size_request (w, &wd, &hi);
-    }
 
   f->output_data.pgtk->preferred_width = pixelwidth;
   f->output_data.pgtk->preferred_height = pixelheight;
-  xg_wm_set_size_hint (f, 0, 0);
+
   xg_frame_set_char_size (f, pixelwidth, pixelheight);
   gtk_widget_queue_resize (FRAME_WIDGET (f));
 
@@ -942,7 +981,7 @@ pgtk_set_parent_frame (struct frame *f, Lisp_Object new_value,
       if (p != NULL)
 	{
 	  if (FRAME_DISPLAY_INFO (f) != FRAME_DISPLAY_INFO (p))
-	    error ("Cross display reparent.");
+	    error ("Cross display reparent");
 	}
 
       GtkWidget *fixed = FRAME_GTK_WIDGET (f);
@@ -3359,32 +3398,39 @@ pgtk_draw_window_divider (struct window *w, int x0, int x1, int y0, int y1)
   if (y1 - y0 > x1 - x0 && x1 - x0 > 2)
     /* Vertical.  */
     {
-      pgtk_set_cr_source_with_color (f, color_first, false);
+      pgtk_set_cr_source_with_color (f, color_first,
+                                     f->borders_respect_alpha_background);
       cairo_rectangle (cr, x0, y0, 1, y1 - y0);
       cairo_fill (cr);
-      pgtk_set_cr_source_with_color (f, color, false);
+      pgtk_set_cr_source_with_color (f, color,
+                                     f->borders_respect_alpha_background);
       cairo_rectangle (cr, x0 + 1, y0, x1 - x0 - 2, y1 - y0);
       cairo_fill (cr);
-      pgtk_set_cr_source_with_color (f, color_last, false);
+      pgtk_set_cr_source_with_color (f, color_last,
+                                     f->borders_respect_alpha_background);
       cairo_rectangle (cr, x1 - 1, y0, 1, y1 - y0);
       cairo_fill (cr);
     }
   else if (x1 - x0 > y1 - y0 && y1 - y0 > 3)
     /* Horizontal.  */
     {
-      pgtk_set_cr_source_with_color (f, color_first, false);
+      pgtk_set_cr_source_with_color (f, color_first,
+                                     f->borders_respect_alpha_background);
       cairo_rectangle (cr, x0, y0, x1 - x0, 1);
       cairo_fill (cr);
-      pgtk_set_cr_source_with_color (f, color, false);
+      pgtk_set_cr_source_with_color (f, color,
+                                     f->borders_respect_alpha_background);
       cairo_rectangle (cr, x0, y0 + 1, x1 - x0, y1 - y0 - 2);
       cairo_fill (cr);
-      pgtk_set_cr_source_with_color (f, color_last, false);
+      pgtk_set_cr_source_with_color (f, color_last,
+                                     f->borders_respect_alpha_background);
       cairo_rectangle (cr, x0, y1 - 1, x1 - x0, 1);
       cairo_fill (cr);
     }
   else
     {
-      pgtk_set_cr_source_with_color (f, color, false);
+      pgtk_set_cr_source_with_color (f, color,
+                                     f->borders_respect_alpha_background);
       cairo_rectangle (cr, x0, y0, x1 - x0, y1 - y0);
       cairo_fill (cr);
     }
@@ -3832,6 +3878,11 @@ pgtk_flash (struct frame *f)
       cairo_fill (cr);
     }
 
+  /* This surface may be leaked if XTflash is invoked again after a
+     visible bell but before the atimer has had an opportunity to undo
+     the first invocation.  (bug#77128) */
+  if (FRAME_X_OUTPUT (f)->cr_surface_visible_bell)
+    cairo_surface_destroy (FRAME_X_OUTPUT (f)->cr_surface_visible_bell);
   FRAME_X_OUTPUT (f)->cr_surface_visible_bell = surface;
 
   delay = make_timespec (0, 50 * 1000 * 1000);
@@ -4486,7 +4537,8 @@ set_fullscreen_state (struct frame *f)
 
     case FULLSCREEN_WIDTH:
     case FULLSCREEN_HEIGHT:
-      /* Not supported by gtk. Ignore them. */
+      /* Restoring from fullscreen to tiled (Bug#81165, Bug#81320).  */
+      gtk_window_unfullscreen (widget);
       break;
     }
 
@@ -5679,10 +5731,11 @@ pgtk_focus_changed (gboolean is_enter, int state,
 
 	  /* Don't stop displaying the initial startup message
 	     for a switch-frame event we don't need.  */
-	  /* When run as a daemon, Vterminal_frame is always NIL.  */
+	  /* When run as a daemon, Vterminal_frame is always nil.
+	     FIXME: Isn't it actually the other way around?  */
 	  bufp->ie.arg = (((NILP (Vterminal_frame)
 			    || !FRAME_PGTK_P (XFRAME (Vterminal_frame))
-			    || EQ (Fdaemonp (), Qt))
+			    || IS_DAEMON)
 			   && CONSP (Vframe_list)
 			   && !NILP (XCDR (Vframe_list))) ? Qt : Qnil);
 	  bufp->ie.kind = FOCUS_IN_EVENT;
@@ -5951,7 +6004,6 @@ motion_notify_event (GtkWidget *widget, GdkEvent *event,
 	     also when the target window is on another frame.  */
 	  && (f == XFRAME (selected_frame) || !NILP (focus_follows_mouse)))
 	{
-	  static Lisp_Object last_mouse_window;
 	  Lisp_Object window = window_from_coordinates
 	    (f, event->motion.x, event->motion.y, 0, false, false, false);
 
@@ -7017,7 +7069,7 @@ pgtk_term_init (Lisp_Object display_name, char *resource_name)
   GdkDisplay *dpy;
   struct terminal *terminal;
   struct pgtk_display_info *dpyinfo;
-  static int x_initialized = 0;
+  static bool x_initialized;
   static unsigned x_display_id = 0;
   static char *initial_display = NULL;
   char *dpy_name;
@@ -7028,6 +7080,7 @@ pgtk_term_init (Lisp_Object display_name, char *resource_name)
 
   block_input ();
 
+  bool was_initialized = x_initialized;
   if (!x_initialized)
     {
       any_help_event_p = false;
@@ -7038,8 +7091,7 @@ pgtk_term_init (Lisp_Object display_name, char *resource_name)
 #ifdef USE_CAIRO
       gui_init_fringe (&pgtk_redisplay_interface);
 #endif
-
-      ++x_initialized;
+      x_initialized = true;
     }
 
   dpy_name = SSDATA (display_name);
@@ -7054,7 +7106,7 @@ pgtk_term_init (Lisp_Object display_name, char *resource_name)
     char **argv2 = argv;
     guint id;
 
-    if (x_initialized++ > 1)
+    if (was_initialized)
       {
 	xg_display_open (dpy_name, &dpy);
       }
@@ -7067,7 +7119,7 @@ pgtk_term_init (Lisp_Object display_name, char *resource_name)
           argv[argc] = 0;
 
         argc = 0;
-        argv[argc++] = initial_argv[0];
+        argv[argc++] = initial_argv0;
 
 	if (strlen (dpy_name) != 0)
 	  {
@@ -7083,13 +7135,10 @@ pgtk_term_init (Lisp_Object display_name, char *resource_name)
 	id = g_log_set_handler ("GLib", G_LOG_LEVEL_WARNING | G_LOG_FLAG_FATAL
 				| G_LOG_FLAG_RECURSION, my_log_handler, NULL);
 
-	/* gtk_init does set_locale.  Fix locale before and after.  */
-	fixup_locale ();
+	gtk_disable_setlocale ();
 	unrequest_sigio ();	/* See comment in x_display_ok.  */
 	gtk_init (&argc, &argv2);
 	request_sigio ();
-	fixup_locale ();
-
 
         g_log_remove_handler ("GLib", id);
 
@@ -7097,7 +7146,7 @@ pgtk_term_init (Lisp_Object display_name, char *resource_name)
 
         dpy = DEFAULT_GDK_DISPLAY ();
 
-	initial_display = g_strdup (gdk_display_get_name (dpy));
+	initial_display = xstrdup (gdk_display_get_name (dpy));
 	dpy_name = initial_display;
 	lisp_dpy_name = build_string (dpy_name);
       }
@@ -7436,7 +7485,7 @@ syms_of_pgtkterm (void)
   DEFSYM (Qlatin_1, "latin-1");
 
   xg_default_icon_file
-    = build_pure_c_string ("icons/hicolor/scalable/apps/emacs.svg");
+    = build_string ("icons/hicolor/scalable/apps/emacs.svg");
   staticpro (&xg_default_icon_file);
 
   DEFSYM (Qx_gtk_map_stock, "x-gtk-map-stock");
@@ -7499,7 +7548,7 @@ If set to a non-float value, there will be no wait at all.  */);
 
   DEFVAR_LISP ("pgtk-keysym-table", Vpgtk_keysym_table,
     doc: /* Hash table of character codes indexed by X keysym codes.  */);
-  Vpgtk_keysym_table = make_hash_table (&hashtest_eql, 900, Weak_None, false);
+  Vpgtk_keysym_table = make_hash_table (&hashtest_eql, 900, Weak_None);
 
   window_being_scrolled = Qnil;
   staticpro (&window_being_scrolled);
@@ -7646,7 +7695,6 @@ pgtk_cr_export_frames (Lisp_Object frames, cairo_surface_type_t surface_type)
   Lisp_Object acc = Qnil;
   specpdl_ref count = SPECPDL_INDEX ();
 
-  specbind (Qredisplay_dont_pause, Qt);
   redisplay_preserve_echo_area (31);
 
   f = XFRAME (XCAR (frames));

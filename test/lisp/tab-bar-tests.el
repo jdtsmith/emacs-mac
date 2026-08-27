@@ -1,6 +1,6 @@
 ;;; tab-bar-tests.el --- Tests for tab-bar.el          -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Author: Juri Linkov <juri@linkov.net>
 
@@ -42,10 +42,14 @@
   (should (eq (length tab-bar-closed-tabs) 0)))
 
 (ert-deftest tab-bar-tests-close-other-tabs-default ()
-  (tab-bar-tests-close-other-tabs nil))
+  (tab-bar-tests-close-other-tabs nil)
+  ;; Clean up tabs afterwards
+  (tab-bar-tabs-set nil))
 
 (ert-deftest tab-bar-tests-close-other-tabs-with-arg ()
-  (dotimes (i 5) (tab-bar-tests-close-other-tabs i)))
+  (dotimes (i 5) (tab-bar-tests-close-other-tabs i))
+  ;; Clean up tabs afterwards
+  (tab-bar-tabs-set nil))
 
 (provide 'tab-bar-tests)
 ;;; tab-bar-tests.el ends here

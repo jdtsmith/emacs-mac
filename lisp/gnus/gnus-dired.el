@@ -1,6 +1,6 @@
 ;;; gnus-dired.el --- utility functions where gnus and dired meet  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1996-1999, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1999, 2001-2026 Free Software Foundation, Inc.
 
 ;; Authors: Benjamin Rutt <brutt@bloomington.in.us>,
 ;;          Shenghuo Zhu <zsh@cs.rochester.edu>
@@ -136,10 +136,8 @@ filenames."
     ;; warn if user tries to attach without any files marked
     (if (null files-to-attach)
 	(error "No files to attach")
-      (setq files-str
-	    (mapconcat
-	     (lambda (f) (file-name-nondirectory f))
-	     files-to-attach ", "))
+      (setq files-str (mapconcat #'file-name-nondirectory
+                                 files-to-attach ", "))
       (setq bufs (gnus-dired-mail-buffers))
 
       ;; set up destination mail composition buffer

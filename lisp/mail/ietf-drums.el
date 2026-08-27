@@ -1,6 +1,6 @@
 ;;; ietf-drums.el --- Functions for parsing RFC 2822 headers  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; This file is part of GNU Emacs.
@@ -26,8 +26,6 @@
 ;; 1998-08-05.
 
 ;;; Code:
-
-(eval-when-compile (require 'cl-lib))
 
 (defvar ietf-drums-no-ws-ctl-token "\001-\010\013\014\016-\037\177"
   "US-ASCII control characters excluding CR, LF and white space.")
@@ -86,7 +84,7 @@ backslash and doublequote.")
 	b c out range)
     (while (< i (length token))
       (setq c (aref token i))
-      (cl-incf i)
+      (incf i)
       (cond
        ((eq c ?-)
 	(if b
@@ -95,7 +93,7 @@ backslash and doublequote.")
        (range
 	(while (<= b c)
 	  (push (make-char 'ascii b) out)
-	  (cl-incf b))
+          (incf b))
 	(setq range nil))
        ((= i (length token))
 	(push (make-char 'ascii c) out))
@@ -275,11 +273,11 @@ a list of address strings."
            ((eq c ?:)
             (setq beg (1+ (point)))
             (skip-chars-forward "^;")
-            (when-let ((address
-                  (condition-case nil
-                      (ietf-drums-parse-addresses
-                       (buffer-substring beg (point)) rawp)
-                    (error nil))))
+            (when-let* ((address
+                         (condition-case nil
+                             (ietf-drums-parse-addresses
+                              (buffer-substring beg (point)) rawp)
+                           (error nil))))
               (if (listp address)
                   (setq pairs (append address pairs))
                 (push address pairs)))

@@ -1,6 +1,6 @@
 ;;; eudc.el --- Emacs Unified Directory Client  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
 ;; Author: Oscar Figueiredo <oscar@cpe.fr>
 ;;         Pavel Janík <Pavel@Janik.cz>
@@ -109,7 +109,9 @@
    (version<= "3" (car (split-string bbdb-version)))))
 
 (defun eudc--plist-member (plist prop &optional predicate)
-  "Like `plist-member', but signal on invalid PLIST."
+  "Like `plist-member', but signal on invalid PLIST.
+Return t if PROP has a value specified in PLIST.  The comparison with
+PROP is done using PREDICATE, which defaults to `eq'."
   (or (plistp plist)
       (signal 'wrong-type-argument `(plistp ,plist)))
   (plist-member plist prop predicate))
@@ -571,7 +573,7 @@ otherwise they are formatted according to `eudc-user-attribute-names-alist'."
 	(widget-insert " ")
 	(widget-create 'push-button
 		       :notify (lambda (&rest _ignore)
-				 (kill-this-buffer))
+				 (kill-current-buffer))
 		       "Quit")
 	(eudc-mode)
 	(widget-setup)
@@ -883,7 +885,8 @@ non-nil, collect results from all servers."
 
 ;;;###autoload
 (defun eudc-format-inline-expansion-result (res query-attrs)
-  "Format a query result according to `eudc-inline-expansion-format'."
+  "Format a query result RES according to `eudc-inline-expansion-format'.
+QUERY-ATTRS is a list of attributes to include in the expansion."
   (cond
    ;; format string
    ((consp eudc-inline-expansion-format)
@@ -1096,7 +1099,7 @@ queries the server for the existing fields and displays a corresponding form."
     (widget-insert " ")
     (widget-create 'push-button
 		   :notify (lambda (&rest _ignore)
-			     (kill-this-buffer))
+			     (kill-current-buffer))
 		   "Quit")
     (goto-char pt)
     (use-local-map widget-keymap)
@@ -1319,25 +1322,25 @@ This does nothing except loading eudc by autoload side-effect."
   (defvar eudc-tools-menu
     (let ((map (make-sparse-keymap "Directory Servers")))
       (define-key map [phone]
-	`(menu-item ,(purecopy "Get Phone") eudc-get-phone
-		    :help ,(purecopy "Get the phone field of name from the directory server")))
+        '(menu-item "Get Phone" eudc-get-phone
+                    :help "Get the phone field of name from the directory server"))
       (define-key map [email]
-	`(menu-item ,(purecopy "Get Email") eudc-get-email
-		    :help ,(purecopy "Get the email field of NAME from the directory server")))
+        '(menu-item "Get Email" eudc-get-email
+                    :help "Get the email field of NAME from the directory server"))
       (define-key map [separator-eudc-email] menu-bar-separator)
       (define-key map [expand-inline]
-	`(menu-item ,(purecopy "Expand Inline Query") eudc-expand-inline
-		    :help ,(purecopy "Query the directory server, and expand the query string before point")))
+        '(menu-item "Expand Inline Query" eudc-expand-inline
+                    :help "Query the directory server, and expand the query string before point"))
       (define-key map [query]
-	`(menu-item ,(purecopy "Query with Form") eudc-query-form
-		    :help ,(purecopy "Display a form to query the directory server")))
+        '(menu-item "Query with Form" eudc-query-form
+                    :help "Display a form to query the directory server"))
       (define-key map [separator-eudc-query] menu-bar-separator)
       (define-key map [new]
-	`(menu-item ,(purecopy "New Server") eudc-set-server
-		    :help ,(purecopy "Set the directory server to SERVER using PROTOCOL")))
+        '(menu-item "New Server" eudc-set-server
+                    :help "Set the directory server to SERVER using PROTOCOL"))
       (define-key map [load]
-	`(menu-item ,(purecopy "Load Hotlist of Servers") eudc-load-eudc
-		    :help ,(purecopy "Load the Emacs Unified Directory Client")))
+        '(menu-item "Load Hotlist of Servers" eudc-load-eudc
+                    :help "Load the Emacs Unified Directory Client"))
       map))
   (fset 'eudc-tools-menu (symbol-value 'eudc-tools-menu)))
 

@@ -1,6 +1,6 @@
 ;;; charset-tests.el --- Tests for charset.c -*- lexical-binding: t -*-
 
-;; Copyright 2017-2025 Free Software Foundation, Inc.
+;; Copyright 2017-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -24,6 +24,16 @@
 (ert-deftest charset-decode-char ()
   "Test `decode-char'."
   (should-error (decode-char 'ascii 0.5)))
+
+(ert-deftest charset-tests-define-charset ()
+  (eval '(define-charset 'charset-tests-cs-1
+           "Only used for testing"
+           :short-name  "CTCS1"
+           :long-name "Charset-Tests-Charset-1"
+           :code-space [33 126 33 126]
+           :code-offset #x28083A
+           :unify-map "CNS-F"))
+  (should (charsetp 'charset-tests-cs-1)))
 
 (provide 'charset-tests)
 

@@ -1,9 +1,10 @@
 ;;; ox-beamer.el --- Beamer Backend for Org Export Engine -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: Carsten Dominik <carsten.dominik AT gmail DOT com>
 ;;         Nicolas Goaziou <n.goaziou AT gmail DOT com>
+;; Maintainer: Pedro A. Aranda <paaguti aT gmail d.T com>
 ;; Keywords: org, text, tex
 
 ;; This file is part of GNU Emacs.
@@ -198,6 +199,7 @@ through `org-beamer-environments-extra' variable.")
     ("example"        "e" "\\begin{example}%a[%h]%l"        "\\end{example}")
     ("exampleblock"   "E" "\\begin{exampleblock}%a{%h}%l"   "\\end{exampleblock}")
     ("proof"          "p" "\\begin{proof}%a[%h]"          "\\end{proof}")
+    ("onlyenv"        "O" "\\begin{onlyenv}%a"            "\\end{onlyenv}")
     ("beamercolorbox" "o" "\\begin{beamercolorbox}%o{%h}" "\\end{beamercolorbox}"))
   "Environments triggered by properties in Beamer export.
 These are the defaults - for user definitions, see
@@ -500,6 +502,15 @@ used as a communication channel."
 		      (if (and env (equal (downcase env) "fullframe")) ""
 			(org-export-data
 			 (org-element-property :title headline) info))))
+            ;; Subtitle
+            (when-let* ((subtitle
+                         (org-element-property :BEAMER_SUBTITLE headline)))
+              (format "{%s}"
+                      (org-export-data
+                       (org-element-parse-secondary-string
+                        subtitle
+                        (org-element-restriction 'keyword))
+                       info)))
 	    "\n"
 	    ;; The following workaround is required in fragile frames
 	    ;; as Beamer will append "\par" to the beginning of the

@@ -1,6 +1,6 @@
 ;;; eww-tests.el --- tests for eww.el  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2024-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2024-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -28,6 +28,22 @@
   "A function for returning a mock response for URL.
 The default just returns an empty list of headers and the URL as the
 body.")
+
+(defvar eww-test--lots-of-words
+  (string-join (make-list 20 "All work and no play makes Jack a dull boy.")
+               " ")
+  "A long enough run of words to satisfy EWW's readable mode cutoff.")
+
+(defvar eww-test--wordy-page
+  (concat "<html>"
+          "<head>"
+          "<title>Welcome to my home page</title>"
+          "<link rel=\"home\" href=\"somewhere.invalid\">"
+          "<base href=\"/foo/\">"
+          "</head><body>"
+          "<a>This is an uninteresting sentence.</a>"
+          "<div>" eww-test--lots-of-words "</div>"
+          "</body></html>"))
 
 (defmacro eww-test--with-mock-retrieve (&rest body)
   "Evaluate BODY with a mock implementation of `eww-retrieve'.
@@ -66,6 +82,53 @@ temporary EWW buffer for our tests."
       (should (equal (pcase (plist-get eww-data :dom)
                        (`(base ((href . ,url)) ,_) url))
                      "http://example.invalid/")))))
+
+(ert-deftest eww-test/tag/textarea/starts-on-new-line ()
+  "Test that inserting a newline before a <textarea> works correctly."
+  (skip-unless (libxml-available-p))
+  (eww-test--with-mock-retrieve
+    (let ((shr-fill-text nil)
+          (eww-test--response-function
+           (lambda (_url)
+             (concat "Content-Type: text/html\n\n"
+                     "<html><body>"
+                     "field: <textarea>text</textarea>"
+                     "</body></html>"))))
+      (eww "example.invalid")
+      ;; Make sure the text before the <textarea> doesn't have any of
+      ;; the <textarea> properties.
+      (goto-char (point-min))
+      (should-not (get-text-property (point) 'eww-form))
+      (should (eq (get-text-property (point) 'face) 'shr-text))
+      ;; Make sure the <textarea> has the correct properties.
+      (forward-line 1)
+      (should (get-text-property (point) 'eww-form))
+      (should (eq (get-text-property (point) 'face)
+                  'eww-form-textarea)))))
+
+(ert-deftest eww-test/tag/textarea/reload ()
+  "Ensure that reloading a document with a <textarea> works correctly."
+  (skip-unless (libxml-available-p))
+  (eww-test--with-mock-retrieve
+    (let ((shr-fill-text nil)
+          (eww-test--response-function
+           (lambda (_url)
+             (concat "Content-Type: text/html\n\n"
+                     "<html><body>"
+                     "<textarea>text</textarea>"
+                     "<div>this is the end</div>"
+                     "</body></html>"))))
+      (eww "example.invalid")
+      ;; Make sure that text after the <textarea> is regular text.
+      (goto-char (point-max))
+      (forward-line -1)
+      (should (eq (get-text-property (point) 'face) 'shr-text))
+      ;; Now reload, and make sure the above is still true.
+      (eww-reload)
+      (accept-process-output)           ; Let track-changes run.
+      (goto-char (point-max))
+      (forward-line -1)
+      (should (eq (get-text-property (point) 'face) 'shr-text)))))
 
 (ert-deftest eww-test/history/new-page ()
   "Test that when visiting a new page, the previous one goes into the history."
@@ -201,19 +264,10 @@ This sets `eww-before-browse-history-function' to
   (eww-test--with-mock-retrieve
     (let* ((shr-width most-positive-fixnum)
            (shr-use-fonts nil)
-           (words (string-join
-                   (make-list
-                    20 "All work and no play makes Jack a dull boy.")
-                   " "))
            (eww-test--response-function
             (lambda (_url)
               (concat "Content-Type: text/html\n\n"
-                      "<html><body>"
-                      "<a>This is an uninteresting sentence.</a>"
-                      "<div>"
-                      words
-                      "</div>"
-                      "</body></html>"))))
+                      eww-test--wordy-page))))
       (eww "example.invalid")
       ;; Make sure EWW renders the whole document.
       (should-not (plist-get eww-data :readable))
@@ -224,7 +278,7 @@ This sets `eww-before-browse-history-function' to
       ;; Now, EWW should render just the "readable" parts.
       (should (plist-get eww-data :readable))
       (should (string-match-p
-               (concat "\\`" (regexp-quote words) "\n*\\'")
+               (concat "\\`" (regexp-quote eww-test--lots-of-words) "\n*\\'")
                (buffer-substring-no-properties (point-min) (point-max))))
       (eww-readable 'toggle)
       ;; Finally, EWW should render the whole document again.
@@ -240,11 +294,48 @@ This sets `eww-before-browse-history-function' to
     (let* ((eww-test--response-function
             (lambda (_url)
               (concat "Content-Type: text/html\n\n"
-                      "<html><body>Hello there</body></html>")))
+                      eww-test--wordy-page)))
            (eww-readable-urls '("://example\\.invalid/")))
       (eww "example.invalid")
       ;; Make sure EWW uses "readable" mode.
-      (should (plist-get eww-data :readable)))))
+      (should (plist-get eww-data :readable))
+      ;; Make sure the page include the <title>, <link>, and <base> nodes.
+      (should (equal (plist-get eww-data :title) "Welcome to my home page"))
+      (should (equal (plist-get eww-data :home) "somewhere.invalid"))
+      (let* ((html (dom-child-by-tag (plist-get eww-data :dom) 'html))
+             (base-tags (dom-by-tag html 'base)))
+        (should (length= base-tags 1))
+        (should (equal (dom-attr (car base-tags) 'href) "/foo/"))))))
+
+(ert-deftest eww-test/readable/default-readable/non-readable-page ()
+  "Test that EWW handles readable-by-default correctly for non-readable pages."
+  (skip-unless (libxml-available-p))
+  (eww-test--with-mock-retrieve
+    (let* ((eww-test--response-function
+            (lambda (_url)
+              (concat "Content-Type: text/html\n\n"
+                      "<html><body><h1>Hello</h1></body></html>")))
+           (eww-readable-urls '("://example\\.invalid/")))
+      (eww "example.invalid")
+      ;; Make sure EWW doesn't use "readable" mode here.
+      (should-not (plist-get eww-data :readable)))))
+
+(ert-deftest eww-test/readable/reload-resets-readable ()
+  "Test that reloading a page resets the \"readable\" state."
+  (skip-unless (libxml-available-p))
+  (eww-test--with-mock-retrieve
+    (let* ((shr-width most-positive-fixnum)
+           (shr-use-fonts nil)
+           (eww-test--response-function
+            (lambda (_url)
+              (concat "Content-Type: text/html\n\n"
+                      eww-test--wordy-page))))
+      (eww "example.invalid")
+      (eww-readable 'toggle)
+      (should (plist-get eww-data :readable))
+      ;; Reload the page, and check if the result uses readable view.
+      (eww-reload)
+      (should-not (plist-get eww-data :readable)))))
 
 (provide 'eww-tests)
 ;; eww-tests.el ends here

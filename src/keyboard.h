@@ -1,5 +1,5 @@
 /* Declarations useful when processing input.
-   Copyright (C) 1985-1987, 1993, 2001-2025 Free Software Foundation,
+   Copyright (C) 1985-1987, 1993, 2001-2026 Free Software Foundation,
    Inc.
 
 This file is part of GNU Emacs.
@@ -242,7 +242,7 @@ extern KBOARD *initial_kboard;
 
    In the any-kboard state, this is the kboard from which we are
    right now considering input.  We can consider input from another
-   kboard, but doing so requires throwing to wrong_kboard_jmpbuf.  */
+   kboard, but doing so requires returning -2 (wrong_kboard_jmpbuf).  */
 extern KBOARD *current_kboard;
 
 
@@ -258,12 +258,12 @@ extern uintmax_t num_input_events;
 
 /* The location of point immediately before the last command was
    executed, or the last time the undo-boundary command added a
-   boundary.*/
+   boundary.  */
 extern ptrdiff_t point_before_last_command_or_undo;
 
 /* The value of current_buffer immediately before the last command was
    executed, or the last time the undo-boundary command added a
-   boundary.*/
+   boundary.  */
 extern struct buffer *buffer_before_last_command_or_undo;
 
 extern struct buffer *prev_buffer;
@@ -294,26 +294,31 @@ extern Lisp_Object item_properties;
 /* This describes the elements of item_properties.
    The first element is not a property, it is a pointer to the item properties
    that is saved for GC protection. */
-#define ITEM_PROPERTY_ITEM 0
-/* The item string.  */
-#define ITEM_PROPERTY_NAME 1
-/* Start of initialize to nil */
-/* The binding: nil, a command or a keymap.  */
-#define ITEM_PROPERTY_DEF 2
-/* The keymap if the binding is a keymap, otherwise nil.  */
-#define ITEM_PROPERTY_MAP 3
-/* Nil, :radio or :toggle.  */
-#define ITEM_PROPERTY_TYPE 4
-/* Nil or a string describing an equivalent key binding.  */
-#define ITEM_PROPERTY_KEYEQ 5
-/* Not nil if a selected toggle box or radio button, otherwise nil.  */
-#define ITEM_PROPERTY_SELECTED 6
-/* Place for a help string. Not yet used.  */
-#define ITEM_PROPERTY_HELP 7
-/* Start of initialize to t */
-/* Last property. */
-/* Not nil if item is enabled.  */
-#define ITEM_PROPERTY_ENABLE 8
+enum item_property_idx
+{
+  ITEM_PROPERTY_ITEM,
+  /* The item string.  */
+  ITEM_PROPERTY_NAME,
+  /* Start of initialize to nil */
+  /* The binding: nil, a command or a keymap.  */
+  ITEM_PROPERTY_DEF,
+  /* The keymap if the binding is a keymap, otherwise nil.  */
+  ITEM_PROPERTY_MAP,
+  /* Nil, :radio or :toggle.  */
+  ITEM_PROPERTY_TYPE,
+  /* Nil or a string describing an equivalent key binding.  */
+  ITEM_PROPERTY_KEYEQ,
+  /* Not nil if a selected toggle box or radio button, otherwise nil.  */
+  ITEM_PROPERTY_SELECTED,
+  /* Place for a help string. Not yet used.  */
+  ITEM_PROPERTY_HELP,
+  /* Start of initialize to t */
+  /* Last property. */
+  /* Not nil if item is enabled.  */
+  ITEM_PROPERTY_ENABLE,
+  /* Keep this equal to the highest member.  */
+  ITEM_PROPERTY_MAX = ITEM_PROPERTY_ENABLE
+};
 
 /* This holds a Lisp vector that holds the results of decoding
    the keymaps or alist-of-alists that specify a menu.
@@ -352,9 +357,12 @@ extern int menu_items_used;
    excluding those within submenus.  */
 extern int menu_items_n_panes;
 
-#define MENU_ITEMS_PANE_NAME 1
-#define MENU_ITEMS_PANE_PREFIX 2
-#define MENU_ITEMS_PANE_LENGTH 3
+enum menu_item_pane_idx
+{
+  MENU_ITEMS_PANE_NAME = 1,
+  MENU_ITEMS_PANE_PREFIX = 2,
+  MENU_ITEMS_PANE_LENGTH = 3,
+};
 
 enum menu_item_idx
 {
@@ -370,9 +378,9 @@ enum menu_item_idx
 };
 
 enum
-  {
-    KBD_BUFFER_SIZE = 4096
-  };
+{
+  KBD_BUFFER_SIZE = 4096
+};
 
 extern void unuse_menu_items (void);
 
@@ -452,8 +460,6 @@ extern bool ignore_mouse_drag_p;
 
 extern Lisp_Object parse_modifiers (Lisp_Object);
 extern Lisp_Object reorder_modifiers (Lisp_Object);
-extern Lisp_Object read_char (int, Lisp_Object, Lisp_Object,
-                              bool *, struct timespec *);
 extern int parse_solitary_modifier (Lisp_Object symbol);
 
 
@@ -483,7 +489,6 @@ extern int gobble_input (void);
 extern bool input_polling_used (void);
 extern void clear_input_pending (void);
 extern bool requeued_command_events_pending_p (void);
-extern bool requeued_events_pending_p (void);
 extern void bind_polling_period (int);
 extern int make_ctrl_char (int) ATTRIBUTE_CONST;
 extern void stuff_buffered_input (Lisp_Object);
@@ -497,8 +502,8 @@ INLINE void
 kbd_buffer_store_event_hold (struct input_event *event,
 			     struct input_event *hold_quit)
 {
-  verify (alignof (struct input_event) == alignof (union buffered_input_event)
-	  && sizeof (struct input_event) == sizeof (union buffered_input_event));
+  static_assert (alignof (struct input_event) == alignof (union buffered_input_event)
+		 && sizeof (struct input_event) == sizeof (union buffered_input_event));
   kbd_buffer_store_buffered_event ((union buffered_input_event *) event,
 				   hold_quit);
 }

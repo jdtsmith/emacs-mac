@@ -1,6 +1,6 @@
 /* A substitute for POSIX 2008 <stddef.h>, for platforms that have issues.
 
-   Copyright (C) 2009-2025 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is free software: you can redistribute it and/or modify
    it under the terms of the GNU Lesser General Public License as
@@ -31,8 +31,8 @@
      || defined __need_ptrdiff_t || defined __need_NULL             \
      || defined __need_wint_t)                                      \
     /* Avoid warning triggered by "gcc -std=gnu23 -Wsystem-headers" \
-       in Fedora 40 with gcc 14.0.1.                                \
-       <https://gcc.gnu.org/bugzilla/show_bug.cgi?id=114870>.  */   \
+       in GCC 13.3 and 14.2                                         \
+       <https://gcc.gnu.org/PR114870>.  */   \
     && !@STDDEF_NOT_IDEMPOTENT@
 /* Special invocation convention inside gcc header files.  In
    particular, <stddef.h> in some ancient versions of GCC blindly
@@ -91,7 +91,7 @@ typedef long max_align_t;
 
 #  if !defined _GCC_NULLPTR_T && !@NULLPTR_T_NEEDS_STDDEF@
     /* Suppress unwanted nullptr_t typedef.  See
-       <https://gcc.gnu.org/bugzilla/show_bug.cgi?id=114869>.  */
+       <https://gcc.gnu.org/PR114869>.  */
 #   define _GCC_NULLPTR_T
 #  endif
 
@@ -131,7 +131,7 @@ typedef long max_align_t;
  */
 #ifndef _GL_ATTRIBUTE_NOTHROW
 # if defined __cplusplus
-#  if (__GNUC__ + (__GNUC_MINOR__ >= 8) > 2) || __clang_major >= 4
+#  if (__GNUC__ + (__GNUC_MINOR__ >= 8) > 2) || __clang_major__ >= 4
 #   if __cplusplus >= 201103L
 #    define _GL_ATTRIBUTE_NOTHROW noexcept (true)
 #   else
@@ -147,11 +147,6 @@ typedef long max_align_t;
 #   define _GL_ATTRIBUTE_NOTHROW
 #  endif
 # endif
-#endif
-
-/* Some platforms lack wchar_t.  */
-#if !@HAVE_WCHAR_T@
-# define wchar_t int
 #endif
 
 /* Some platforms lack max_align_t.  The check for _GCC_MAX_ALIGN_T is
@@ -193,38 +188,57 @@ typedef union
 #endif
 
 /* ISO C 23 § 7.21.1 The unreachable macro  */
-#ifndef unreachable
+/* This macro is only usable in C, not in C++.
+   There is no way to define it as a macro in C++, because that would break code
+   that does
+       #include <utility>
+       ... std::unreachable() ...
+   Similarly, there is no way to define it as an inline function in C++, because
+   that would break code that does
+       #include <utility>
+       using std::unreachable;
+   As a workaround, we define a macro gl_unreachable, that is like unreachable,
+   but is usable in both C and C++.  */
 
 /* Code borrowed from verify.h.  */
-# ifndef _GL_HAS_BUILTIN_UNREACHABLE
-#  if defined __clang_major__ && __clang_major__ < 5
-#   define _GL_HAS_BUILTIN_UNREACHABLE 0
-#  elif 4 < __GNUC__ + (5 <= __GNUC_MINOR__)
-#   define _GL_HAS_BUILTIN_UNREACHABLE 1
-#  elif defined __has_builtin
-#   define _GL_HAS_BUILTIN_UNREACHABLE __has_builtin (__builtin_unreachable)
-#  else
-#   define _GL_HAS_BUILTIN_UNREACHABLE 0
-#  endif
-# endif
-
-# if _GL_HAS_BUILTIN_UNREACHABLE
-#  define unreachable() __builtin_unreachable ()
-# elif 1200 <= _MSC_VER
-#  define unreachable() __assume (0)
+#ifndef _GL_HAS_BUILTIN_UNREACHABLE
+# if defined __clang_major__ && __clang_major__ < 5
+#  define _GL_HAS_BUILTIN_UNREACHABLE 0
+# elif 4 < __GNUC__ + (5 <= __GNUC_MINOR__) && !defined __clang__
+#  define _GL_HAS_BUILTIN_UNREACHABLE 1
+# elif defined __has_builtin
+#  define _GL_HAS_BUILTIN_UNREACHABLE __has_builtin (__builtin_unreachable)
 # else
+#  define _GL_HAS_BUILTIN_UNREACHABLE 0
+# endif
+#endif
+
+#if _GL_HAS_BUILTIN_UNREACHABLE
+# define gl_unreachable() __builtin_unreachable ()
+#elif 1200 <= _MSC_VER
+# define gl_unreachable() __assume (0)
+#elif !defined __cplusplus && @HAVE_C_UNREACHABLE@
+# define gl_unreachable() unreachable ()
+#else
 /* Declare abort(), without including <stdlib.h>.  */
 extern
-#  if defined __cplusplus
+# if defined __cplusplus
 "C"
-#  endif
+# endif
 _Noreturn
 void abort (void)
-#  if defined __cplusplus && (__GLIBC__ >= 2)
+# if defined __cplusplus && (__GLIBC__ >= 2)
 _GL_ATTRIBUTE_NOTHROW
-#  endif
+# endif
 ;
-#  define unreachable() abort ()
+# define gl_unreachable() abort ()
+#endif
+
+#if !defined __cplusplus && !@HAVE_C_UNREACHABLE@
+/* In C, define unreachable as a macro.  */
+
+# ifndef unreachable
+#  define unreachable() gl_unreachable ()
 # endif
 
 #endif

@@ -1,6 +1,6 @@
-@c -*- mode: texinfo; coding: utf-8 -*-
+@c -*- mode: texinfo -*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--1999, 2001--2025 Free Software
+@c Copyright (C) 1990--1995, 1998--1999, 2001--2026 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Functions
@@ -90,7 +90,7 @@ fundamental part of Lisp (e.g., @code{car}), or because it provides a
 low-level interface to operating system services, or because it needs
 to run fast.  Unlike functions defined in Lisp, primitives can be
 modified or added only by changing the C sources and recompiling
-Emacs.  See @ref{Writing Emacs Primitives}.
+Emacs.  @xref{Writing Emacs Primitives}.
 
 @item special form
 A primitive that is like a function but does not evaluate all of its
@@ -219,11 +219,11 @@ function.  For example:
 
 @defun compiled-function-p object
 This function returns @code{t} if @var{object} is a function object
-that is not in the form of ELisp source code but something like
+that is not in the form of Lisp source code but something like
 machine code or byte code instead.  More specifically it returns
 @code{t} if the function is built-in (a.k.a.@: ``primitive'',
 @pxref{What Is a Function}), or byte-compiled (@pxref{Byte
-Compilation}), or natively-compiled (@pxref{Native Compilation}), or
+Compilation}), or native-compiled (@pxref{Native Compilation}), or
 a function loaded from a dynamic module (@pxref{Dynamic Modules}).
 @end defun
 
@@ -674,6 +674,7 @@ variable; these two uses of a symbol are independent and do not
 conflict.  (This is not the case in some dialects of Lisp, like
 Scheme.)
 
+@cindex internal functions, naming conventions
   By convention, if a function's symbol consists of two names
 separated by @samp{--}, the function is intended for internal use and
 the first part names the file defining the function.  For example, a
@@ -752,9 +753,9 @@ commands, such as @kbd{C-h f}, which present in the @file{*Help*}
 buffer a button to jump to the function's definition, might be unable
 to find the source code because generating a function dynamically
 usually looks very different from the usual static calls to
-@code{defun}.  You can make the job of finding the code which
+@code{defun}.  You can make the job of finding the code that
 generates such functions easier by using the @code{definition-name}
-property, @pxref{Standard Properties}.
+or @code{find-function-type-alist} property, @pxref{Standard Properties}.
 
 @cindex override existing functions
 @cindex redefine existing functions
@@ -831,6 +832,112 @@ and tells the Lisp compiler to perform inline expansion on it.
 
   To undefine a function name, use @code{fmakunbound}.
 @xref{Function Cells}.
+
+@menu
+* Finding Definitions::         Finding function definitions created by macros.
+@end menu
+
+@node Finding Definitions
+@subsection Finding Definitions
+
+Tools such as Emacs's built-in help command @kbd{C-h f} (@pxref{Help,,,
+emacs, The GNU Emacs Manual}) can find the definition site of functions
+and other Lisp objects in the source code.  To do this, they use the
+variable @code{find-function-regexp-alist}.
+
+@vindex @code{find-function-regexp-alist}
+The alist @code{find-function-regexp-alist} associates object types with
+a regexp or a function that finds the definition of that object in its
+source file.  Each element's @code{car} is a symbol that describes the
+type of object, or @code{nil}, which means a function defined with
+@code{defun}.  Each element's @code{cdr} can be one of the following:
+
+@itemize
+@item
+A symbol whose value is a string interpreted as a regexp.
+@item
+A symbol naming a function that can find the definition.
+@item
+A cons cell where the @code{car} is a regexp (or function that returns
+one) and the @code{cdr} is @dfn{form-matcher}: a function that creates a
+matcher for macro-expanded forms.
+@end itemize
+
+A regexp string is actually a format string, and @code{%s} will be
+substituted with the name of the symbol we are looking for.
+
+A function will be called with one argument, the (symbol for) the object
+we are searching for.
+
+The form-matcher function in a cons cell value is called with one
+argument (the symbol being sought) and should return a function; that
+function should take a form and return non-@code{nil} if the form
+defines the sought symbol.  This is useful for finding definitions that
+are created by expansion of macros.
+
+@cindex @code{definition-name} (symbol property)
+If the function to be found is defined by a macro, it may be hard for
+Emacs to find the definition site in the source code.  A macro call may
+have an unexpected look to it, and @code{find-function-regexp-alist}
+will fail to identify the definition.
+
+For example, a @code{define-derived-mode} (@pxref{Derived Modes}) might
+define a mode-specific function or a variable implicitly; or your Lisp
+program might generate a run-time call to @code{defun} to define a
+function.  In these and similar cases, the @code{definition-name}
+property of the symbol should be another symbol whose definition can be
+found by textual search and whose code defines the original symbol.  In
+the example with @code{define-derived-mode}, the value of this property
+of the functions and variables it defines should be the mode symbol.
+
+@cindex @code{find-function-type-alist} (symbol property)
+In some cases, the definition cannot be found by looking for the
+definition of another symbol.  For example, a test file might use a
+macro to generate calls to @code{ert-deftest} (@pxref{How to Write
+Tests,,,ert, ERT: Emacs Lisp Regression Testing}) where the code is
+boiler plate and only varying data need to be passed in.  In such cases,
+the @code{find-function-type-alist} property of the symbol can be an
+alist that augments @code{find-function-regexp-alist} telling how to
+find the definition of symbols of this type.
+
+The @code{find-function-regexp-alist} property is most easily maintained
+with the convenience function @code{find-function-update-type-alist}.
+
+@defun find-function-update-type-alist symbol type variable
+Update property @code{find-function-type-alist} of @var{symbol} with
+a new element containing key @var{type} and value @var{variable}.
+@end defun
+
+In the example of a macro defining calls to @code{ert-deftest},
+the macro could put the property @code{find-function-type-alist} on each
+test defined, associating @code{ert--test} (the internal type of ERT
+tests) with the name of a regexp or function that can find the correct
+macro call.  The file defining the macro would also have to provide that
+definition-finding function or regexp.
+Here is an example using a function to find the definition:
+
+@example
+@group
+(defmacro define-foo-test (data)
+  "Define a test of the foo system using DATA."
+  (declare (debug (&rest sexp)))
+  (let ((test-name (intern (concat ...))))
+    `(progn
+       (find-function-update-type-alist
+        ',test-name 'ert--test 'foo-find-test-def-function)
+       (ert-deftest ,test-name ()
+         ,(concat "Test foo with " ...)
+         ...))))
+@end group
+
+@group
+(defun foo-find-test-def-function (test-name)
+  "Search for the `define-foo-test' call defining TEST-NAME.
+Return non-nil if the definition is found."
+  (let ((regexp ...))
+    (re-search-forward regexp nil t)))
+@end group
+@end example
 
 @node Calling Functions
 @section Calling Functions
@@ -964,7 +1071,17 @@ The result is a new function that accepts the rest of
 arguments and calls the original function with all the arguments
 combined.
 
-  Here's how to do partial application in Emacs Lisp:
+  In Emacs Lisp, this is best done with an anonymous function.  For
+example, if you have a function @samp{my-function} that takes two
+arguments, you could do something like this:
+
+@example
+(mapcar (lambda (x) (my-function 123 x)) @dots{})
+@end example
+
+  You can also do partial application using the function
+@code{apply-partially}.  However, this will be slower than using an
+anonymous function with @code{lambda}.
 
 @defun apply-partially func &rest args
 This function returns a new function which, when called, will call
@@ -1622,22 +1739,15 @@ same way as ordinary functions.
 
   @xref{Lexical Binding}, for an example of using a closure.
 
-  Currently, an Emacs Lisp closure object is represented by a list
-with the symbol @code{closure} as the first element, a list
-representing the lexical environment as the second element, and the
-argument list and body forms as the remaining elements:
-
 @example
 ;; @r{lexical binding is enabled.}
 (lambda (x) (* x x))
      @result{} #f(lambda (x) [t] (* x x))
 @end example
 
-@noindent
-However, the fact that the internal structure of a closure is
-exposed to the rest of the Lisp world is considered an internal
-implementation detail.  For this reason, we recommend against directly
-examining or altering the structure of closure objects.
+  The internal structure of a closure is an implementation matter and we
+recommend against examining or altering it directly.  For the curious,
+@pxref{Closure Objects}.
 
 @node OClosures
 @section Open Closures
@@ -1990,6 +2100,7 @@ Call the function @var{f} for every piece of advice that was added to
 and its properties.
 @end defun
 
+@anchor{advice-eval-interactive-spec}
 @defun advice-eval-interactive-spec spec
 Evaluate the interactive @var{spec} just like an interactive call to a function
 with such a spec would, and then return the corresponding list of arguments
@@ -2002,7 +2113,7 @@ For instance, if you want to make the @kbd{C-x m}
 could say something like this:
 
 @example
-(defun my-compose-mail-advice (orig &rest args)
+(defun my-compose-mail-advice (&rest _)
   "Read From: address interactively."
   (interactive
    (lambda (spec)
@@ -2016,9 +2127,10 @@ could say something like this:
        ;; Put the From header into the OTHER-HEADERS argument.
        (push (cons 'From from) (nth 2 spec))
        spec)))
-  (apply orig args))
+  ;; This body is not used.
+  nil)
 
-(advice-add 'compose-mail :around #'my-compose-mail-advice)
+(advice-add 'compose-mail :interactive-only #'my-compose-mail-advice)
 @end example
 @end defun
 
@@ -2038,8 +2150,8 @@ instead.  This separate set of functions to manipulate pieces of advice applied
 to named functions, offers the following extra features compared to
 @code{add-function}: they know how to deal with macros and autoloaded
 functions, they let @code{describe-function} preserve the original docstring as
-well as document the added advice, and they let you add and remove advice
-before a function is even defined.
+well as document the added advice, and they let you add and remove
+pieces of advice before a function is even defined.
 
   @code{advice-add} can be useful for altering the behavior of existing calls
 to an existing function without having to redefine the whole function.
@@ -2228,15 +2340,25 @@ More specifically, the composition of the two functions behaves like:
 @example
 (lambda (&rest r) (funcall @var{function} (apply @var{oldfun} r)))
 @end example
-@end table
 
+@item :interactive-only
+While the @var{where} option controls how the body of the two functions
+are composed, it does not actually affect the way interactive forms are
+composed.  So, in a sense, this does the opposite of @code{:override}:
+call only the old function as if no advice was applied.  But it still
+affects the interactive form like any other @var{where} value would: The
+interactive form of @var{function}, if any, overrides that of
+@var{oldfun} and if it is a lambda expression, it receives
+@var{function}'s interactive form as argument.
+See @pxref{advice-eval-interactive-spec} for an example.
+@end table
 
 @node Porting Old Advice
 @subsection Adapting code using the old defadvice
 @cindex old advices, porting
 @c NB: The following index entries deliberately avoid ``old'',
 @c an adjective that does not come to mind for those who grew up
-@c on ‘defadvice’ et al.  For those folks, that way is ``current''.
+@c on `defadvice' et al.  For those folks, that way is ``current''.
 @c They discover its oldness reading this node.
 @cindex advices, porting from @code{defadvice}
 @findex defadvice
@@ -2500,7 +2622,9 @@ as a compiler macro.  The function will accept the argument list
 If present, @var{doc} should be the function's documentation string
 (@pxref{Function Documentation}); @var{declare}, if present, should be
 a @code{declare} form (@pxref{Declare Form}) specifying the function's
-metadata.
+metadata.  In addition to the usual declarations, @var{declare}
+can include @code{(noinline @var{NOINLINE})} when a non-@code{nil}
+@var{NOINLINE} prevents Emacs from inlining the defined function.
 @end defmac
 
 Functions defined via @code{define-inline} have several advantages
@@ -2632,6 +2756,14 @@ as a documentation string.
 Indent calls to this function or macro according to @var{indent-spec}.
 This is typically used for macros, though it works for functions too.
 @xref{Indenting Macros}.
+
+@cindex @code{autoload-macro} (@code{declare} spec)
+@item (autoload-macro @var{value})
+This is used when defining a macro.  If @var{value} is @samp{expand},
+any calls to the macro which follow an autoload comment will first be
+expanded during generation of the autoloads.  This declaration is used
+as an alternative to hard-coding lists of macros to expand in
+@code{loaddefs-generate--make-autoload}.  @xref{Autoload}.
 
 @item (interactive-only @var{value})
 Set the function's @code{interactive-only} property to @var{value}.
@@ -2807,7 +2939,7 @@ defined in other files which would be loaded if that code is run.  For
 example, byte-compiling @file{simple.el} used to warn:
 
 @example
-simple.el:8727:1:Warning: the function ‘shell-mode’ is not known to be
+simple.el:8727:1:Warning: the function `shell-mode' is not known to be
     defined.
 @end example
 
@@ -2979,56 +3111,56 @@ elsewhere, but we provide cross references here.
 
 @table @code
 @item apply
-See @ref{Calling Functions}.
+@xref{Calling Functions}.
 
 @item autoload
-See @ref{Autoload}.
+@xref{Autoload}.
 
 @item call-interactively
-See @ref{Interactive Call}.
+@xref{Interactive Call}.
 
 @item called-interactively-p
-See @ref{Distinguish Interactive}.
+@xref{Distinguish Interactive}.
 
 @item commandp
-See @ref{Interactive Call}.
+@xref{Interactive Call}.
 
 @item documentation
-See @ref{Accessing Documentation}.
+@xref{Accessing Documentation}.
 
 @item eval
-See @ref{Eval}.
+@xref{Eval}.
 
 @item funcall
-See @ref{Calling Functions}.
+@xref{Calling Functions}.
 
 @item function
-See @ref{Anonymous Functions}.
+@xref{Anonymous Functions}.
 
 @item ignore
-See @ref{Calling Functions}.
+@xref{Calling Functions}.
 
 @item indirect-function
-See @ref{Function Indirection}.
+@xref{Function Indirection}.
 
 @item interactive
-See @ref{Using Interactive}.
+@xref{Using Interactive}.
 
 @item interactive-p
-See @ref{Distinguish Interactive}.
+@xref{Distinguish Interactive}.
 
 @item mapatoms
-See @ref{Creating Symbols}.
+@xref{Creating Symbols}.
 
 @item mapcar
-See @ref{Mapping Functions}.
+@xref{Mapping Functions}.
 
 @item map-char-table
-See @ref{Char-Tables}.
+@xref{Char-Tables}.
 
 @item mapconcat
-See @ref{Mapping Functions}.
+@xref{Mapping Functions}.
 
 @item undefined
-See @ref{Functions for Key Lookup}.
+@xref{Functions for Key Lookup}.
 @end table

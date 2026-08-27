@@ -1,6 +1,6 @@
 ;;; semantic-utest-ia.el --- Analyzer unit tests  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2008-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -141,7 +141,8 @@
               (semantic-src-utest-buffer-refs))
 
         (kill-buffer b)
-        ))))
+        )))
+  (semantic-mode -1))
 
 (defun semantic-ia-utest-buffer ()
   "Run analyzer completion unit-test pass in the current buffer."

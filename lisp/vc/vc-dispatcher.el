@@ -1,6 +1,6 @@
 ;;; vc-dispatcher.el --- generic command-dispatcher facility.  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2008-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 ;; Author: FSF (see below for full credits)
 ;; Keywords: vc tools
@@ -106,10 +106,9 @@
 
 ;;; Code:
 
-;; TODO:
-;; - log buffers need font-locking.
-
-(eval-when-compile (require 'cl-lib))
+(eval-when-compile
+  (require 'cl-lib)
+  (require 'cl-print))
 
 ;; General customization
 
@@ -119,6 +118,15 @@ Use this to impose your own rules on the entry in addition to any the
 dispatcher client mode imposes itself."
   :type 'hook
   :group 'vc)
+
+;; This hook was undeclared and undocumented until declared obsolete.
+;; I believe it can be replaced with `vc-log-after-operation-hook'; if
+;; someone can demonstrate a case where this is wanted too, we can
+;; bring it back.  --spwhitton
+(defvar vc-finish-logentry-hook nil
+  "Additional hook run at the end of `vc-finish-logentry'.")
+(make-obsolete-variable 'vc-finish-logentry-hook 'vc-log-after-operation-hook
+                        "31.1" 'set)
 
 (defcustom vc-delete-logbuf-window t
   "If non-nil, delete the log buffer and window after each logical action.
@@ -142,6 +150,14 @@ logged in the *Messages* buffer, but not displayed."
   :type 'boolean
   :group 'vc)
 
+(defcustom vc-display-failed-async-commands nil
+  "If non-nil, display VC async command buffers when the command fails.
+Considers VC async commands to have failed whenever they die due to a
+fatal signal or exit with a non-zero status."
+  :type 'boolean
+  :version "31.1"
+  :group 'vc)
+
 ;; Variables the user doesn't need to know about.
 
 (defvar vc-log-operation nil)
@@ -149,6 +165,8 @@ logged in the *Messages* buffer, but not displayed."
   "Name of the hook run at the end of `vc-finish-logentry'.
 BEWARE: Despite its name, this variable is not itself a hook!")
 (defvar vc-log-fileset)
+(defvar vc--inhibit-message nil
+  "Value for `inhibit-message' in `vc--command-message' and similar.")
 
 ;; In a log entry buffer, this is a local variable
 ;; that points to the buffer for which it was made
@@ -177,8 +195,10 @@ Another is that undo information is not kept."
 (defun vc-setup-buffer (buf)
   "Prepare BUF for executing a slave command and make it current."
   (let ((camefrom (current-buffer))
-	(olddir default-directory))
-    (set-buffer (get-buffer-create buf))
+	(olddir default-directory)
+        (buf (get-buffer-create buf)))
+    (set-buffer buf)
+    ;; If there's some previous async process still running, just kill it.
     (let ((oldproc (get-buffer-process (current-buffer))))
       ;; If we wanted to wait for oldproc to finish before doing
       ;; something, we'd have used vc-eval-after.
@@ -186,46 +206,22 @@ Another is that undo information is not kept."
       ;; want any of its output to appear from now on.
       (when oldproc (delete-process oldproc)))
     (kill-all-local-variables)
-    (setq-local vc-parent-buffer camefrom)
-    (setq-local vc-parent-buffer-name
-                (concat " from " (buffer-name camefrom)))
-    (setq default-directory olddir)
+    ;; Kill also this permanent local var in case the VC command that
+    ;; created BUF was invoked from a different directory (bug#44698).
+    (kill-local-variable 'file-local-variables-alist)
+    ;; If we are refreshing an existing view,
+    ;; don't throw away where we really came from (bug#59457).
+    (unless (eq camefrom (current-buffer))
+      (setq-local vc-parent-buffer camefrom)
+      (setq-local vc-parent-buffer-name
+                  (concat " from " (buffer-name camefrom))))
+
+    (set-buffer-local-toplevel-value 'default-directory olddir)
     (let ((buffer-undo-list t)
           (inhibit-read-only t))
       (erase-buffer))))
 
-(defvar vc-sentinel-movepoint)          ;Dynamically scoped.
-
-(defun vc--process-sentinel (p code &optional success)
-  (let ((buf (process-buffer p)))
-    ;; Impatient users sometime kill "slow" buffers; check liveness
-    ;; to avoid "error in process sentinel: Selecting deleted buffer".
-    (when (buffer-live-p buf)
-      (with-current-buffer buf
-        (setq mode-line-process
-              (let ((status (process-status p)))
-                ;; Leave mode-line uncluttered, normally.
-                (unless (eq 'exit status)
-                  (format " (%s)" status))))
-        (let (vc-sentinel-movepoint
-              (m (process-mark p)))
-          ;; Normally, we want async code such as sentinels to not move point.
-          (save-excursion
-            (goto-char m)
-            ;; Each sentinel may move point and the next one should be run
-            ;; at that new point.  We could get the same result by having
-            ;; each sentinel read&set process-mark, but since `cmd' needs
-            ;; to work both for async and sync processes, this would be
-            ;; difficult to achieve.
-            (vc-exec-after code success)
-            (move-marker m (point)))
-          ;; But sometimes the sentinels really want to move point.
-          (when vc-sentinel-movepoint
-	    (let ((win (get-buffer-window (current-buffer) 0)))
-	      (if (not win)
-		  (goto-char vc-sentinel-movepoint)
-		(with-selected-window win
-		  (goto-char vc-sentinel-movepoint))))))))))
+(defvar vc-sentinel-movepoint)
 
 (defun vc-set-mode-line-busy-indicator ()
   (setq mode-line-process
@@ -234,40 +230,143 @@ Another is that undo information is not kept."
                                 'help-echo
                                 "A command is in progress in this buffer"))))
 
-(defun vc-exec-after (code &optional success)
-  "Eval CODE when the current buffer's process is done.
-If the current buffer has no process, just evaluate CODE.
-Else, add CODE to the process' sentinel.
+(defun vc-exec-after (code &optional okstatus proc)
+  "Execute CODE when PROC, or the current buffer's process, is done.
 CODE should be a function of no arguments.
+CODE a bare form to pass to `eval' is also supported for compatibility.
 
-If SUCCESS, it should be a process object.  Only run CODE if the
-SUCCESS process has a zero exit code."
-  (let ((proc (get-buffer-process (current-buffer))))
+Optional argument OKSTATUS, if non-nil, is a non-negative integer.
+Run CODE only if PROC (or, if PROC is nil, the current buffer's process)
+exits normally (i.e. does not die to a signal) with exit status not
+exceeding OKSTATUS.
+
+For backwards compatibility, passing PROC (or, if PROC is nil, the
+current buffer's process) as OKSTATUS means the same as OKSTATUS zero.
+Passing other process object is invalid.
+
+The optional PROC argument specifies the process Emacs should wait for
+before executing CODE.  It defaults to the current buffer's process.
+If PROC is nil and the current buffer has no process, just evaluate
+CODE.  Otherwise, add CODE to the process's sentinel."
+  (unless proc (setq proc (get-buffer-process (current-buffer))))
+  ;; For Emacs 29--30 it was documented that the second argument
+  ;; (then named SUCCESS) could be any process, but the implementation
+  ;; was broken for any process other than the current buffer's process.
+  (cond ((eq okstatus proc)
+         (setq okstatus 0))
+        ((and okstatus (not (natnump okstatus)))
+         (error "Invalid OKSTATUS argument to `vc-exec-after': %S"
+                okstatus)))
+  (letrec ((eval-code
+            (lambda ()
+              (when (or (null okstatus) (null proc)
+                        (and (eq (process-status proc) 'exit)
+                             (>= okstatus (process-exit-status proc))))
+                (if (functionp code) (funcall code) (eval code t)))))
+           (buf (and proc (process-buffer proc)))
+           (fun
+            (lambda (proc _msg)
+              ;; In the unlikely event of `set-buffer-process'.
+              (setq buf (process-buffer proc))
+              (cond
+               ;; Impatient users sometime kill "slow" buffers; check
+               ;; liveness to avoid "error in process sentinel:
+               ;; Selecting deleted buffer".
+               ((not (buffer-live-p buf))
+                (remove-function (process-sentinel proc) fun))
+               ((memq (process-status proc) '(exit signal))
+                (with-current-buffer buf
+                  (setq mode-line-process nil)
+                  (let (vc-sentinel-movepoint
+                        (m (process-mark proc)))
+                    ;; Normally, we want async code such as sentinels to
+                    ;; not move point.
+                    (save-excursion
+                      (goto-char m)
+                      ;; Each sentinel may move point and the next one
+                      ;; should be run from that new position.
+                      ;; Handling this up here, instead of requiring
+                      ;; CODE to handle it, means CODE can be written
+                      ;; for both sync and async processes.
+                      (funcall eval-code)
+                      (move-marker m (point)))
+                    ;; But sometimes the sentinels really want to move point.
+                    (when vc-sentinel-movepoint
+                      (if-let* ((win (get-buffer-window (current-buffer) 0)))
+                          (with-selected-window win
+		            (goto-char vc-sentinel-movepoint))
+                        (goto-char vc-sentinel-movepoint))))))
+               ((not (eq (process-status proc) 'run))
+                (remove-function (process-sentinel proc) fun)
+                (error "Unexpected process state"))))))
     (cond
      ;; If there's no background process, just execute the code.
      ;; We used to explicitly call delete-process on exited processes,
      ;; but this led to timing problems causing process output to be
      ;; lost.  Terminated processes get deleted automatically
      ;; anyway. -- cyd
-     ((or (null proc) (eq (process-status proc) 'exit))
-      ;; Make sure we've read the process's output before going further.
-      (when proc (accept-process-output proc))
-      (when (or (not success)
-                (zerop (process-exit-status success)))
-        (if (functionp code) (funcall code) (eval code t))))
-     ;; If a process is running, add CODE to the sentinel
+     ((or (null proc) (memq (process-status proc) '(exit signal)))
+      (when proc
+        ;; Nonblocking call in case we are ourselves called from a
+        ;; process sentinel (GNU ELPA's diff-hl does this).
+        (accept-process-output proc 0))
+      (funcall eval-code))
      ((eq (process-status proc) 'run)
-      (vc-set-mode-line-busy-indicator)
-      (letrec ((fun (lambda (p _msg)
-                      (remove-function (process-sentinel p) fun)
-                      (vc--process-sentinel p code success))))
-        (add-function :after (process-sentinel proc) fun)))
+      (when (buffer-live-p buf)
+        (with-current-buffer buf
+          (vc-set-mode-line-busy-indicator)))
+      (add-function :after (process-sentinel proc) fun))
      (t (error "Unexpected process state"))))
   nil)
 
 (defmacro vc-run-delayed (&rest body)
+  "Execute BODY when the current buffer's process is done.
+If the current buffer has no process, execute BODY immediately."
   (declare (indent 0) (debug (def-body)))
   `(vc-exec-after (lambda () ,@body)))
+
+(defmacro vc-run-delayed-success (okstatus &rest body)
+  "Execute BODY when the current buffer's process exits successfully.
+This means the current buffer's process exits normally (i.e., does not
+die to a signal) with status not exceeding OKSTATUS.
+If the current buffer has no process, execute BODY immediately."
+  (declare (indent 1) (debug (def-body)))
+  `(vc-exec-after (lambda () ,@body) ,okstatus))
+
+(defun vc-wait-for-process-before-save (proc message)
+  "Make Emacs wait for PROC before saving buffers under current VC tree.
+If waiting for PROC takes more than a second, display MESSAGE.
+
+This is used to implement `vc-async-checkin'.  It effectively switches
+to a synchronous checkin in the case that the user asks to save a buffer
+under the tree in which the checkin operation is running.
+
+The hook installed by this function will make Emacs unconditionally wait
+for PROC if the root of the current VC tree couldn't be determined, and
+whenever writing out a buffer which doesn't have any `buffer-file-name'
+yet."
+  (letrec ((root (vc-root-dir))
+           (hook
+            (lambda ()
+              (cond ((not (process-live-p proc))
+                     (remove-hook 'before-save-hook hook))
+                    ((or (and buffer-file-name
+                              (or (not root)
+                                  (file-in-directory-p buffer-file-name
+                                                       root)))
+                         ;; No known buffer file name but we are saving:
+                         ;; perhaps writing out a `special-mode' buffer.
+                         ;; A `before-save-hook' cannot know whether or
+                         ;; not it'll be written out under ROOT.
+                         ;; Err on the side of switching to synchronous.
+                         (not buffer-file-name))
+                     (with-delayed-message (1 message)
+                       (while (process-live-p proc)
+                         (when (input-pending-p)
+                           (discard-input))
+                         (sit-for 0.05)))
+                     (remove-hook 'before-save-hook hook))))))
+    (add-hook 'before-save-hook hook)))
 
 (defvar vc-filter-command-function #'list
   "Function called to transform VC commands before execution.
@@ -296,6 +395,11 @@ the man pages for \"torsocks\" for more details about Tor."
   :version "27.1"
   :group 'vc)
 
+(defvar vc-user-edit-command-history nil
+  "Name of minibuffer history variable for `vc-user-edit-command'.
+Bound to the name of the variable holding a command's minibuffer
+history, by that command, around its call to `vc-user-edit-command'.")
+
 (defun vc-user-edit-command (command file-or-list flags)
   "Prompt the user to edit VC command COMMAND and FLAGS.
 Intended to be used as the value of `vc-filter-command-function'."
@@ -306,126 +410,175 @@ Intended to be used as the value of `vc-filter-command-function'."
                            (if file-or-list
                                " (files list to be appended)"
                              ""))
-                   (combine-and-quote-strings
-                    (cons command (remq nil (if files-separator-p
-                                                (butlast flags)
-                                              flags))))))))
+                   (concat (combine-and-quote-strings
+                            (cons command (remq nil (if files-separator-p
+                                                        (butlast flags)
+                                                      flags))))
+                           " ")
+                   vc-user-edit-command-history))))
     (list (car edited) file-or-list
           (nconc (cdr edited) (and files-separator-p '("--"))))))
 
+(defun vc--command-message (&rest args)
+  "Call `message' on ARGS taking into account relevant VC variables."
+  (when vc-command-messages
+    (let ((inhibit-message vc--inhibit-message))
+      (apply #'message args))))
+
 ;;;###autoload
-(defun vc-do-command (buffer okstatus command file-or-list &rest flags)
-  "Execute a slave command, notifying user and checking for errors.
-Output from COMMAND goes to BUFFER, or the current buffer if
-BUFFER is t.  If the destination buffer is not already current,
-set it up properly and erase it.  The command is considered
-successful if its exit status does not exceed OKSTATUS (if
-OKSTATUS is nil, that means to ignore error status, if it is
-`async', that means not to wait for termination of the
-subprocess; if it is t it means to ignore all execution errors).
+(defun vc-do-command (destination okstatus command file-or-list &rest flags)
+  "Execute an inferior command, notifying user and checking for errors.
+
+DESTINATION specifies what to do with COMMAND's output.  It can be a
+buffer or the name of a buffer to insert output there, t to mean the
+current buffer, or nil to discard output.
+DESTINATION can also have the form (REAL-BUFFER STDERR-FILE); in that
+case, REAL-BUFFER says what to do with standard output, as above, while
+STDERR-FILE says what to do with standard error in the child.
+STDERR-FILE may only be nil which means to discard standard error
+output or t which means to mix it with standard output.
+If the destination for standard output is a buffer that is not the
+current buffer, set up the buffer properly and erase it.
+
+OKSTATUS `async' means not to wait for termination of the subprocess and
+return the process object.  Otherwise, OKSTATUS determines when to
+signal an error instead of returning a numeric exit status or signal
+description string.  OKSTATUS an integer means to signal an error if the
+command's exit status exceeds that value or the command is killed by a
+signal, nil means to signal an error only if the command is killed by a
+signal, and t means never to signal an error.
+
 FILE-OR-LIST is the name of a working file; it may be a list of
 files or be nil (to execute commands that don't expect a file
 name or set of files).  If an optional list of FLAGS is present,
-that is inserted into the command line before the filename.
+that is inserted into the command line before the filename."
+  ;; STDERR-FILE is limited to nil or t, instead of also supporting
+  ;; putting stderr output into a buffer or file, because of how we
+  ;; support both synchronous and asynchronous execution.
+  ;; `call-process' supports STDERR-FILE being a file name but not a
+  ;; buffer, while `make-process' with `:file-handler' non-nil supports
+  ;; putting stderr output in a buffer but not in a file (see Info node
+  ;; `(elisp) Asynchronous Processes' for this detail).  I.e. the only
+  ;; options supported by both `call-process' and `make-process' are
+  ;; discarding stderr output or mixing it with stdout.
+  (cl-assert (or (atom destination)
+                 (and (length= destination 2)
+                      (memq (cadr destination) '(t nil))))
+             nil
+             "Invalid DESTINATION argument to `vc-do-command': %s"
+             destination)
+  (pcase-let (;; Keep entire commands in *Messages* but avoid resizing the
+              ;; echo area.  Messages in this function are formatted in
+              ;; a such way that the important parts are at the beginning,
+              ;; due to potential truncation of long messages.
+              (message-truncate-lines t)
+              (vc--inhibit-message
+               (or (eq vc-command-messages 'log)
+                   (eq (selected-window) (active-minibuffer-window))))
 
-Return the return value of the slave command in the synchronous
-case, and the process object in the asynchronous case."
-  (let (;; Keep entire commands in *Messages* but avoid resizing the
-	;; echo area.  Messages in this function are formatted in
-	;; a such way that the important parts are at the beginning,
-	;; due to potential truncation of long messages.
-	(message-truncate-lines t)
-        (vc-inhibit-message
-	 (or (eq vc-command-messages 'log)
-	     (eq (selected-window) (active-minibuffer-window)))))
+              (`(,command ,file-or-list ,flags)
+               (funcall vc-filter-command-function
+                        command file-or-list flags))
+              ((or `(,stdout ,stderr) (and stdout (let stderr t)))
+               destination))
     (save-current-buffer
-      (unless (or (eq buffer t)
-		  (and (stringp buffer)
-		       (string= (buffer-name) buffer))
-		  (eq buffer (current-buffer)))
-        (vc-setup-buffer buffer))
-      (cl-destructuring-bind (command file-or-list flags)
-          (funcall vc-filter-command-function command file-or-list flags)
-        (when vc-tor
-          (push command flags)
-          (setq command "torsocks"))
-        (let* (;; FIXME: file-relative-name can return a bogus result
-               ;; because it doesn't look at the actual file-system to
-               ;; see if symlinks come into play.
-               (files
-	        (mapcar (lambda (f)
-                          (file-relative-name (expand-file-name f)))
-		        (if (listp file-or-list)
-                            file-or-list
-                          (list file-or-list))))
-	       (full-command
-	        (concat (if (string= (substring command -1) "\n")
-		            (substring command 0 -1)
-		          command)
-		        " " (vc-delistify flags)
-		        " " (vc-delistify files)))
-               (squeezed (remq nil flags))
-	       (inhibit-read-only t)
-	       (status 0))
-          ;; If there's some previous async process still running,
-          ;; just kill it.
-          (when files
-	    (setq squeezed (nconc squeezed files)))
-	  (let (;; Since some functions need to parse the output
-	        ;; from external commands, set LC_MESSAGES to C.
-	        (process-environment
-                 (cons "LC_MESSAGES=C" process-environment))
-	        (w32-quote-process-args t))
-	    (if (eq okstatus 'async)
-	        ;; Run asynchronously.
-	        (let ((proc
-		       (let ((process-connection-type nil))
-		         (apply #'start-file-process command
-                                (current-buffer) command squeezed))))
-		  (when vc-command-messages
-		    (let ((inhibit-message vc-inhibit-message))
-		      (message "Running in background: %s"
-                               full-command)))
-                  ;; Get rid of the default message insertion, in case
-                  ;; we don't set a sentinel explicitly.
-		  (set-process-sentinel proc #'ignore)
-		  (set-process-filter proc #'vc-process-filter)
-		  (setq status proc)
-		  (when vc-command-messages
-		    (vc-run-delayed
-		      (let ((message-truncate-lines t)
-			    (inhibit-message vc-inhibit-message))
-		        (message "Done in background: %s"
-                                 full-command)))))
-	      ;; Run synchronously
-	      (when vc-command-messages
-	        (let ((inhibit-message vc-inhibit-message))
-		  (message "Running in foreground: %s" full-command)))
-	      (let ((buffer-undo-list t))
-	        (setq status (apply #'process-file
-                                    command nil t nil squeezed)))
-	      (when (and (not (eq t okstatus))
-		         (or (not (integerp status))
-			     (and okstatus (< okstatus status))))
-                (unless (eq ?\s (aref (buffer-name (current-buffer)) 0))
-                  (pop-to-buffer (current-buffer))
-                  (goto-char (point-min))
-                  (shrink-window-if-larger-than-buffer))
-	        (error "Failed (%s): %s"
-		       (if (integerp status)
-                           (format "status %d" status)
-                         status)
-		       full-command))
-	      (when vc-command-messages
-	        (let ((inhibit-message vc-inhibit-message))
-		  (message "Done (status=%d): %s"
-                           status full-command)))))
-	  (vc-run-delayed
-	    (run-hook-with-args 'vc-post-command-functions
-			        command file-or-list flags))
-	  status)))))
+      (unless (or (memq stdout '(t nil))
+                  (eq (current-buffer) (get-buffer stdout)))
+        (vc-setup-buffer stdout)
+        (setq stdout t))
+      (when vc-tor
+        (push command flags)
+        (setq command "torsocks"))
+      (let* (;; FIXME: file-relative-name can return a bogus result
+             ;; because it doesn't look at the actual file-system to
+             ;; see if symlinks come into play.
+             (files
+              (mapcar (lambda (f)
+                        (file-relative-name (expand-file-name f)))
+                      (ensure-list file-or-list)))
+             (full-command
+              (concat (if (equal (substring command -1) "\n")
+                          (substring command 0 -1)
+                        command)
+                      " " (vc-delistify flags)
+                      (and files (concat " " (vc-delistify files)))))
+             (squeezed (remq nil flags))
+             (inhibit-read-only t)
+             (status 0))
+        (when files
+          (setq squeezed (nconc squeezed files)))
+        (let (;; Since some functions need to parse the output
+              ;; from external commands, set LC_MESSAGES to C.
+              (process-environment
+               (cons "LC_MESSAGES=C" process-environment))
+              (w32-quote-process-args t))
+          (if (eq okstatus 'async)
+              ;; Run asynchronously.
+              (let* ((stderr-buf
+                      (and (not stderr)
+                           (generate-new-buffer " *temp*" t)))
+                     (proc
+                      (make-process :name command
+                                    :buffer (and stdout (current-buffer))
+                                    :command (cons command squeezed)
+                                    :connection-type 'pipe
+                                    :filter #'vc-process-filter
+                                    :sentinel #'ignore
+                                    :stderr stderr-buf
+                                    :file-handler t)))
+                (when stderr-buf
+                  (vc-run-delayed (kill-buffer stderr-buf)))
+                (vc--command-message "Running in background: %s"
+                                     full-command)
+                (setq status proc)
+                (when vc-command-messages
+                  (vc-run-delayed
+                    (let ((message-truncate-lines t)
+                          (inhibit-message vc--inhibit-message))
+                      (message "%s in background: %s"
+                               (if (zerop (process-exit-status proc))
+                                   "Done" "Failed")
+                               full-command)))))
+            ;; Run synchronously
+            (vc--command-message "Running in foreground: %s"
+                                 full-command)
+            (let ((buffer-undo-list t))
+              (setq status (apply #'process-file command nil
+                                  (list stdout stderr) nil squeezed)))
+            (when (and (not (eq t okstatus))
+                       (or (not (integerp status))
+                           (and okstatus (< okstatus status))))
+              (unless (eq ?\s (aref (buffer-name (current-buffer)) 0))
+                (pop-to-buffer (current-buffer))
+                (goto-char (point-min))
+                (shrink-window-if-larger-than-buffer))
+              (when-let* (noninteractive
+                          (out (string-trim (buffer-string))))
+                (unless (string-empty-p out)
+                  (message "%s" out)))
+              (error "Failed (%s): %s"
+                     (if (integerp status)
+                         (format "status %d" status)
+                       status)
+                     full-command))
+            (vc--command-message "Done (status=%d): %s"
+                                 status full-command)))
+        (vc-run-delayed
+          (run-hook-with-args 'vc-post-command-functions
+                              command file-or-list flags))
+        status))))
 
 (defvar vc--inhibit-async-window nil)
+
+(defun vc--display-async-command-buffer (buffer)
+  (unless vc--inhibit-async-window
+    (when-let* ((window (display-buffer buffer))
+                (start (with-current-buffer buffer
+                         (save-excursion
+                           (goto-char (point-max))
+                           (and (re-search-backward "\n" nil t)
+                                (match-end 0))))))
+      (set-window-start window start))))
 
 (defun vc-do-async-command (buffer root command &rest args)
   "Run COMMAND asynchronously with ARGS, displaying the result.
@@ -434,17 +587,40 @@ of a buffer, which is created.
 ROOT should be the directory in which the command should be run.
 The process object is returned.
 Display the buffer in some window, but don't select it."
-  (let ((dir default-directory)
-	(inhibit-read-only t)
-        new-window-start proc)
+  (letrec ((dir default-directory)
+           (start-time) (proc)
+           (finished-fun
+            (lambda (proc _msg)
+              (cond ((not (buffer-live-p buffer))
+                     (remove-function (process-sentinel proc)
+                                      finished-fun))
+                    ((not (eq (process-status proc) 'run))
+                     (remove-function (process-sentinel proc)
+                                      finished-fun)
+                     (with-current-buffer buffer
+                       (save-excursion
+                         (goto-char (process-mark proc))
+                         (let ((inhibit-read-only t))
+                           (insert
+                            (format "Finished in %.2f seconds\n"
+                                    (time-to-seconds
+                                     (time-since start-time))))
+                           (set-marker (process-mark proc)
+                                       (point)))))
+                     (when (and vc-display-failed-async-commands
+                                (not (zerop (process-exit-status proc))))
+                       (vc--display-async-command-buffer buffer)))))))
     (setq buffer (get-buffer-create buffer))
     (if (get-buffer-process buffer)
 	(error "Another VC action on %s is running" root))
     (with-current-buffer buffer
+      (when (eq major-mode 'fundamental-mode)
+        (special-mode))         ; So that e.g. \\`q' works consistently.
       (setq default-directory root)
       (let* (;; Run in the original working directory.
              (default-directory dir)
              (orig-fun vc-filter-command-function)
+             (inhibit-read-only t)
              (vc-filter-command-function
               (lambda (&rest args)
                 (cl-destructuring-bind (&whole args cmd _ flags)
@@ -452,31 +628,53 @@ Display the buffer in some window, but don't select it."
                   (goto-char (point-max))
                   (unless (eq (point) (point-min))
 	            (insert "\n"))
-                  (setq new-window-start (point))
-                  (insert "Running \"" cmd)
+                  (insert "Running '" cmd)
                   (dolist (flag flags)
-	            (insert " " flag))
-                  (insert "\"...\n")
+                    (let ((lines (string-lines flag)))
+                      (insert " ")
+                      ;; If the argument has newlines in it (as a commit
+                      ;; message commonly will) then ellipse it down so
+                      ;; that the whole command is more readable.
+                      (if (cdr lines)
+                          (let ((flag (copy-sequence flag))
+                                (cl-print-string-length (length
+                                                         (car lines))))
+                            (set-text-properties 0 (length flag) nil
+                                                 flag)
+                            (cl-prin1 flag buffer))
+                        (insert flag))))
+                  (insert "'...\n")
                   args))))
-	(setq proc (apply #'vc-do-command t 'async command nil args))))
-    (unless vc--inhibit-async-window
-      (when-let ((window (display-buffer buffer)))
-        (set-window-start window new-window-start)))
+	(setq start-time (current-time)
+              proc (apply #'vc-do-command t 'async command nil args))))
+    (add-function :after (process-sentinel proc) finished-fun)
+    (vc--display-async-command-buffer buffer)
     proc))
 
 (defvar compilation-error-regexp-alist)
 
+(defvar vc-compilation-mode-hook nil
+  "Hook run after entering `vc-compilation-mode'.
+No problems result if this variable is not bound.
+`add-hook' automatically binds it.  (This is true for all hook variables.)")
+
+(derived-mode-set-parent 'vc-compilation-mode 'compilation-mode)
+
 (defun vc-compilation-mode (backend)
-  "Setup `compilation-mode' with the appropriate `compilation-error-regexp-alist'."
-  (require 'compile)
-  (let* ((error-regexp-alist
-          (vc-make-backend-sym backend 'error-regexp-alist))
-	 (error-regexp-alist (and (boundp error-regexp-alist)
-				  (symbol-value error-regexp-alist))))
-    (let ((compilation-error-regexp-alist error-regexp-alist))
-      (compilation-mode))
-    (setq-local compilation-error-regexp-alist
-                error-regexp-alist)))
+  "Compilation mode for buffers with output from VC commands.
+Sets `compilation-error-regexp-alist' in accordance with the VC backend."
+  (delay-mode-hooks
+    (let* ((error-regexp-alist
+            (vc-make-backend-sym backend 'error-regexp-alist))
+	   (error-regexp-alist (and (boundp error-regexp-alist)
+				    (symbol-value error-regexp-alist))))
+      (let ((compilation-error-regexp-alist error-regexp-alist))
+        (compilation-mode)
+        (setq mode-name "VC-Compilation"
+              major-mode 'vc-compilation-mode))
+      (setq-local compilation-error-regexp-alist
+                  error-regexp-alist)))
+  (run-mode-hooks 'vc-compilation-mode-hook))
 
 (declare-function vc-dir-refresh "vc-dir" ())
 
@@ -487,23 +685,28 @@ asynchronous VC command has completed.  PROCESS-BUFFER is the
 buffer for the asynchronous VC process.
 
 If the current buffer is a VC Dir buffer, call `vc-dir-refresh'.
-If the current buffer is a Dired buffer, revert it."
+If the current buffer is a Dired buffer, revert it.
+If the current buffer visits a file, call `vc-refresh-state'."
   (let* ((buf (current-buffer))
 	 (tick (buffer-modified-tick buf)))
-    (cond
-     ((derived-mode-p 'vc-dir-mode)
-      (with-current-buffer process-buffer
-	(vc-run-delayed
-	 (if (buffer-live-p buf)
-             (with-current-buffer buf
-               (vc-dir-refresh))))))
-     ((derived-mode-p 'dired-mode)
-      (with-current-buffer process-buffer
-	(vc-run-delayed
-	 (and (buffer-live-p buf)
-              (= (buffer-modified-tick buf) tick)
-              (with-current-buffer buf
-                (revert-buffer)))))))))
+    (cl-macrolet ((run-delayed (&rest body)
+                    `(with-current-buffer process-buffer
+                       (vc-run-delayed
+                         (when (buffer-live-p buf)
+                           (with-current-buffer buf
+                             ,@body))))))
+      (cond ((derived-mode-p 'vc-dir-mode)
+             (run-delayed
+              ;; Avoid interrupting the user with prompts to save
+              ;; buffers.
+              (let ((non-essential t))
+                (vc-dir-refresh))))
+            ((derived-mode-p 'dired-mode)
+             (run-delayed
+              (when (= (buffer-modified-tick buf) tick)
+                (revert-buffer))))
+            (buffer-file-name
+             (run-delayed (vc-refresh-state)))))))
 
 ;; These functions are used to ensure that the view the user sees is up to date
 ;; even if the dispatcher client mode has messed with file contents (as in,
@@ -578,9 +781,10 @@ CONTEXT is that which `vc-buffer-context' returns."
            (when new-mark (set-mark new-mark))))))
 
 (defun vc-revert-buffer-internal (&optional arg no-confirm)
-  "Revert buffer, keeping point and mark where user expects them.
-Try to be clever in the face of changes due to expanded version-control
-key words.  This is important for typeahead to work as expected.
+  "Revert buffer keeping point and the mark where the user expects them.
+Try to be clever in the face of changes due to expanded VCS
+keywords (cf., e.g., Info node `(cvs)Keyword substitution').
+This is important for typeahead to work as expected.
 ARG and NO-CONFIRM are passed on to `revert-buffer'."
   (interactive "P")
   (widen)
@@ -608,31 +812,31 @@ reverting.  NOQUERY should be t *only* if it is known the only
 difference between the buffer and the file is due to
 modifications by the dispatcher client code, rather than user
 editing!"
-  (and (string= buffer-file-name
-                (if (file-name-absolute-p file)
-                    file
-                  (expand-file-name file (vc-root-dir))))
-       (if keep
-	   (when (file-exists-p file)
-	     (when reset-vc-info
-	       (vc-file-clearprops file))
-	     (vc-revert-buffer-internal t noquery)
+  (and (equal buffer-file-name
+              (if (file-name-absolute-p file)
+                  file
+                (expand-file-name file (vc-root-dir))))
+       (cond ((not keep)
+              (kill-buffer))
+             ((file-exists-p file)
+              (when reset-vc-info
+	        (vc-file-clearprops file))
+              (vc-revert-buffer-internal t noquery)
 
-	     ;; VC operations might toggle the read-only state.  In
-	     ;; that case we need to adjust the `view-mode' status
-	     ;; when `view-read-only' is non-nil.
-             (and view-read-only
-                  (if (file-writable-p file)
-                      (and view-mode
-                           (let ((view-old-buffer-read-only nil))
-                             (view-mode-exit t)))
-                    (and (not view-mode)
-                         (not (eq (get major-mode 'mode-class) 'special))
-                         (view-mode-enter))))
+	      ;; VC operations might toggle the read-only state.  In
+	      ;; that case we need to adjust the `view-mode' status
+	      ;; when `view-read-only' is non-nil.
+              (and view-read-only
+                   (if (file-writable-p file)
+                       (and view-mode
+                            (let ((view-old-buffer-read-only nil))
+                              (view-mode-exit t)))
+                     (and (not view-mode)
+                          (not (eq (get major-mode 'mode-class) 'special))
+                          (view-mode-enter))))
 
-             ;; FIXME: Why use a hook?  Why pass it buffer-file-name?
-	     (run-hook-with-args 'vc-mode-line-hook buffer-file-name))
-	 (kill-buffer (current-buffer)))))
+              ;; FIXME: Why use a hook?  Why pass it buffer-file-name?
+	      (run-hook-with-args 'vc-mode-line-hook buffer-file-name)))))
 
 (declare-function vc-dir-resynch-file "vc-dir" (&optional fname))
 
@@ -645,26 +849,35 @@ editing!"
 	  (vc-resynch-buffer fname keep noquery reset-vc-info))))))
 
 (defun vc-resynch-buffer (file &optional keep noquery reset-vc-info)
-  "If FILE is currently visited, resynch its buffer."
-  (if (string= buffer-file-name
-               (if (file-name-absolute-p file)
-                   file
-                 (expand-file-name file (vc-root-dir))))
-      (vc-resynch-window file keep noquery reset-vc-info)
+  "If FILE is currently visited, resynch its buffer.
+If NOQUERY is `unless-modified' then silently skip reverting or
+unvisiting if the buffer is modified.  Any other non-nil value inhibits
+getting confirmation before reverting.  NOQUERY should be a non-nil
+value other than `unless-modified' only if it is known that the only
+difference between the buffer and the file is due to modifications by
+the dispatcher client code, rather than user editing."
+  (if (equal buffer-file-name
+             (if (file-name-absolute-p file)
+                 file
+               (expand-file-name file (vc-root-dir))))
+      (unless (and (eq noquery 'unless-modified)
+                   (buffer-modified-p))
+        (vc-resynch-window file keep noquery reset-vc-info))
     (if (file-directory-p file)
 	(vc-resynch-buffers-in-directory file keep noquery reset-vc-info)
-      (let ((buffer (get-file-buffer file)))
-	(when buffer
-	  (with-current-buffer buffer
+      (when-let* ((buffer (get-file-buffer file)))
+	(with-current-buffer buffer
+          (unless (and (eq noquery 'unless-modified)
+                       (buffer-modified-p))
 	    (vc-resynch-window file keep noquery reset-vc-info))))))
   ;; Try to avoid unnecessary work, a *vc-dir* buffer is only present
   ;; if this is true.
   (when vc-dir-buffers
     (vc-dir-resynch-file file)))
 
-(defun vc-buffer-sync (&optional not-urgent)
+(defun vc-buffer-sync (&optional not-essential)
   "Make sure the current buffer and its working file are in sync.
-NOT-URGENT means it is ok to continue if the user says not to save."
+NOT-ESSENTIAL means it is okay to continue if the user says not to save."
   (let (missing)
     (when (cond
            ((buffer-modified-p))
@@ -677,7 +890,7 @@ NOT-URGENT means it is ok to continue if the user says not to save."
                                     "is missing on disk"
                                   "modified"))))
           (save-buffer)
-        (unless not-urgent
+        (unless not-essential
           (error "Aborted"))))))
 
 ;; Command closures
@@ -685,10 +898,12 @@ NOT-URGENT means it is ok to continue if the user says not to save."
 ;; Set up key bindings for use while editing log messages
 
 (declare-function log-edit-empty-buffer-p "log-edit" ())
+(declare-function log-edit-diff-fileset "log-edit" ())
+(declare-function log-edit-diff-patch "log-edit" ())
 
 (defvar vc-patch-string)
 
-(defun vc-log-edit (fileset mode backend)
+(defun vc-log-edit (fileset mode backend &optional diff-function)
   "Set up `log-edit' for use on FILE."
   (setq default-directory
 	(buffer-local-value 'default-directory vc-parent-buffer))
@@ -718,7 +933,9 @@ NOT-URGENT means it is ok to continue if the user says not to save."
                        (lambda (file) (file-relative-name file root))
                        fileset))))
 	      (log-edit-diff-function
-               . ,(if vc-patch-string 'log-edit-diff-patch 'log-edit-diff-fileset))
+               . ,(cond (diff-function)
+                        (vc-patch-string #'log-edit-diff-patch)
+                        (t #'log-edit-diff-fileset)))
 	      (log-edit-vc-backend . ,backend)
 	      (vc-log-fileset . ,fileset)
 	      (vc-patch-string . ,vc-patch-string))
@@ -727,7 +944,9 @@ NOT-URGENT means it is ok to continue if the user says not to save."
   (set-buffer-modified-p nil)
   (setq buffer-file-name nil))
 
-(defun vc-start-logentry (files comment initial-contents msg logbuf mode action &optional after-hook backend patch-string)
+(defvar log-edit-hook)
+
+(defun vc-start-logentry (files comment initial-contents msg logbuf mode action &optional after-hook backend patch-string diff-function)
   "Accept a comment for an operation on FILES.
 If COMMENT is nil, pop up a LOGBUF buffer, emit MSG, and set the
 action on close to ACTION.  If COMMENT is a string and
@@ -740,15 +959,13 @@ empty comment.  Remember the file's buffer in `vc-parent-buffer'
 MODE, defaulting to `log-edit-mode' if MODE is nil.
 AFTER-HOOK specifies the local value for `vc-log-after-operation-hook'.
 BACKEND, if non-nil, specifies a VC backend for the Log Edit buffer.
-PATCH-STRING is a patch to check in."
-  (let ((parent
-         (if (vc-dispatcher-browsing)
-             ;; If we are called from a directory browser, the parent buffer is
-             ;; the current buffer.
-             (current-buffer)
-           (if (and files (equal (length files) 1))
-               (get-file-buffer (car files))
-             (current-buffer)))))
+PATCH-STRING is a patch to check in.
+DIFF-FUNCTION is `log-edit-diff-function' for the Log Edit buffer."
+  (let ((parent (or (and (length= files 1)
+                         (not (vc-dispatcher-browsing))
+                         (get-file-buffer (car files)))
+                    (current-buffer)))
+        (immediate (and comment (not initial-contents))))
     (if (and comment (not initial-contents))
 	(set-buffer (get-buffer-create logbuf))
       (pop-to-buffer (get-buffer-create logbuf)))
@@ -757,7 +974,13 @@ PATCH-STRING is a patch to check in."
                 (concat " from " (buffer-name vc-parent-buffer)))
     (when patch-string
       (setq-local vc-patch-string patch-string))
-    (vc-log-edit files mode backend)
+    (let (;; `log-edit-hook' is usually for things like
+          ;; `log-edit-show-files' and `log-edit-maybe-show-diff' which
+          ;; don't make sense if the user is not going to do any
+          ;; editing, and can cause unexpected window layout changes.
+          (log-edit-hook (and (not immediate)
+                              (require 'log-edit) log-edit-hook)))
+      (vc-log-edit files mode backend diff-function))
     (make-local-variable 'vc-log-after-operation-hook)
     (when after-hook
       (setq vc-log-after-operation-hook after-hook))
@@ -765,13 +988,14 @@ PATCH-STRING is a patch to check in."
     (when comment
       (erase-buffer)
       (when (stringp comment) (insert comment)))
-    (if (or (not comment) initial-contents)
-        (message (substitute-command-keys
-                  (if (eq major-mode 'log-edit-mode)
-                      "%s  Type \\[log-edit-done] when done"
-                    "%s  Type \\`C-c C-c' when done"))
-                 msg)
-      (vc-finish-logentry (eq comment t)))))
+    (if immediate
+        (vc-finish-logentry (eq comment t))
+      (message (substitute-command-keys
+                  "%s  Type \\<log-edit-mode-map>\\[log-edit-done] when done")
+                 msg))))
+
+(defvar log-edit-vc-backend)
+(declare-function vc-buffer-sync-fileset "vc")
 
 ;; vc-finish-logentry is typically called from a log-edit buffer (see
 ;; vc-start-logentry).
@@ -784,50 +1008,81 @@ the buffer contents as a comment."
   ;; Check and record the comment, if any.
   (unless nocomment
     (run-hooks 'vc-logentry-check-hook))
-  ;; Sync parent buffer in case the user modified it while editing the comment.
-  ;; But not if it is a vc-dir buffer.
-  (with-current-buffer vc-parent-buffer
-    (or (vc-dispatcher-browsing) (vc-buffer-sync)))
   (unless vc-log-operation
     (error "No log operation is pending"))
 
   ;; save the parameters held in buffer-local variables
   (let ((logbuf (current-buffer))
-	(log-operation vc-log-operation)
-        ;; FIXME: When coming from VC-Dir, we should check that the
-        ;; set of selected files is still equal to vc-log-fileset,
-        ;; to avoid surprises.
-	(log-fileset vc-log-fileset)
-	(log-entry (buffer-string))
-	(after-hook vc-log-after-operation-hook))
-    (pop-to-buffer vc-parent-buffer)
+        (log-operation vc-log-operation)
+        (log-fileset vc-log-fileset)
+        (log-entry (buffer-string))
+        (after-hook vc-log-after-operation-hook)
+        (parent vc-parent-buffer))
     ;; OK, do it to it
-    (save-excursion
-      (funcall log-operation
-	       log-fileset
-	       log-entry))
-    (setq vc-log-operation nil)
+    (let* ((log-operation-ret
+            (with-current-buffer parent
+              (let ((vc--inhibit-async-window t))
+                (funcall log-operation log-fileset log-entry))))
+           (asyncp (eq (car-safe log-operation-ret) 'async)))
 
-    ;; Quit windows on logbuf.
-    (cond
-     ((not logbuf))
-     (vc-delete-logbuf-window
-      (quit-windows-on logbuf t (selected-frame)))
-     (t
-      (quit-windows-on logbuf nil 0)))
+      (pop-to-buffer parent)
+      (setq vc-log-operation nil)
 
-    ;; Now make sure we see the expanded headers
-    (when log-fileset
-      (mapc
-       (lambda (file) (vc-resynch-buffer file t t))
-       log-fileset))
-    (run-hooks after-hook 'vc-finish-logentry-hook)))
+      ;; Quit windows on logbuf.
+      (cond ((not logbuf))
+            (vc-delete-logbuf-window
+             (quit-windows-on logbuf t (selected-frame)))
+            (t
+             (quit-windows-on logbuf nil 0)))
+
+      (when (and asyncp
+                 ;; For an async commit, if we will display the buffer
+                 ;; if the command fails, don't display it sooner.
+                 ;; The output from successful commit commands isn't
+                 ;; interesting and VC-Dir will show the files as being
+                 ;; committed while it's in progress.
+                 (not vc-display-failed-async-commands))
+        (vc--display-async-command-buffer (process-buffer
+                                           (cadr log-operation-ret))))
+
+      ;; Now make sure we see the expanded headers.
+      ;; If the `vc-log-operation' started an async operation then we
+      ;; need to delay running the hooks.  It tells us whether it did
+      ;; that with a special return value.
+      (cl-flet ((resynch-and-hooks ()
+                  (when (buffer-live-p parent)
+                    (with-current-buffer parent
+                      (mapc (lambda (file)
+                              ;; Maybe we should pass `unless-modified'
+                              ;; unconditionally here.  Currently we do
+                              ;; so in the async case to fix bug#81453,
+                              ;; and leave the synchronous case the same
+                              ;; to preserve old behavior.
+                              (vc-resynch-buffer file t (if asyncp
+                                                            'unless-modified
+                                                          t)))
+                            log-fileset)
+                      (run-hooks after-hook 'vc-finish-logentry-hook)))))
+        (if asyncp
+            (vc-exec-after #'resynch-and-hooks nil (cadr log-operation-ret))
+          (resynch-and-hooks))))))
 
 (defun vc-dispatcher-browsing ()
   "Are we in a directory browser buffer?"
   (or (derived-mode-p 'vc-dir-mode)
       (derived-mode-p 'dired-mode)
-      (derived-mode-p 'diff-mode)))
+      (derived-mode-p 'diff-mode)
+      (derived-mode-p 'log-view-mode)))
+
+(declare-function vc-dir-marked-files "vc-dir")
+(declare-function dired-get-marked-files "dired")
+
+(defun vc-dispatcher--explicit-marks-p ()
+  "Are any files in the directory browser explicitly marked?"
+  (or (and (derived-mode-p 'vc-dir-mode)
+           (vc-dir-marked-files))
+      (and (derived-mode-p 'dired-mode)
+           (length> (dired-get-marked-files nil nil nil t) 1))))
 
 ;; These are unused.
 ;; (defun vc-dispatcher-in-fileset-p (fileset)

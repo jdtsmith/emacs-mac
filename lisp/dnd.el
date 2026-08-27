@@ -1,6 +1,6 @@
 ;;; dnd.el --- drag and drop support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2005-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2026 Free Software Foundation, Inc.
 
 ;; Author: Jan Djärv <jan.h.d@swipnet.se>
 ;; Maintainer: emacs-devel@gnu.org
@@ -42,11 +42,11 @@
 
 ;;;###autoload
 (defcustom dnd-protocol-alist
-  `((,(purecopy "^file:///")    . dnd-open-local-file)	; XDND format.
-    (,(purecopy "^file://[^/]") . dnd-open-file)	; URL with host
-    (,(purecopy "^file:/[^/]")  . dnd-open-local-file)	; Old KDE, Motif, Sun
-    (,(purecopy "^file:[^/]")   . dnd-open-local-file)	; MS-Windows
-    (,(purecopy "^\\(https?\\|ftp\\|nfs\\)://") . dnd-open-file))
+  '(("^file:///"    . dnd-open-local-file) ; XDND format.
+    ("^file://[^/]" . dnd-open-file)       ; URL with host
+    ("^file:/[^/]"  . dnd-open-local-file) ; Old KDE, Motif, Sun
+    ("^file:[^/]"   . dnd-open-local-file) ; MS-Windows
+    ("^\\(https?\\|ftp\\|nfs\\)://" . dnd-open-file))
   "The functions to call for different protocols when a drop is made.
 This variable is used by `dnd-handle-multiple-urls'.
 The list contains of (REGEXP . FUNCTION) pairs.
@@ -270,8 +270,8 @@ for it will be modified."
       ;; assigned their own handlers.
       (dolist (leftover urls)
         (setq return-value 'private)
-        (if-let ((handler (browse-url-select-handler leftover
-                                                     'internal)))
+        (if-let* ((handler (browse-url-select-handler leftover
+                                                      'internal)))
             (funcall handler leftover action)
           (dnd-insert-text window action leftover)))
       (or return-value 'private))))

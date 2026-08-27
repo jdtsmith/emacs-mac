@@ -1,6 +1,6 @@
 ;;; replace-tests.el --- tests for replace.el.  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2010-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
 ;; Author: Nicolas Richard <youngfrog@members.fsf.org>
 ;; Author: Juri Linkov <juri@jurta.org>
@@ -437,6 +437,9 @@ Each element has the format:
     ("abab" "C-M-% b* RET 1 RET !" "1a1a1")
     ;; Test case from commit 5632eb272c7
     ("a a a " "C-M-% \\ba SPC RET c RET !" "ccc") ; not "ca c"
+    ;; Backup ('^') with calculated replacement ('\,') (bug#79811)
+    ("abc" "C-M-% \\([abc]\\) RET [\\1,\\#] RET y n ^ y y" "[a,0][b,1][c,2]")
+    ("abc" "C-M-% \\([abc]\\) RET [\\,\\1,\\#] RET y n ^ y y" "[a,0][b,1][c,2]")
     ))
 
 (defun query-replace--run-tests (tests)
@@ -528,8 +531,7 @@ then replace 3 matches of FROM with TO, and undo the last replacement.
 
 Return the last evalled form in BODY."
   (declare (indent 5) (debug (stringp stringp stringp form characterp body)))
-  (let ((text (gensym "text"))
-        (count (gensym "count")))
+  (cl-with-gensyms (text count)
     `(let* ((,text ,input)
             (,count 0)
             (inhibit-message t))
@@ -539,15 +541,15 @@ Return the last evalled form in BODY."
          ;; Bind `read-event' to simulate user input.
          ;; If `replace-tests-bind-read-string' is non-nil, then
          ;; bind `read-string' as well.
-         (cl-letf (((symbol-function 'read-event)
+         (cl-letf (((symbol-function 'read-key)
                     (lambda (&rest _args)
-                      (cl-incf ,count)
+                      (incf ,count)
                       (pcase ,count ; Build the clauses from CHAR-NUMS
                         ,@(append
                            (delq nil
                                  (mapcar
                                   (lambda (chr)
-                                    (when-let (it (alist-get chr char-nums))
+                                    (when-let* ((it (alist-get chr char-nums)))
                                       (if (cdr it)
                                           `(,(cons 'or it) ,chr)
                                         `(,(car it) ,chr))))

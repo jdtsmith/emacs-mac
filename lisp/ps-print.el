@@ -1,6 +1,6 @@
 ;;; ps-print.el --- print text from the buffer as PostScript -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1993-2026 Free Software Foundation, Inc.
 
 ;; Author: Jim Thompson (was <thompson@wg2.waii.com>)
 ;;	Jacques Duthen (was <duthen@cegelec-red.fr>)
@@ -145,9 +145,9 @@
 ;; `ps-spool-buffer-with-faces', `ps-spool-region-with-faces', and
 ;; `ps-despool'.  Here are the bindings I use on my Sun 4 keyboard:
 ;;
-;;   (global-set-key 'f22 'ps-spool-buffer-with-faces) ;f22 is prsc
-;;   (global-set-key '(shift f22) 'ps-spool-region-with-faces)
-;;   (global-set-key '(control f22) 'ps-despool)
+;;   (keymap-global-set "<f22>" #'ps-spool-buffer-with-faces) ;f22 is prsc
+;;   (keymap-global-set "S-<f22>" #'ps-spool-region-with-faces)
+;;   (keymap-global-set "C-<f22>" #'ps-despool)
 ;;
 ;;
 ;; The Printer Interface
@@ -1785,44 +1785,43 @@ If it's nil, automatic feeding takes place."
 
 ;;;###autoload
 (defcustom ps-page-dimensions-database
- (purecopy
-  (list (list 'a4    (/ (* 72 21.0) 2.54)  (/ (* 72 29.7) 2.54) "A4")
-	(list 'a3    (/ (* 72 29.7) 2.54)  (/ (* 72 42.0) 2.54) "A3")
-	(list 'letter       (* 72  8.5)    (* 72 11.0)          "Letter")
-	(list 'legal        (* 72  8.5)    (* 72 14.0)          "Legal")
-	(list 'letter-small (* 72  7.68)   (* 72 10.16)         "LetterSmall")
-	(list 'tabloid      (* 72 11.0)    (* 72 17.0)          "Tabloid")
-	(list 'ledger       (* 72 17.0)    (* 72 11.0)          "Ledger")
-	(list 'statement    (* 72  5.5)    (* 72  8.5)          "Statement")
-	(list 'executive    (* 72  7.5)    (* 72 10.0)          "Executive")
-	(list 'a4small      (* 72  7.47)   (* 72 10.85)         "A4Small")
-	(list 'b4           (* 72 10.125)  (* 72 14.33)         "B4")
-	(list 'b5           (* 72  7.16)   (* 72 10.125)        "B5")
-	;; page sizes for label printer
-	;; NOTE: the page sizes below don't have n-up > 1.
-	'(addresslarge       236.0      99.0 "AddressLarge")
-	'(addresssmall       236.0      68.0 "AddressSmall")
-	'(cuthanging13        90.0     222.0 "CutHanging13")
-	'(cuthanging15        90.0     114.0 "CutHanging15")
-	'(diskette           181.0     136.0 "Diskette")
-	'(eurofilefolder     139.0     112.0 "EuropeanFilefolder")
-	'(eurofoldernarrow   526.0     107.0 "EuroFolderNarrow")
-	'(eurofolderwide     526.0     136.0 "EuroFolderWide")
-	'(euronamebadge      189.0     108.0 "EuroNameBadge")
-	'(euronamebadgelarge 223.0     136.0 "EuroNameBadgeLarge")
-	'(filefolder         230.0      37.0 "FileFolder")
-	'(jewelry             76.0     136.0 "Jewelry")
-	'(mediabadge         180.0     136.0 "MediaBadge")
-	'(multipurpose       126.0      68.0 "MultiPurpose")
-	'(retaillabel         90.0     104.0 "RetailLabel")
-	'(shipping           271.0     136.0 "Shipping")
-	'(slide35mm           26.0     104.0 "Slide35mm")
-	'(spine8mm           187.0      26.0 "Spine8mm")
-	'(topcoated          425.19685 136.0 "TopCoatedPaper")
-	'(topcoatedpaper     396.0     136.0 "TopcoatedPaper150")
-	'(vhsface            205.0     127.0 "VHSFace")
-	'(vhsspine           400.0      50.0 "VHSSpine")
-	'(zipdisk            156.0     136.0 "ZipDisk")))
+ (list (list 'a4    (/ (* 72 21.0) 2.54)  (/ (* 72 29.7) 2.54) "A4")
+       (list 'a3    (/ (* 72 29.7) 2.54)  (/ (* 72 42.0) 2.54) "A3")
+       (list 'letter       (* 72  8.5)    (* 72 11.0)          "Letter")
+       (list 'legal        (* 72  8.5)    (* 72 14.0)          "Legal")
+       (list 'letter-small (* 72  7.68)   (* 72 10.16)         "LetterSmall")
+       (list 'tabloid      (* 72 11.0)    (* 72 17.0)          "Tabloid")
+       (list 'ledger       (* 72 17.0)    (* 72 11.0)          "Ledger")
+       (list 'statement    (* 72  5.5)    (* 72  8.5)          "Statement")
+       (list 'executive    (* 72  7.5)    (* 72 10.0)          "Executive")
+       (list 'a4small      (* 72  7.47)   (* 72 10.85)         "A4Small")
+       (list 'b4           (* 72 10.125)  (* 72 14.33)         "B4")
+       (list 'b5           (* 72  7.16)   (* 72 10.125)        "B5")
+       ;; page sizes for label printer
+       ;; NOTE: the page sizes below don't have n-up > 1.
+       '(addresslarge       236.0      99.0 "AddressLarge")
+       '(addresssmall       236.0      68.0 "AddressSmall")
+       '(cuthanging13        90.0     222.0 "CutHanging13")
+       '(cuthanging15        90.0     114.0 "CutHanging15")
+       '(diskette           181.0     136.0 "Diskette")
+       '(eurofilefolder     139.0     112.0 "EuropeanFilefolder")
+       '(eurofoldernarrow   526.0     107.0 "EuroFolderNarrow")
+       '(eurofolderwide     526.0     136.0 "EuroFolderWide")
+       '(euronamebadge      189.0     108.0 "EuroNameBadge")
+       '(euronamebadgelarge 223.0     136.0 "EuroNameBadgeLarge")
+       '(filefolder         230.0      37.0 "FileFolder")
+       '(jewelry             76.0     136.0 "Jewelry")
+       '(mediabadge         180.0     136.0 "MediaBadge")
+       '(multipurpose       126.0      68.0 "MultiPurpose")
+       '(retaillabel         90.0     104.0 "RetailLabel")
+       '(shipping           271.0     136.0 "Shipping")
+       '(slide35mm           26.0     104.0 "Slide35mm")
+       '(spine8mm           187.0      26.0 "Spine8mm")
+       '(topcoated          425.19685 136.0 "TopCoatedPaper")
+       '(topcoatedpaper     396.0     136.0 "TopcoatedPaper150")
+       '(vhsface            205.0     127.0 "VHSFace")
+       '(vhsspine           400.0      50.0 "VHSSpine")
+       '(zipdisk            156.0     136.0 "ZipDisk"))
   "List associating a symbolic paper type to its width, height and doc media.
 See `ps-paper-type'."
   :type '(repeat (list :tag "Paper Type"
@@ -4606,21 +4605,19 @@ page-height == ((floor print-height ((th + ls) * zh)) * ((th + ls) * zh)) - th
 		   (t
 		    nil))
 	     (cond ((eq ps-even-or-odd-pages 'even-page)
-		    (= (logand ps-page-postscript 1) 0))
+		    (evenp ps-page-postscript))
 		   ((eq ps-even-or-odd-pages 'odd-page)
-		    (= (logand ps-page-postscript 1) 1))
-		   (t)
-		   ))))
+		    (oddp ps-page-postscript))
+		   (t)))))
 
 
 (defsubst ps-print-sheet-p ()
   (setq ps-print-page-p
 	(cond ((eq ps-even-or-odd-pages 'even-sheet)
-	       (= (logand ps-page-sheet 1) 0))
+	       (evenp ps-page-sheet))
 	      ((eq ps-even-or-odd-pages 'odd-sheet)
-	       (= (logand ps-page-sheet 1) 1))
-	      (t)
-	      )))
+	       (oddp ps-page-sheet))
+	      (t))))
 
 
 (defun ps-output (&rest args)
@@ -6463,7 +6460,7 @@ If FACE is not a valid face name, use default face."
 	    (replace-match (format "/Lines %d def\n/PageCount %d def"
 				   total-lines total-pages) t)))))
     ;; Set dummy page
-    (and ps-spool-duplex (= (mod ps-page-order 2) 1)
+    (and ps-spool-duplex (oddp ps-page-order)
 	 (let ((ps-n-up-printing 0))
 	   (ps-header-sheet)
 	   (ps-output "/PrintHeader false def\n/ColumnIndex 0 def\n"

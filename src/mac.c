@@ -1058,7 +1058,7 @@ cfdictionary_puthash (const void *key, const void *value, void *context)
   else
     lisp_key = cfstring_to_lisp (key);
 
-  hash_lookup_get_hash (h, lisp_key, &hash_code);
+  hash_find_get_hash (h, lisp_key, &hash_code);
   hash_put (h, lisp_key,
 	    cfobject_to_lisp (value, cxt->flags, cxt->hash_bound),
 	    hash_code);
@@ -1145,7 +1145,7 @@ cfobject_to_lisp (CFTypeRef obj, int flags, int hash_bound)
 	}
       else
 	{
-	  result = make_hash_table (&hashtest_equal, count, Weak_None, false);
+	  result = make_hash_table (&hashtest_equal, count, Weak_None);
 	  CFDictionaryApplyFunction (obj, cfdictionary_puthash,
 				     &context);
 	}
@@ -1777,7 +1777,7 @@ xrm_create_database (void)
   XrmDatabase database;
 
   database = make_hash_table (&hashtest_equal, DEFAULT_HASH_SIZE,
-			      Weak_None, false);
+				   Weak_None);
   Fputhash (HASHKEY_MAX_NID, make_fixnum (0), database);
   Fputhash (HASHKEY_QUERY_CACHE, Qnil, database);
 
@@ -1799,7 +1799,7 @@ xrm_q_put_resource (XrmDatabase database, Lisp_Object quarks, Lisp_Object value)
   for (; CONSP (quarks); quarks = XCDR (quarks))
     {
       key = Fcons (node_id, XCAR (quarks));
-      i = hash_lookup_get_hash (h, key, &hash_code);
+      i = hash_find_get_hash (h, key, &hash_code);
       if (i < 0)
 	{
 	  max_nid++;
@@ -1854,7 +1854,7 @@ xrm_q_get_resource_1 (XrmDatabase database, Lisp_Object node_id,
   for (k = 0; k < ARRAYELTS (labels); k++)
     {
       XSETCDR (key, labels[k]);
-      i = hash_lookup (h, key);
+      i = hash_find (h, key);
       if (i >= 0)
 	{
 	  value = xrm_q_get_resource_1 (database, HASH_VALUE (h, i),
@@ -1866,7 +1866,7 @@ xrm_q_get_resource_1 (XrmDatabase database, Lisp_Object node_id,
 
   /* Then, try loose bindings */
   XSETCDR (key, LOOSE_BINDING);
-  i = hash_lookup (h, key);
+  i = hash_find (h, key);
   if (i >= 0)
     {
       value = xrm_q_get_resource_1 (database, HASH_VALUE (h, i),
@@ -1911,11 +1911,11 @@ xrm_get_resource (XrmDatabase database, const char *name, const char *class)
   if (NILP (query_cache))
     {
       query_cache = make_hash_table (&hashtest_equal, DEFAULT_HASH_SIZE,
-				     Weak_None, false);
+				   Weak_None);
       Fputhash (HASHKEY_QUERY_CACHE, query_cache, database);
     }
   h = XHASH_TABLE (query_cache);
-  i = hash_lookup_get_hash (h, key, &hash_code);
+  i = hash_find_get_hash (h, key, &hash_code);
   if (i >= 0)
     return HASH_VALUE (h, i);
 
@@ -2094,7 +2094,7 @@ containing an unresolvable alias.  */)
      call the corresponding file handler.  */
   handler = Ffind_file_name_handler (filename, Qmac_file_alias_p);
   if (!NILP (handler))
-    return call2 (handler, Qmac_file_alias_p, filename);
+    return calln (handler, Qmac_file_alias_p, filename);
 
   block_input ();
   encoded_filename = ENCODE_FILE (filename);
@@ -2193,7 +2193,7 @@ DEFUN ("system-move-file-to-trash", Fsystem_move_file_to_trash,
 
   handler = Ffind_file_name_handler (filename, operation);
   if (!NILP (handler))
-    return call2 (handler, operation, filename);
+    return calln (handler, operation, filename);
 
   encoded_file = ENCODE_FILE (filename);
 

@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--1999, 2001--2025 Free Software
+@c Copyright (C) 1990--1995, 1998--1999, 2001--2026 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Minibuffers
@@ -671,6 +671,7 @@ function, this automatic addition is disabled, and you can also set
 this variable to your own function which adds only some candidates, or
 some other values, to the ``future history''.
 
+@cindex @code{history-length} (symbol property)
   Emacs functions that add a new element to a history list can also
 delete old elements if the list gets too long.  The variable
 @code{history-length} specifies the maximum length for most history
@@ -966,20 +967,12 @@ too short).  Both of those begin with the string @samp{foobar}.
 @end smallexample
 @end defun
 
-@c Removed obsolete argument nospace.
 @defun all-completions string collection &optional predicate
 This function returns a list of all possible completions of
 @var{string}.  The arguments to this function
-@c (aside from @var{nospace})
 are the same as those of @code{try-completion}, and it
 uses @code{completion-regexp-list} in the same way that
 @code{try-completion} does.
-
-@ignore
-The optional argument @var{nospace} is obsolete.  If it is
-non-@code{nil}, completions that start with a space are ignored unless
-@var{string} starts with a space.
-@end ignore
 
 If @var{collection} is a function, it is called with three arguments:
 @var{string}, @var{predicate} and @code{t}; then @code{all-completions}
@@ -1722,7 +1715,7 @@ If this variable is non-@code{nil}, @code{read-file-name} ignores case
 when performing completion.
 @end defopt
 
-@defun read-directory-name prompt &optional directory default require-match initial
+@defun read-directory-name prompt &optional directory default require-match initial predicate
 This function is like @code{read-file-name} but allows only directory
 names as completion alternatives.
 
@@ -1907,7 +1900,7 @@ The function to add prefixes and suffixes to completions.
 @end table
 
 @noindent
-See @ref{Programmed Completion}, for a complete list of metadata entries.
+@xref{Programmed Completion}, for a complete list of metadata entries.
 @end defopt
 
 @defvar completion-extra-properties
@@ -2128,6 +2121,12 @@ This is a wrapper for @code{completion-table-dynamic} that saves the
 last argument-result pair.  This means that multiple lookups with the
 same argument only need to call @var{function} once.  This can be useful
 when a slow operation is involved, such as calling an external process.
+@end defun
+
+@defun completion-table-with-metadata table metadata
+This function creates a completion table that behaves like the existing
+completion table @var{table}, except that the new table uses the alist
+@var{metadata} as its completion metadata.
 @end defun
 
 @node Completion in Buffers
@@ -2381,9 +2380,12 @@ asking each question individually.  This gives the user certain
 convenient facilities such as the ability to answer the whole series at
 once.
 
+@vindex y-or-n-p-use-read-key@r{, and} map-y-or-n-p
 @defun map-y-or-n-p prompter actor list &optional help action-alist no-cursor-in-echo-area
 This function asks the user a series of questions, reading a
-single-character answer in the echo area for each one.
+single-character answer in the minibuffer for each one.  However, if
+@code{y-or-n-p-use-read-key} is non-@code{nil} (@pxref{Key Sequence
+Input}), it reads a key sequence from the echo area.
 
 The value of @var{list} specifies the objects to ask questions about.
 It should be either a list of objects or a generator function.  If it

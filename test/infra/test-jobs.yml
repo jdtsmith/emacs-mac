@@ -28,6 +28,8 @@ test-lisp-inotify:
       when: never
     - changes:
         - lisp/*.el
+        - test/lisp/so-long-tests/*resources/**
+        - test/lisp/so-long-tests/*.el
         - test/lisp/*resources/**
         - test/lisp/*.el
   variables:
@@ -147,45 +149,15 @@ test-lisp-emacs-lisp-inotify:
       when: never
     - changes:
         - lisp/emacs-lisp/*.el
+        - test/lisp/emacs-lisp/eieio-tests/*resources/**
+        - test/lisp/emacs-lisp/eieio-tests/*.el
+        - test/lisp/emacs-lisp/faceup-tests/*resources/**
+        - test/lisp/emacs-lisp/faceup-tests/*.el
         - test/lisp/emacs-lisp/*resources/**
         - test/lisp/emacs-lisp/*.el
   variables:
     target: emacs-inotify
     make_params: -C test check-lisp-emacs-lisp
-
-test-lisp-emacs-lisp-eieio-tests-inotify:
-  stage: normal
-  extends: [.job-template, .test-template]
-  needs:
-    - job: build-image-inotify
-      optional: true
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-      when: never
-    - changes:
-        - lisp/emacs-lisp/eieio*.el
-        - test/lisp/emacs-lisp/eieio-tests/*resources/**
-        - test/lisp/emacs-lisp/eieio-tests/*.el
-  variables:
-    target: emacs-inotify
-    make_params: -C test check-lisp-emacs-lisp-eieio-tests
-
-test-lisp-emacs-lisp-faceup-tests-inotify:
-  stage: normal
-  extends: [.job-template, .test-template]
-  needs:
-    - job: build-image-inotify
-      optional: true
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-      when: never
-    - changes:
-        - lisp/emacs-lisp/faceup*.el
-        - test/lisp/emacs-lisp/faceup-tests/*resources/**
-        - test/lisp/emacs-lisp/faceup-tests/*.el
-  variables:
-    target: emacs-inotify
-    make_params: -C test check-lisp-emacs-lisp-faceup-tests
 
 test-lisp-emulation-inotify:
   stage: normal
@@ -288,6 +260,23 @@ test-lisp-international-inotify:
   variables:
     target: emacs-inotify
     make_params: -C test check-lisp-international
+
+test-lisp-language-inotify:
+  stage: normal
+  extends: [.job-template, .test-template]
+  needs:
+    - job: build-image-inotify
+      optional: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: never
+    - changes:
+        - lisp/language/*.el
+        - test/lisp/language/*resources/**
+        - test/lisp/language/*.el
+  variables:
+    target: emacs-inotify
+    make_params: -C test check-lisp-language
 
 test-lisp-mail-inotify:
   stage: normal
@@ -432,23 +421,6 @@ test-lisp-progmodes-inotify:
     target: emacs-inotify
     make_params: -C test check-lisp-progmodes
 
-test-lisp-so-long-tests-inotify:
-  stage: normal
-  extends: [.job-template, .test-template]
-  needs:
-    - job: build-image-inotify
-      optional: true
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-      when: never
-    - changes:
-        - lisp/so-long*.el
-        - test/lisp/so-long-tests/*resources/**
-        - test/lisp/so-long-tests/*.el
-  variables:
-    target: emacs-inotify
-    make_params: -C test check-lisp-so-long-tests
-
 test-lisp-term-inotify:
   stage: normal
   extends: [.job-template, .test-template]
@@ -482,6 +454,8 @@ test-lisp-textmodes-inotify:
       when: never
     - changes:
         - lisp/textmodes/*.el
+        - test/lisp/textmodes/ispell-tests/*resources/**
+        - test/lisp/textmodes/ispell-tests/*.el
         - test/lisp/textmodes/*resources/**
         - test/lisp/textmodes/*.el
   variables:
@@ -533,6 +507,8 @@ test-lisp-vc-inotify:
       when: never
     - changes:
         - lisp/vc/*.el
+        - test/lisp/vc/vc-tests/*resources/**
+        - test/lisp/vc/vc-tests/*.el
         - test/lisp/vc/*resources/**
         - test/lisp/vc/*.el
   variables:
@@ -587,6 +563,7 @@ test-src-inotify:
       lisp/progmodes/go-ts-mode-tests.log
       lisp/progmodes/heex-ts-mode-tests.log
       lisp/progmodes/java-ts-mode-tests.log
+      lisp/progmodes/json-ts-mode-tests.log
       lisp/progmodes/js-tests.log
       lisp/progmodes/lua-ts-mode-tests.log
       lisp/progmodes/python-tests.log

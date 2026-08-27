@@ -1,6 +1,6 @@
 ;;; erc-tests.el --- Tests for erc.  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2020-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Ingebrigtsen <larsi@gnus.org>
 
@@ -68,8 +68,9 @@
   (erc-tests-common-make-server-buf)
 
   (setq erc-ignore-list (list ".")) ; match anything
-  (ert-simulate-keys (list ?\r)
-    (erc-cmd-IGNORE "abc"))
+  (let ((inhibit-message noninteractive))
+    (ert-simulate-keys (list ?\r)
+      (erc-cmd-IGNORE "abc")))
   (should (equal erc-ignore-list (list "abc" ".")))
 
   (cl-letf (((symbol-function 'y-or-n-p) #'always))
@@ -164,21 +165,9 @@
 
     (advice-remove 'buffer-local-value 'erc-with-server-buffer)))
 
-(ert-deftest erc--doarray ()
-  (let ((array "abcdefg")
-        out)
-    ;; No return form.
-    (should-not (erc--doarray (c array) (push c out)))
-    (should (equal out '(?g ?f ?e ?d ?c ?b ?a)))
-
-    ;; Return form evaluated upon completion.
-    (setq out nil)
-    (should (= 42 (erc--doarray (c array (+ 39 (length out)))
-                    (when (cl-evenp c) (push c out)))))
-    (should (equal out '(?f ?d ?b)))))
-
 (ert-deftest erc-hide-prompt ()
   (let ((erc-hide-prompt erc-hide-prompt)
+        (inhibit-message noninteractive)
         ;;
         erc-kill-channel-hook erc-kill-server-hook erc-kill-buffer-hook)
 
@@ -330,16 +319,12 @@
 
     (ert-info ("Server buffer")
       (with-current-buffer (get-buffer-create "ServNet")
-        (erc-tests-common-prep-for-insertion)
+        (erc-tests-common-make-server-buf "ServNet")
         (goto-char erc-insert-marker)
         (should (looking-at-p "ServNet 3>"))
         (erc-tests-common-init-server-proc "sleep" "1")
         (set-process-sentinel erc-server-process #'ignore)
-        (setq erc-network 'ServNet
-              erc-server-current-nick "tester"
-              erc-networks--id (erc-networks--id-create nil)
-              erc-server-users (make-hash-table :test 'equal))
-        (set-process-query-on-exit-flag erc-server-process nil)
+        (setq erc-server-current-nick "tester")
         ;; Incoming message redraws prompt
         (erc-display-message nil 'notice nil "Welcome")
         (should (looking-at-p (rx "*** Welcome")))
@@ -364,6 +349,8 @@
           (should-not (search-forward (rx (any "3-5") ">") nil t)))))
 
     (ert-info ("Channel buffer")
+      ;; Create buffer manually instead of using `erc--open-target' in
+      ;; order to show prompt before/after network is known.
       (with-current-buffer (get-buffer-create "#chan")
         (erc-tests-common-prep-for-insertion)
         (goto-char erc-insert-marker)
@@ -688,6 +675,9 @@
   (should-not (erc--parse-nuh "abc\nde!fg@xy")))
 
 (ert-deftest erc--parsed-prefix ()
+  ;; Effectively a no-op in a non-ERC buffer.
+  (should-not (erc--parsed-prefix))
+
   (erc-tests-common-make-server-buf (buffer-name))
 
   ;; Uses fallback values when no PREFIX parameter yet received, thus
@@ -817,6 +807,156 @@
       (should-not (erc--cusr-status-p cusr ?v))
       (should-not (erc--cusr-status-p cusr ?q)))))
 
+(defun erc-tests--make-combinations (flags)
+  "Return a list of all combinations in FLAGS, preserving order."
+  (let* ((flags (apply #'vector flags))
+         (n (length flags))
+         (max (1- (ash 1 n)))
+         (mask 0)
+         (out ()))
+    (while (<= (cl-incf mask) max)
+      (let ((i 0)
+            (subset ()))
+        (while (< i n)
+          (unless (zerop (logand mask (ash 1 i)))
+            (push (aref flags i) subset))
+          (cl-incf i))
+        (when (cdr subset)
+          (push (nreverse subset) out))))
+    out))
+
+(defun erc-tests--with-channel-user-status-accessors (test)
+  (erc-tests-common-make-server-buf)
+
+  (let* ((u (make-erc-channel-user))
+         (get (lambda (letter)
+                (pcase letter
+                  (?v (erc-channel-user-voice u))
+                  (?h (erc-channel-user-halfop u))
+                  (?o (erc-channel-user-op u))
+                  (?a (erc-channel-user-admin u))
+                  (?q (erc-channel-user-owner u)))))
+
+         (set (lambda (letter val)
+                (pcase letter
+                  (?v (setf (erc-channel-user-voice u) val))
+                  (?h (setf (erc-channel-user-halfop u) val))
+                  (?o (setf (erc-channel-user-op u) val))
+                  (?a (setf (erc-channel-user-admin u) val))
+                  (?q (setf (erc-channel-user-owner u) val)))))
+
+         (assert-null
+          (lambda (&rest letters)
+            (dolist (letter letters)
+              (ert-info ((format "Assert null: %c" letter))
+                (should-not (funcall get letter))))))
+
+         (assert-set
+          (lambda (letter &optional nop)
+            (ert-info ((format "Assert: %c%s" letter (if nop " (no-op)" "")))
+              (should-not (funcall get letter))
+              (if (and nop erc-channel-user-signal-if-status-unknown)
+                  (should-error (funcall set letter t))
+                ;; If the flag is unsupported, always return nil,
+                ;; and don't set anything, otherwise, return t.
+                (let ((rv (funcall set letter t)))
+                  (ert-info ((format "Set: %S" rv))
+                    (should (xor rv nop)))))
+              (let ((rv (funcall get letter)))
+                (ert-info ((format "Get: %S" rv))
+                  (should (xor rv nop)))))))
+
+         (assert-solo
+          (lambda (letter &optional nop)
+            (setf (erc-channel-user-status u) 0) ; clear
+            (funcall assert-set letter nop)
+            (apply assert-null (seq-difference '(?v ?h ?o ?a ?q)
+                                               (list letter)))))
+
+         (assert-multi
+          (lambda (&rest supported)
+            ;; Set all defined flags from smallest to largest rank.
+            (dolist (flags (erc-tests--make-combinations '(?v ?h ?o ?a ?q)))
+              (setf (erc-channel-user-status u) 0)
+              (ert-info ((let ((print-integers-as-characters t))
+                           (format "Multi %S" (list :flags flags
+                                                    :supported supported))))
+                (let ((seen-supported ())
+                      (seen-unsupported ()))
+                  (dolist (a flags)
+                    (let ((supportedp (memq a supported)))
+                      (push a (if supportedp seen-supported seen-unsupported))
+                      (funcall assert-set a (not supportedp))
+                      ;; Addition of new flag has not corrupted others.
+                      (dolist (aa seen-supported)
+                        (ert-info ((format "Seen supported: %s %c" u aa))
+                          (should (funcall get aa))))
+                      (dolist (aa `(,@seen-unsupported ,@(cdr (memq a flags))))
+                        (should-not (funcall get aa))))))
+                ;; Unset in reverse, although not doing so is valid.
+                (setq flags (nreverse flags))
+                (let ((seen ()))
+                  (while-let ((b (pop flags)))
+                    (ert-info ((format "Unsetting: %S %c" u b))
+                      (should-not (funcall set b nil))
+                      (dolist (bb (push b seen))
+                        (ert-info ((format "Seen unset: %c" bb))
+                          (should-not (funcall get bb))))
+                      (dolist (bb flags)
+                        (ert-info ((format "Unseen set: %c" bb))
+                          (if (memq bb supported)
+                              (should (funcall get bb))
+                            (should-not (funcall get bb)))))))))))))
+
+    ;; Run the same test twice, with compat flag nil and non-nil.
+    (let ((erc-channel-user-signal-if-status-unknown nil))
+      (funcall test assert-null assert-set assert-solo assert-multi))
+
+    (ert-info ("With `erc-channel-user-signal-if-status-unknown'")
+      (setf (erc-channel-user-status u) 0) ; clear
+      (let ((erc-channel-user-signal-if-status-unknown t))
+        (funcall test assert-null assert-set assert-solo assert-multi)))
+
+    (erc-tests-common-kill-buffers)))
+
+(ert-deftest erc-channel-user/status-accessors/solo/default ()
+  (erc-tests--with-channel-user-status-accessors
+   (lambda (assert-null _assert-set assert-solo _assert-multi)
+
+     (ert-info ("Baseline")
+       (funcall assert-null ?v ?h ?o ?a ?q))
+
+     (ert-info ("+v") (funcall assert-solo ?v))
+     (ert-info ("+h") (funcall assert-solo ?h))
+     (ert-info ("+o") (funcall assert-solo ?o))
+     (ert-info ("+a") (funcall assert-solo ?a))
+     (ert-info ("+q") (funcall assert-solo ?q)))))
+
+(ert-deftest erc-channel-user/status-accessors/solo/ov ()
+  (erc-tests--with-channel-user-status-accessors
+   (lambda (assert-null _assert-set assert-solo _assert-multi)
+     (erc-tests-common-simulate-line ":irc.gnu.org 005 tester PREFIX=(ov)@+")
+
+     (ert-info ("Baseline")
+       (funcall assert-null ?v ?h ?o ?a ?q))
+
+     (ert-info ("+v") (funcall assert-solo ?v))
+     (ert-info ("+h (unknown)") (funcall assert-solo ?h 'nop))
+     (ert-info ("+o") (funcall assert-solo ?o))
+     (ert-info ("+a (unknown)") (funcall assert-solo ?a 'nop))
+     (ert-info ("+q (unknown)") (funcall assert-solo ?q 'nop)))))
+
+(ert-deftest erc-channel-user/status-accessors/multi/default ()
+  (erc-tests--with-channel-user-status-accessors
+   (lambda (_assert-null _assert-set _assert-solo assert-multi)
+     (funcall assert-multi ?v ?h ?o ?a ?q))))
+
+(ert-deftest erc-channel-user/status-accessors/multi/ov ()
+  (erc-tests--with-channel-user-status-accessors
+   (lambda (_assert-null _assert-set _assert-solo assert-multi)
+     (erc-tests-common-simulate-line ":irc.gnu.org 005 tester PREFIX=(ov)@+")
+     (funcall assert-multi ?v ?o))))
+
 ;; This exists as a reference to assert legacy behavior in order to
 ;; preserve and incorporate it as a fallback in the 5.6+ replacement.
 (ert-deftest erc-parse-modes ()
@@ -827,7 +967,10 @@
     (should (equal (erc-parse-modes "-o bob") '(nil nil (("o" off "bob")))))
     (should (equal (erc-parse-modes "+uo bob") '(("u") nil (("o" on "bob")))))
     (should (equal (erc-parse-modes "+o-u bob") '(nil ("u") (("o" on "bob")))))
+
     (should (equal (erc-parse-modes "+uo-tv bob alice")
+                   '(("u") ("t") (("o" on "bob") ("v" off "alice")))))
+    (should (equal (erc-parse-modes "+u-t+o-v bob alice")
                    '(("u") ("t") (("o" on "bob") ("v" off "alice")))))
 
     (ert-info ("Modes of type B are always grouped as unary")
@@ -844,100 +987,108 @@
   (setq erc-channel-users (make-hash-table :test #'equal)
         erc--target (erc--target-from-string "#test"))
 
-  (let ((orig-handle-fn (symbol-function 'erc--handle-channel-mode))
-        calls)
-    (cl-letf (((symbol-function 'erc--handle-channel-mode)
-               (lambda (&rest r) (push r calls) (apply orig-handle-fn r)))
-              ((symbol-function 'erc-update-mode-line) #'ignore))
+  (cl-letf ((calls ())
+            ((symbol-function 'erc-update-mode-line) #'ignore))
+    (advice-add 'erc--handle-channel-mode
+                :before (lambda (&rest r) (push r calls))
+                '((name . erc-tests-spy)))
 
-      (ert-info ("Unknown user not created")
-        (erc--update-channel-modes "+o" "bob")
-        (should-not (erc-get-channel-user "bob")))
+    (ert-info ("Unknown user not created")
+      (erc--update-channel-modes "+o" "bob")
+      (should-not (erc-get-channel-user "bob")))
 
-      (ert-info ("Status updated when user known")
-        (puthash "bob" (cons (erc-add-server-user
-                              "bob" (make-erc-server-user
-                                     :nickname "bob"
-                                     :buffers (list (current-buffer))))
-                             (make-erc-channel-user))
-                 erc-channel-users)
-        ;; Also asserts fallback behavior for traditional prefixes.
-        (should-not (erc-channel-user-op-p "bob"))
-        (erc--update-channel-modes "+o" "bob")
-        (should (erc-channel-user-op-p "bob"))
-        (erc--update-channel-modes "-o" "bob") ; status revoked
-        (should-not (erc-channel-user-op-p "bob")))
+    (ert-info ("Status updated when user known")
+      (puthash "bob" (cons (erc-add-server-user
+                            "bob" (make-erc-server-user
+                                   :nickname "bob"
+                                   :buffers (list (current-buffer))))
+                           (make-erc-channel-user))
+               erc-channel-users)
+      ;; Also asserts fallback behavior for traditional prefixes.
+      (should-not (erc-channel-user-op-p "bob"))
+      (erc--update-channel-modes "+o" "bob")
+      (should (erc-channel-user-op-p "bob"))
+      (erc--update-channel-modes "-o" "bob") ; status revoked
+      (should-not (erc-channel-user-op-p "bob")))
 
-      (ert-info ("Unknown nullary added and removed")
-        (should-not erc--channel-modes)
-        (should-not erc-channel-modes)
-        (erc--update-channel-modes "+u")
-        (should (equal erc-channel-modes '("u")))
-        (should (eq t (gethash ?u erc--channel-modes)))
-        (should (equal (pop calls) '(?d ?u t nil)))
-        (erc--update-channel-modes "-u")
-        (should (equal (pop calls) '(?d ?u nil nil)))
-        (should-not (gethash ?u erc--channel-modes))
-        (should-not erc-channel-modes)
-        (should-not calls))
+    (ert-info ("Unknown nullary added and removed")
+      (should-not erc--channel-modes)
+      (should-not erc-channel-modes)
+      (erc--update-channel-modes "+u")
+      (should (equal erc-channel-modes '("u")))
+      (should (eq t (gethash ?u erc--channel-modes)))
+      (should (equal (pop calls) '(?d ?u t nil)))
+      (erc--update-channel-modes "-u")
+      (should (equal (pop calls) '(?d ?u nil nil)))
+      (should-not (gethash ?u erc--channel-modes))
+      (should-not erc-channel-modes)
+      (should-not calls))
 
-      (ert-info ("Fallback for Type B includes mode letter k")
-        (erc--update-channel-modes "+k" "h2")
-        (should (equal (pop calls) '(?b ?k t "h2")))
-        (should-not erc-channel-modes)
-        (should (equal "h2" (gethash ?k erc--channel-modes)))
-        (erc--update-channel-modes "-k" "*")
-        (should (equal (pop calls) '(?b ?k nil "*")))
-        (should-not calls)
-        (should-not (gethash ?k erc--channel-modes))
-        (should-not erc-channel-modes))
+    (ert-info ("Fallback for Type B includes mode letter k")
+      (erc--update-channel-modes "+k" "h2")
+      (should (equal (pop calls) '(?b ?k t "h2")))
+      (should-not erc-channel-modes)
+      (should (equal "h2" (gethash ?k erc--channel-modes)))
+      (erc--update-channel-modes "-k" "*")
+      (should (equal (pop calls) '(?b ?k nil "*")))
+      (should-not calls)
+      (should-not (gethash ?k erc--channel-modes))
+      (should-not erc-channel-modes))
 
-      (ert-info ("Fallback for Type C includes mode letter l")
-        (erc--update-channel-modes "+l" "3")
-        (should (equal (pop calls) '(?c ?l t "3")))
-        (should-not erc-channel-modes)
-        (should (equal "3" (gethash ?l erc--channel-modes)))
-        (erc--update-channel-modes "-l" nil)
-        (should (equal (pop calls) '(?c ?l nil nil)))
-        (should-not (gethash ?l erc--channel-modes))
-        (should-not erc-channel-modes))
+    (ert-info ("Fallback for Type C includes mode letter l")
+      (erc--update-channel-modes "+l" "3")
+      (should (equal (pop calls) '(?c ?l t "3")))
+      (should-not erc-channel-modes)
+      (should (equal "3" (gethash ?l erc--channel-modes)))
+      (erc--update-channel-modes "-l" nil)
+      (should (equal (pop calls) '(?c ?l nil nil)))
+      (should-not (gethash ?l erc--channel-modes))
+      (should-not erc-channel-modes))
 
-      (ert-info ("Advertised supersedes heuristics")
-        (setq erc-server-parameters
-              '(("PREFIX" . "(ov)@+")
-                ;; Add phony 5th type for this CHANMODES value for
-                ;; robustness in case some server gets creative.
-                ("CHANMODES" . "eIbq,k,flj,CFLMPQRSTcgimnprstuz,FAKE")))
-        (erc--update-channel-modes "+qu" "fool!*@*")
-        (should (equal (pop calls) '(?d ?u t nil)))
-        (should (equal (pop calls) '(?a ?q t "fool!*@*")))
-        (should (equal 1 (gethash ?q erc--channel-modes)))
-        (should (eq t (gethash ?u erc--channel-modes)))
-        (should (equal erc-channel-modes '("u")))
-        (should-not (erc-channel-user-owner-p "bob"))
+    (ert-info ("Advertised supersedes heuristics")
+      (setq erc-server-parameters
+            '(("PREFIX" . "(ov)@+")
+              ;; Add phony 5th type for this CHANMODES value for
+              ;; robustness in case some server gets creative.
+              ("CHANMODES" . "eIbq,k,flj,CFLMPQRSTcgimnprstuz,FAKE")))
+      (erc--update-channel-modes "+qu" "fool!*@*")
+      (should (equal (pop calls) '(?d ?u t nil)))
+      (should (equal (pop calls) '(?a ?q t "fool!*@*")))
+      (should (equal 1 (gethash ?q erc--channel-modes)))
+      (should (eq t (gethash ?u erc--channel-modes)))
+      (should (equal erc-channel-modes '("u")))
+      (should-not (erc-channel-user-owner-p "bob"))
 
-        ;; Remove fool!*@* from list mode "q".
-        (erc--update-channel-modes "-uq" "fool!*@*")
-        (should (equal (pop calls) '(?a ?q nil "fool!*@*")))
-        (should (equal (pop calls) '(?d ?u nil nil)))
-        (should-not (gethash ?u erc--channel-modes))
-        (should-not erc-channel-modes)
-        (should (equal 0 (gethash ?q erc--channel-modes))))
+      ;; Remove fool!*@* from list mode "q".
+      (erc--update-channel-modes "-uq" "fool!*@*")
+      (should (equal (pop calls) '(?a ?q nil "fool!*@*")))
+      (should (equal (pop calls) '(?d ?u nil nil)))
+      (should-not (gethash ?u erc--channel-modes))
+      (should-not erc-channel-modes)
+      (should (equal 0 (gethash ?q erc--channel-modes))))
 
-      (should-not calls))))
+    (should-not calls)
+    (advice-remove 'erc--handle-channel-mode 'erc-tests-spy)))
 
 (ert-deftest erc--channel-modes ()
-  :tags (and (null (getenv "CI")) '(:unstable))
+  ;; Only mark :unstable when running locally.
+  :tags (and (null (getenv "CI")) (null (getenv "EMACS_EMBA_CI")) '(:unstable))
 
   (setq erc--isupport-params (make-hash-table)
         erc--target (erc--target-from-string "#test")
+        erc--channel-banlist-synchronized-p t
         erc-server-parameters
         '(("CHANMODES" . "eIbq,k,flj,CFLMPQRSTcgimnprstuz")))
 
   (erc-tests-common-init-server-proc "sleep" "1")
 
-  (cl-letf (((symbol-function 'erc-update-mode-line) #'ignore))
-    (erc--update-channel-modes "+bltk" "fool!*@*" "3" "h2"))
+  (cl-letf ((erc--parsed-response (make-erc-response
+                                   :sender "chop!~u@gnu.org"))
+            ((symbol-function 'erc-update-mode-line) #'ignore))
+    (should-not erc-channel-banlist)
+    (erc--update-channel-modes "+bbltk" "fool!*@*" "spam!*@*" "3" "h2")
+    (should (equal erc-channel-banlist '(("chop!~u@gnu.org" . "spam!*@*")
+                                         ("chop!~u@gnu.org" . "fool!*@*")))))
 
   (should (equal (erc--channel-modes 'string) "klt"))
   (should (equal (erc--channel-modes 'strings) '("k" "l" "t")))
@@ -982,11 +1133,16 @@
   (erc-tests-common-init-server-proc "sleep" "1")
   (setq erc--isupport-params (make-hash-table)
         erc--target (erc--target-from-string "#test")
+        erc--channel-banlist-synchronized-p t
         erc-server-parameters
         '(("CHANMODES" . "eIbq,k,flj,CFLMPQRSTcgimnprstuz")))
 
-  (cl-letf (((symbol-function 'erc-update-mode-line) #'ignore))
-    (erc--update-channel-modes "+bltk" "fool!*@*" "3" "hun2"))
+  (cl-letf ((erc--parsed-response (make-erc-response
+                                   :sender "chop!~u@gnu.org"))
+            ((symbol-function 'erc-update-mode-line) #'ignore))
+    (should-not erc-channel-banlist)
+    (erc--update-channel-modes "+bltk" "fool!*@*" "3" "hun2")
+    (should (equal erc-channel-banlist '(("chop!~u@gnu.org" . "fool!*@*")))))
 
   ;; Truncation cache populated and used.
   (let ((cache (erc--channel-mode-types-shortargs erc--channel-mode-types))
@@ -1305,16 +1461,17 @@
     (setq calls nil)
 
     (ert-info ("Remove existing")
-      (ert-with-message-capture messages
-        (erc--modify-local-map nil "C-c C-c" cmd-foo "C-c C-k" cmd-bar)
-        (with-temp-buffer
-          (set-window-buffer (selected-window) (current-buffer))
-          (use-local-map erc-mode-map)
+      (erc--modify-local-map nil "C-c C-c" cmd-foo "C-c C-k" cmd-bar)
+      (with-temp-buffer
+        (set-window-buffer (selected-window) (current-buffer))
+        (use-local-map erc-mode-map)
+        (cl-letf (((symbol-function 'undefined)
+                   (lambda ()
+                     (push (key-description (this-single-command-keys))
+                           calls))))
           (execute-kbd-macro "\C-c\C-c")
-          (execute-kbd-macro "\C-c\C-k"))
-        (should (string-search "C-c C-c is undefined" messages))
-        (should (string-search "C-c C-k is undefined" messages))
-        (should-not calls)))))
+          (execute-kbd-macro "\C-c\C-k")))
+      (should (equal calls '("C-c C-k" "C-c C-c"))))))
 
 (ert-deftest erc-ring-previous-command-base-case ()
   (ert-info ("Create ring when nonexistent and do nothing")
@@ -1521,6 +1678,7 @@
 (ert-deftest erc--check-prompt-input-functions ()
   (erc-tests-common-with-process-input-spy
    (lambda (next)
+     (erc-tests-common-prep-for-insertion)
 
      (ert-info ("Errors when point not in prompt area") ; actually just dings
        (insert "/msg #chan hi")
@@ -1556,7 +1714,7 @@
 (ert-deftest erc-send-current-line ()
   (erc-tests-common-with-process-input-spy
    (lambda (next)
-     (erc-tests-common-init-server-proc "sleep" "1")
+     (erc-tests-common-make-server-buf (buffer-name))
      (should (= 0 erc-last-input-time))
 
      (ert-info ("Simple command")
@@ -1639,7 +1797,8 @@
   (ert-with-message-capture messages
     (erc-tests-common-with-process-input-spy
      (lambda (next)
-       (erc-tests-common-init-server-proc "sleep" "300")
+       (erc-tests-common-make-server-buf (buffer-name))
+
        (should-not erc-send-whitespace-lines)
        (should erc-warn-about-blank-lines)
 
@@ -1717,7 +1876,8 @@
 (ert-deftest erc-send-whitespace-lines ()
   (erc-tests-common-with-process-input-spy
    (lambda (next)
-     (erc-tests-common-init-server-proc "sleep" "1")
+     (erc-tests-common-make-server-buf (buffer-name))
+
      (setq-local erc-send-whitespace-lines t)
 
      (ert-info ("Multiline hunk with blank line correctly split")
@@ -1796,6 +1956,7 @@
 
   (ert-info ("With `erc-ask-about-multiline-input'")
     (let ((erc-inhibit-multiline-input t)
+          (inhibit-message noninteractive)
           (erc-ask-about-multiline-input t))
       (ert-simulate-keys '(?n ?\r ?y ?\r)
         (should (erc--check-prompt-input-for-excess-lines "" '("a" "b")))
@@ -1921,6 +2082,10 @@
 (ert-deftest erc--get-inserted-msg-beg/basic ()
   (erc-tests-common-assert-get-inserted-msg/basic
    (lambda (arg) (should (= 3 (erc--get-inserted-msg-beg arg))))))
+
+(ert-deftest erc--get-inserted-msg-beg/truncated ()
+  (erc-tests-common-assert-get-inserted-msg/truncated
+   (lambda (arg) (should (= 1 (erc--get-inserted-msg-beg arg))))))
 
 (ert-deftest erc--get-inserted-msg-end/basic ()
   (erc-tests-common-assert-get-inserted-msg/basic
@@ -2653,6 +2818,58 @@
            (erc--determine-speaker-message-format-args nick msg privp msgp
                                                        inputp nil pfx))))
 
+;; This test demonstrates that ERC uses the same string for the
+;; `erc--spkr' and `erc--speaker' text properties, which it gets from
+;; the `nickname' shot of the speaker's server user.
+(ert-deftest erc--speakerize-nick ()
+  (erc-tests-common-make-server-buf)
+  (setq erc-server-current-nick "tester")
+
+  (let ((sentinel "alice"))
+    (with-current-buffer (erc--open-target "#chan")
+      (erc-update-current-channel-member "bob" "bob" t nil nil nil nil nil
+                                         "example.org" "~u" "bob")
+      (erc-update-current-channel-member "alice" sentinel t nil nil nil nil nil
+                                         "fsf.org" "~u" "alice"))
+
+    (erc-call-hooks nil (make-erc-response
+                         :sender "alice!~u@fsf.org"
+                         :command "PRIVMSG"
+                         :command-args '("#chan" "one")
+                         :contents "one"
+                         :unparsed ":alice!~u@fsf.org PRIVMSG #chan :one"))
+    (erc-call-hooks nil (make-erc-response
+                         :sender "bob!~u@example.org"
+                         :command "PRIVMSG"
+                         :command-args '("#chan" "hi")
+                         :contents "hi"
+                         :unparsed ":bob!~u@example.org PRIVMSG #chan :hi"))
+    (erc-call-hooks nil (make-erc-response
+                         :sender "alice!~u@fsf.org"
+                         :command "PRIVMSG"
+                         :command-args '("#chan" "two")
+                         :contents "two"
+                         :unparsed ":alice!~u@fsf.org PRIVMSG #chan :two"))
+
+    (with-current-buffer (get-buffer "#chan")
+      (should (eq sentinel
+                  (erc-server-user-nickname (erc-get-server-user "alice"))))
+      (goto-char (point-min))
+
+      (should (search-forward "<a" nil t))
+      (should (looking-at "lice> one"))
+      (should (eq (get-text-property (point) 'erc--speaker) sentinel))
+      (should (eq (erc--get-inserted-msg-prop 'erc--spkr) sentinel))
+
+      (should (search-forward "<bob> hi" nil t))
+
+      (should (search-forward "<a" nil t))
+      (should (looking-at "lice> two"))
+      (should (eq (get-text-property (point) 'erc--speaker) sentinel))
+      (should (eq (erc--get-inserted-msg-prop 'erc--spkr) sentinel))
+
+      (when noninteractive (kill-buffer)))))
+
 ;; This asserts that `erc--determine-speaker-message-format-args'
 ;; behaves identically to `erc-format-privmessage', the function whose
 ;; role it basically replaced.
@@ -2847,6 +3064,85 @@
     (should (equal (erc-tests--format-my-nick "oh my") expect))
     (should (equal (erc--format-speaker-input-message "oh my") expect))))
 
+(ert-deftest erc-update-undo-list ()
+  ;; Remove `stamp' so this can run in any locale.  Alternatively, we
+  ;; could explicitly enable it and bind its format options to strings
+  ;; that lack specifiers (perhaps in a separate test).
+  (let ((erc-modules (remq 'stamp erc-modules))
+        (erc-mode-hook erc-mode-hook)
+        (erc-insert-modify-hook erc-insert-modify-hook)
+        (erc-send-modify-hook erc-send-modify-hook)
+        (inhibit-message noninteractive)
+        marker)
+
+    (erc-stamp-mode -1)
+    (erc-tests-common-make-server-buf)
+    (setq erc-server-current-nick "tester")
+
+    (with-current-buffer (erc--open-target "#chan")
+      ;; Add some filler to simulate more realistic values.
+      (erc-tests-common-simulate-line
+       ":irc.foonet.org 353 tester = #chan :bob tester alice")
+      (erc-tests-common-simulate-line
+       ":irc.foonet.org 366 tester #chan :End of NAMES list")
+      (should (erc-get-server-user "bob"))
+
+      (goto-char (point-max))
+      (should (= (point) 45))
+
+      ;; Populate undo list with contrived values.
+      (let ((kill-ring (list "abc"))
+            interprogram-paste-function)
+        (yank))
+      (push nil buffer-undo-list)
+      (push (point-max) buffer-undo-list)
+      (setq marker (point-marker))
+      (put-text-property 46 47 'face 'warning)
+      (call-interactively #'delete-backward-char 1)
+      (push nil buffer-undo-list)
+      (should (= (point) 47))
+      (should (equal buffer-undo-list `(nil
+                                        ("c" . -47)
+                                        (,marker . -1)
+                                        (nil face nil 46 . 47)
+                                        48
+                                        nil
+                                        (45 . 48))))
+
+      ;; The first char after the prompt is at buffer pos 45.
+      (should (= 40 (- 45 (length (erc-prompt))) erc-insert-marker))
+
+      ;; A new message arrives, growing the buffer by 11 chars.
+      (erc-tests-common-simulate-privmsg "bob" "test")
+      (should (equal (buffer-substring 40 erc-insert-marker) "<bob> test\n"))
+      (should (= (point-max) 58))
+      (should (= 11 (length "<bob> test\n") (- (point) 47)))
+
+      ;; The list remains unchanged relative to the end of the buffer.
+      (should (equal buffer-undo-list `(nil
+                                        ("c" . -58)
+                                        (,marker . -1)
+                                        (nil face nil 57 . 58)
+                                        59
+                                        nil
+                                        (56 . 59))))
+
+      ;; Undo behavior works as expected.
+      (undo nil)
+      (should (erc-tests-common-equal-with-props
+               (buffer-substring erc-input-marker (point-max))
+               #("abc" 1 2 (face nil))))
+      (should (equal (take 4 buffer-undo-list)
+                     `((nil face warning 57 . 58)
+                       (58 . 59)
+                       nil
+                       ("c" . -58))))
+      (undo 2)
+      (should (string-empty-p (erc-user-input)))))
+
+  (when noninteractive
+    (erc-tests-common-kill-buffers)))
+
 (ert-deftest erc--route-insertion ()
   (erc-tests-common-prep-for-insertion)
   (erc-tests-common-init-server-proc "sleep" "1")
@@ -2910,6 +3206,22 @@
     (should-not (buffer-live-p spam-buffer))
     (kill-buffer chan-buffer)))
 
+(ert-deftest erc-normalize-port ()
+  ;; The empty string, nil, and unsupported types become nil.
+  (should-not (erc-normalize-port ""))
+  (should-not (erc-normalize-port nil))
+  (should-not (erc-normalize-port (current-buffer)))
+
+  ;; Unrecognized names are coerced to 0.
+  (should (equal 0 (erc-normalize-port "fake")))
+
+  ;; Numbers pass through, but numeric strings are coerced.
+  (should (equal 6667 (erc-normalize-port 6667)))
+  (should (equal 6697 (erc-normalize-port "6697")))
+
+  ;; Strange IANA mappings recognized.
+  (should (equal 6665 (erc-normalize-port "ircu"))))
+
 (defvar erc-tests--ipv6-examples
   '("1:2:3:4:5:6:7:8"
     "::ffff:10.0.0.1" "::ffff:1.2.3.4" "::ffff:0.0.0.0"
@@ -2941,8 +3253,9 @@
 (ert-deftest erc-select-read-args ()
 
   (ert-info ("Prompts for switch to TLS by default")
-    (should (equal (ert-simulate-keys "\r\r\r\ry\r"
-                     (erc-select-read-args))
+    (should (equal (let ((inhibit-message noninteractive))
+                     (ert-simulate-keys "\r\r\r\ry\r"
+                       (erc-select-read-args)))
                    (list :server "irc.libera.chat"
                          :port 6697
                          :nick (user-login-name)
@@ -2951,8 +3264,9 @@
                            (erc-join-buffer . window))))))
 
   (ert-info ("Switches to TLS when port matches default TLS port")
-    (should (equal (ert-simulate-keys "irc.gnu.org\r6697\r\r\r"
-                     (erc-select-read-args))
+    (should (equal (let ((inhibit-message noninteractive))
+                     (ert-simulate-keys "irc.gnu.org\r6697\r\r\r"
+                       (erc-select-read-args)))
                    (list :server "irc.gnu.org"
                          :port 6697
                          :nick (user-login-name)
@@ -2962,8 +3276,9 @@
 
   (ert-info ("Switches to TLS when URL is ircs://")
     (let ((erc--display-context '((erc-interactive-display . erc))))
-      (should (equal (ert-simulate-keys "ircs://irc.gnu.org\r\r\r\r"
-                       (erc-select-read-args))
+      (should (equal (let ((inhibit-message noninteractive))
+                       (ert-simulate-keys "ircs://irc.gnu.org\r\r\r\r"
+                         (erc-select-read-args)))
                      (list :server "irc.gnu.org"
                            :port 6697
                            :nick (user-login-name)
@@ -2977,67 +3292,76 @@
   (setq-local erc-interactive-display nil) ; cheat to save space
 
   (ert-info ("Opt out of non-TLS warning manually")
-    (should (equal (ert-simulate-keys "\r\r\r\rn\r"
-                     (erc-select-read-args))
+    (should (equal (let ((inhibit-message noninteractive))
+                     (ert-simulate-keys "\r\r\r\rn\r"
+                       (erc-select-read-args)))
                    (list :server "irc.libera.chat"
                          :port 6667
                          :nick (user-login-name)))))
 
   (ert-info ("Override default TLS")
-    (should (equal (ert-simulate-keys "irc://irc.libera.chat\r\r\r\r"
-                     (erc-select-read-args))
+    (should (equal (let ((inhibit-message noninteractive))
+                     (ert-simulate-keys "irc://irc.libera.chat\r\r\r\r"
+                       (erc-select-read-args)))
                    (list :server "irc.libera.chat"
                          :port 6667
                          :nick (user-login-name)))))
 
   (ert-info ("Address includes port")
-    (should (equal (ert-simulate-keys "localhost:6667\rnick\r\r"
-                     (erc-select-read-args))
-                   (list :server "localhost"
-                         :port 6667
-                         :nick "nick"))))
-
-  (ert-info ("Address includes nick, password skipped via option")
-    (should (equal (ert-simulate-keys "nick@localhost:6667\r"
-                     (let (erc-prompt-for-password)
+    (should (equal (let ((inhibit-message noninteractive))
+                     (ert-simulate-keys "localhost:6667\rnick\r\r"
                        (erc-select-read-args)))
                    (list :server "localhost"
                          :port 6667
                          :nick "nick"))))
 
+  (ert-info ("Address includes nick, password skipped via option")
+    (should (equal (let ((inhibit-message noninteractive))
+                     (ert-simulate-keys "nick@localhost:6667\r"
+                       (let (erc-prompt-for-password)
+                         (erc-select-read-args))))
+                   (list :server "localhost"
+                         :port 6667
+                         :nick "nick"))))
+
   (ert-info ("Address includes nick and password")
-    (should (equal (ert-simulate-keys "nick:sesame@localhost:6667\r\r"
-                     (erc-select-read-args))
+    (should (equal (let ((inhibit-message noninteractive))
+                     (ert-simulate-keys "nick:sesame@localhost:6667\r\r"
+                       (erc-select-read-args)))
                    (list :server "localhost"
                          :port 6667
                          :nick "nick"
                          :password "sesame"))))
 
   (ert-info ("IPv6 address plain")
-    (should (equal (ert-simulate-keys "::1\r\r\r\r"
-                     (erc-select-read-args))
+    (should (equal (let ((inhibit-message noninteractive))
+                     (ert-simulate-keys "::1\r\r\r\r"
+                       (erc-select-read-args)))
                    (list :server "[::1]"
                          :port 6667
                          :nick (user-login-name)))))
 
   (ert-info ("IPv6 address with port")
-    (should (equal (ert-simulate-keys "[::1]:6667\r\r\r"
-                     (erc-select-read-args))
+    (should (equal (let ((inhibit-message noninteractive))
+                     (ert-simulate-keys "[::1]:6667\r\r\r"
+                       (erc-select-read-args)))
                    (list :server "[::1]"
                          :port 6667
                          :nick (user-login-name)))))
 
   (ert-info ("IPv6 address includes nick")
-    (should (equal (ert-simulate-keys "nick@[::1]:6667\r\r"
-                     (erc-select-read-args))
+    (should (equal (let ((inhibit-message noninteractive))
+                     (ert-simulate-keys "nick@[::1]:6667\r\r"
+                       (erc-select-read-args)))
                    (list :server "[::1]"
                          :port 6667
                          :nick "nick"))))
 
   (ert-info ("Extra args use URL nick by default")
-    (should (equal (ert-simulate-keys "nick:sesame@localhost:6667\r\r\r\r"
-                     (let ((current-prefix-arg '(4)))
-                       (erc-select-read-args)))
+    (should (equal (let ((inhibit-message noninteractive))
+                     (ert-simulate-keys "nick:sesame@localhost:6667\r\r\r\r"
+                       (let ((current-prefix-arg '(4)))
+                         (erc-select-read-args))))
                    (list :server "localhost"
                          :port 6667
                          :nick "nick"
@@ -3047,7 +3371,8 @@
 
 (ert-deftest erc-tls ()
   (let (calls env)
-    (cl-letf (((symbol-function 'user-login-name)
+    (cl-letf ((inhibit-message noninteractive)
+              ((symbol-function 'user-login-name)
                (lambda (&optional _) "tester"))
               ((symbol-function 'erc-open)
                (lambda (&rest r)
@@ -3163,7 +3488,8 @@
 
 (ert-deftest erc--interactive ()
   (let (calls env)
-    (cl-letf (((symbol-function 'user-login-name)
+    (cl-letf ((inhibit-message noninteractive)
+              ((symbol-function 'user-login-name)
                (lambda (&optional _) "tester"))
               ((symbol-function 'erc-open)
                (lambda (&rest r)
@@ -3199,7 +3525,8 @@
 
 (ert-deftest erc-server-select ()
   (let (calls env)
-    (cl-letf (((symbol-function 'user-login-name)
+    (cl-letf ((inhibit-message noninteractive)
+              ((symbol-function 'user-login-name)
                (lambda (&optional _) "tester"))
               ((symbol-function 'erc-open)
                (lambda (&rest r)
@@ -3303,8 +3630,11 @@
   (when noninteractive
     (erc-tests-common-kill-buffers)))
 
+;; For legacy accessors, like `erc-channel-user-halfop', this test only
+;; demonstrates compat-oriented behavior in a non-ERC buffer.  See
+;; `erc-tests--with-channel-user-status-accessors' based tests for
+;; behavior in ERC buffers, both fallback and ISUPPORT-defined.
 (ert-deftest erc-channel-user ()
-  ;; Traditional and alternate constructor swapped for compatibility.
   (should (= 0 (erc-channel-user-status (erc-channel-user--make))))
   (should-not (erc-channel-user-last-message-time (erc-channel-user--make)))
 
@@ -3376,8 +3706,8 @@
 (ert-deftest erc-modules--internal-property ()
   (let (ours)
     (mapatoms (lambda (s)
-                (when-let ((v (get s 'erc--module))
-                           ((eq v s)))
+                (when-let* ((v (get s 'erc--module))
+                            ((eq v s)))
                   (push s ours))))
     (should (equal (sort ours #'string-lessp) erc-tests--modules))))
 
@@ -3392,12 +3722,26 @@
   (should (eq (erc--normalize-module-symbol 'nickserv) 'services)))
 
 (defun erc-tests--assert-printed-in-subprocess (code expected)
-  (let ((proc (erc-tests-common-create-subprocess code '("-batch") nil)))
-    (while (accept-process-output proc 10))
-    (goto-char (point-min))
-    (unless (equal (read (current-buffer)) expected)
-      (message "Expected: %S\nGot: %s" expected (buffer-string))
-      (ert-fail "Mismatch"))))
+  "Assert result emitted to standard output from CODE matches EXPECTED.
+Expect CODE to print result using `prin1' as a list beginning with the
+keyword :result."
+  (with-current-buffer
+      (get-buffer-create
+       (concat "*" (symbol-name (ert-test-name (ert-running-test))) "*"))
+    (unwind-protect
+        (let ((proc (erc-tests-common-create-subprocess
+                     `(,@(butlast code) (prin1 (list :result ,@(last code))))
+                     '("-batch") nil)))
+          (while (accept-process-output proc 10))
+          (goto-char (point-min))
+          (unless (equal (and (search-forward "(:result " nil t)
+                              (read (current-buffer)))
+                         expected)
+            (ert-fail (list "Mismatch"
+                            :expected expected
+                            :buffer-string (buffer-string)))))
+      (when noninteractive
+        (kill-buffer)))))
 
 ;; Worrying about which library a module comes from is mostly not
 ;; worth the hassle so long as ERC can find its minor mode.  However,
@@ -3407,25 +3751,22 @@
 
 (ert-deftest erc--find-mode ()
   (erc-tests--assert-printed-in-subprocess
-   `(let ((mods (mapcar #'cadddr (cdddr (get 'erc-modules 'custom-type))))
+   '(let ((mods (mapcar #'cadddr (cdddr (get 'erc-modules 'custom-type))))
           moded)
       (setq mods (sort mods (lambda (a b) (if (zerop (random 2)) a b))))
       (dolist (mod mods)
         (unless (keywordp mod)
-          (push (if-let ((mode (erc--find-mode mod))) mod (list :missing mod))
+          (push (if-let* ((mode (erc--find-mode mod))) mod (list :missing mod))
                 moded)))
-      (message "%S"
-               (sort moded (lambda (a b)
-                             (string< (symbol-name a) (symbol-name b))))))
+      (sort moded (lambda (a b) (string< (symbol-name a) (symbol-name b)))))
    erc-tests--modules))
 
 (ert-deftest erc--essential-hook-ordering ()
   (erc-tests--assert-printed-in-subprocess
    '(progn
       (erc-update-modules)
-      (message "%S"
-               (list :erc-insert-modify-hook erc-insert-modify-hook
-                     :erc-send-modify-hook erc-send-modify-hook)))
+      (list :erc-insert-modify-hook erc-insert-modify-hook
+            :erc-send-modify-hook erc-send-modify-hook))
 
    '( :erc-insert-modify-hook (erc-controls-highlight ; 0
                                erc-button-add-buttons ; 30
@@ -3457,26 +3798,37 @@
     (should (eq (erc--find-group 'foo nil) 'erc))
     (should (eq (erc--find-group 'fake 'baz) 'erc-foo))))
 
-(ert-deftest erc--find-group--real ()
-  :tags '(:unstable)
-  (require 'erc-services)
-  (require 'erc-stamp)
-  (require 'erc-sound)
-  (require 'erc-page)
-  (require 'erc-join)
-  (require 'erc-capab)
-  (require 'erc-pcomplete)
-  (should (eq (erc--find-group 'services 'nickserv) 'erc-services))
-  (should (eq (erc--find-group 'stamp 'timestamp) 'erc-stamp))
-  (should (eq (erc--find-group 'sound 'ctcp-sound) 'erc-sound))
-  (should (eq (erc--find-group 'page 'ctcp-page) 'erc-page))
-  (should (eq (erc--find-group 'autojoin) 'erc-autojoin))
-  (should (eq (erc--find-group 'pcomplete 'Completion) 'erc-pcomplete))
-  (should (eq (erc--find-group 'capab-identify) 'erc-capab))
-  (should (eq (erc--find-group 'completion) 'erc-pcomplete))
-  ;; No group specified.
-  (should (eq (erc--find-group 'smiley nil) 'erc))
-  (should (eq (erc--find-group 'unmorse nil) 'erc)))
+(ert-deftest erc--find-group/realistic ()
+  (erc-tests--assert-printed-in-subprocess
+   '(progn
+      (require 'erc-services)
+      (require 'erc-stamp)
+      (require 'erc-sound)
+      (require 'erc-page)
+      (require 'erc-join)
+      (require 'erc-capab)
+      (require 'erc-pcomplete)
+      (list (erc--find-group 'services 'nickserv)
+            (erc--find-group 'stamp 'timestamp)
+            (erc--find-group 'sound 'ctcp-sound)
+            (erc--find-group 'page 'ctcp-page)
+            (erc--find-group 'autojoin)
+            (erc--find-group 'pcomplete 'Completion)
+            (erc--find-group 'completion)
+            (erc--find-group 'capab-identify)
+            ;; No group specified.
+            (erc--find-group 'smiley nil)
+            (erc--find-group 'unmorse nil)))
+   '(erc-services
+     erc-stamp
+     erc-sound
+     erc-page
+     erc-autojoin
+     erc-pcomplete
+     erc-pcomplete
+     erc-capab
+     erc
+     erc)))
 
 (ert-deftest erc--sort-modules ()
   (should (equal (erc--sort-modules '(networks foo fill bar fill stamp bar))
@@ -3510,7 +3862,7 @@
     (cl-letf (((symbol-function 'require)
                (lambda (s &rest _)
                  ;; Simulate library being loaded, things defined.
-                 (when-let ((h (alist-get s on-load))) (funcall h))
+                 (when-let* ((h (alist-get s on-load))) (funcall h))
                  (push (cons 'req s) calls)))
 
               ;; Spoof global module detection.
@@ -3579,28 +3931,32 @@
                         "(req . explicit-feature-lib)")))))))
 
 (ert-deftest erc--update-modules/realistic ()
-  (let ((calls nil)
-        ;; Module `pcomplete' "resolves" to `completion'.
-        (erc-modules '(pcomplete autojoin networks)))
-    (cl-letf (((symbol-function 'require)
-               (lambda (s &rest _) (push (cons 'req s) calls)))
+  (erc-tests--assert-printed-in-subprocess
+   '(progn
+      (require 'ert)
+      (require 'erc)
+      (should (featurep 'erc-networks))
+      (should-not erc-networks-mode)
+      ;; The pcomplete module isn't loaded, and the non-alias form of
+      ;; its command isn't autoloaded, so `erc--find-mode' will do so.
+      (should-not (featurep 'erc-pcomplete))
+      (should-not (intern-soft "erc-pcomplete-mode"))
+      ;; The join module is autoloaded.
+      (should-not (featurep 'erc-join))
+      (should (fboundp 'erc-autojoin-mode))
+      (should-not (boundp 'erc-autojoin-mode))
 
-              ;; Spoof global module detection.
-              ((symbol-function 'custom-variable-p)
-               (lambda (v)
-                 (memq v '(erc-autojoin-mode erc-networks-mode
-                                             erc-completion-mode))))
-              ;; Mock and spy real builtins.
-              ((symbol-function 'erc-autojoin-mode)
-               (lambda (n) (push (cons 'autojoin n) calls)))
-              ((symbol-function 'erc-networks-mode)
-               (lambda (n) (push (cons 'networks n) calls)))
-              ((symbol-function 'erc-completion-mode)
-               (lambda (n) (push (cons 'completion n) calls))))
+      ;; These are all global modules, so no return value is expected.
+      (let ((erc-modules (cons (seq-random-elt '(completion pcomplete))
+                               '(networks autojoin))))
+        (should-not (erc--update-modules erc-modules)))
 
-      (should-not (erc--update-modules erc-modules)) ; no locals
-      (should (equal (nreverse calls)
-                     '((completion . 1) (autojoin . 1) (networks . 1)))))))
+      (list erc-networks-mode
+            (featurep 'erc-pcomplete)
+            (featurep 'erc-join)
+            (symbol-value (intern-soft "erc-pcomplete-mode"))
+            (bound-and-true-p erc-autojoin-mode)))
+   '(t t t t t)))
 
 (ert-deftest erc--merge-local-modes ()
   (cl-letf (((get 'erc-b-mode 'erc-module) 'b)

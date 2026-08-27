@@ -1,6 +1,6 @@
 ;;; ansi-osc.el --- Support for OSC escape sequences      -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; Author: Augusto Stoffel <arstoffel@gmail.com>
 ;;         Matthias Meulien <orontee@gmail.com>
@@ -35,28 +35,39 @@
 
 ;;; Code:
 
-(defconst ansi-osc-control-seq-regexp
-  ;; See ECMA 48, section 8.3.89 "OSC - OPERATING SYSTEM COMMAND".
-  "\e\\][\x08-\x0D]*[\x20-\x7E]*\\(\a\\|\e\\\\\\)"
-  "Regexp matching an OSC control sequence.")
+;; According to ECMA 48, section 8.3.89 "OSC - OPERATING SYSTEM COMMAND"
+;; OSC control sequences match:
+;; "\e\\][\x08-\x0D]*[\x20-\x7E]*\\(\a\\|\e\\\\\\)"
+
+(defvar-local ansi-osc--marker nil
+  "Marker pointing to the start of an escape sequence.
+Used by `ansi-osc-filter-region' and `ansi-osc-apply-on-region' to store
+position of an unfinished escape sequence, for the complete sequence to
+be handled in next call.")
 
 (defun ansi-osc-filter-region (begin end)
-  "Filter out all OSC control sequences from region between BEGIN and END."
-  (save-excursion
-    (goto-char begin)
-    ;; Delete escape sequences.
-    (while (re-search-forward ansi-osc-control-seq-regexp end t)
-      (delete-region (match-beginning 0) (match-end 0)))))
+  "Filter out all OSC control sequences from region between BEGIN and END.
+When an unfinished escape sequence is found, the start position is saved
+to `ansi-osc--marker'.  Later call will override BEGIN with the position
+pointed by `ansi-osc--marker'."
+  (let ((end-marker (copy-marker end)))
+    (save-excursion
+      (goto-char (or ansi-osc--marker begin))
+      (when (eq (char-before) ?\e) (backward-char))
+      (while (re-search-forward "\e]" end-marker t)
+        (let ((pos0 (match-beginning 0)))
+          (if (re-search-forward
+               "\\=[\x08-\x0D]*[\x20-\x7E]*\\(\a\\|\e\\\\\\)"
+               end-marker t)
+              (delete-region pos0 (point))
+            (setq ansi-osc--marker (copy-marker pos0))))))))
 
-(defvar-local ansi-osc-handlers '(("2" . ansi-osc-window-title-handler)
+(defvar-local ansi-osc-handlers '(("0" . ansi-osc-window-title-handler)
+                                  ("2" . ansi-osc-window-title-handler)
                                   ("7" . ansi-osc-directory-tracker)
                                   ("8" . ansi-osc-hyperlink-handler))
   "Alist of handlers for OSC escape sequences.
 See `ansi-osc-apply-on-region' for details.")
-
-(defvar-local ansi-osc--marker nil)
-;; The function `ansi-osc-apply-on-region' can set `ansi-osc--marker'
-;; to the start position of an escape sequence without termination.
 
 (defun ansi-osc-apply-on-region (begin end)
   "Interpret OSC escape sequences in region between BEGIN and END.
@@ -65,29 +76,33 @@ This function searches for escape sequences of the forms
     ESC ] command ; text BEL
     ESC ] command ; text ESC \\
 
-Every occurrence of such escape sequences is removed from the
-buffer.  Then, if `command' is a key in the alist that is the
-value of the local variable `ansi-osc-handlers', that key's
-value, which should be a function, is called with `command' and
-`text' as arguments, with point where the escape sequence was
-located."
-  (save-excursion
-    (goto-char (or ansi-osc--marker begin))
-    (when (eq (char-before) ?\e) (backward-char))
-    (while (re-search-forward "\e]" end t)
-      (let ((pos0 (match-beginning 0))
-            (code (and (re-search-forward "\\=\\([0-9A-Za-z]*\\);" end t)
-                       (match-string 1)))
-            (pos1 (point)))
-        (if (re-search-forward "\a\\|\e\\\\" end t)
-            (let ((text (buffer-substring-no-properties
-                         pos1 (match-beginning 0))))
-              (setq ansi-osc--marker nil)
-              (delete-region pos0 (point))
-              (when-let ((fun (cdr (assoc-string code ansi-osc-handlers))))
-                (funcall fun code text)))
-          (put-text-property pos0 end 'invisible t)
-          (setq ansi-osc--marker (copy-marker pos0)))))))
+Every occurrence of such escape sequences is removed from the buffer.
+Then, if `command' is a key in the alist that is the value of the local
+variable `ansi-osc-handlers', that key's value, which should be a
+function, is called with `command' and `text' as arguments, with point
+where the escape sequence was located.  When an unfinished escape
+sequence is identified, it's hidden and the start position is saved to
+`ansi-osc--marker'.  Later call will override BEGIN with the position
+pointed by `ansi-osc--marker'."
+  (let ((end-marker (copy-marker end)))
+    (save-excursion
+      (goto-char (or ansi-osc--marker begin))
+      (when (eq (char-before) ?\e) (backward-char))
+      (while (re-search-forward "\e]" end-marker t)
+        (let ((pos0 (match-beginning 0))
+              (code (and
+                     (re-search-forward "\\=\\([0-9A-Za-z]*\\);" end-marker t)
+                     (match-string 1)))
+              (pos1 (point)))
+          (if (re-search-forward "\a\\|\e\\\\" end-marker t)
+              (let ((text (buffer-substring-no-properties
+                           pos1 (match-beginning 0))))
+                (setq ansi-osc--marker nil)
+                (delete-region pos0 (point))
+                (when-let* ((fun (cdr (assoc-string code ansi-osc-handlers))))
+                  (funcall fun code text)))
+            (put-text-property pos0 end-marker 'invisible t)
+            (setq ansi-osc--marker (copy-marker pos0))))))))
 
 ;; Window title handling (OSC 2)
 
@@ -116,20 +131,22 @@ such as with the following command:
 
     printf \"\\e]7;file://%s%s\\e\\\\\" \"$HOSTNAME\" \"$PWD\"
 
+A remote `default-directory' is maintained.
+
 This functionality serves as an alternative to `dirtrack-mode'
 and `shell-dirtrack-mode'."
-  (let ((url (url-generic-parse-url text)))
-    (when (and (string= (url-type url) "file")
-               (or (null (url-host url))
-                   ;; Use `downcase' to match `url-generic-parse-url' behavior
-                   (string= (url-host url) (downcase (system-name)))))
-      (ignore-errors
-        (cd-absolute (url-unhex-string (url-filename url)))))))
+  (when-let* ((url (url-generic-parse-url text))
+              ((string= (url-type url) "file")))
+    (ignore-errors
+      (cd-absolute
+       (concat (file-remote-p default-directory)
+               (url-unhex-string (url-filename url)))))))
 
 ;; Hyperlink handling (OSC 8)
 
 (defvar-keymap ansi-osc-hyperlink-map
   :doc "Keymap used by OSC 8 hyperlink buttons."
+  "RET"           (keymap-read-only-bind #'browse-url-button-open)
   "C-c RET"       #'browse-url-button-open
   "<mouse-2>"     #'browse-url-button-open
   "<follow-link>" 'mouse-face)
@@ -137,7 +154,7 @@ and `shell-dirtrack-mode'."
 (define-button-type 'ansi-osc-hyperlink
   'keymap ansi-osc-hyperlink-map
   'help-echo (lambda (_ buffer pos)
-               (when-let ((url (get-text-property pos 'browse-url-data buffer)))
+               (when-let* ((url (get-text-property pos 'browse-url-data buffer)))
                  (format "mouse-2, C-c RET: Open %s" url))))
 
 (defvar-local ansi-osc-hyperlink--state nil)

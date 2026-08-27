@@ -1,6 +1,6 @@
 /* declarations for strftime.c
 
-   Copyright (C) 2002, 2004, 2008-2025 Free Software Foundation, Inc.
+   Copyright (C) 2002, 2004, 2008-2026 Free Software Foundation, Inc.
 
    This file is free software: you can redistribute it and/or modify
    it under the terms of the GNU Lesser General Public License as
@@ -15,17 +15,18 @@
    You should have received a copy of the GNU Lesser General Public License
    along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
+#include <stddef.h>
 #include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Formats the broken-down time *__TP, with additional __NS nanoseconds,
+/* Format the broken-down time *__TP, with additional __NS nanoseconds,
    into the buffer __S of size __MAXSIZE, according to the rules of the
    LC_TIME category of the current locale.
 
-   Uses the time zone __TZ.
+   Use the time zone __TZ.
    If *__TP represents local time, __TZ should be set to
      tzalloc (getenv ("TZ")).
    If *__TP represents universal time (a.k.a. GMT), __TZ should be set to
@@ -59,30 +60,44 @@ extern "C" {
      date and time:          %c
      time zone:              %z %Z
      nanosecond              %N
+   In locales with non-Gregorian calendars, the following conversions don't
+   apply in the expected way:
+     date:
+       century               %C
+       year                  %y
+       week-based year       %G %g
+       week in year          %U %W %V
+       day in year           %j
+       year, month, day      %D
 
-   Stores the result, as a string with a trailing NUL character, at the
-   beginning of the array __S[0..__MAXSIZE-1], if it fits, and returns
-   the length of that string, not counting the trailing NUL.  In this case,
-   errno is preserved if the return value is 0.
-   If it does not fit, this function sets errno to ERANGE and returns 0.
-   Upon other errors, this function sets errno and returns 0 as well.
+   Store the result, as a string with a trailing NUL character, at the
+   beginning of the array __S[0..__MAXSIZE-1] and return the length of
+   that string, not counting the trailing NUL.
+   If unsuccessful, possibly change the array __S, set errno, and return -1;
+   errno == ERANGE means the string didn't fit.
 
-   Note: The errno behavior is in draft POSIX 202x plus some requested
-   changes to POSIX.
+   As a glibc extension if __S is null, do not store anything, and
+   return the value that would have been returned had __S been non-null.
+
+   A __MAXSIZE greater than PTRDIFF_MAX is silently treated as if
+   it were PTRDIFF_MAX, so that the caller can safely add 1 to
+   any return value without overflow.
 
    This function is like strftime, but with two more arguments:
      * __TZ instead of the local timezone information,
-     * __NS as the number of nanoseconds in the %N directive.
+     * __NS as the number of nanoseconds in the %N directive,
+   and on success it does not preserve errno,
+   and on failure it returns -1 not 0.
  */
-size_t nstrftime (char *restrict __s, size_t __maxsize,
-                  char const *__format,
-                  struct tm const *__tp, timezone_t __tz, int __ns);
+ptrdiff_t nstrftime (char *restrict __s, size_t __maxsize,
+                     char const *__format,
+                     struct tm const *__tp, timezone_t __tz, int __ns);
 
 /* Like nstrftime, except that it uses the "C" locale instead of the
    current locale.  */
-size_t c_nstrftime (char *restrict __s, size_t __maxsize,
-                    char const *__format,
-                    struct tm const *__tp, timezone_t __tz, int __ns);
+ptrdiff_t c_nstrftime (char *restrict __s, size_t __maxsize,
+                       char const *__format,
+                       struct tm const *__tp, timezone_t __tz, int __ns);
 
 #ifdef __cplusplus
 }

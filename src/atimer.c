@@ -1,5 +1,5 @@
 /* Asynchronous timers.
-   Copyright (C) 2000-2025 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -204,6 +204,9 @@ cancel_atimer (struct atimer *timer)
 	  break;
 	}
     }
+
+  /* We shouldn't be called with timers which aren't on either list.  */
+  eassert (i != 2);
 
   unblock_atimers (&oldset);
 }

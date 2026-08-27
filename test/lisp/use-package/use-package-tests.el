@@ -1,6 +1,6 @@
 ;;; use-package-tests.el --- Tests for use-package.el  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2014-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2014-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -1153,7 +1153,12 @@
   (match-expansion
    (use-package foo :custom-face (foo ((t (:background "#e4edfc")))))
    `(progn
-      (apply #'face-spec-set (backquote (foo ((t (:background "#e4edfc"))))))
+      (progn
+        (apply #'face-spec-set
+               (append (backquote (foo ((t (:background "#e4edfc")))))
+                       '(face-defface-spec))
+               )
+        (put 'foo 'face-modified t))
       (require 'foo nil nil))))
 
 (ert-deftest use-package-test/:custom-face-2 ()
@@ -1163,18 +1168,41 @@
      (example-1-face ((t (:foreground "LightPink"))))
      (example-2-face ((t (:foreground "LightGreen")))))
    `(progn
-      (apply #'face-spec-set
-             (backquote (example-1-face ((t (:foreground "LightPink"))))))
-      (apply #'face-spec-set
-             (backquote (example-2-face ((t (:foreground "LightGreen"))))))
+      (progn
+        (apply #'face-spec-set
+               (append (backquote (example-1-face ((t (:foreground "LightPink")))))
+                       '(face-defface-spec)))
+        (put 'example-1-face 'face-modified t))
+      (progn
+        (apply #'face-spec-set
+               (append (backquote (example-2-face ((t (:foreground "LightGreen")))))
+                       '(face-defface-spec)))
+        (put 'example-2-face 'face-modified t))
       (require 'example nil nil))))
 
 (ert-deftest use-package-test/:custom-face-3 ()
   (match-expansion
    (use-package foo :custom-face (foo ((t (:background "#e4edfc"))) face-defspec-spec))
    `(progn
-      (apply #'face-spec-set (backquote (foo ((t (:background "#e4edfc"))) face-defspec-spec)))
+      (progn
+        (apply #'face-spec-set
+               (append (backquote (foo ((t (:background "#e4edfc"))) face-defspec-spec))
+                       '(face-defface-spec)))
+        (put 'foo 'face-modified t))
       (require 'foo nil nil))))
+
+(ert-deftest use-package-test/:custom-face-4 ()
+  (defface use-package-test/base-face '((t (:background "green"))) "")
+  (defface use-package-test/face '((t (:inherit use-package-test/base-face))) "")
+  (use-package emacs
+    :custom-face
+    (use-package-test/face ((t (:foreground "blue")))))
+  (should (equal (face-foreground 'use-package-test/face nil t)
+                 "blue"))
+  (should (equal (face-background 'use-package-test/face nil t)
+                 nil))
+  (should (equal (get 'use-package-test/face 'face-modified)
+                 t)))
 
 (ert-deftest use-package-test/:init-1 ()
   (match-expansion
@@ -2003,10 +2031,8 @@
       (should (eq tried-to-install 'some-pkg)))))
 
 (ert-deftest use-package-test-normalize/:vc ()
-  (should (equal '(foo "version-string")
-                 (use-package-normalize/:vc 'foo :vc '("version-string"))))
-  (should (equal '(bar "version-string")
-                 (use-package-normalize/:vc 'foo :vc '((bar . "version-string")))))
+  (should (equal '(foo (:url "url"))
+                 (use-package-normalize/:vc 'foo :vc '("url"))))
   (should (equal '(foo (:url "bar") "baz")
                  (use-package-normalize/:vc 'foo :vc '((:url "bar" :rev "baz")))))
   (should (equal '(foo)

@@ -1,6 +1,6 @@
 ;;; map-ynp.el --- general-purpose boolean question-asker  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1991-1995, 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1991-1995, 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: Roland McGrath <roland@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -36,6 +36,7 @@
 
 (declare-function x-popup-dialog "menu.c" (position contents &optional header))
 (declare-function set-text-conversion-style "textconv.c")
+(autoload 'cl--map-keymap-recursively "cl-extra")
 
 (defvar overriding-text-conversion-style)
 
@@ -96,10 +97,15 @@ This function uses `query-replace-map' to define the standard responses,
 but only some of the responses which `query-replace' understands
 are meaningful here, as described above.
 
+By default, this function uses the minibuffer to read the key
+non-modally (see `read-from-minibuffer').  However, if
+`y-or-n-p-use-read-key' is non-nil, the modal `read-key'
+function is used instead.
+
 The function's value is the number of actions taken."
   (let* ((actions 0)
          (msg (current-message))
-	 user-keys mouse-event map prompt char elt def
+	 user-keys mouse-event map prompt chars elt def
 	 ;; Non-nil means we should use mouse menus to ask.
 	 use-menus
 	 delayed-switch-frame
@@ -135,8 +141,10 @@ The function's value is the number of actions taken."
 		mouse-event last-nonmenu-event))
       (setq user-keys (if action-alist
 			  (concat (mapconcat (lambda (elt)
-                                               (key-description
-                                                (vector (car elt))))
+                                               (substitute-command-keys
+                                                (format "\\`%s'"
+                                                        (key-description
+                                                         (vector (car elt))))))
 					     action-alist ", ")
 				  " ")
 			"")
@@ -159,16 +167,22 @@ The function's value is the number of actions taken."
 	    (cond ((stringp prompt)
 		   ;; Prompt the user about this object.
 		   (setq quit-flag nil)
-		   (if use-menus
-		       (setq def (or (x-popup-dialog (or mouse-event use-menus)
-						     (cons prompt map))
-				     'quit))
-		     ;; Prompt in the echo area.
-		     (let ((cursor-in-echo-area (not no-cursor-in-echo-area)))
-		       (message (apply 'propertize "%s(y, n, !, ., q, %sor %s) "
-				       minibuffer-prompt-properties)
-				prompt user-keys
-				(key-description (vector help-char)))
+		   (cond
+		    (use-menus
+		     (setq def (or (x-popup-dialog (or mouse-event use-menus)
+						   (cons prompt map))
+				   'quit)))
+		    (y-or-n-p-use-read-key
+		     ;; Prompt in the echo area using `read-key'.
+		     (let ((cursor-in-echo-area (not no-cursor-in-echo-area))
+                           (full-prompt
+                            (substitute-command-keys
+                             (format
+                              (apply #'propertize
+                                     "%s(\\`y', \\`n', \\`!', \\`.', \\`q', %sor \\`%s') "
+                                     minibuffer-prompt-properties)
+                              prompt user-keys
+                              (help-key)))))
 		       (if minibuffer-auto-raise
 			   (raise-frame (window-frame (minibuffer-window))))
                        (unwind-protect
@@ -180,18 +194,66 @@ The function's value is the number of actions taken."
                            (let ((overriding-text-conversion-style nil))
                              (when (fboundp 'set-text-conversion-style)
                                (set-text-conversion-style text-conversion-style))
-		             (setq char (read-event)))
+                             ;; Do NOT use read-event here.  That
+                             ;; function does not consult
+                             ;; input-decode-map (bug#75886).
+		             (setq chars (read-key-sequence-vector full-prompt))
+                             (when (member chars '([?\C-g] [?\C-\[ ?\C-\[ ?\C-\[]))
+                               (signal 'quit nil)))
                          (when (fboundp 'set-text-conversion-style)
                            (set-text-conversion-style text-conversion-style)))
 		       ;; Show the answer to the question.
-		       (message "%s(y, n, !, ., q, %sor %s) %s"
-				prompt user-keys
-				(key-description (vector help-char))
-				(if (equal char -1)
-                                    "[end-of-keyboard-macro]"
-                                  (single-key-description char))))
-		     (setq def (lookup-key map (vector char))))
-		   (cond ((eq def 'exit)
+                       (message "%s" (substitute-command-keys
+                                      (format
+                                       "%s(\\`y', \\`n', \\`!', \\`.', \\`q', %sor \\`%s') %s"
+                                       prompt user-keys
+                                       (help-key)
+                                       (if (equal chars [-1])
+                                           "[end-of-keyboard-macro]"
+                                         (key-description chars))))))
+		     (setq def (and chars (lookup-key map chars))))
+                    (t
+                     ;; Read from the minibuffer.
+                     (let* ((full-prompt
+                             (substitute-command-keys
+                              (format
+                               (apply #'propertize
+                                      "%s(\\`y', \\`n', \\`!', \\`.', \\`q', %sor \\`%s') "
+                                      minibuffer-prompt-properties)
+                               prompt user-keys (help-key))))
+                            (remap (make-sparse-keymap))
+                            (cmd-char
+                             (lambda ()
+                               (interactive)
+                               (setq chars (this-command-keys-vector))
+                               (exit-minibuffer)))
+                            (cmd-help
+                             (lambda ()
+                               (interactive)
+                               (message "%s" (substitute-command-keys
+                                              (format
+                                               "Type \\`%s' for help"
+                                               (help-key))))))
+                            (this-command this-command)
+                            (real-this-command real-this-command)
+                            (enable-recursive-minibuffers t)
+                            (overriding-text-conversion-style nil))
+                       (set-keymap-parent remap minibuffer-local-map)
+                       (define-key remap [remap self-insert-command] cmd-help)
+                       (cl--map-keymap-recursively
+                        (lambda (key _cmd)
+                          (define-key remap key cmd-char))
+                        map)
+                       (if minibuffer-auto-raise
+                           (raise-frame (window-frame (minibuffer-window))))
+                       (when (fboundp 'set-text-conversion-style)
+                         (set-text-conversion-style text-conversion-style))
+                       (read-from-minibuffer
+                        full-prompt nil remap nil
+                        (or y-or-n-p-history-variable t))
+                       (message "%s%s" full-prompt (key-description chars)))
+                     (setq def (and chars (lookup-key map chars)))))
+                   (cond ((eq def 'exit)
 			  (setq next (lambda () nil)))
 			 ((eq def 'act)
 			  ;; Act on the object.
@@ -257,15 +319,23 @@ Type \\`SPC' or \\`y' to %s the current %s;
 			      (setq actions (1+ actions))
 			    ;; Regurgitated; try again.
 			    (funcall try-again)))
-			 ((and (consp char)
-			       (eq (car char) 'switch-frame))
+			 ((eq chars '[switch-frame])
 			  ;; switch-frame event.  Put it off until we're done.
-			  (setq delayed-switch-frame char)
+			  (setq delayed-switch-frame chars)
 			  (funcall try-again))
+			 ((and noninteractive (member chars '(nil [])))
+                          ;; Special case for kmacro in batch mode (bug#67836).
+                          ;; When 'y-or-n-p-use-read-key' is non-nil,
+                          ;; 'read-key-sequence-vector' returns [].
+                          ;; When 'y-or-n-p-use-read-key' is nil,
+                          ;; 'chars' is nil.
+			  (error "Can't use in a kmacro in batch mode"))
 			 (t
 			  ;; Random char.
-			  (message "Type %s for help."
-				   (key-description (vector help-char)))
+                          (message "%s" (substitute-command-keys
+                                         (format
+                                          "Type \\`%s' for help"
+                                          (help-key))))
 			  (beep)
 			  (sit-for 1)
 			  (funcall try-again))))

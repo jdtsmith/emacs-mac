@@ -1,6 +1,6 @@
 ;;; cl-lib.el --- Common Lisp extensions for Emacs  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1993, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Dave Gillespie <daveg@synaptics.com>
 ;; Version: 1.0
@@ -105,29 +105,27 @@ a future Emacs interpreter will be able to use it.")
 ;; can safely be used in init files.
 
 ;;;###autoload
-(defmacro cl-incf (place &optional x)
+(defalias 'cl-incf #'incf
   "Increment PLACE by X (1 by default).
 PLACE may be a symbol, or any generalized variable allowed by `setf'.
 The return value is the incremented value of PLACE.
 
 If X is specified, it should be an expression that should
-evaluate to a number."
-  (declare (debug (place &optional form)))
-  (if (symbolp place)
-      (list 'setq place (if x (list '+ place x) (list '1+ place)))
-    (list 'cl-callf '+ place (or x 1))))
+evaluate to a number.
 
-(defmacro cl-decf (place &optional x)
+This macro is deprecated in favor of the built-in macro `incf' that was
+added in Emacs 31.1.")
+
+(defalias 'cl-decf #'decf
   "Decrement PLACE by X (1 by default).
 PLACE may be a symbol, or any generalized variable allowed by `setf'.
 The return value is the decremented value of PLACE.
 
 If X is specified, it should be an expression that should
-evaluate to a number."
-  (declare (debug cl-incf))
-  (if (symbolp place)
-      (list 'setq place (if x (list '- place x) (list '1- place)))
-    (list 'cl-callf '- place (or x 1))))
+evaluate to a number.
+
+This macro is deprecated in favor of the built-in macro `decf' that was
+added in Emacs 31.1.")
 
 (defmacro cl-pushnew (x place &rest keys)
   "Add X to the list stored in PLACE unless X is already in the list.
@@ -156,17 +154,15 @@ to an element already in the list stored in PLACE.
 	`(setq ,place (cl-adjoin ,x ,place ,@keys)))
     `(cl-callf2 cl-adjoin ,x ,place ,@keys)))
 
-(defun cl--set-buffer-substring (start end val)
+(defun cl--set-buffer-substring (start end val &optional inherit)
   "Delete region from START to END and insert VAL."
-  (save-excursion (delete-region start end)
-		  (goto-char start)
-		  (insert val)
-		  val))
+  (replace-region-contents start end val 0 nil inherit)
+  val)
 
 (defun cl--set-substring (str start end val)
-  (if end (if (< end 0) (cl-incf end (length str)))
+  (if end (if (< end 0) (incf end (length str)))
     (setq end (length str)))
-  (if (< start 0) (cl-incf start (length str)))
+  (if (< start 0) (incf start (length str)))
   (concat (and (> start 0) (substring str 0 start))
 	  val
 	  (and (< end (length str)) (substring str end))))
@@ -185,8 +181,8 @@ to an element already in the list stored in PLACE.
 
 ;;; Blocks and exits.
 
-(defalias 'cl--block-wrapper 'identity)
-(defalias 'cl--block-throw 'throw)
+(defalias 'cl--block-wrapper #'identity)
+(defalias 'cl--block-throw #'throw)
 
 
 ;;; Multiple values.
@@ -232,7 +228,7 @@ right when EXPRESSION calls an ordinary Emacs Lisp function that returns just
 one value."
   (apply function expression))
 
-(defalias 'cl-multiple-value-call 'apply
+(defalias 'cl-multiple-value-call #'apply
   "Apply FUNCTION to ARGUMENTS, taking multiple values into account.
 This implementation only handles the case where there is only one argument.")
 
@@ -270,21 +266,29 @@ so that they are registered at compile-time as well as run-time."
 
 (define-obsolete-function-alias 'cl-floatp-safe 'floatp "24.4")
 
-(defsubst cl-plusp (number)
-  "Return t if NUMBER is positive."
-  (> number 0))
+(defalias 'cl-plusp #'plusp
+  "Return t if NUMBER is positive.
 
-(defsubst cl-minusp (number)
-  "Return t if NUMBER is negative."
-  (< number 0))
+This function is deprecated in favor of the built-in function `plusp'
+that was added in Emacs 31.1.")
 
-(defun cl-oddp (integer)
-  "Return t if INTEGER is odd."
-  (eq (logand integer 1) 1))
+(defalias 'cl-minusp #'minusp
+  "Return t if NUMBER is negative.
 
-(defun cl-evenp (integer)
-  "Return t if INTEGER is even."
-  (eq (logand integer 1) 0))
+This function is deprecated in favor of the built-in function `minusp'
+that was added in Emacs 31.1.")
+
+(defalias 'cl-oddp #'oddp
+  "Return t if INTEGER is odd.
+
+This function is deprecated in favor of the built-in function `oddp'
+that was added in Emacs 31.1.")
+
+(defalias 'cl-evenp #'evenp
+  "Return t if INTEGER is even.
+
+This function is deprecated in favor of the built-in function `evenp'
+that was added in Emacs 31.1.")
 
 (defconst cl-digit-char-table
   (let* ((digits (make-vector 256 nil))
@@ -352,98 +356,105 @@ Call `cl-float-limits' to set this.")
 
 ;;; Sequence functions.
 
-(cl--defalias 'cl-copy-seq 'copy-sequence)
+(cl--defalias 'cl-copy-seq #'copy-sequence)
 
 (declare-function cl--mapcar-many "cl-extra" (cl-func cl-seqs &optional acc))
 
-(defun cl-mapcar (cl-func cl-x &rest cl-rest)
+(defun cl-mapcar (func x &rest rest)
   "Apply FUNCTION to each element of SEQ, and make a list of the results.
 If there are several SEQs, FUNCTION is called with that many arguments,
 and mapping stops as soon as the shortest list runs out.  With just one
 SEQ, this is like `mapcar'.  With several, it is like the Common Lisp
 `mapcar' function extended to arbitrary sequence types.
 \n(fn FUNCTION SEQ...)"
-  (if cl-rest
-      (if (or (cdr cl-rest) (nlistp cl-x) (nlistp (car cl-rest)))
-	  (cl--mapcar-many cl-func (cons cl-x cl-rest) 'accumulate)
-	(let ((cl-res nil) (cl-y (car cl-rest)))
-	  (while (and cl-x cl-y)
-	    (push (funcall cl-func (pop cl-x) (pop cl-y)) cl-res))
-	  (nreverse cl-res)))
-    (mapcar cl-func cl-x)))
+  (declare (important-return-value t))
+  (if rest
+      (if (or (cdr rest) (nlistp x) (nlistp (car rest)))
+          (cl--mapcar-many func (cons x rest) 'accumulate)
+        (let ((res nil) (y (car rest)))
+          (while (and x y)
+            (push (funcall func (pop x) (pop y)) res))
+          (nreverse res)))
+    (mapcar func x)))
 
-(cl--defalias 'cl-svref 'aref)
+(cl--defalias 'cl-svref #'aref)
 
 ;;; List functions.
 
-(cl--defalias 'cl-first 'car)
-(cl--defalias 'cl-second 'cadr)
-(cl--defalias 'cl-rest 'cdr)
+(cl--defalias 'cl-first #'car)
+(cl--defalias 'cl-second #'cadr)
+(cl--defalias 'cl-rest #'cdr)
 
 (cl--defalias 'cl-third #'caddr "Return the third element of the list X.")
 (cl--defalias 'cl-fourth #'cadddr "Return the fourth element of the list X.")
 
 (defsubst cl-fifth (x)
   "Return the fifth element of the list X."
-  (declare (gv-setter (lambda (store) `(setcar (nthcdr 4 ,x) ,store))))
+  (declare (side-effect-free t)
+           (gv-setter (lambda (store) `(setcar (nthcdr 4 ,x) ,store))))
   (nth 4 x))
 
 (defsubst cl-sixth (x)
   "Return the sixth element of the list X."
-  (declare (gv-setter (lambda (store) `(setcar (nthcdr 5 ,x) ,store))))
+  (declare (side-effect-free t)
+           (gv-setter (lambda (store) `(setcar (nthcdr 5 ,x) ,store))))
   (nth 5 x))
 
 (defsubst cl-seventh (x)
   "Return the seventh element of the list X."
-  (declare (gv-setter (lambda (store) `(setcar (nthcdr 6 ,x) ,store))))
+  (declare (side-effect-free t)
+           (gv-setter (lambda (store) `(setcar (nthcdr 6 ,x) ,store))))
   (nth 6 x))
 
 (defsubst cl-eighth (x)
   "Return the eighth element of the list X."
-  (declare (gv-setter (lambda (store) `(setcar (nthcdr 7 ,x) ,store))))
+  (declare (side-effect-free t)
+           (gv-setter (lambda (store) `(setcar (nthcdr 7 ,x) ,store))))
   (nth 7 x))
 
 (defsubst cl-ninth (x)
   "Return the ninth element of the list X."
-  (declare (gv-setter (lambda (store) `(setcar (nthcdr 8 ,x) ,store))))
+  (declare (side-effect-free t)
+           (gv-setter (lambda (store) `(setcar (nthcdr 8 ,x) ,store))))
   (nth 8 x))
 
 (defsubst cl-tenth (x)
   "Return the tenth element of the list X."
-  (declare (gv-setter (lambda (store) `(setcar (nthcdr 9 ,x) ,store))))
+  (declare (side-effect-free t)
+           (gv-setter (lambda (store) `(setcar (nthcdr 9 ,x) ,store))))
   (nth 9 x))
 
-(defalias 'cl-caaar 'caaar)
-(defalias 'cl-caadr 'caadr)
-(defalias 'cl-cadar 'cadar)
-(defalias 'cl-caddr 'caddr)
-(defalias 'cl-cdaar 'cdaar)
-(defalias 'cl-cdadr 'cdadr)
-(defalias 'cl-cddar 'cddar)
-(defalias 'cl-cdddr 'cdddr)
-(defalias 'cl-caaaar 'caaaar)
-(defalias 'cl-caaadr 'caaadr)
-(defalias 'cl-caadar 'caadar)
-(defalias 'cl-caaddr 'caaddr)
-(defalias 'cl-cadaar 'cadaar)
-(defalias 'cl-cadadr 'cadadr)
-(defalias 'cl-caddar 'caddar)
-(defalias 'cl-cadddr 'cadddr)
-(defalias 'cl-cdaaar 'cdaaar)
-(defalias 'cl-cdaadr 'cdaadr)
-(defalias 'cl-cdadar 'cdadar)
-(defalias 'cl-cdaddr 'cdaddr)
-(defalias 'cl-cddaar 'cddaar)
-(defalias 'cl-cddadr 'cddadr)
-(defalias 'cl-cdddar 'cdddar)
-(defalias 'cl-cddddr 'cddddr)
+(defalias 'cl-caaar #'caaar)
+(defalias 'cl-caadr #'caadr)
+(defalias 'cl-cadar #'cadar)
+(defalias 'cl-caddr #'caddr)
+(defalias 'cl-cdaar #'cdaar)
+(defalias 'cl-cdadr #'cdadr)
+(defalias 'cl-cddar #'cddar)
+(defalias 'cl-cdddr #'cdddr)
+(defalias 'cl-caaaar #'caaaar)
+(defalias 'cl-caaadr #'caaadr)
+(defalias 'cl-caadar #'caadar)
+(defalias 'cl-caaddr #'caaddr)
+(defalias 'cl-cadaar #'cadaar)
+(defalias 'cl-cadadr #'cadadr)
+(defalias 'cl-caddar #'caddar)
+(defalias 'cl-cadddr #'cadddr)
+(defalias 'cl-cdaaar #'cdaaar)
+(defalias 'cl-cdaadr #'cdaadr)
+(defalias 'cl-cdadar #'cdadar)
+(defalias 'cl-cdaddr #'cdaddr)
+(defalias 'cl-cddaar #'cddaar)
+(defalias 'cl-cddadr #'cddadr)
+(defalias 'cl-cdddar #'cdddar)
+(defalias 'cl-cddddr #'cddddr)
 
 ;;(defun last* (x &optional n)
 ;;  "Returns the last link in the list LIST.
 ;;With optional argument N, returns Nth-to-last link (default 1)."
 ;;  (if n
 ;;      (let ((m 0) (p x))
-;;	(while (consp p) (cl-incf m) (pop p))
+;;      (while (consp p) (incf m) (pop p))
 ;;	(if (<= n 0) p
 ;;	  (if (< n m) (nthcdr (- m n) x) x)))
 ;;    (while (consp (cdr x)) (pop x))
@@ -454,7 +465,8 @@ SEQ, this is like `mapcar'.  With several, it is like the Common Lisp
 Thus, `(cl-list* A B C D)' is equivalent to `(nconc (list A B C) D)', or to
 `(cons A (cons B (cons C D)))'.
 \n(fn ARG...)"
-  (declare (compiler-macro cl--compiler-macro-list*))
+  (declare (side-effect-free error-free)
+           (compiler-macro cl--compiler-macro-list*))
   (cond ((not rest) arg)
 	((not (cdr rest)) (cons arg (car rest)))
 	(t (let* ((n (length rest))
@@ -465,6 +477,7 @@ Thus, `(cl-list* A B C D)' is equivalent to `(nconc (list A B C) D)', or to
 
 (defun cl-ldiff (list sublist)
   "Return a copy of LIST with the tail SUBLIST removed."
+  (declare (side-effect-free t))
   (let ((res nil))
     (while (and (consp list) (not (eq list sublist)))
       (push (pop list) res))
@@ -473,7 +486,7 @@ Thus, `(cl-list* A B C D)' is equivalent to `(nconc (list A B C) D)', or to
 (defun cl-copy-list (list)
   "Return a copy of LIST, which may be a dotted list.
 The elements of LIST are not copied, just the list structure itself."
-  (declare (side-effect-free error-free))
+  (declare (side-effect-free t))
   (if (consp list)
       (let ((res nil))
 	(while (consp list) (push (pop list) res))
@@ -487,40 +500,43 @@ The elements of LIST are not copied, just the list structure itself."
 (declare-function cl-round "cl-extra" (x &optional y))
 (declare-function cl-mod "cl-extra" (x y))
 
-(defun cl-adjoin (cl-item cl-list &rest cl-keys)
+(defun cl-adjoin (item list &rest keys)
   "Return ITEM consed onto the front of LIST only if it's not already there.
 Otherwise, return LIST unmodified.
 \nKeywords supported:  :test :test-not :key
 \n(fn ITEM LIST [KEYWORD VALUE]...)"
-  (declare (compiler-macro cl--compiler-macro-adjoin))
-  (cond ((or (equal cl-keys '(:test eq))
-	     (and (null cl-keys) (not (numberp cl-item))))
-	 (if (memq cl-item cl-list) cl-list (cons cl-item cl-list)))
-	((or (equal cl-keys '(:test equal)) (null cl-keys))
-	 (if (member cl-item cl-list) cl-list (cons cl-item cl-list)))
-	(t (apply 'cl--adjoin cl-item cl-list cl-keys))))
+  (declare (important-return-value t)
+           (compiler-macro cl--compiler-macro-adjoin))
+  (cond ((or (equal keys '(:test eq))
+             (and (null keys) (not (numberp item))))
+         (if (memq item list) list (cons item list)))
+        ((or (equal keys '(:test equal)) (null keys))
+         (if (member item list) list (cons item list)))
+        (t (apply 'cl--adjoin item list keys))))
 
-(defun cl-subst (cl-new cl-old cl-tree &rest cl-keys)
+(defun cl-subst (new old tree &rest keys)
   "Substitute NEW for OLD everywhere in TREE (non-destructively).
 Return a copy of TREE with all elements `eql' to OLD replaced by NEW.
 \nKeywords supported:  :test :test-not :key
 \n(fn NEW OLD TREE [KEYWORD VALUE]...)"
-  (if (or cl-keys (and (numberp cl-old) (not (integerp cl-old))))
-      (apply 'cl-sublis (list (cons cl-old cl-new)) cl-tree cl-keys)
-    (cl--do-subst cl-new cl-old cl-tree)))
+  (declare (important-return-value t))
+  (if (or keys (and (numberp old) (not (integerp old))))
+      (apply 'cl-sublis (list (cons old new)) tree keys)
+    (cl--do-subst new old tree)))
 
-(defun cl--do-subst (cl-new cl-old cl-tree)
-  (cond ((eq cl-tree cl-old) cl-new)
-	((consp cl-tree)
-	 (let ((a (cl--do-subst cl-new cl-old (car cl-tree)))
-	       (d (cl--do-subst cl-new cl-old (cdr cl-tree))))
-	   (if (and (eq a (car cl-tree)) (eq d (cdr cl-tree)))
-	       cl-tree (cons a d))))
-	(t cl-tree)))
+(defun cl--do-subst (new old tree)
+  (cond ((eq tree old) new)
+        ((consp tree)
+         (let ((a (cl--do-subst new old (car tree)))
+               (d (cl--do-subst new old (cdr tree))))
+           (if (and (eq a (car tree)) (eq d (cdr tree)))
+               tree (cons a d))))
+        (t tree)))
 
-(defun cl-acons (key value alist)
+(defsubst cl-acons (key value alist)
   "Add KEY and VALUE to ALIST.
 Return a new list with (cons KEY VALUE) as car and ALIST as cdr."
+  (declare (side-effect-free error-free))
   (cons (cons key value) alist))
 
 (defun cl-pairlis (keys values &optional alist)
@@ -528,6 +544,7 @@ Return a new list with (cons KEY VALUE) as car and ALIST as cdr."
 Return a new alist composed by associating KEYS to corresponding VALUES;
 the process stops as soon as KEYS or VALUES run out.
 If ALIST is non-nil, the new pairs are prepended to it."
+  (declare (side-effect-free t))
   (nconc (cl-mapcar 'cons keys values) alist))
 
 ;;; Miscellaneous.
@@ -542,6 +559,18 @@ If ALIST is non-nil, the new pairs are prepended to it."
   ;; rarely used, so instead we explicitly (require 'cl-extra) at
   ;; those rare places where we do need it.
   )
+
+(when (fboundp 'cl-generic-define-method)
+  ;; `cl-generic' requires `cl-lib' at compile-time, so `cl-lib' can't
+  ;; use `cl-defmethod' before `cl-generic' has been loaded.
+  ;; Also, there is no mechanism to autoload methods, so this can't be
+  ;; moved to `cl-extra.el'.
+  (declare-function cl--derived-type-generalizers "cl-extra" (type))
+  (cl-defmethod cl-generic-generalizers :extra "derived-types" (type)
+    "Support for dispatch on derived types, i.e. defined with `cl-deftype'."
+    (if (and (symbolp type) (cl-derived-type-class-p (cl--find-class type)))
+        (cl--derived-type-generalizers type)
+      (cl-call-next-method))))
 
 (defun cl--old-struct-type-of (orig-fun object)
   (or (and (vectorp object) (> (length object) 0)

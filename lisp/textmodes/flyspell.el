@@ -1,6 +1,6 @@
 ;;; flyspell.el --- On-the-fly spell checker  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1998, 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1998, 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: Manuel Serrano <Manuel.Serrano@sophia.inria.fr>
 ;; Maintainer: emacs-devel@gnu.org
@@ -404,10 +404,12 @@ like <img alt=\"Some thing.\">."
 
 (defun flyspell-generic-progmode-verify ()
   "Used for `flyspell-generic-check-word-predicate' in programming modes."
-  (unless (eql (point) (point-min))
-    ;; (point) is next char after the word. Must check one char before.
-    (let ((f (get-text-property (1- (point)) 'face)))
-      (memq f flyspell-prog-text-faces))))
+  (cl-flet ((has-prog-face (pos) (memq (get-text-property pos 'face)
+                                       flyspell-prog-text-faces)))
+    ;; Point might be in front of, inside, or behind the misspelled word
+    (or (has-prog-face (point))               ; check char after point
+        (and (not (eql (point) (point-min)))
+             (has-prog-face (1- (point))))))) ; check char before point
 
 ;;;###autoload
 (defun flyspell-prog-mode ()
@@ -529,18 +531,6 @@ in your init file.
 	(error (message "Error enabling Flyspell mode:\n%s" (cdr err))
 	       (flyspell-mode -1)))
     (flyspell--mode-off)))
-
-;;;###autoload
-(defun turn-on-flyspell ()
-  "Unconditionally turn on Flyspell mode."
-  (flyspell-mode 1))
-
-;;;###autoload
-(defun turn-off-flyspell ()
-  "Unconditionally turn off Flyspell mode."
-  (flyspell-mode -1))
-
-(custom-add-option 'text-mode-hook 'turn-on-flyspell)
 
 (defvar flyspell-buffers nil
   "For remembering buffers running flyspell.")
@@ -810,6 +800,18 @@ Mostly we check word delimiters."
              (let ((pos (point)))
                (or (>= pos start) (<= pos stop) (= pos (1+ stop))))))))
 
+(defcustom flyspell-delay-use-timer nil
+  "Whether Flyspell should use a timer for waiting after a delayed command.
+
+If this is non-nil, Flyspell sets up a timer for checking the word at
+point `flyspell-delay' seconds after you invoke a delayed command.
+Otherwise, if this option is nil, Flyspell uses `sit-for' to wait for
+that duration instead."
+  :type 'boolean
+  :version "31.1")
+
+(defvar flyspell--timer nil)
+
 ;;*---------------------------------------------------------------------*/
 ;;*    flyspell-check-word-p ...                                        */
 ;;*---------------------------------------------------------------------*/
@@ -844,7 +846,15 @@ Mostly we check word delimiters."
 	;; The current command is not delayed, that
 	;; is that we must check the word now.
 	(and (not unread-command-events)
-	     (sit-for flyspell-delay)))
+             (if (not flyspell-delay-use-timer)
+                 (sit-for flyspell-delay)
+               (setq flyspell--timer
+                     (run-with-idle-timer
+                      flyspell-delay nil
+                      (lambda (buffer)
+                        (when (eq (current-buffer) buffer) (flyspell-word)))
+                      (current-buffer)))
+               nil)))
        (t t)))
      (t t))))
 
@@ -955,6 +965,7 @@ Mostly we check word delimiters."
 (defun flyspell-post-command-hook ()
   "The `post-command-hook' used by flyspell to check a word on-the-fly."
   (interactive)
+  (when (timerp flyspell--timer) (cl-callf cancel-timer flyspell--timer))
   (when flyspell-mode
     (with-local-quit
       (let ((command this-command)
@@ -1179,7 +1190,7 @@ spell-check."
 		  (set-process-query-on-exit-flag ispell-process nil)
                   ;; Wait until ispell has processed word.
                   (while (progn
-                           (accept-process-output ispell-process)
+                           (accept-process-output ispell-process 1)
                            (not (string= "" (car ispell-filter)))))
                   ;; (ispell-send-string "!\n")
                   ;; back to terse mode.
@@ -1739,17 +1750,11 @@ FLYSPELL-BUFFER."
       (setq pos (point)))
     ;; Seek the next error.
     (while (and (/= pos max)
-		(let ((ovs (overlays-at pos))
-		      (r '()))
-		  (while (and (not r) (consp ovs))
-		    (if (flyspell-overlay-p (car ovs))
-			(setq r t)
-		      (setq ovs (cdr ovs))))
-		  (not r)))
-      (setq pos (if previous (1- pos) (1+ pos))))
+                (setq pos (if previous
+                              (previous-overlay-change pos)
+                            (next-overlay-change pos)))
+                (not (any #'flyspell-overlay-p (overlays-at pos)))))
     (goto-char pos)
-    (when previous
-      (forward-word -1))
     ;; Save the current location for next invocation.
     (setq flyspell-old-pos-error (point))
     (setq flyspell-old-buffer-error (current-buffer))
@@ -2386,6 +2391,15 @@ This function is meant to be added to `flyspell-incorrect-hook'."
 
 (define-obsolete-function-alias 'flyspell-mode-on 'flyspell--mode-on "30.1")
 (define-obsolete-function-alias 'flyspell-mode-off 'flyspell--mode-off "30.1")
+
+;;;###autoload
+(define-obsolete-function-alias 'turn-on-flyspell #'flyspell-mode "31.1")
+
+;;;###autoload
+(defun turn-off-flyspell ()
+  "Unconditionally turn off Flyspell mode."
+  (declare (obsolete flyspell-mode "31.1"))
+  (flyspell-mode -1))
 
 (provide 'flyspell)
 

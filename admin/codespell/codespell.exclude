@@ -1078,7 +1078,7 @@ decode_env_path (const char *evarname, const char *defalt, bool empty)
     Lisp_Object defalt;
 	val = tbl->defalt;
        counts the ordinary slots and the top, defalt, parent, and purpose
-verify (offsetof (struct Lisp_Char_Table, defalt) == header_size);
+static_assert (offsetof (struct Lisp_Char_Table, defalt) == header_size);
   XCHAR_TABLE (table)->defalt = val;
    string, and DEFALT is a string, read from DEFALT instead of VAL.  */
 string_to_object (Lisp_Object val, Lisp_Object defalt)
@@ -1743,6 +1743,12 @@ Timo Savola, Jorgen Sch@"afer, Holger Schauer, William Schelter, Ralph
 	2a85d81c47 Add support for gathering statistics on use-package declar...
             (let* ((nam (buffer-substring (match-beginning 2) (match-end 2)))
 	      (setq nmlst (cons nam nmlst)
+     (df '((defualt :foreground "cyan"))))
+All the characters whose Unicode general-category is Nd now have the
+;;; Each character whose Unicode general-category is Nd gets the digit
+        (skipp (or (erc--memq-msg-prop 'erc--skip 'stamp)
+    (when (and fullp culled (not skipp) (< 1 beg 3 end))
+                ((not skipp))
 	(elisp--safe-macroexpand-all): Make the warning more discrete.
 |PACK|UNPK|INDX|BLD |LEN |... |
 @key{INDX} removes an integer @var{n}, then builds a vector of
@@ -1783,3 +1789,16 @@ ine\\(?:-global\\)?-minor-mode\\|ine-compilation-mode\\|un-cvs-mode\\|\
 	(oarticle (make-symbol "gnus-setup-message-oarticle"))
 	   (,oarticle gnus-article-reply)
 	 (gnus-inews-add-send-actions ,winconf ,buffer ,oarticle ,config
+  Thur, Fri, Sat, Sun
+[3]: Merget, Brinkmann, Aviram, Somorovsky, Mittmann, and
+                      (ansi-color-cyan                     :short "ansi-cyan"           :slug "anc" :foreground ,fg-term-cyan)
+                      (ansi-color-bright-cyan              :short "ansi-bright-cyan"    :slug "ANc" :foreground ,fg-term-cyan-bright)
+      (search-forward "foo.correc")
+	 "Your finger was not centred, try swiping your finger again"
+           (ofrom (marker-position (widget-get group :from)))
+      (should (= ofrom (widget-get group :from)))
+           (ofrom (marker-position (widget-get group :from)))
+      (should (= ofrom (widget-get group :from)))
+  (should (equal (cl-subseq "hello world" -5 -1) "worl"))
+    ("\\.te?xi\\'" . texinfo-mode)
+    ("\\.te?xt\\'" . text-mode)

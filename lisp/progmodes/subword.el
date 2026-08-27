@@ -1,6 +1,6 @@
 ;;; subword.el --- Handling capitalized subwords in a nomenclature -*- lexical-binding: t -*-
 
-;; Copyright (C) 2004-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
 ;; Author: Masatake YAMATO
 
@@ -119,7 +119,7 @@ treat nomenclature boundaries as word boundaries."
 (define-obsolete-function-alias 'c-subword-mode 'subword-mode "23.2")
 
 ;;;###autoload
-(define-global-minor-mode global-subword-mode subword-mode
+(define-globalized-minor-mode global-subword-mode subword-mode
   (lambda () (subword-mode 1))
   :group 'convenience)
 
@@ -273,7 +273,7 @@ syntax are treated as parts of words: e.g., in `superword-mode',
     (subword-setup-buffer))
 
 ;;;###autoload
-(define-global-minor-mode global-superword-mode superword-mode
+(define-globalized-minor-mode global-superword-mode superword-mode
   (lambda () (superword-mode 1))
   :group 'convenience)
 

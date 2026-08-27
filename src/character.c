@@ -1,6 +1,6 @@
 /* Basic character support.
 
-Copyright (C) 2001-2025 Free Software Foundation, Inc.
+Copyright (C) 2001-2026 Free Software Foundation, Inc.
 Copyright (C) 1995, 1997, 1998, 2001 Electrotechnical Laboratory, JAPAN.
   Licensed to the Free Software Foundation.
 Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
@@ -637,8 +637,8 @@ str_as_multibyte (unsigned char *str, ptrdiff_t len, ptrdiff_t nbytes,
 	      c = BYTE8_TO_CHAR (c);
 	      to += CHAR_STRING (c, to);
 	    }
+	  chars++;
 	}
-      chars++;
     }
   while (p < endp)
     {
@@ -1104,7 +1104,7 @@ symbol naming it.  The ID of a translation table is an index into this vector.  
   DEFVAR_LISP ("auto-fill-chars", Vauto_fill_chars,
 	       doc: /*
 A char-table for characters which invoke auto-filling.
-Such characters have value t in this table.  */);
+Such characters have the value t in this table.  */);
   Vauto_fill_chars = Fmake_char_table (Qauto_fill_chars, Qnil);
   CHAR_TABLE_SET (Vauto_fill_chars, ' ', Qt);
   CHAR_TABLE_SET (Vauto_fill_chars, '\n', Qt);
@@ -1126,7 +1126,8 @@ value of `cjk-ambiguous-chars-are-wide'.  */);
   Vambiguous_width_chars = Fmake_char_table (Qnil, Qnil);
 
   DEFVAR_LISP ("printable-chars", Vprintable_chars,
-	       doc: /* A char-table for each printable character.  */);
+	       doc: /* A char-table for printable characters.
+Such characters have the value t in this table.  */);
   Vprintable_chars = Fmake_char_table (Qnil, Qnil);
   Fset_char_table_range (Vprintable_chars,
 			 Fcons (make_fixnum (32), make_fixnum (126)), Qt);

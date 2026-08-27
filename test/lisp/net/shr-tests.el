@@ -1,6 +1,6 @@
 ;;; shr-tests.el --- tests for shr.el  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2016-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Ingebrigtsen <larsi@gnus.org>
 
@@ -145,8 +145,8 @@ settings, then once more for each (OPTION . VALUE) pair.")
     (dolist (alt '(nil "" "nothing to see here"))
       (with-temp-buffer
         (ert-info ((format "image with alt=%S" alt))
-          (let ((attrs (if alt (format " alt=\"%s\"" alt) "")))
-            (insert (format "<img src=\"%s\" %s" image-url attrs)))
+          (let ((attrs (if alt (format " alt=\"%s\">" alt) ">")))
+            (insert (format "<img src=\"%s\"%s" image-url attrs)))
           (cl-letf* (;; Pretend we're a graphical display.
                      ((symbol-function 'display-graphic-p) #'always)
                      ((symbol-function 'url-queue-retrieve)
@@ -155,11 +155,12 @@ settings, then once more for each (OPTION . VALUE) pair.")
                      (put-image-calls 0)
                      (shr-put-image-function
                       (lambda (&rest args)
-                        (cl-incf put-image-calls)
+                        (incf put-image-calls)
                         (apply #'shr-put-image args)))
                      (shr-width 80)
                      (shr-use-fonts nil)
                      (shr-image-animate nil)
+                     (shr-sliced-image-height nil)
                      (inhibit-message t)
                      (dom (libxml-parse-html-region (point-min) (point-max))))
             ;; Render the document.
@@ -172,19 +173,30 @@ settings, then once more for each (OPTION . VALUE) pair.")
             (shr-zoom-image)
             (shr-test-wait-for (lambda () (= put-image-calls 2))
                                "Timed out waiting to zoom image")
-            ;; Check that we got a sliced image.
-            (let ((slice-count 0))
+            ;; Check that we have a single image at original size.
+            (let (image-zooms)
               (goto-char (point-min))
               (while (< (point) (point-max))
-                (when-let ((display (get-text-property (point) 'display)))
-                  ;; If this is nil, we found a non-sliced image, but we
-                  ;; should have replaced that!
-                  (should (assq 'slice display))
-                  (cl-incf slice-count))
+                (when (get-text-property (point) 'display)
+                  (push (get-text-property (point) 'image-zoom) image-zooms))
                 (goto-char (or (next-single-property-change (point) 'display)
                                (point-max))))
-              ;; Make sure we actually saw a slice.
-              (should (> slice-count 1)))))))))
+              (should (equal image-zooms '(original))))))))))
+
+(ert-deftest dom-print-escape ()
+  ;; This is a DOM as parsed by `libxml-parse-xml-region'.
+  (let ((svg-string (concat "<svg width=\"100\" height=\"100\""
+                            " version=\"1.1\" "
+                            "xmlns=\"http://www.w3.org/2000/svg\" "
+                            "xmlns:xlink=\"http://www.w3.org/1999/xlink\"> "
+                            "<text>&amp; &gt;.&lt;</text>"
+                            "</svg>"))
+        (dom '(svg ((width . "100") (height . "100") (version . "1.1") (xmlns . "http://www.w3.org/2000/svg")
+                    (xmlns:xlink . "http://www.w3.org/1999/xlink"))
+                   (text nil "& >.<"))))
+    (with-temp-buffer
+      (shr-dom-print dom)
+      (should (equal svg-string (buffer-string))))))
 
 (require 'shr)
 

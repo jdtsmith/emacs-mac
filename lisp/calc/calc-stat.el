@@ -1,6 +1,6 @@
 ;;; calc-stat.el --- statistical functions for Calc  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1990-1993, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1990-1993, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: David Gillespie <daveg@synaptics.com>
 
@@ -390,7 +390,7 @@
 	      (math-reject-arg (car p) 'anglep))
 	  (setq p (cdr p)))
 	(setq flat (sort flat 'math-lessp))
-	(if (= (% len 2) 0)
+	(if (evenp len)
 	    (math-div (math-add (nth (1- hlen) flat) (nth hlen flat)) 2)
 	  (nth hlen flat))))))
 

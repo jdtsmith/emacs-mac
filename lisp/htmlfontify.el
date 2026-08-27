@@ -1,6 +1,6 @@
 ;;; htmlfontify.el --- htmlize a buffer/source tree with optional hyperlinks -*- lexical-binding: t -*-
 
-;; Copyright (C) 2002-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
 ;; Package: htmlfontify
 ;; Old-Version: 0.21
@@ -766,7 +766,7 @@ may happen."
 
 (defcustom hfy-font-zoom 1.05
   "Font scaling from Emacs to HTML."
-  :type 'float)
+  :type 'number)
 
 (defun hfy-size (height)
   "Derive a CSS font-size specifier from an Emacs font :height attribute HEIGHT.
@@ -1000,6 +1000,12 @@ to be merged by the user - `hfy-flatten-style' should do this."
                    parent
                    (hfy-face-to-style-i
                     (hfy-face-attr-for-class v hfy-display-class))))))
+        ;; The special value `reset' stands for the value of the
+        ;; corresponding attribute (KEY) of the ‘default’ face.
+        (when (eq val 'reset)
+          (setq val (plist-get
+                     (hfy-face-attr-for-class 'default hfy-display-class)
+                     key)))
         (setq this
               (if val (cl-case key
                        (:family         (hfy-family    val))

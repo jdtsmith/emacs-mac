@@ -1,5 +1,5 @@
 /* Window definitions for GNU Emacs.
-   Copyright (C) 1985-1986, 1993, 1995, 1997-2025 Free Software
+   Copyright (C) 1985-1986, 1993, 1995, 1997-2026 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -142,6 +142,12 @@ struct window
        as well.  */
     Lisp_Object contents;
 
+    /* A list of <buffer, window-start, window-point> triples listing
+       buffers previously shown in this window.  */
+    Lisp_Object prev_buffers;
+    /* List of buffers re-shown in this window.  */
+    Lisp_Object next_buffers;
+
     /* The old buffer of this window, set to this window's buffer by
        run_window_change_functions every time it sees this window.
        Unused for internal windows.  */
@@ -217,14 +223,6 @@ struct window
     /* Glyph matrices.  */
     struct glyph_matrix *current_matrix;
     struct glyph_matrix *desired_matrix;
-
-    /* The two Lisp_Object fields below are marked in a special way,
-       which is why they're placed after `current_matrix'.  */
-    /* A list of <buffer, window-start, window-point> triples listing
-       buffers previously shown in this window.  */
-    Lisp_Object prev_buffers;
-    /* List of buffers re-shown in this window.  */
-    Lisp_Object next_buffers;
 
     /* Number saying how recently window was selected.  */
     EMACS_INT use_time;
@@ -1131,14 +1129,18 @@ extern Lisp_Object minibuf_window;
 
 extern Lisp_Object minibuf_selected_window;
 
+/* Non-nil means it is the window containing the last mouse movement.  */
+
+extern Lisp_Object last_mouse_window;
+
 extern Lisp_Object make_window (void);
 extern Lisp_Object window_from_coordinates (struct frame *, int, int,
                                             enum window_part *, bool, bool, bool);
 extern void resize_frame_windows (struct frame *, int, bool);
 extern void restore_window_configuration (Lisp_Object);
 extern void delete_all_child_windows (Lisp_Object);
-extern void grow_mini_window (struct window *, int);
-extern void shrink_mini_window (struct window *);
+extern void grow_mini_window (struct window *, int, int);
+extern void shrink_mini_window (struct window *, int);
 extern int window_relative_x_coord (struct window *, enum window_part, int);
 
 void run_window_change_functions (void);
@@ -1241,6 +1243,8 @@ extern void replace_buffer_in_windows_safely (Lisp_Object);
 extern void wset_buffer (struct window *, Lisp_Object);
 extern bool window_outdated (struct window *);
 extern ptrdiff_t window_point (struct window *w);
+extern void window_discard_buffer_from_dead_windows (Lisp_Object);
+extern Lisp_Object mru_rooted_frame (struct frame *);
 extern void init_window_once (void);
 extern void init_window (void);
 extern void syms_of_window (void);

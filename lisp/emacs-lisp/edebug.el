@@ -1,6 +1,6 @@
 ;;; edebug.el --- a source-level debugger for Emacs Lisp  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1988-1995, 1997, 1999-2025 Free Software Foundation,
+;; Copyright (C) 1988-1995, 1997, 1999-2026 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Daniel LaLiberte <liberte@holonexus.org>
@@ -1288,7 +1288,7 @@ infinite loops when the code/environment contains a circular object.")
   (while (not (eq sexp (setq sexp (edebug-unwrap sexp)))))
   (cond
    ((consp sexp)
-    (or (gethash sexp edebug--unwrap-cache nil)
+    (or (gethash sexp edebug--unwrap-cache)
 	(let ((remainder sexp)
 	      (current (cons nil nil)))
 	  (prog1 current
@@ -1303,8 +1303,8 @@ infinite loops when the code/environment contains a circular object.")
 		    (setf (cdr current)
 			  (edebug-unwrap* remainder))
 		    nil)
-		   ((gethash remainder edebug--unwrap-cache nil)
-		    (setf (cdr current) (gethash remainder edebug--unwrap-cache nil))
+                   ((gethash remainder edebug--unwrap-cache)
+                    (setf (cdr current) (gethash remainder edebug--unwrap-cache))
 		    nil)
 		   (t (setq current
 			    (setf (cdr current) (cons nil nil)))))))))))
@@ -1369,7 +1369,7 @@ infinite loops when the code/environment contains a circular object.")
 
       ;; Set the name here if it was not set by edebug-make-enter-wrapper.
       (setq edebug-def-name
-	    (or edebug-def-name edebug-old-def-name (cl-gensym "edebug-anon")))
+            (or edebug-def-name edebug-old-def-name (gensym "edebug-anon")))
 
       ;; Add this def as a dependent of containing def.  Buggy.
       '(if (and edebug-containing-def-name
@@ -1803,12 +1803,21 @@ infinite loops when the code/environment contains a circular object.")
 
 (cl-defmethod edebug--match-&-spec-op ((_ (eql '&interpose)) cursor specs)
   "Compute the specs for `&interpose SPEC FUN ARGS...'.
-Extracts the head of the data by matching it against SPEC,
-and then matches the rest by calling (FUN HEAD PF ARGS...)
-where PF is the parsing function which FUN can call exactly once,
-passing it the specs that it needs to match.
-Note that HEAD will always be a list, since specs are defined to match
-a sequence of elements."
+SPECS is a list (SPEC FUN ARGS...), where SPEC is an edebug
+specification, FUN is the function from the &interpose form which
+transforms the edebug spec, and the optional ARGS is a list of final
+arguments to be supplied to FUN.
+
+Extracts the head of the data by matching it against SPEC, and then
+matches the rest by calling (FUN HEAD PF ARGS...).  PF is the parsing
+function which FUN must call exactly once, passing it one argument, the
+specs that it needs to match.  FUN's value must be the value of this PF
+call, which in turn will be the value of this function.
+
+Note that HEAD will always be a list, since specs is defined to match a
+sequence of elements."
+  ;; Note: PF is called in FUN rather than in this function, so that it
+  ;; can use any dynamic bindings created there.
   (pcase-let*
       ((`(,spec ,fun . ,args) specs)
        (exps (edebug-cursor-expressions cursor))
@@ -1817,14 +1826,14 @@ a sequence of elements."
                     (length (edebug-cursor-expressions cursor))))
        (head (seq-subseq exps 0 consumed)))
     (cl-assert (eq (edebug-cursor-expressions cursor) (nthcdr consumed exps)))
-    (apply fun `(,head
-                 ,(lambda (newspecs)
-                    ;; FIXME: What'd be the difference if we used
-                    ;; `edebug-match-sublist', which is what
-                    ;; `edebug-list-form-args' uses for the similar purpose
-                    ;; when matching "normal" forms?
-                    (append instrumented-head (edebug-match cursor newspecs)))
-                 ,@args))))
+    (apply fun head
+               (lambda (newspecs)
+                 ;; FIXME: What'd be the difference if we used
+                 ;; `edebug-match-sublist', which is what
+                 ;; `edebug-list-form-args' uses for the similar purpose
+                 ;; when matching "normal" forms?
+                 (append instrumented-head (edebug-match cursor newspecs)))
+               args)))
 
 (cl-defmethod edebug--match-&-spec-op ((_ (eql '&not)) cursor specs)
   ;; If any specs match, then fail
@@ -2608,7 +2617,11 @@ when edebug becomes active."
 
 (defvar edebug-eval-list nil) ;; List of expressions to evaluate.
 
-(defvar edebug-previous-result nil) ;; Last result returned.
+;; Last value seen while single-stepping or evaluating in the outside
+;; environment.
+(defvar edebug-previous-value nil)
+;; Last value seen while single-stepping, converted to a string.
+(defvar edebug-previous-result nil)
 
 (defun edebug--display (value offset-index arg-mode)
   ;; edebug--display-1 is too big, we should split it.  This function
@@ -3103,6 +3116,37 @@ before returning.  The default is one second."
                    (marker-position (mark-marker)) "<not set>"))
       (sit-for arg)
       (edebug-pop-to-buffer edebug-buffer (car edebug-window-data)))))
+
+(defun edebug-bounce-to-previous-value (arg)
+  "Bounce point to previous value in the outside current buffer.
+The previous value is what Edebug has evaluated before its last stop
+point or what you have evaluated in the context outside of Edebug, for
+example, by calling function `edebug-eval-expression', whatever comes
+later.
+If prefix argument ARG is supplied, sit for that many seconds before
+returning.  The default is one second."
+  (interactive "p")
+  (if (not edebug-active)
+      (error "Edebug is not active"))
+  (if (not (integer-or-marker-p edebug-previous-value))
+      (error "Previous value not a number or marker"))
+  (save-excursion
+    ;; If the buffer's currently displayed, avoid set-window-configuration.
+    (save-window-excursion
+      (let ((point-info ""))
+        (edebug-pop-to-buffer edebug-outside-buffer)
+        (cond
+         ((< edebug-previous-value (point-min))
+          (setq point-info (format " (< Point min: %s)" (point-min))))
+         ((> edebug-previous-value (point-max))
+          (setq point-info (format " (> Point max: %s)" (point-max))))
+         ((invisible-p edebug-previous-value)
+          (setq point-info (format " (invisible)"))))
+        (goto-char edebug-previous-value)
+        (message "Current buffer: %s Point: %s%s"
+	         (current-buffer) edebug-previous-value point-info)
+        (sit-for arg)
+        (edebug-pop-to-buffer edebug-buffer (car edebug-window-data))))))
 
 
 ;; Joe Wells, here is a start at your idea of adding a buffer to the internal
@@ -3701,9 +3745,7 @@ Return the result of the last expression."
   ;; If there is an error, a string is returned describing the error.
   (condition-case edebug-err
       (edebug-eval expr)
-    (error (edebug-format "%s: %s"  ;; could
-			  (get (car edebug-err) 'error-message)
-			  (car (cdr edebug-err))))))
+    (error (error-message-string edebug-err))))
 
 ;;; Printing
 
@@ -3711,14 +3753,7 @@ Return the result of the last expression."
 (defun edebug-report-error (value)
   ;; Print an error message like command level does.
   ;; This also prints the error name if it has no error-message.
-  (message "%s: %s"
-	   (or (get (car value) 'error-message)
-	       (format "peculiar error (%s)" (car value)))
-	   (mapconcat (lambda (edebug-arg)
-                        ;; continuing after an error may
-                        ;; complain about edebug-arg. why??
-                        (prin1-to-string edebug-arg))
-		      (cdr value) ", ")))
+  (message "%s" (error-message-string value)))
 
 ;; Alternatively, we could change the definition of
 ;; edebug-safe-prin1-to-string to only use these if defined.
@@ -3734,7 +3769,8 @@ Return the result of the last expression."
   (if edebug-unwrap-results
       (setq previous-value
 	    (edebug-unwrap* previous-value)))
-  (setq edebug-previous-result
+  (setq edebug-previous-value previous-value
+        edebug-previous-result
 	(concat "Result: "
 		(edebug-safe-prin1-to-string previous-value)
 		(eval-expression-print-format previous-value))))
@@ -3767,15 +3803,14 @@ this is the prefix key.)"
              (condition-case err
                  (edebug-eval expr)
                (error
-                (setq errored
-                      (format "%s: %s"
-		              (get (car err) 'error-message)
-		              (car (cdr err)))))))))
+                (setq errored (error-message-string err)))))))
          (result
           (unless errored
             (values--store-value value)
             (concat (edebug-safe-prin1-to-string value)
                     (eval-expression-print-format value)))))
+    ;; Provide a defined previous value also in case of an error.
+    (setq edebug-previous-value (if errored nil value))
     (cond
      (errored
       (message "Error: %s" errored))
@@ -3892,9 +3927,9 @@ be installed in `emacs-lisp-mode-map'.")
 
   ;; views
   "w"       #'edebug-where
-  "v"       #'edebug-view-outside        ; maybe obsolete??
+  "v"       #'edebug-view-outside
   "p"       #'edebug-bounce-point
-  "P"       #'edebug-view-outside        ; same as v
+  "P"       #'edebug-bounce-to-previous-value
   "W"       #'edebug-toggle-save-windows
 
   ;; misc
@@ -3922,8 +3957,8 @@ be installed in `emacs-lisp-mode-map'.")
 (define-obsolete-variable-alias 'global-edebug-prefix
   'edebug-global-prefix "28.1")
 (defvar edebug-global-prefix
-  (when-let ((binding
-              (car (where-is-internal 'Control-X-prefix (list global-map)))))
+  (when-let* ((binding
+               (car (where-is-internal 'Control-X-prefix (list global-map)))))
     (concat binding [?X]))
   "Prefix key for global edebug commands, available from any buffer.")
 
@@ -4246,7 +4281,7 @@ code location is known."
       (let ((new-frame (copy-edebug--frame frame))
             (fun (edebug--frame-fun frame))
             (args (edebug--frame-args frame)))
-        (cl-decf index) ;; FIXME: Not used?
+        (decf index) ;; FIXME: Not used?
         (pcase fun
           ('edebug-enter
 	   (setq skip-next-lambda t
@@ -4508,6 +4543,7 @@ It is removed when you hit any char."
     ("Views"
      ["Where am I?" edebug-where t]
      ["Bounce to Current Point" edebug-bounce-point t]
+     ["Bounce to Previous Value" edebug-bounce-to-previous-value t]
      ["View Outside Windows" edebug-view-outside t]
      ["Previous Result" edebug-previous-result t]
      ["Show Backtrace" edebug-pop-to-backtrace t]
@@ -4585,8 +4621,8 @@ With prefix argument, make it a temporary breakpoint."
     (let ((s 1))
       (while (memq (nth 1 (backtrace-frame i 'called-interactively-p))
                    '(edebug-enter edebug-default-enter))
-        (cl-incf s)
-        (cl-incf i))
+        (incf s)
+        (incf i))
       s)))
 
 ;; Finally, hook edebug into the rest of Emacs.
@@ -4659,8 +4695,8 @@ instrumentation for, defaulting to all functions."
           functions)))))
   ;; Remove instrumentation.
   (dolist (symbol functions)
-    (when-let ((unwrapped
-                (edebug--unwrap*-symbol-function symbol)))
+    (when-let* ((unwrapped
+                 (edebug--unwrap*-symbol-function symbol)))
       (edebug--strip-plist symbol)
       (defalias symbol unwrapped)))
   (message "Removed edebug instrumentation from %s"

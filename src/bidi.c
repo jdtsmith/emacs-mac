@@ -1,6 +1,6 @@
 /* Low-level bidirectional buffer/string-scanning functions for GNU Emacs.
 
-Copyright (C) 2000-2001, 2004-2005, 2009-2025 Free Software Foundation,
+Copyright (C) 2000-2001, 2004-2005, 2009-2026 Free Software Foundation,
 Inc.
 
 Author: Eli Zaretskii <eliz@gnu.org>
@@ -289,7 +289,9 @@ bidi_get_type (int ch, bidi_dir_t override)
   if (default_type == UNKNOWN_BT)
     emacs_abort ();
 
-  switch (default_type)
+  /* Promote default_type to int to allow not enumerating all the values
+     without compiler warnings.  */
+  switch (INT_PROMOTE (default_type))
     {
       case WEAK_BN:
       case NEUTRAL_B:
@@ -365,6 +367,8 @@ bidi_isolate_fmt_char (bidi_type_t ch_type)
   return (ch_type == LRI || ch_type == RLI || ch_type == PDI || ch_type == FSI);
 }
 
+static void bidi_initialize (void);
+
 /* Return the mirrored character of C, if it has one.  If C has no
    mirrored counterpart, return C.
    Note: The conditions in UAX#9 clause L4 regarding the surrounding
@@ -378,6 +382,14 @@ bidi_mirror_char (int c)
     return c;
   if (c < 0 || c > MAX_CHAR)
     emacs_abort ();
+
+  /* We can be called at the very beginning of init_iterator, via
+     produce_special_glyphs, and the first such call in a session might
+     happen when the bidi-mirroring table was not yet initialized.  Make
+     sure we do this now.  */
+  if (!CHAR_TABLE_P (bidi_mirror_table)
+      && !bidi_initialized)
+    bidi_initialize ();
 
   val = CHAR_TABLE_REF (bidi_mirror_table, c);
   if (FIXNUMP (val))
@@ -566,7 +578,7 @@ bidi_copy_it (struct bidi_it *to, struct bidi_it *from)
    RTL characters in the offending line of text.  */
 /* Do we need to allow customization of this limit?  */
 #define BIDI_CACHE_MAX_ELTS_PER_SLOT 50000
-verify (BIDI_CACHE_CHUNK < BIDI_CACHE_MAX_ELTS_PER_SLOT);
+static_assert (BIDI_CACHE_CHUNK < BIDI_CACHE_MAX_ELTS_PER_SLOT);
 static ptrdiff_t bidi_cache_max_elts = BIDI_CACHE_MAX_ELTS_PER_SLOT;
 static struct bidi_it *bidi_cache;
 static ptrdiff_t bidi_cache_size = 0;
@@ -1333,7 +1345,7 @@ bidi_fetch_char (ptrdiff_t charpos, ptrdiff_t bytepos, ptrdiff_t *disp_pos,
 	     Replacement Character.  */
 	  ch = OBJECT_REPLACEMENT_CHARACTER;
 	}
-      disp_end_pos = compute_display_string_end (*disp_pos, string);
+      disp_end_pos = compute_display_string_end (*disp_pos, string, w);
       if (disp_end_pos < 0)
 	{
 	  /* Somebody removed the display string from the buffer
@@ -2010,7 +2022,7 @@ bidi_resolve_explicit (struct bidi_it *bidi_it)
 	 embedding level of the _following_ characters, so we must
 	 first look at the type of the previous character to support
 	 that.  */
-      switch (prev_type)
+      switch (INT_PROMOTE (prev_type)) /* promote to int to avoid warnings */
 	{
 	case RLI:	/* X5a */
 	  if (current_level < BIDI_MAXDEPTH
@@ -2074,7 +2086,7 @@ bidi_resolve_explicit (struct bidi_it *bidi_it)
 
   bidi_it->type_after_wn = UNKNOWN_BT;
 
-  switch (type)
+  switch (INT_PROMOTE (type)) /* promote to int to avoid warnings */
     {
     case RLE:	/* X2 */
     case RLO:	/* X4 */
@@ -2626,7 +2638,7 @@ bidi_find_bracket_pairs (struct bidi_it *bidi_it)
       ptrdiff_t pairing_pos;
       int idx_at_entry = bidi_cache_idx;
 
-      verify (MAX_BPA_STACK >= 100);
+      static_assert (MAX_BPA_STACK >= 100);
       bidi_copy_it (&saved_it, bidi_it);
       /* bidi_cache_iterator_state refuses to cache on backward scans,
 	 and bidi_cache_fetch_state doesn't bring scan_dir from the
@@ -2707,7 +2719,7 @@ bidi_find_bracket_pairs (struct bidi_it *bidi_it)
 
 	      /* Whenever we see a strong type, update the flags of
 		 all the slots on the stack.  */
-	      switch (bidi_it->type)
+	      switch (INT_PROMOTE (bidi_it->type)) /* avoid warnings */
 		{
 		case STRONG_L:
 		  flag = ((embedding_level & 1) == 0
@@ -2979,7 +2991,7 @@ bidi_resolve_brackets (struct bidi_it *bidi_it)
 
 	  if (prev_type_for_neutral == UNKNOWN_BT)
 	    prev_type_for_neutral = embedding_type;
-	  switch (prev_type_for_neutral)
+	  switch (INT_PROMOTE (prev_type_for_neutral)) /* avoid warnings */
 	    {
 	    case STRONG_R:
 	    case WEAK_EN:
@@ -3175,7 +3187,7 @@ bidi_resolve_neutral (struct bidi_it *bidi_it)
 	    }
 	  else
 	    {
-	      switch (type)
+	      switch (INT_PROMOTE (type)) /* promotion to int avoids warnings */
 		{
 		case STRONG_L:
 		case STRONG_R:

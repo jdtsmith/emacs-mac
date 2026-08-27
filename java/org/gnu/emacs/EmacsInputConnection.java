@@ -1,6 +1,6 @@
 /* Communication module for Android terminals.  -*- c-file-style: "GNU" -*-
 
-Copyright (C) 2023-2025 Free Software Foundation, Inc.
+Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -83,9 +83,9 @@ public final class EmacsInputConnection implements InputConnection
       extractAbsoluteOffsets = syncAfterCommit = true;
 
     /* The Samsung and Vivo keyboards take `selectionStart' at face
-       value if some text is returned, and also searches for words
-       solely within that text.  However, when no text is returned, it
-       falls back to getTextAfterCursor and getTextBeforeCursor.  */
+       value if some text is returned, and also search for words solely
+       within that text.  However, when no text is returned, it falls
+       back to getTextAfterCursor and getTextBeforeCursor.  */
     if (Build.MANUFACTURER.equalsIgnoreCase ("Samsung")
 	|| Build.MANUFACTURER.equalsIgnoreCase ("Vivo"))
       extractAbsoluteOffsets = true;

@@ -1,6 +1,6 @@
 ;;; mh-folder.el --- MH-Folder mode  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2003, 2005-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2003, 2005-2026 Free Software Foundation, Inc.
 
 ;; Author: Bill Wohler <wohler@newt.com>
 ;; Keywords: mail
@@ -51,9 +51,12 @@ the MH mail system."
   (interactive "P")
   (mh-find-path)
   (if arg
-      (call-interactively 'mh-visit-folder)
+      (progn
+        (call-interactively 'mh-visit-folder)
+        (mh-set-default-directory))
     (unless (get-buffer mh-inbox)
-      (mh-visit-folder mh-inbox (symbol-name mh-unseen-seq)))
+      (mh-visit-folder mh-inbox (symbol-name mh-unseen-seq))
+      (mh-set-default-directory))
     (mh-inc-folder)))
 
 ;;;###autoload
@@ -67,7 +70,8 @@ the MH mail system."
   (mh-find-path)                        ; init mh-inbox
   (if arg
       (call-interactively 'mh-visit-folder)
-    (mh-visit-folder mh-inbox)))
+    (mh-visit-folder mh-inbox))
+  (mh-set-default-directory))
 
 
 ;;; Desktop Integration
@@ -454,11 +458,10 @@ FACE is the font-lock face used to display the matching scan lines."
   (let ((cache (intern (format "mh-folder-%s-seq-cache" prefix)))
         (func (intern (format "mh-folder-font-lock-%s" prefix))))
     `(progn
-       (defvar ,cache nil
+       (defvar-local ,cache nil
          "Internal cache variable used for font-lock in MH-E.
 Should only be non-nil through font-lock stepping, and nil once
 font-lock is done highlighting.")
-       (make-variable-buffer-local ',cache)
 
        (defun ,func (limit)
          "Return unseen message lines to font-lock between point and LIMIT."
@@ -1473,7 +1476,7 @@ function doesn't recenter the folder buffer."
          (let ((lines-from-end 2))
            (save-excursion
              (while (> (point-max) (progn (forward-line) (point)))
-               (cl-incf lines-from-end)))
+               (incf lines-from-end)))
            (recenter (- lines-from-end))))
         ;; '(4) is the same as C-u prefix argument.
         (t (recenter (or arg '(4))))))

@@ -1,6 +1,6 @@
 ;;; eieio-datadebug.el --- EIEIO extensions to the data debugger.  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Keywords: OO, lisp
@@ -111,7 +111,7 @@ PREBUTTONTEXT is some text between PREFIX and the object button."
               )))))))
 
 ;;; Augment the Data debug thing display list.
-(data-debug-add-specialized-thing (lambda (thing) (eieio-object-p thing))
+(data-debug-add-specialized-thing #'eieio-object-p
 				  #'data-debug-insert-object-button)
 
 ;;; DEBUG METHODS

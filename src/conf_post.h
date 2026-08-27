@@ -1,6 +1,6 @@
 /* conf_post.h --- configure.ac includes this via AH_BOTTOM
 
-Copyright (C) 1988, 1993-1994, 1999-2002, 2004-2025 Free Software
+Copyright (C) 1988, 1993-1994, 1999-2002, 2004-2026 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -93,60 +93,6 @@ typedef bool bool_bf;
 # define ADDRESS_SANITIZER false
 #endif
 
-#ifdef emacs
-/* We include stdlib.h here, because Gnulib's stdlib.h might redirect
-   'free' to its replacement, and we want to avoid that in unexec
-   builds.  Including it here will render its inclusion after config.h
-   a no-op.  */
-# if (defined DARWIN_OS && defined HAVE_UNEXEC) || defined HYBRID_MALLOC
-#  include <stdlib.h>
-# endif
-#endif
-
-#if defined DARWIN_OS && defined emacs && defined HAVE_UNEXEC
-# undef malloc
-# define malloc unexec_malloc
-# undef realloc
-# define realloc unexec_realloc
-# undef free
-# define free unexec_free
-
-extern void *unexec_malloc (size_t);
-extern void *unexec_realloc (void *, size_t);
-extern void unexec_free (void *);
-
-/* Name of the segment whose VM protection is the default (read/write)
-   for temacs but read-only for the dumped executable.  */
-#define EMACS_READ_ONLY_SEGMENT "EMACS_READ_ONLY"
-/* Name of the section to place the pure space.  */
-//#define PURE_SECTION EMACS_READ_ONLY_SEGMENT ",pure"
-#endif
-
-/* If HYBRID_MALLOC is defined (e.g., on Cygwin), emacs will use
-   gmalloc before dumping and the system malloc after dumping.
-   hybrid_malloc and friends, defined in gmalloc.c, are wrappers that
-   accomplish this.  */
-#ifdef HYBRID_MALLOC
-#ifdef emacs
-#undef malloc
-#define malloc hybrid_malloc
-#undef realloc
-#define realloc hybrid_realloc
-#undef aligned_alloc
-#define aligned_alloc hybrid_aligned_alloc
-#undef calloc
-#define calloc hybrid_calloc
-#undef free
-#define free hybrid_free
-
-extern void *hybrid_malloc (size_t);
-extern void *hybrid_calloc (size_t, size_t);
-extern void hybrid_free (void *);
-extern void *hybrid_aligned_alloc (size_t, size_t);
-extern void *hybrid_realloc (void *, size_t);
-#endif	/* emacs */
-#endif	/* HYBRID_MALLOC */
-
 /* We have to go this route, rather than the old hpux9 approach of
    renaming the functions via macros.  The system's stdlib.h has fully
    prototyped declarations, which yields a conflicting definition of
@@ -199,8 +145,6 @@ You lose; /* Emacs for DOS must be compiled with DJGPP */
 /* Needed by lib/lchmod.c.  */
 #define EOPNOTSUPP EINVAL
 
-#define MALLOC_0_IS_NONNULL 1
-
 /* We must intercept 'opendir' calls to stash away the directory name,
    so we could reuse it in readlinkat; see msdos.c.  */
 #define opendir sys_opendir
@@ -209,42 +153,9 @@ You lose; /* Emacs for DOS must be compiled with DJGPP */
 
 #define emacs_raise(sig) msdos_fatal_signal (sig)
 
-/* DATA_START is needed by vm-limit.c and unexcoff.c. */
+/* DATA_START is needed by vm-limit.c. */
 #define DATA_START (&etext + 1)
-
-/* Define one of these for easier conditionals.  */
-#ifdef HAVE_X_WINDOWS
-/* We need a little extra space, see ../../lisp/loadup.el and the
-   commentary below, in the non-X branch.  The 140KB number was
-   measured on GNU/Linux and on MS-Windows.  */
-#define SYSTEM_PURESIZE_EXTRA (-170000+140000)
-#else
-/* We need a little extra space, see ../../lisp/loadup.el.
-   As of 20091024, DOS-specific files use up 62KB of pure space.  But
-   overall, we end up wasting 130KB of pure space, because
-   BASE_PURESIZE starts at 1.47MB, while we need only 1.3MB (including
-   non-DOS specific files and load history; the latter is about 55K,
-   but depends on the depth of the top-level Emacs directory in the
-   directory tree).  Given the unknown policy of different DPMI
-   hosts regarding loading of untouched pages, I'm not going to risk
-   enlarging Emacs footprint by another 100+ KBytes.  */
-#define SYSTEM_PURESIZE_EXTRA (-170000+90000)
-#endif
 #endif  /* MSDOS */
-
-/* macOS / GNUstep need a bit more pure memory.  Of the existing knobs,
-   SYSTEM_PURESIZE_EXTRA seems like the least likely to cause problems.  */
-#ifdef HAVE_NS
-#if defined NS_IMPL_GNUSTEP
-#  define SYSTEM_PURESIZE_EXTRA 30000
-#elif defined DARWIN_OS
-#  define SYSTEM_PURESIZE_EXTRA 200000
-#endif
-#endif
-
-#ifdef CYGWIN
-#define SYSTEM_PURESIZE_EXTRA 50000
-#endif
 
 #if defined HAVE_NTGUI && !defined DebPrint
 # ifdef EMACSDEBUG
@@ -262,13 +173,6 @@ extern void _DebPrint (const char *fmt, ...);
 #ifndef strnicmp
 #define strnicmp strncasecmp
 #endif
-#endif
-
-#ifdef emacs /* Don't do this for lib-src.  */
-/* Tell regex.c to use a type compatible with Emacs.  */
-#define RE_TRANSLATE_TYPE Lisp_Object
-#define RE_TRANSLATE(TBL, C) char_table_translate (TBL, C)
-#define RE_TRANSLATE_P(TBL) (!BASE_EQ (TBL, make_fixnum (0)))
 #endif
 
 /* Tell time_rz.c to use Emacs's getter and setter for TZ.
@@ -467,16 +371,66 @@ extern int emacs_setenv_TZ (char const *);
 # define UNINIT /* empty */
 #endif
 
-/* MB_CUR_MAX is often broken on systems which copy-paste LLVM
-   headers, so replace its definition with a working one if
-   necessary.  */
-
-#ifdef REPLACEMENT_MB_CUR_MAX
-#include <stdlib.h>
-#undef MB_CUR_MAX
-#define MB_CUR_MAX REPLACEMENT_MB_CUR_MAX
-#endif /* REPLACEMENT_MB_CUR_MAX */
-
-/* Emacs does not need glibc strftime behavior for AM and PM
-   indicators.  */
+/* Emacs needs neither glibc strftime behavior for AM and PM indicators,
+   nor Gnulib strftime support for non-Gregorian calendars.  */
 #define REQUIRE_GNUISH_STRFTIME_AM_PM false
+#define SUPPORT_NON_GREG_CALENDARS_IN_STRFTIME false
+
+#ifdef MSDOS
+/* These are required by file-has-acl.c but defined in dirent.h and
+   errno.h, which are not generated on DOS.  */
+#define _GL_DT_NOTDIR 0x100   /* Not a directory */
+#define ENOTSUP ENOSYS
+# define IFTODT(mode) \
+   (S_ISREG (mode) ? DT_REG : S_ISDIR (mode) ? DT_DIR \
+    : S_ISLNK (mode) ? DT_LNK : S_ISBLK (mode) ? DT_BLK \
+    : S_ISCHR (mode) ? DT_CHR : S_ISFIFO (mode) ? DT_FIFO \
+    : S_ISSOCK (mode) ? DT_SOCK : DT_UNKNOWN)
+#endif /* MSDOS */
+
+#if defined WINDOWSNT && !(defined OMIT_CONSOLESAFE && OMIT_CONSOLESAFE == 1)
+# if !defined _UCRT || !(HAVE_DECL_GETDELIM && HAVE_DECL_GETLINE)
+#  include <stdio.h>
+#  include <stddef.h>
+#  if !defined _UCRT
+#   include <stdarg.h>
+
+/* Workarounds for MSVCRT bugs.
+
+   The functions below are in Gnulib, but their prototypes and
+   redirections must be here because the MS-Windows build omits the
+   Gnulib stdio-h module, which does the below in Gnulib's stdio.h
+   file, which is not used by the MS-Windows build.  */
+
+extern size_t gl_consolesafe_fwrite (const void *ptr, size_t size,
+				     size_t nmemb, FILE *fp)
+  ARG_NONNULL ((1, 4));
+extern int gl_consolesafe_fprintf (FILE *restrict fp,
+				   const char *restrict format, ...)
+  ATTRIBUTE_FORMAT_PRINTF (2, 3)
+  ARG_NONNULL ((1, 2));
+extern int gl_consolesafe_printf (const char *restrict format, ...)
+  ATTRIBUTE_FORMAT_PRINTF (1, 2)
+  ARG_NONNULL ((1));
+extern int gl_consolesafe_vfprintf (FILE *restrict fp,
+				    const char *restrict format, va_list args)
+  ATTRIBUTE_FORMAT_PRINTF (2, 0)
+  ARG_NONNULL ((1, 2));
+extern int gl_consolesafe_vprintf (const char *restrict format, va_list args)
+  ATTRIBUTE_FORMAT_PRINTF (1, 0)
+  ARG_NONNULL ((1));
+#   define fwrite gl_consolesafe_fwrite
+#   define fprintf gl_consolesafe_fprintf
+#   define printf gl_consolesafe_printf
+#   define vfprintf gl_consolesafe_vfprintf
+#   define vprintf gl_consolesafe_vprintf
+#  endif /* !_UCRT */
+
+#  if !HAVE_DECL_GETDELIM
+extern ssize_t getdelim (char **, size_t *, int, FILE *);
+#  endif
+#  if !HAVE_DECL_GETLINE
+extern ssize_t getline (char **, size_t *, FILE *);
+#  endif
+# endif
+#endif	/* WINDOWSNT */

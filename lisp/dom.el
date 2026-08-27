@@ -1,6 +1,6 @@
 ;;; dom.el --- XML/HTML (etc.) DOM manipulation and searching functions -*- lexical-binding: t -*-
 
-;; Copyright (C) 2014-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2014-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: xml, html
@@ -25,7 +25,7 @@
 ;;; Code:
 
 (require 'cl-lib)
-(eval-when-compile (require 'subr-x))
+(require 'subr-x)
 
 (defsubst dom-tag (node)
   "Return the NODE tag."
@@ -65,7 +65,7 @@
 (defun dom-remove-attribute (node attribute)
   "Remove ATTRIBUTE from NODE."
   (setq node (dom-ensure-node node))
-  (when-let ((old (assoc attribute (cadr node))))
+  (when-let* ((old (assoc attribute (cadr node))))
     (setcar (cdr node) (delq old (cadr node)))))
 
 (defmacro dom-attr (node attr)
@@ -75,10 +75,12 @@ A typical attribute is `href'."
 
 (defun dom-text (node)
   "Return all the text bits in the current node concatenated."
+  (declare (obsolete dom-inner-text "31.1"))
   (mapconcat #'identity (cl-remove-if-not #'stringp (dom-children node)) " "))
 
 (defun dom-texts (node &optional separator)
   "Return all textual data under NODE concatenated with SEPARATOR in-between."
+  (declare (obsolete dom-inner-text "31.1"))
   (if (eq (dom-tag node) 'script)
       ""
     (mapconcat
@@ -92,6 +94,25 @@ A typical attribute is `href'."
          (dom-texts elem separator))))
      (dom-children node)
      (or separator " "))))
+
+(defun dom-inner-text--1 (node)
+  (dolist (child (dom-children node))
+    (cond
+     ((stringp child) (insert child))
+     ((memq (dom-tag child) '(script comment)))
+     (t (dom-inner-text--1 child)))))
+
+(defun dom-inner-text (node)
+  "Return all textual data under NODE as a single string."
+  (let ((children (dom-children node)))
+    (if (and (length= children 1)
+             (stringp (car children)))
+        ;; Copy the string content when returning to be consistent with
+        ;; the other branch of this `if' expression.
+        (copy-sequence (car children))
+    (with-work-buffer
+      (dom-inner-text--1 node)
+      (buffer-string)))))
 
 (defun dom-child-by-tag (dom tag)
   "Return the first child of DOM that is of type TAG."
@@ -234,7 +255,7 @@ white-space."
 	(insert "(")
 	(dolist (elem attr)
 	  (insert (format "(%S . %S)" (car elem) (cdr elem)))
-	  (if (zerop (cl-decf times))
+          (if (zerop (decf times))
 	      (insert ")")
 	    (insert "\n" (make-string column ?\s))))))
     (let* ((children (if remove-empty
@@ -254,35 +275,45 @@ white-space."
 		            (string-match "\\`[\n\r\t  ]*\\'" child)))
 		  (insert (format "%S" child)))
 	    (dom-pp child remove-empty))
-	  (if (zerop (cl-decf times))
+          (if (zerop (decf times))
 	      (insert ")")
 	    (insert "\n" (make-string (1+ column) ?\s))))))))
+
+(define-inline dom--html-boolean-attribute-p (attr)
+  "Return non-nil if ATTR is an HTML boolean attribute."
+  (inline-quote
+   (memq ,attr
+         ;; Extracted from the HTML Living Standard list of attributes
+         ;; at <https://html.spec.whatwg.org/#attributes-3>.
+         '( allowfullscreen alpha async autofocus autoplay checked
+            controls default defer disabled formnovalidate inert ismap
+            itemscope loop multiple muted nomodule novalidate open
+            playsinline readonly required reversed selected
+            shadowrootclonable shadowrootdelegatesfocus
+            shadowrootserializable))))
 
 (defun dom-print (dom &optional pretty xml)
   "Print DOM at point as HTML/XML.
 If PRETTY, indent the HTML/XML logically.
 If XML, generate XML instead of HTML."
-  (let ((column (current-column)))
+  (let ((column (current-column))
+        (indent-tabs-mode nil)) ;; Indent with spaces
     (insert (format "<%s" (dom-tag dom)))
-    (let ((attr (dom-attributes dom)))
-      (dolist (elem attr)
-	;; In HTML, these are boolean attributes that should not have
-	;; an = value.
-	(insert (if (and (memq (car elem)
-			       '(async autofocus autoplay checked
-			         contenteditable controls default
-			         defer disabled formNoValidate frameborder
-			         hidden ismap itemscope loop
-			         multiple muted nomodule novalidate open
-			         readonly required reversed
-			         scoped selected typemustmatch))
-			 (cdr elem)
-			 (not xml))
-		    (format " %s" (car elem))
-		  (format " %s=\"%s\"" (car elem)
-	                  (url-insert-entities-in-string (cdr elem)))))))
+    (pcase-dolist (`(,attr . ,value) (dom-attributes dom))
+      ;; Don't print attributes without a value.
+      (when value
+        (insert
+         ;; HTML boolean attributes should not have an = value.  The
+         ;; presence of a boolean attribute on an element represents
+         ;; the true value, and the absence of the attribute
+         ;; represents the false value.
+         (if (and (not xml) (dom--html-boolean-attribute-p attr))
+             (format " %s" attr)
+           (format " %s=%S" attr (url-insert-entities-in-string
+                                  (format "%s" value)))))))
     (let* ((children (dom-children dom))
-	   (non-text nil))
+	   (non-text nil)
+           (indent (+ column 2)))
       (if (null children)
 	  (insert " />")
 	(insert ">")
@@ -291,16 +322,14 @@ If XML, generate XML instead of HTML."
 	      (insert (url-insert-entities-in-string child))
 	    (setq non-text t)
 	    (when pretty
-              (insert "\n" (make-string (+ column 2) ?\s)))
+              (insert "\n")
+              (indent-line-to indent))
 	    (dom-print child pretty xml)))
 	;; If we inserted non-text child nodes, or a text node that
 	;; ends with a newline, then we indent the end tag.
-        (when (and pretty
-		   (or (bolp)
-		       non-text))
-	  (unless (bolp)
-            (insert "\n"))
-	  (insert (make-string column ?\s)))
+        (when (and pretty (or (bolp) non-text))
+	  (or (bolp) (insert "\n"))
+	  (indent-line-to column))
         (insert (format "</%s>" (dom-tag dom)))))))
 
 (provide 'dom)

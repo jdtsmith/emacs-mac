@@ -1,6 +1,6 @@
 ;;; tty-colors.el --- color support for character terminals  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
 ;; Author: Eli Zaretskii
 ;; Maintainer: emacs-devel@gnu.org
@@ -764,7 +764,9 @@
     (auto . 0)
     (ansi8 . 8)
     (always . 8)
-    (yes . 8))
+    (yes . 8)
+    (8bit . 256)
+    (24bit . 16777216))
   "An alist of supported standard tty color modes and their aliases.")
 
 (defun tty-color-alist (&optional _frame)

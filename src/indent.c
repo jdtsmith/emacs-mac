@@ -1,5 +1,5 @@
 /* Indentation functions.
-   Copyright (C) 1985-1988, 1993-1995, 1998, 2000-2025 Free Software
+   Copyright (C) 1985-1988, 1993-1995, 1998, 2000-2026 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -466,13 +466,21 @@ current_column (void)
 }
 
 
+static void restore_window_buffer (Lisp_Object);
+
 /* Check the presence of a display property and compute its width.
+   POS and POS_BYTE are the character and byte positions of the
+   display property and COL is the column number at POS.
    If a property was found and its width was found as well, return
    its width (>= 0) and set the position of the end of the property
    in ENDPOS.
-   Otherwise just return -1.  */
+   Otherwise just return -1.
+   WINDOW is the window to use when it is important; nil stands for
+   the selected window.  */
 static int
-check_display_width (ptrdiff_t pos, ptrdiff_t col, ptrdiff_t *endpos)
+check_display_width (Lisp_Object window,
+		     ptrdiff_t pos, ptrdiff_t pos_byte, ptrdiff_t col,
+		     ptrdiff_t *endpos)
 {
   Lisp_Object val, overlay;
 
@@ -482,30 +490,80 @@ check_display_width (ptrdiff_t pos, ptrdiff_t col, ptrdiff_t *endpos)
       int width = -1;
       Lisp_Object plist = Qnil;
 
-      /* Handle '(space ...)' display specs.  */
-      if (CONSP (val) && EQ (Qspace, XCAR (val)))
-	{ /* FIXME: Use calc_pixel_width_or_height.  */
-	  Lisp_Object prop;
-	  EMACS_INT align_to_max =
-	    (col < MOST_POSITIVE_FIXNUM - INT_MAX
-	     ? (EMACS_INT) INT_MAX + col
-	     : MOST_POSITIVE_FIXNUM);
+      if (CONSP (val))
+	{
+	  Lisp_Object xcar = XCAR (val);
 
-	  plist = XCDR (val);
-	  if ((prop = plist_get (plist, QCwidth),
-	       RANGED_FIXNUMP (0, prop, INT_MAX))
-	      || (prop = plist_get (plist, QCrelative_width),
-		  RANGED_FIXNUMP (0, prop, INT_MAX)))
-	    width = XFIXNUM (prop);
-	  else if (FLOATP (prop) && 0 <= XFLOAT_DATA (prop)
-		   && XFLOAT_DATA (prop) <= INT_MAX)
-	    width = (int)(XFLOAT_DATA (prop) + 0.5);
-	  else if ((prop = plist_get (plist, QCalign_to),
-		    RANGED_FIXNUMP (col, prop, align_to_max)))
-	    width = XFIXNUM (prop) - col;
-	  else if (FLOATP (prop) && col <= XFLOAT_DATA (prop)
-		   && (XFLOAT_DATA (prop) <= align_to_max))
-	    width = (int)(XFLOAT_DATA (prop) + 0.5) - col;
+	  /* Handle '(space ...)' display specs.  */
+	  if (EQ (Qspace, xcar))
+	    { /* FIXME: Use calc_pixel_width_or_height.  */
+	      Lisp_Object prop;
+	      EMACS_INT align_to_max =
+		(col < MOST_POSITIVE_FIXNUM - INT_MAX
+		 ? (EMACS_INT) INT_MAX + col
+		 : MOST_POSITIVE_FIXNUM);
+
+	      plist = XCDR (val);
+	      if ((prop = plist_get (plist, QCwidth),
+		   RANGED_FIXNUMP (0, prop, INT_MAX))
+		  || (prop = plist_get (plist, QCrelative_width),
+		      RANGED_FIXNUMP (0, prop, INT_MAX)))
+		width = XFIXNUM (prop);
+	      else if (FLOATP (prop) && 0 <= XFLOAT_DATA (prop)
+		       && XFLOAT_DATA (prop) <= INT_MAX)
+		width = (int)(XFLOAT_DATA (prop) + 0.5);
+	      else if ((prop = plist_get (plist, QCalign_to),
+			RANGED_FIXNUMP (col, prop, align_to_max)))
+		width = XFIXNUM (prop) - col;
+	      else if (FLOATP (prop) && col <= XFLOAT_DATA (prop)
+		       && (XFLOAT_DATA (prop) <= align_to_max))
+		width = (int)(XFLOAT_DATA (prop) + 0.5) - col;
+	    }
+	    /* Handle images.  */
+	  else if (EQ (Qimage, xcar)
+		   || EQ (Qslice, xcar)
+		   /* 'insert-sliced-image' creates property of the form
+                      ((slice ...) image ...) */
+		   || (CONSP (xcar) && EQ (Qslice, XCAR (xcar))))
+	    {
+	      specpdl_ref count = SPECPDL_INDEX ();
+	      struct window *w = decode_live_window (window);
+
+	      /* If needed, set the window's buffer temporarily to the
+                 current buffer and its window-point to POS.  */
+	      if (XBUFFER (w->contents) != current_buffer)
+		{
+		  Lisp_Object oldbuf
+		    = list4 (window, w->contents,
+			     make_fixnum (marker_position (w->pointm)),
+			     make_fixnum (marker_byte_position (w->pointm)));
+		  record_unwind_protect (restore_window_buffer, oldbuf);
+		  wset_buffer (w, Fcurrent_buffer ());
+		  set_marker_both (w->pointm, w->contents, pos, pos_byte);
+		}
+
+	      struct text_pos startpos;
+	      struct it it;
+	      SET_TEXT_POS (startpos, pos, pos_byte);
+	      void *itdata = bidi_shelve_cache ();
+	      record_unwind_protect_void (unwind_display_working_on_window);
+	      display_working_on_window_p = true;
+	      start_display (&it, w, startpos);
+	      it.last_visible_x = 1000000; /* prevent image clipping */
+	      /* Forcing HPOS non-zero prevents the display code from
+                 generating line/wrap-prefix and line numbers, which
+                 would otherwise skew the X coordinate we obtain below.  */
+	      it.hpos = 1;
+	      /* The POS+1 value is a trick: move_it_in_display_line
+                 will not return until it finished processing the entire
+                 image, even if it covers more than one buffer position.  */
+	      move_it_in_display_line (&it, pos + 1, -1, MOVE_TO_POS);
+	      /* The caller wants the width in units of the frame's
+                 canonical character width.  */
+	      width = ((double)it.current_x / FRAME_COLUMN_WIDTH (it.f)) + 0.5;
+	      bidi_unshelve_cache (itdata, 0);
+	      unbind_to (count, Qnil);
+	    }
 	}
       /* Handle 'display' strings.   */
       else if (STRINGP (val))
@@ -652,7 +710,7 @@ scan_for_column (ptrdiff_t *endpos, EMACS_INT *goalcol,
 
       { /* Check display property.  */
 	ptrdiff_t endp;
-	int width = check_display_width (scan, col, &endp);
+	int width = check_display_width (window, scan, scan_byte, col, &endp);
 	if (width >= 0)
 	  {
 	    col += width;
@@ -2237,6 +2295,7 @@ buffer, whether or not it is currently displayed in some window.  */)
       double start_col UNINIT;
       int start_x UNINIT;
       int to_x = -1;
+      ptrdiff_t ovl_start = -1;
 
       bool start_x_given = !NILP (cur_col);
       if (start_x_given)
@@ -2269,13 +2328,29 @@ buffer, whether or not it is currently displayed in some window.  */)
 	{
 	  const char *s = SSDATA (it.string);
 	  const char *e = s + SBYTES (it.string);
+	  Lisp_Object prop;
+	  ptrdiff_t ovl_idx =
+	    it.current.overlay_string_index >= 0
+	     ? it.current.overlay_string_index % OVERLAY_STRING_CHUNK_SIZE
+	     : -1;
+
+	  /* If this is a string from an overlay, compute where that
+             overlay starts.  */
+	  if (!it.string_from_display_prop_p && ovl_idx >= 0)
+	    ovl_start = OVERLAY_START (it.string_overlays[ovl_idx]);
 
 	  disp_string_at_start_p =
 	  /* If it.area is anything but TEXT_AREA, we need not bother
 	     about the display string, as it doesn't affect cursor
 	     positioning.  */
 	    it.area == TEXT_AREA
-	    && it.string_from_display_prop_p
+	    && (it.string_from_display_prop_p
+		/* Overlay string on invisible text has the same effect
+                   on display and cursor movement as a display string.  */
+		|| (ovl_start >= BEGV
+		    && (prop = Fget_char_property (make_fixnum (ovl_start),
+						   Qinvisible, window),
+			TEXT_PROP_MEANS_INVISIBLE (prop))))
 	    /* A display string on anything but buffer text (e.g., on
 	       an overlay string) doesn't affect cursor positioning.  */
 	    && (it.sp > 0 && it.stack[it.sp - 1].method == GET_FROM_BUFFER);
@@ -2398,6 +2473,13 @@ buffer, whether or not it is currently displayed in some window.  */)
 	  if ((nlines < 0 && IT_CHARPOS (it) > BEGV)
 	      || (nlines == 0 && !(start_x_given && start_x <= to_x)))
 	    move_it_by_lines (&it, max (PTRDIFF_MIN, nlines));
+	  /* If we haven't moved due to an overlay string on invisible
+             text, back up past that overlay string.  */
+	  if (IT_CHARPOS (it) == it_start
+	      && disp_string_at_start_p
+	      && ovl_start >= BEGV
+	      && it_overshoot_count > 0)
+	    move_it_by_lines (&it, -it_overshoot_count);
 	}
       else if (overshoot_handled)
 	{
@@ -2448,6 +2530,13 @@ buffer, whether or not it is currently displayed in some window.  */)
 	 an addition to the hscroll amount.  */
       if (!NILP (lcols))
 	{
+	  /* Start at beginning of line if inside an overlay string, to
+             avoid becoming stuck at the beginning of the overlay string.  */
+	  if (it.continuation_lines_width <= 0 /* not in continuation line */
+	      && it.hpos > 0		       /* and not at BOL */
+	      && it.method == GET_FROM_STRING && !NILP (it.from_overlay))
+	    reseat_at_previous_visible_line_start(&it);
+
 	  move_it_in_display_line (&it, ZV, first_x + to_x, MOVE_TO_X);
 	  /* If we find ourselves in the middle of an overlay string
 	     which includes a newline after current string position,

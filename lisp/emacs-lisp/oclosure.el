@@ -1,6 +1,6 @@
 ;;; oclosure.el --- Open Closures       -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Package: emacs
@@ -125,7 +125,7 @@
         (it (make-hash-table :test #'eq)))
     (dolist (desc slotdescs)
       (let* ((slot (cl--slot-descriptor-name desc)))
-        (cl-incf i)
+        (incf i)
         (when (gethash slot it)
           (error "Duplicate slot name: %S" slot))
         (setf (gethash slot it) i)))
@@ -151,7 +151,7 @@
 (defun oclosure--p (oclosure)
   (not (not (oclosure-type oclosure))))
 
-(cl-deftype oclosure () '(satisfies oclosure--p))
+(define-symbol-prop 'oclosure 'cl-deftype-satisfies #'oclosure--p)
 
 (defun oclosure--slot-mutable-p (slotdesc)
   (not (alist-get :read-only (cl--slot-descriptor-props slotdesc))))
@@ -305,7 +305,7 @@ list of slot properties.  The currently known properties are the following:
                             ;; Always use a double hyphen: if users wants to
                             ;; make it public, they can do so with an alias.
                             (aname (intern (format "%S--%S" name slot))))
-                       (cl-incf i)
+                       (incf i)
                        (if (not mutable)
                            `(defalias ',aname
                               ;; We use `oclosure--copy' instead of
@@ -555,7 +555,7 @@ immutable fields are indeed not mutated."
 (defun cconv--interactive-helper (fun if)
   "Add interactive \"form\" IF to FUN.
 Returns a new command that otherwise behaves like FUN.
-IF can be an ELisp form to be interpreted or a function of no arguments."
+IF can be a Lisp form to be interpreted or a function of no arguments."
   (oclosure-lambda (cconv--interactive-helper (fun fun) (if if))
       (&rest args)
     (apply (if (called-interactively-p 'any)

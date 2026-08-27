@@ -1,6 +1,6 @@
 ;;; startup.el --- process Emacs shell arguments  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-1986, 1992, 1994-2025 Free Software Foundation,
+;; Copyright (C) 1985-1986, 1992, 1994-2026 Free Software Foundation,
 ;; Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -355,13 +355,14 @@ looked for.
 Setting `init-file-user' does not prevent Emacs from loading
 `site-start.el'.  The only way to do that is to use `--no-site-file'.")
 
-(defcustom site-run-file (purecopy "site-start")
+(defcustom site-run-file "site-start"
   "File containing site-wide run-time initializations.
 This file is loaded at run-time before `user-init-file'.  It contains
 inits that need to be in place for the entire site, but which, due to
 their higher incidence of change, don't make sense to put into Emacs's
 dump file.  Thus, the run-time load order is: 1. file described in
-this variable, if non-nil; 2. `user-init-file'; 3. `default.el'.
+this variable, if non-nil; 2. `early-init-file', 3. `user-init-file';
+4. `default.el'.
 
 Don't use the `site-start.el' file for things some users may not like.
 Put them in `default.el' instead, so that users can more easily
@@ -426,13 +427,6 @@ from being initialized."
 (defvar normal-top-level-add-subdirs-inode-list nil)
 
 (defvar no-blinking-cursor nil)
-
-(defvar pure-space-overflow nil
-  "Non-nil if building Emacs overflowed pure space.")
-
-(defvar pure-space-overflow-message (purecopy "\
-Warning Warning!!!  Pure space overflow    !!!Warning Warning
-\(See the node Pure Storage in the Lisp manual for details.)\n"))
 
 (defcustom tutorial-directory
   (file-name-as-directory (expand-file-name "tutorials" data-directory))
@@ -627,13 +621,15 @@ It is the default value of the variable `top-level'."
           dir)
       (while tail
         (setq dir (car tail))
-        (let ((default-directory dir))
+        (let ((default-directory dir)
+              (warning-inhibit-types '((files missing-lexbind-cookie))))
           (load (expand-file-name "subdirs.el") t t t))
         ;; Do not scan standard directories that won't contain a leim-list.el.
         ;; https://lists.gnu.org/r/emacs-devel/2009-10/msg00502.html
         ;; (Except the preloaded one in lisp/leim.)
         (or (string-prefix-p lispdir dir)
-            (let ((default-directory dir))
+            (let ((default-directory dir)
+                  (warning-inhibit-types '((files missing-lexbind-cookie))))
               (load (expand-file-name "leim-list.el") t t t)))
         ;; We don't use a dolist loop and we put this "setq-cdr" command at
         ;; the end, because the subdirs.el files may add elements to the end
@@ -777,6 +773,9 @@ It is the default value of the variable `top-level'."
     (let ((old-face-font-rescale-alist face-font-rescale-alist))
       (unwind-protect
 	  (command-line)
+
+        (when (featurep 'native-compile)
+          (startup--update-eln-cache))
 
 	;; Do this again, in case .emacs defined more abbreviations.
 	(if default-directory
@@ -959,7 +958,7 @@ to prepare for opening the first frame (e.g. open a connection to an X server)."
 	       (push (cons 'tty-color-mode
                            (cond
                             ((numberp argval) argval)
-                            ((string-match "-?[0-9]+" argval)
+                            ((string-match "-?[0-9]+$" argval)
                              (string-to-number argval))
                             (t (intern argval))))
                      default-frame-alist))
@@ -1098,11 +1097,11 @@ init-file, or to a default value if loading is not possible."
                ;; Else, perhaps the user init file was compiled
                (when (and (equal (file-name-extension user-init-file) "eln")
                           ;; The next test is for builds without native
-                          ;; compilation support or builds with unexec.
+                          ;; compilation support.
                           (boundp 'comp-eln-to-el-h))
-                 (if-let (source (gethash (file-name-nondirectory
-                                           user-init-file)
-                                          comp-eln-to-el-h))
+                 (if-let* ((source (gethash (file-name-nondirectory
+                                             user-init-file)
+                                            comp-eln-to-el-h)))
                      ;; source exists or the .eln file would not load
                      (setq user-init-file source)
                    (message "Warning: unknown source file for init file %S"
@@ -1124,20 +1123,165 @@ init-file, or to a default value if loading is not possible."
          (display-warning
           'initialization
           (format-message "\
-An error occurred while loading `%s':\n\n%s%s%s\n\n\
+An error occurred while loading `%s':\n\n%s\n\n\
 To ensure normal operation, you should investigate and remove the
 cause of the error in your initialization file.  Start Emacs with
 the `--debug-init' option to view a complete error backtrace."
                           user-init-file
-                          (get (car error) 'error-message)
-                          (if (cdr error) ": " "")
-                          (mapconcat (lambda (s) (prin1-to-string s t))
-                                     (cdr error) ", "))
+                          (error-message-string error))
           :warning)
          (setq init-file-had-error t))))))
 
 (defvar lisp-directory nil
   "Directory where Emacs's own *.el and *.elc Lisp files are installed.")
+
+(defvar load-path-filter--cache nil
+  "A cache used by `load-path-filter-cache-directory-files'.
+
+The value is an alist.  The car of each entry is a list of load suffixes,
+such as returned by `get-load-suffixes'.  The cdr of each entry is a
+cons whose car is a regex matching those suffixes
+at the end of a string, and whose cdr is a hash-table mapping directories
+to files in those directories which end with one of the suffixes.
+These can also be nil, in which case no filtering will happen.
+The files named in the hash-table can be of any kind,
+including subdirectories.
+The hash-table uses `equal' as its key comparison function.")
+
+(defun load-path-filter-cache-directory-files (path file suffixes)
+  "Filter PATH to leave only directories which might contain FILE with SUFFIXES.
+
+PATH should be a list of directories such as `load-path'.
+Returns a copy of PATH with any directories that cannot contain FILE
+with SUFFIXES removed from it.
+Doesn't filter PATH if FILE is an absolute file name or if FILE is
+a relative file name with leading directories.
+
+Caches contents of directories in `load-path-filter--cache'.
+
+This function is called from `load' via `load-path-filter-function'."
+  (if (file-name-directory file)
+      ;; FILE has more than one component, don't bother filtering.
+      path
+    (pcase-let
+        ((`(,rx . ,ht)
+          (with-memoization (alist-get suffixes load-path-filter--cache
+                                       nil nil #'equal)
+            (if (member "" suffixes)
+                '(nil ;; Optimize the filtering.
+                  ;; Don't bother filtering if "" is among the suffixes.
+                  ;; It's a much less common use-case and it would use
+                  ;; more memory to keep the corresponding info.
+                  . nil)
+              (cons (concat (regexp-opt suffixes) "\\'")
+                    (make-hash-table :test #'equal))))))
+      (if (null ht)
+          path
+        (let ((completion-regexp-list nil))
+          (seq-filter
+           (lambda (dir)
+             (when (file-directory-p dir)
+               (try-completion
+                file
+                (with-memoization (gethash dir ht)
+                  (directory-files dir nil rx t)))))
+           path))))))
+
+(defcustom user-lisp-auto-scrape t
+  "Enable auto-scraping of `user-lisp-directory' at startup.
+If you customize this to nil, you can still invoke the auto-scraping
+with `prepare-user-lisp'.
+
+Note that this variable must be set in your early-init file, as the
+variable's value is used before loading the regular init file.
+Therefore, if you customize it via Customize, you should save your
+customized setting into your `early-init-file'."
+  :type 'boolean
+  :version "31.1")
+
+(defcustom user-lisp-directory
+  (locate-user-emacs-file "user-lisp/")
+  "Activate all Lisp files in this directory, if it exists.
+All regular files below directories are byte-compiled, scraped for
+autoload cookies and ensured to be in `load-path' at startup.  To
+restrict what subdirectories to process, see
+`user-lisp-ignored-directories'.  Note that byte-compilation and
+autoload scraping is lazy, occurring only if the file timestamps
+indicate that it is necessary.  For details on how to override this
+behavior, consult `prepare-user-lisp'.
+
+If you need Emacs to pick up on updates to this directory that occur
+after startup, you can also invoke the `prepare-user-lisp' manually.  To
+disable auto-scraping, see `user-lisp-auto-scrape'.
+
+Note that this variable must be set in your early-init file, as the
+variable's value is used before loading the regular init file.
+Therefore, if you customize it via Customize, you should save your
+customized setting into your `early-init-file'."
+  :initialize #'custom-initialize-delay
+  :type 'directory
+  :version "31.1")
+
+(defcustom user-lisp-ignored-directories vc-directory-exclusion-list
+  "List of directory names for `prepare-user-lisp' to not descend into.
+Each entry of the list is a string that denotes the file name without a
+directory component.  If during recursion any single entry matches the
+file name of any directory, `prepare-user-lisp' will ignore the contents
+of the directory.  This option is most useful to exclude administrative
+directories that do not contain Lisp files.
+
+Note that if `prepare-user-lisp' is called at startup, this variable
+must be set in your early-init file, see Info node `(emacs) User Lisp
+Directory' for details."
+  :initialize #'custom-initialize-delay
+  :type '(choice (repeat (string :tag "Directory name")))
+  :version "31.1")
+
+(declare-function byte-recompile-file "bytecomp"
+                  (filename &optional force arg load))
+
+(defun prepare-user-lisp (&optional just-activate autoload-file force)
+  "Byte-compile, scrape autoloads and prepare files in `user-lisp-directory'.
+Write the autoload file to AUTOLOAD-FILE.  If JUST-ACTIVATE is non-nil,
+then the more expensive operations (byte-compilation and autoload
+scraping) are skipped, in effect only processing any previous autoloads.
+If AUTOLOAD-FILE is nil, store the autoload data in a file next to DIR.
+If FORCE is non-nil, or if invoked interactively with a prefix argument,
+re-create the entire autoload file and byte-compile everything
+unconditionally."
+  (interactive (list nil nil current-prefix-arg))
+  (unless just-activate (require 'bytecomp))
+  (unless (file-directory-p user-lisp-directory)
+    (error "No such directory: %S" user-lisp-directory))
+  (unless autoload-file
+    (setq autoload-file (expand-file-name ".user-lisp-autoloads.el"
+                                          user-lisp-directory)))
+  (let* ((ignored
+          (concat "\\`" (regexp-opt user-lisp-ignored-directories) "\\'"))
+         (pred
+          (lambda (dir)
+            (not (string-match-p ignored (file-name-nondirectory dir)))))
+         (dir (expand-file-name user-lisp-directory))
+         (backup-inhibited t)
+         (dirs (list dir)) (files '()))
+    (add-to-list 'load-path (directory-file-name dir))
+    (dolist (file (directory-files-recursively dir "" t pred t))
+      (cond
+       ((and (file-regular-p file) (string-suffix-p ".el" file))
+        (push file files))
+       ((and (file-directory-p file)
+             (not (string-match-p ignored (file-name-nondirectory file))))
+        (add-to-list 'load-path (directory-file-name file))
+        (push file dirs))))
+    (unless just-activate
+      (loaddefs-generate dirs autoload-file nil nil nil force)
+      (dolist (file files)
+        (with-demoted-errors "Error while compiling: %S"
+          (byte-recompile-file file force 0)
+          (when (native-comp-available-p)
+            (native-compile-async file)))))
+    (when (file-exists-p autoload-file)
+      (load autoload-file nil t))))
 
 (defun command-line ()
   "A subroutine of `normal-top-level'.
@@ -1186,8 +1330,7 @@ please check its value")
 	  (unless (file-readable-p lispdir)
 	    (princ (format "Lisp directory %s not readable?" lispdir))
 	    (terpri)))
-      (setq lisp-directory
-            (file-truename (file-name-directory simple-file-name)))
+      (setq lisp-directory (file-name-directory simple-file-name))
       (setq load-history
 	    (mapcar (lambda (elt)
 		      (if (and (stringp (car elt))
@@ -1371,6 +1514,21 @@ please check its value")
 	  (setq xdg-dir (concat "~" init-file-user "/.config/emacs/"))
 	  (startup--xdg-or-homedot xdg-dir init-file-user)))
 
+  ;; Run the site-start library if it exists.
+  ;; This used to come after the early init file, but was moved here to
+  ;; make it possible for sites to do early init things on behalf of
+  ;; their users, such as adding to `package-directory-list'.
+  ;; This certainly has to come before loading the regular init file.
+  ;; Note that `user-init-file' is nil at this point.  Code that might
+  ;; be loaded from `site-run-file' and wants to test if -q was given
+  ;; should check `init-file-user' instead, since that is already set.
+  ;; See cus-edit.el for an example.
+  (when site-run-file
+    ;; Sites should not disable the startup screen.
+    ;; Only individuals may disable the startup screen.
+    (let ((inhibit-startup-screen inhibit-startup-screen))
+      (load site-run-file t t)))
+
   ;; Load the early init file, if found.
   (startup--load-user-init-file
    (lambda ()
@@ -1407,6 +1565,12 @@ please check its value")
 		   (throw 'package-dir-found t)))))))
        (package-activate-all))
 
+  ;; If it enabled and the directory exists, process the contents of the
+  ;; user-lisp/ directory.
+  (when (and init-file-user
+             (file-directory-p user-lisp-directory))
+    (prepare-user-lisp (not user-lisp-auto-scrape)))
+
   ;; Make sure window system's init file was loaded in loadup.el if
   ;; using a window system.
   ;; Initialize the window-system only after processing the command-line
@@ -1429,17 +1593,7 @@ please check its value")
     ;; If there was an error, print the error message and exit.
     (error
      (princ
-      (if (eq (car error) 'error)
-	  (apply #'concat (cdr error))
-	(if (memq 'file-error (get (car error) 'error-conditions))
-	    (format "%s: %s"
-                    (nth 1 error)
-                    (mapconcat (lambda (obj) (prin1-to-string obj t))
-                               (cdr (cdr error)) ", "))
-	  (format "%s: %s"
-                  (get (car error) 'error-message)
-                  (mapconcat (lambda (obj) (prin1-to-string obj t))
-                             (cdr error) ", "))))
+      (error-message-string error)
       'external-debugging-output)
      (terpri 'external-debugging-output)
      (setq initial-window-system nil)
@@ -1482,20 +1636,7 @@ please check its value")
   (let ((old-scalable-fonts-allowed scalable-fonts-allowed)
 	(old-face-ignored-fonts face-ignored-fonts))
 
-    ;; Run the site-start library if it exists.  The point of this file is
-    ;; that it is run before .emacs.  There is no point in doing this after
-    ;; .emacs; that is useless.
-    ;; Note that user-init-file is nil at this point.  Code that might
-    ;; be loaded from site-run-file and wants to test if -q was given
-    ;; should check init-file-user instead, since that is already set.
-    ;; See cus-edit.el for an example.
-    (if site-run-file
-        ;; Sites should not disable the startup screen.
-        ;; Only individuals should disable the startup screen.
-        (let ((inhibit-startup-screen inhibit-startup-screen))
-	  (load site-run-file t t)))
-
-    ;; Load that user's init file, or the default one, or none.
+    ;; Load the user's init file, or the default one, or none.
     (startup--load-user-init-file
      (lambda ()
        (cond
@@ -1596,6 +1737,9 @@ please check its value")
   ;; Process the remaining args.
   (command-line-1 (cdr command-line-args))
 
+  ;; If -batch, terminate after processing the command options.
+  (if noninteractive (kill-emacs t))
+
   ;; Check if `user-emacs-directory' is accessible and warn if it
   ;; isn't, unless `user-emacs-directory-warning' was customized to
   ;; disable that warning.
@@ -1628,9 +1772,6 @@ Consider using a subdirectory instead, e.g.: %s"
                                     dir (expand-file-name
                                          "lisp" user-emacs-directory))
                             :warning))))
-
-  ;; If -batch, terminate after processing the command options.
-  (if noninteractive (kill-emacs t))
 
   ;; In daemon mode, start the server to allow clients to connect.
   ;; This is done after loading the user's init file and after
@@ -1687,11 +1828,11 @@ Changed settings will be marked as \"CHANGED outside of Customize\"."
 	   `((changed ((t :background ,color)))))
       (put 'cursor 'face-modified t))))
 
-(defcustom initial-scratch-message (purecopy "\
+(defcustom initial-scratch-message "\
 ;; This buffer is for text that is not saved, and for Lisp evaluation.
 ;; To create a file, visit it with `\\[find-file]' and enter text in its buffer.
 
-")
+"
   "Initial documentation displayed in *scratch* buffer at startup.
 If this is nil, no message will be displayed."
   :type '(choice (text :tag "Message")
@@ -1701,6 +1842,11 @@ If this is nil, no message will be displayed."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Fancy splash screen
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; The default frame sizes are chosen so as to neatly accommodate the
+;; fancy splash screen contents.
+;; Therefore if you make a change that affects the total number of
+;; lines, you may also need to update default frame sizes.
 
 (defconst fancy-startup-text
   `((:face (variable-pitch font-lock-comment-face)
@@ -1880,16 +2026,13 @@ Each element in the list should be a list of strings or pairs
 		 (file :tag "File")))
 
 
-(defvar splash-screen-keymap
-  (let ((map (make-sparse-keymap)))
-    (suppress-keymap map)
-    (set-keymap-parent map button-buffer-map)
-    (define-key map "\C-?" #'scroll-down-command)
-    (define-key map [?\S-\ ] #'scroll-down-command)
-    (define-key map " " #'scroll-up-command)
-    (define-key map "q" #'exit-splash-screen)
-    map)
-  "Keymap for splash screen buffer.")
+(defvar-keymap splash-screen-keymap
+  :doc "Keymap for splash screen buffer."
+  :suppress t :parent button-buffer-map
+  "DEL"   #'scroll-down-command
+  "S-SPC" #'scroll-down-command
+  "SPC"   #'scroll-up-command
+  "q"     #'exit-splash-screen)
 
 ;; These are temporary storage areas for the splash screen display.
 
@@ -1993,7 +2136,7 @@ a face or button specification."
                                (let ((browse-url-browser-function 'eww-browse-url))
                                  (browse-url "https://www.gnu.org/")))
 		     'follow-link t)
-	(insert "\n\n")))))
+	(insert "\n")))))
 
 (defun fancy-startup-tail (&optional concise)
   "Insert the tail part of the splash screen into the current buffer."
@@ -2004,7 +2147,7 @@ a face or button specification."
      :link `("Open a File"
 	     ,(lambda (_button) (call-interactively 'find-file))
 	     "Specify a new file's name, to edit the file")
-     "\t\t"
+     "\t"
      :link `("Open Home Directory"
 	     ,(lambda (_button) (dired "~"))
 	     "Open your home directory, to operate on its files")
@@ -2021,6 +2164,39 @@ a face or button specification."
    :face 'variable-pitch "To quit a partially entered command, type "
    :face 'default "Control-g"
    :face 'variable-pitch ".\n")
+
+  (fancy-splash-insert :face '(variable-pitch bold) "New to Emacs?")
+  (fancy-splash-insert
+   :face 'variable-pitch
+   "  Consider enabling "
+   :link `("newcomer presets"
+	   ,(lambda (_button) (info "(emacs) Newcomers Theme")))
+   " by clicking this checkbox:  ")
+
+  (let ((checked (create-image "checked.xpm"
+			       nil nil :ascent 'center))
+	(unchecked (create-image "unchecked.xpm"
+				 nil nil :ascent 'center))
+        (enabled (custom-theme-enabled-p 'newcomers-presets)))
+    (insert-button
+     " "
+     :on-glyph checked
+     :off-glyph unchecked
+     'checked enabled
+     'display (if enabled checked unchecked)
+     'follow-link t
+     'action (lambda (button)
+	       (if (overlay-get button 'checked)
+		   (progn (overlay-put button 'checked nil)
+			  (overlay-put button 'display
+				       (overlay-get button :off-glyph))
+			  (disable-theme 'newcomers-presets))
+		 (overlay-put button 'checked t)
+		 (overlay-put button 'display
+			      (overlay-get button :on-glyph))
+		 (load-theme 'newcomers-presets)))))
+  (fancy-splash-insert :face 'variable-pitch "\n")
+
   (save-restriction
     (narrow-to-region (point) (point))
     (fancy-splash-insert :face '(variable-pitch font-lock-builtin-face)
@@ -2099,8 +2275,6 @@ splash screen in another window."
 	(erase-buffer)
 	(setq default-directory command-line-default-directory)
 	(make-local-variable 'startup-screen-inhibit-startup-screen)
-	(if pure-space-overflow
-	    (insert pure-space-overflow-message))
         ;; Insert the permissions notice if the user has yet to grant Emacs
         ;; storage permissions.
         (when (fboundp 'android-before-splash-screen)
@@ -2142,8 +2316,6 @@ splash screen in another window."
       (setq buffer-undo-list t)
       (let ((inhibit-read-only t))
 	(erase-buffer)
-	(if pure-space-overflow
-	    (insert pure-space-overflow-message))
 	(fancy-splash-head)
 	(dolist (text fancy-about-text)
 	  (apply #'fancy-splash-insert text)
@@ -2209,8 +2381,6 @@ splash screen in another window."
       (setq default-directory command-line-default-directory)
       (setq-local tab-width 8)
 
-      (if pure-space-overflow
-	  (insert pure-space-overflow-message))
       ;; Insert the permissions notice if the user has yet to grant
       ;; Emacs storage permissions.
       (when (fboundp 'android-before-splash-screen)
@@ -2269,6 +2439,30 @@ splash screen in another window."
 	(display-buffer splash-buffer)
       (switch-to-buffer splash-buffer))))
 
+(defun startup-insert-newcomers-theme ()
+  "Insert information about `newcomers-presets' theme at point."
+  (insert "New to Emacs?  Consider enabling ")
+  (insert-button "newcomer presets"
+                 'action (lambda (_button)
+                           (info "(emacs) Newcomers Theme"))
+                 'follow-link t)
+  (insert ": ")
+  (insert-button (if (custom-theme-enabled-p 'newcomers-presets)
+                     "Disable"
+                   "Enable")
+                 'action (lambda (button)
+                           (let ((inhibit-read-only t))
+                             (replace-region-contents
+                              (button-start button)
+                              (button-end button)
+                              (pcase (button-label button)
+                                ("Enable"
+                                 (load-theme 'newcomers-presets)
+                                 "Disable")
+                                ("Disable"
+                                 (disable-theme 'newcomers-presets)
+                                 "Enable")))))))
+
 (defun normal-mouse-startup-screen ()
   ;; The user can use the mouse to activate menus
   ;; so give help in terms of menu items.
@@ -2312,6 +2506,8 @@ To quit a partially entered command, type Control-g.\n")
 		 'action (lambda (_button) (customize-group 'initialization))
 		 'follow-link t)
   (insert "\tChange initialization settings including this screen\n")
+
+  (startup-insert-newcomers-theme)
 
   (save-restriction
     (narrow-to-region (point) (point))
@@ -2397,6 +2593,11 @@ If you have no Meta key, you may instead type ESC followed by the character.)"))
                                        (get-scratch-buffer-create)))
 		 'follow-link t)
   (insert "\n")
+
+  (startup-insert-newcomers-theme)
+
+  (insert "\n")
+
   (save-restriction
     (narrow-to-region (point) (point))
     (insert "\n" (emacs-version) "\n")
@@ -2526,23 +2727,12 @@ A fancy display is used on graphic displays, normal otherwise."
 (defalias 'about-emacs #'display-about-screen)
 (defalias 'display-splash-screen #'display-startup-screen)
 
-;; This avoids byte-compiler warning in the unexec build.
+;; This avoids byte-compiler warning in non-pdumper builds.
 (declare-function pdumper-stats "pdumper.c" ())
 
 (defun command-line-1 (args-left)
   "A subroutine of `command-line'."
   (display-startup-echo-area-message)
-  (when (and pure-space-overflow
-	     (not noninteractive)
-             ;; If we were dumped with pdumper, we don't care about
-             ;; pure-space overflow.
-             (or (not (fboundp 'pdumper-stats))
-                 (null (pdumper-stats))))
-    (display-warning
-     'initialization
-     "Building Emacs overflowed pure space.\
-  (See the node Pure Storage in the Lisp manual for details.)"
-     :warning))
 
   ;; `displayable-buffers' is a list of buffers that may be displayed,
   ;; which includes files parsed from the command line arguments and
@@ -2938,12 +3128,14 @@ nil default-directory" name)
    file file nil t
    (lambda (buffer file)
      (with-current-buffer buffer
+       (setq-local lexical-binding t)
        (goto-char (point-min))
        ;; Removing the #! and then calling `eval-buffer' will make the
        ;; reader not signal an error if it then turns out that the
        ;; buffer is empty.
        (when (looking-at "#!")
-         (delete-line))
+         (delete-line)
+         (insert ";; -*- lexical-binding: t -*-\n"))
        (eval-buffer buffer nil file nil t)))))
 
 (defun command-line--eval-script (file)
@@ -2952,6 +3144,7 @@ nil default-directory" name)
    (lambda (buffer _)
      (with-current-buffer buffer
        (goto-char (point-min))
+       (setq-local lexical-binding t)
        (when (looking-at "#!")
          (forward-line))
        (let (value form)

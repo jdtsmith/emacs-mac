@@ -1,5 +1,5 @@
 /* Interfaces to system-dependent kernel and library entries.
-   Copyright (C) 1985-1988, 1993-1995, 1999-2025 Free Software
+   Copyright (C) 1985-1988, 1993-1995, 1999-2026 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -33,7 +33,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <c-ctype.h>
 #include <close-stream.h>
 #include <pathmax.h>
-#include <utimens.h>
 
 #include "lisp.h"
 #include "sysselect.h"
@@ -166,9 +165,7 @@ maybe_disable_address_randomization (int argc, char **argv)
 
   if (argc < 2 || strcmp (argv[1], aslr_disabled_option) != 0)
     {
-      /* If dumping via unexec, ASLR must be disabled, as otherwise
-	 data may be scattered and undumpable as a simple executable.
-	 If pdumping, disabling ASLR lessens differences in the .pdmp file.  */
+      /* If pdumping, disabling ASLR lessens differences in the .pdmp file.  */
       bool disable_aslr = will_dump_p ();
 # ifdef __PPC64__
       disable_aslr = true;
@@ -290,11 +287,7 @@ get_current_dir_name_or_unreachable (void)
 #endif
 
 # if HAVE_GET_CURRENT_DIR_NAME && !BROKEN_GET_CURRENT_DIR_NAME
-#  ifdef HYBRID_MALLOC
-  bool use_libc = will_dump_with_unexec_p ();
-#  else
   bool use_libc = true;
-#  endif
   if (use_libc)
     {
       /* For an unreachable directory, this returns a string that starts
@@ -397,23 +390,22 @@ discard_tty_input (void)
 
 /* Arrange for character C to be read as the next input from
    the terminal.
+   Return 0 on success, -1 otherwise.
    XXX What if we have multiple ttys?
 */
 
-void
+int
 stuff_char (char c)
 {
-  if (! (FRAMEP (selected_frame)
-	 && FRAME_LIVE_P (XFRAME (selected_frame))
-	 && FRAME_TERMCAP_P (XFRAME (selected_frame))))
-    return;
-
 /* Should perhaps error if in batch mode */
 #ifdef TIOCSTI
-  ioctl (fileno (CURTTY()->input), TIOCSTI, &c);
-#else /* no TIOCSTI */
-  error ("Cannot stuff terminal input characters in this version of Unix");
+  if (FRAMEP (selected_frame)
+      && FRAME_LIVE_P (XFRAME (selected_frame))
+      && FRAME_TERMCAP_P (XFRAME (selected_frame)))
+    return ioctl (fileno (CURTTY()->input), TIOCSTI, &c);
 #endif /* no TIOCSTI */
+
+  return -1;
 }
 
 #endif /* SIGTSTP */
@@ -1349,8 +1341,7 @@ init_sys_modes (struct tty_display_info *tty_out)
       frame_garbaged = 1;
       FOR_EACH_FRAME (tail, frame)
         {
-          if ((FRAME_TERMCAP_P (XFRAME (frame))
-	       || FRAME_MSDOS_P (XFRAME (frame)))
+          if (is_tty_frame (XFRAME (frame))
               && FRAME_TTY (XFRAME (frame)) == tty_out)
             FRAME_GARBAGED_P (XFRAME (frame)) = 1;
         }
@@ -2037,12 +2028,6 @@ init_signals (void)
   main_thread_id = pthread_self ();
 #endif
 
-  /* Don't alter signal handlers if dumping with unexec.  On some
-     machines, changing signal handlers sets static data that would make
-     signals fail to work right when the dumped Emacs is run.  */
-  if (will_dump_with_unexec_p ())
-    return;
-
   sigfillset (&process_fatal_action.sa_mask);
   process_fatal_action.sa_handler = deliver_fatal_signal;
   process_fatal_action.sa_flags = emacs_sigaction_flags ();
@@ -2248,7 +2233,7 @@ init_random (void)
   /* FIXME: Perhaps getrandom can be used here too?  */
   success = w32_init_random (&v, sizeof v) == 0;
 #else
-  verify (sizeof v <= 256);
+  static_assert (sizeof v <= 256);
   success = getrandom (&v, sizeof v, 0) == sizeof v;
 #endif
 
@@ -2381,6 +2366,33 @@ emacs_backtrace (int backtrace_limit)
       if (bounded_limit < npointers)
 	emacs_write (STDERR_FILENO, "...\n", 4);
     }
+}
+
+/* Rename directory SRCFD's entry SRC to directory DSTFD's entry DST.
+   This is like renameat except that it fails if DST already exists,
+   or if this operation is not supported atomically.  Return 0 if
+   successful, -1 (setting errno) otherwise.  */
+#ifndef HAVE_ANDROID
+static
+#endif
+int
+renameat_noreplace (int srcfd, char const *src, int dstfd, char const *dst)
+{
+#if HAVE_RENAMEAT2 && defined RENAME_NOREPLACE
+  return renameat2 (srcfd, src, dstfd, dst, RENAME_NOREPLACE);
+#elif defined SYS_renameat2 && defined RENAME_NOREPLACE
+  /* Linux kernel 3.15 (2014) or later, with glibc 2.27 (2018) or earlier.  */
+  return syscall (SYS_renameat2, srcfd, src, dstfd, dst, RENAME_NOREPLACE);
+#elif defined RENAME_EXCL
+  return renameatx_np (srcfd, src, dstfd, dst, RENAME_EXCL);
+#else
+# ifdef WINDOWSNT
+  if (srcfd == AT_FDCWD && dstfd == AT_FDCWD)
+    return sys_rename_replace (src, dst, 0);
+# endif
+  errno = ENOSYS;
+  return -1;
+#endif
 }
 
 #if !defined HAVE_NTGUI && !(defined HAVE_ANDROID		\
@@ -2727,31 +2739,20 @@ emacs_fchmodat (int fd, const char *path, mode_t mode, int flags)
 #endif /* !(defined HAVE_ANDROID && !defined ANDROID_STUBIFY) */
 }
 
-/* Maximum number of bytes to read or write in a single system call.
-   This works around a serious bug in Linux kernels before 2.6.16; see
-   <https://bugzilla.redhat.com/show_bug.cgi?format=multiple&id=612839>.
-   It's likely to work around similar bugs in other operating systems, so do it
-   on all platforms.  Round INT_MAX down to a page size, with the conservative
-   assumption that page sizes are at most 2**18 bytes (any kernel with a
-   page size larger than that shouldn't have the bug).  */
-#ifndef MAX_RW_COUNT
-#define MAX_RW_COUNT (INT_MAX >> 18 << 18)
-#endif
-
-/* Verify that MAX_RW_COUNT fits in the relevant standard types.  */
+/* Verify that SYS_BUFSIZE_MAX fits in the relevant standard types.  */
 #ifndef SSIZE_MAX
 # define SSIZE_MAX TYPE_MAXIMUM (ssize_t)
 #endif
-verify (MAX_RW_COUNT <= PTRDIFF_MAX);
-verify (MAX_RW_COUNT <= SIZE_MAX);
-verify (MAX_RW_COUNT <= SSIZE_MAX);
+static_assert (SYS_BUFSIZE_MAX <= PTRDIFF_MAX);
+static_assert (SYS_BUFSIZE_MAX <= SIZE_MAX);
+static_assert (SYS_BUFSIZE_MAX <= SSIZE_MAX);
 
 #ifdef WINDOWSNT
 /* Verify that Emacs read requests cannot cause trouble, even in
    64-bit builds.  The last argument of 'read' is 'unsigned int', and
    the return value's type (see 'sys_read') is 'int'.  */
-verify (MAX_RW_COUNT <= INT_MAX);
-verify (MAX_RW_COUNT <= UINT_MAX);
+static_assert (SYS_BUFSIZE_MAX <= INT_MAX);
+static_assert (SYS_BUFSIZE_MAX <= UINT_MAX);
 #endif
 
 /* Read from FD to a buffer BUF with size NBYTE.
@@ -2763,7 +2764,7 @@ static ptrdiff_t
 emacs_intr_read (int fd, void *buf, ptrdiff_t nbyte, bool interruptible)
 {
   /* No caller should ever pass a too-large size to emacs_read.  */
-  eassert (nbyte <= MAX_RW_COUNT);
+  eassert (nbyte <= SYS_BUFSIZE_MAX);
 
   ssize_t result;
 
@@ -2809,7 +2810,7 @@ emacs_full_write (int fd, char const *buf, ptrdiff_t nbyte,
 
   while (nbyte > 0)
     {
-      ssize_t n = write (fd, buf, min (nbyte, MAX_RW_COUNT));
+      ssize_t n = write (fd, buf, min (nbyte, SYS_BUFSIZE_MAX));
 
       if (n < 0)
 	{
@@ -2867,8 +2868,7 @@ emacs_perror (char const *message)
 {
   int err = errno;
   char const *error_string = emacs_strerror (err);
-  char const *command = (initial_argv && initial_argv[0]
-			 ? initial_argv[0] : "emacs");
+  char const *command = (initial_argv0 ? initial_argv0 : "emacs");
   /* Write it out all at once, if it's short; this is less likely to
      be interleaved with other output.  */
   char buf[min (PIPE_BUF, MAX_ALLOCA)];
@@ -2886,30 +2886,6 @@ emacs_perror (char const *message)
       emacs_write (STDERR_FILENO, "\n", 1);
     }
   errno = err;
-}
-
-/* Rename directory SRCFD's entry SRC to directory DSTFD's entry DST.
-   This is like renameat except that it fails if DST already exists,
-   or if this operation is not supported atomically.  Return 0 if
-   successful, -1 (setting errno) otherwise.  */
-int
-renameat_noreplace (int srcfd, char const *src, int dstfd, char const *dst)
-{
-#if HAVE_RENAMEAT2 && defined RENAME_NOREPLACE
-  return renameat2 (srcfd, src, dstfd, dst, RENAME_NOREPLACE);
-#elif defined SYS_renameat2 && defined RENAME_NOREPLACE
-  /* Linux kernel 3.15 (2014) or later, with glibc 2.27 (2018) or earlier.  */
-  return syscall (SYS_renameat2, srcfd, src, dstfd, dst, RENAME_NOREPLACE);
-#elif defined RENAME_EXCL
-  return renameatx_np (srcfd, src, dstfd, dst, RENAME_EXCL);
-#else
-# ifdef WINDOWSNT
-  if (srcfd == AT_FDCWD && dstfd == AT_FDCWD)
-    return sys_rename_replace (src, dst, 0);
-# endif
-  errno = ENOSYS;
-  return -1;
-#endif
 }
 
 /* Like strsignal, except async-signal-safe, and this function
@@ -3161,7 +3137,7 @@ static const struct speed_struct speeds[] =
 static speed_t
 convert_speed (speed_t speed)
 {
-  for (size_t i = 0; i < sizeof speeds / sizeof speeds[0]; i++)
+  for (size_t i = 0; i < ARRAYELTS (speeds); i++)
     {
       if (speed == speeds[i].internal)
 	return speed;
@@ -3381,7 +3357,7 @@ list_system_processes (void)
   int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC};
 #endif
   size_t len;
-  size_t mibsize = sizeof mib / sizeof mib[0];
+  size_t mibsize = ARRAYELTS (mib);
   struct kinfo_proc *procs;
   size_t i;
 
@@ -3467,37 +3443,19 @@ put_jiffies (Lisp_Object attrs, Lisp_Object propname,
   return Fcons (Fcons (propname, time_from_jiffies (ticks, hz, Qnil)), attrs);
 }
 
+/* Return the host uptime with resolution HZ if successful, otherwise nil.
+   Do not use get_boot_time, which returns a container's
+   boot time instead of the underlying host's boot time.  */
 static Lisp_Object
-get_up_time (void)
+get_host_uptime (Lisp_Object hz)
 {
-  FILE *fup;
-  Lisp_Object up = Qnil;
-
-  block_input ();
-  fup = emacs_fopen ("/proc/uptime", "r");
-
-  if (fup)
-    {
-      unsigned long long upsec;
-      EMACS_UINT upfrac;
-      int upfrac_start, upfrac_end;
-
-      if (fscanf (fup, "%llu.%n%"pI"u%n",
-		  &upsec, &upfrac_start, &upfrac, &upfrac_end)
-	  == 2)
-	{
-	  EMACS_INT hz = 1;
-	  for (int i = upfrac_start; i < upfrac_end; i++)
-	    hz *= 10;
-	  Lisp_Object sec = make_uint (upsec);
-	  Lisp_Object subsec = Fcons (make_fixnum (upfrac), make_fixnum (hz));
-	  up = Ftime_add (sec, subsec);
-	}
-      emacs_fclose (fup);
-    }
-  unblock_input ();
-
-  return up;
+  /* clock_gettime is available in glibc 2.14+, Android, and musl libc.  */
+# if !defined __GLIBC__ || 2 < __GLIBC__ + (14 <= __GLIBC_MINOR__)
+  struct timespec upt;
+  if (0 <= clock_gettime (CLOCK_BOOTTIME, &upt))
+    return Ftime_convert (timespec_to_lisp (upt), hz);
+#endif
+  return Qnil;
 }
 
 # if defined GNU_LINUX || defined __ANDROID__
@@ -3548,6 +3506,7 @@ procfs_ttyname (int rdev)
 }
 # endif	/* GNU_LINUX || __ANDROID__ */
 
+/* Total usable RAM in KiB.  */
 static uintmax_t
 procfs_get_total_memory (void)
 {
@@ -3715,7 +3674,7 @@ system_process_attributes (Lisp_Object pid)
 	      attrs = put_jiffies (attrs, Qcstime, cstime, hz);
 	      attrs = put_jiffies (attrs, Qctime, cstime + cutime, hz);
 
-	      Lisp_Object uptime = get_up_time ();
+	      Lisp_Object uptime = get_host_uptime (hz);
 	      if (!NILP (uptime))
 		{
 		  Lisp_Object now = Ftime_convert (Qnil, hz);
@@ -3737,8 +3696,13 @@ system_process_attributes (Lisp_Object pid)
 	  attrs = Fcons (Fcons (Qnice, make_fixnum (niceness)), attrs);
 	  attrs = Fcons (Fcons (Qthcount, INT_TO_INTEGER (thcount)), attrs);
 	  attrs = Fcons (Fcons (Qvsize, INT_TO_INTEGER (vsize / 1024)), attrs);
-	  attrs = Fcons (Fcons (Qrss, INT_TO_INTEGER (4 * rss)), attrs);
-	  pmem = 4.0 * 100 * rss / procfs_get_total_memory ();
+
+	  /* RSS in KiB.  */
+	  uintmax_t rssk = rss;
+	  rssk *= getpagesize () >> 10;
+
+	  attrs = Fcons (Fcons (Qrss, INT_TO_INTEGER (rssk)), attrs);
+	  pmem = 100.0 * rssk / procfs_get_total_memory ();
 	  if (pmem > 100)
 	    pmem = 100;
 	  attrs = Fcons (Fcons (Qpmem, make_float (pmem)), attrs);
@@ -4551,17 +4515,9 @@ does the same thing as `current-time'.  */)
 # include <wchar.h>
 # include <wctype.h>
 
-# if defined HAVE_NEWLOCALE || defined HAVE_SETLOCALE
-#  include <locale.h>
-# endif
-# ifndef LC_COLLATE
-#  define LC_COLLATE 0
-# endif
+# include <locale.h>
 # ifndef LC_COLLATE_MASK
 #  define LC_COLLATE_MASK 0
-# endif
-# ifndef LC_CTYPE
-#  define LC_CTYPE 0
 # endif
 # ifndef LC_CTYPE_MASK
 #  define LC_CTYPE_MASK 0
@@ -4595,15 +4551,11 @@ freelocale (locale_t loc)
 static char *
 emacs_setlocale (int category, char const *locale)
 {
-#  ifdef HAVE_SETLOCALE
   errno = 0;
   char *loc = setlocale (category, locale);
   if (loc || errno)
     return loc;
   errno = EINVAL;
-#  else
-  errno = ENOTSUP;
-#  endif
   return 0;
 }
 

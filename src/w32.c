@@ -1,6 +1,6 @@
 /* Utility and Unix shadow routines for GNU Emacs on the Microsoft Windows API.
 
-Copyright (C) 1994-1995, 2000-2025 Free Software Foundation, Inc.
+Copyright (C) 1994-1995, 2000-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -32,7 +32,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <io.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <ctype.h>
 #include <signal.h>
 #include <sys/file.h>
 #include <time.h>	/* must be before nt/inc/sys/time.h, for MinGW64 */
@@ -85,10 +84,6 @@ int sys_dup2 (int, int);
 int sys_read (int, char *, unsigned int);
 int sys_write (int, const void *, unsigned int);
 struct tm *sys_localtime (const time_t *);
-/* MinGW64 system headers include string.h too early, causing the
-   compiler to emit a warning about sys_strerror having no
-   prototype.  */
-char *sys_strerror (int);
 clock_t sys_clock (void);
 
 #ifdef HAVE_MODULES
@@ -127,8 +122,11 @@ typedef struct _MEMORY_STATUS_EX {
    (excptr->ExceptionRecord->ExceptionCode) and the address where the
    exception happened (excptr->ExceptionRecord->ExceptionAddress), as
    well as some additional information specific to the exception.  */
+extern PEXCEPTION_POINTERS excptr;
 PEXCEPTION_POINTERS excptr;
+extern PEXCEPTION_RECORD excprec;
 PEXCEPTION_RECORD excprec;
+extern PCONTEXT ctxrec;
 PCONTEXT ctxrec;
 
 #include <lmcons.h>
@@ -136,9 +134,7 @@ PCONTEXT ctxrec;
 
 #include <tlhelp32.h>
 #include <psapi.h>
-#ifndef _MSC_VER
 #include <w32api.h>
-#endif
 #if _WIN32_WINNT < 0x0500
 #if !defined (__MINGW32__) || __W32API_MAJOR_VERSION < 3 || (__W32API_MAJOR_VERSION == 3 && __W32API_MINOR_VERSION < 15)
 /* This either is not in psapi.h or guarded by higher value of
@@ -173,8 +169,8 @@ typedef struct _PROCESS_MEMORY_COUNTERS_EX {
 #define SDDL_REVISION_1	1
 #endif	/* SDDL_REVISION_1 */
 
-#if defined(_MSC_VER) || defined(MINGW_W64)
-/* MSVC and MinGW64 don't provide the definition of
+#if defined(MINGW_W64)
+/* MinGW64 donesn't provide the definition of
    REPARSE_DATA_BUFFER and the associated macros, except on ntifs.h,
    which cannot be included because it triggers conflicts with other
    Windows API headers.  So we define it here by hand.  */
@@ -264,6 +260,7 @@ typedef struct _REPARSE_DATA_BUFFER {
 
 #include <wincrypt.h>
 
+#include <c-ctype.h>
 #include <c-strcase.h>
 #include <utimens.h>	/* for fdutimens */
 
@@ -353,7 +350,9 @@ static BOOL g_b_init_expand_environment_strings_w;
 static BOOL g_b_init_get_user_default_ui_language;
 static BOOL g_b_init_get_console_font_size;
 
+extern BOOL g_b_init_compare_string_w;
 BOOL g_b_init_compare_string_w;
+extern BOOL g_b_init_debug_break_process;
 BOOL g_b_init_debug_break_process;
 
 /*
@@ -379,12 +378,12 @@ typedef BOOL (WINAPI * GetProcessTimes_Proc) (
     LPFILETIME kernel_time,
     LPFILETIME user_time);
 
-GetProcessTimes_Proc get_process_times_fn = NULL;
+static GetProcessTimes_Proc get_process_times_fn = NULL;
 
 #ifdef _UNICODE
-const char * const LookupAccountSid_Name = "LookupAccountSidW";
+static const char * const LookupAccountSid_Name = "LookupAccountSidW";
 #else
-const char * const LookupAccountSid_Name = "LookupAccountSidA";
+static const char * const LookupAccountSid_Name = "LookupAccountSidA";
 #endif
 typedef BOOL (WINAPI * LookupAccountSid_Proc) (
     LPCTSTR lpSystemName,
@@ -2571,7 +2570,7 @@ parse_root (const char * name, const char ** pPath)
     return 0;
 
   /* find the root name of the volume if given */
-  if (isalpha (name[0]) && name[1] == ':')
+  if (c_isalpha (name[0]) && name[1] == ':')
     {
       /* skip past drive specifier */
       name += 2;
@@ -3324,7 +3323,7 @@ static BOOL fixed_drives[26];
    at least for non-local drives.  Info for fixed drives is never stale.  */
 #define DRIVE_INDEX( c ) ( (c) <= 'Z' ? (c) - 'A' : (c) - 'a' )
 #define VOLINFO_STILL_VALID( root_dir, info )		\
-  ( ( isalpha (root_dir[0]) &&				\
+  ( ( c_isalpha (root_dir[0]) &&				\
       fixed_drives[ DRIVE_INDEX (root_dir[0]) ] )	\
     || GetTickCount () - info->timestamp < 10000 )
 
@@ -3393,7 +3392,7 @@ GetCachedVolumeInformation (char * root_dir)
      involve network access, and so is extremely quick).  */
 
   /* Map drive letter to UNC if remote. */
-  if (isalpha (root_dir[0]) && !fixed[DRIVE_INDEX (root_dir[0])])
+  if (c_isalpha (root_dir[0]) && !fixed[DRIVE_INDEX (root_dir[0])])
     {
       char remote_name[ 256 ];
       char drive[3] = { root_dir[0], ':' };
@@ -3608,9 +3607,9 @@ map_w32_filename (const char * name, const char ** pPath)
 	    default:
 	      if ( left && 'A' <= c && c <= 'Z' )
 	        {
-		  *str++ = tolower (c);	/* map to lower case (looks nicer) */
+		  *str++ = c_tolower (c); /* map to lower case (looks nicer) */
 		  left--;
-		  dots = 0;		/* started a path component */
+		  dots = 0;		  /* started a path component */
 		}
 	      break;
 	    }
@@ -3647,7 +3646,7 @@ is_exec (const char * name)
    the code that calls them doesn't grok UTF-8 encoded file names we
    produce in dirent->d_name[].  */
 
-struct dirent dir_static;       /* simulated directory contents */
+static struct dirent dir_static;       /* simulated directory contents */
 static HANDLE dir_find_handle = INVALID_HANDLE_VALUE;
 static int    dir_is_fat;
 static char   dir_pathname[MAX_UTF8_PATH];
@@ -4108,6 +4107,69 @@ logon_network_drive (const char *path)
     }
 }
 
+/* Subroutine of faccessat.  Determines attributes of FILE (which is
+   assumed to be in UTF-8 and after map_w32_filename) as reported by
+   GetFileAttributes.  Returns -1 if it fails (meaning the file doesn't
+   exist or cannot be accessed by the current user), otherwise returns
+   the bitmap of file's attributes.  */
+static DWORD
+access_attrs (const char *file)
+{
+  DWORD attrs;
+
+  if (w32_unicode_filenames)
+    {
+      wchar_t file_w[MAX_PATH];
+
+      filename_to_utf16 (file, file_w);
+      attrs = GetFileAttributesW (file_w);
+    }
+  else
+    {
+      char file_a[MAX_PATH];
+
+      filename_to_ansi (file, file_a);
+      attrs = GetFileAttributesA (file_a);
+    }
+
+  if (attrs == -1)
+    {
+      DWORD w32err = GetLastError ();
+
+      switch (w32err)
+	{
+	case ERROR_INVALID_NAME:
+	case ERROR_BAD_PATHNAME:
+	  if (is_unc_volume (file))
+	    {
+	      attrs = unc_volume_file_attributes (file);
+	      if (attrs == -1)
+		{
+		  errno = EACCES;
+		  return -1;
+		}
+	      return attrs;
+	    }
+	  /* FALLTHROUGH */
+	  FALLTHROUGH;
+	case ERROR_FILE_NOT_FOUND:
+	case ERROR_PATH_NOT_FOUND:
+	case ERROR_INVALID_DRIVE:
+	case ERROR_NOT_READY:
+	case ERROR_BAD_NETPATH:
+	case ERROR_BAD_NET_NAME:
+	  errno = ENOENT;
+	  break;
+	default:
+	  errno = EACCES;
+	  break;
+	}
+      return -1;
+    }
+
+  return attrs;
+}
+
 /* Emulate faccessat(2).  */
 int
 faccessat (int dirfd, const char * path, int mode, int flags)
@@ -4142,65 +4204,26 @@ faccessat (int dirfd, const char * path, int mode, int flags)
   /* MSVCRT implementation of 'access' doesn't recognize D_OK, and its
      newer versions blow up when passed D_OK.  */
   path = map_w32_filename (path, NULL);
+
+  attributes = access_attrs (path);
+  if (attributes == -1)	/* PATH doesn't exist or is inaccessible */
+    return -1;
+
   /* If the last element of PATH is a symlink, we need to resolve it
      to get the attributes of its target file.  Note: any symlinks in
      PATH elements other than the last one are transparently resolved
      by GetFileAttributes below.  */
+  int not_a_symlink = ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0);
   if ((volume_info.flags & FILE_SUPPORTS_REPARSE_POINTS) != 0
-      && (flags & AT_SYMLINK_NOFOLLOW) == 0)
-    path = chase_symlinks (path);
-
-  if (w32_unicode_filenames)
+      && (flags & AT_SYMLINK_NOFOLLOW) == 0
+      && !not_a_symlink)
     {
-      wchar_t path_w[MAX_PATH];
-
-      filename_to_utf16 (path, path_w);
-      attributes = GetFileAttributesW (path_w);
-    }
-  else
-    {
-      char path_a[MAX_PATH];
-
-      filename_to_ansi (path, path_a);
-      attributes = GetFileAttributesA (path_a);
+      path = chase_symlinks (path);
+      attributes = access_attrs (path);
+      if (attributes == -1)
+	return -1;
     }
 
-  if (attributes == -1)
-    {
-      DWORD w32err = GetLastError ();
-
-      switch (w32err)
-	{
-	case ERROR_INVALID_NAME:
-	case ERROR_BAD_PATHNAME:
-	  if (is_unc_volume (path))
-	    {
-	      attributes = unc_volume_file_attributes (path);
-	      if (attributes == -1)
-		{
-		  errno = EACCES;
-		  return -1;
-		}
-	      goto check_attrs;
-	    }
-	  /* FALLTHROUGH */
-	  FALLTHROUGH;
-	case ERROR_FILE_NOT_FOUND:
-	case ERROR_PATH_NOT_FOUND:
-	case ERROR_INVALID_DRIVE:
-	case ERROR_NOT_READY:
-	case ERROR_BAD_NETPATH:
-	case ERROR_BAD_NET_NAME:
-	  errno = ENOENT;
-	  break;
-	default:
-	  errno = EACCES;
-	  break;
-	}
-      return -1;
-    }
-
- check_attrs:
   if ((mode & X_OK) != 0
       && !(is_exec (path) || (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0))
     {
@@ -4753,7 +4776,7 @@ int
 sys_rename_replace (const char *oldname, const char *newname, BOOL force)
 {
   BOOL result;
-  char temp[MAX_UTF8_PATH], temp_a[MAX_PATH];
+  char temp[MAX_UTF8_PATH], temp_a[MAX_PATH + 15]; /* "+ 15": pacify GCC */
   int newname_dev;
   int oldname_dev;
   bool have_temp_a = false;
@@ -4774,6 +4797,15 @@ sys_rename_replace (const char *oldname, const char *newname, BOOL force)
 
   strcpy (temp, map_w32_filename (oldname, NULL));
 
+  /* 'rename' (which calls MoveFileW) renames the _target_ of the
+     symlink, which is different from Posix behavior and not what we
+     want here.  So in that case we pretend this is a cross-device move,
+     for which Frename_file already has a workaround.  */
+  if (is_symlink (temp))
+    {
+      errno = EXDEV;
+      return -1;
+    }
   /* volume_info is set indirectly by map_w32_filename.  */
   oldname_dev = volume_info.serialnum;
 
@@ -5067,9 +5099,10 @@ initialize_utc_base (void)
 }
 
 static time_t
-convert_time (FILETIME ft)
+convert_time (FILETIME ft, int *time_nsec)
 {
   ULONGLONG tmp;
+  time_t time_sec;
 
   if (!init)
     {
@@ -5081,7 +5114,10 @@ convert_time (FILETIME ft)
     return 0;
 
   FILETIME_TO_U64 (tmp, ft);
-  return (time_t) ((tmp - utc_base) / 10000000L);
+  tmp -= utc_base;
+  time_sec = (time_t) (tmp / 10000000L);
+  *time_nsec = (tmp - (ULONGLONG) time_sec * 10000000L) * 100L;
+  return time_sec;
 }
 
 static void
@@ -5698,11 +5734,19 @@ stat_worker (const char * path, struct stat * buf, int follow_symlinks)
   buf->st_nlink = nlinks;
 
   /* Convert timestamps to Unix format. */
-  buf->st_mtime = convert_time (wtime);
-  buf->st_atime = convert_time (atime);
-  if (buf->st_atime == 0) buf->st_atime = buf->st_mtime;
-  buf->st_ctime = convert_time (ctime);
-  if (buf->st_ctime == 0) buf->st_ctime = buf->st_mtime;
+  buf->st_mtime = convert_time (wtime, &buf->st_mtimensec);
+  buf->st_atime = convert_time (atime, &buf->st_atimensec);
+  if (buf->st_atime == 0)
+    {
+      buf->st_atime = buf->st_mtime;
+      buf->st_atimensec = buf->st_mtimensec;
+    }
+  buf->st_ctime = convert_time (ctime, &buf->st_ctimensec);
+  if (buf->st_ctime == 0)
+    {
+      buf->st_ctime = buf->st_mtime;
+      buf->st_ctimensec = buf->st_mtimensec;
+    }
 
   /* determine rwx permissions */
   if (is_a_symlink && !follow_symlinks)
@@ -5844,11 +5888,19 @@ fstat (int desc, struct stat * buf)
   buf->st_size += info.nFileSizeLow;
 
   /* Convert timestamps to Unix format. */
-  buf->st_mtime = convert_time (info.ftLastWriteTime);
-  buf->st_atime = convert_time (info.ftLastAccessTime);
-  if (buf->st_atime == 0) buf->st_atime = buf->st_mtime;
-  buf->st_ctime = convert_time (info.ftCreationTime);
-  if (buf->st_ctime == 0) buf->st_ctime = buf->st_mtime;
+  buf->st_mtime = convert_time (info.ftLastWriteTime, &buf->st_mtimensec);
+  buf->st_atime = convert_time (info.ftLastAccessTime, &buf->st_atimensec);
+  if (buf->st_atime == 0)
+    {
+      buf->st_atime = buf->st_mtime;
+      buf->st_atimensec = buf->st_mtimensec;
+    }
+  buf->st_ctime = convert_time (info.ftCreationTime, &buf->st_ctimensec);
+  if (buf->st_ctime == 0)
+    {
+      buf->st_ctime = buf->st_mtime;
+      buf->st_ctimensec = buf->st_mtimensec;
+    }
 
   /* determine rwx permissions */
   if (info.dwFileAttributes & FILE_ATTRIBUTE_READONLY)
@@ -7595,19 +7647,7 @@ system_process_attributes (Lisp_Object pid)
 
   memstex.dwLength = sizeof (memstex);
   if (global_memory_status_ex (&memstex))
-#if __GNUC__ || (defined (_MSC_VER) && _MSC_VER >= 1300)
     totphys = memstex.ullTotalPhys / 1024.0;
-#else
-  /* Visual Studio 6 cannot convert an unsigned __int64 type to
-     double, so we need to do this for it...  */
-    {
-      DWORD tot_hi = memstex.ullTotalPhys >> 32;
-      DWORD tot_md = (memstex.ullTotalPhys & 0x00000000ffffffff) >> 10;
-      DWORD tot_lo = memstex.ullTotalPhys % 1024;
-
-      totphys = tot_hi * 4194304.0 + tot_md + tot_lo / 1024.0;
-    }
-#endif	/* __GNUC__ || _MSC_VER >= 1300 */
   else if (global_memory_status (&memst))
     totphys = memst.dwTotalPhys / 1024.0;
 
@@ -7707,55 +7747,56 @@ w32_memory_info (unsigned long long *totalram, unsigned long long *freeram,
    (eg. gethostname). */
 
 /* function pointers for relevant socket functions */
-int (PASCAL *pfn_WSAStartup) (WORD wVersionRequired, LPWSADATA lpWSAData);
-void (PASCAL *pfn_WSASetLastError) (int iError);
-int (PASCAL *pfn_WSAGetLastError) (void);
-int (PASCAL *pfn_WSAEventSelect) (SOCKET s, HANDLE hEventObject, long lNetworkEvents);
-int (PASCAL *pfn_WSAEnumNetworkEvents) (SOCKET s, HANDLE hEventObject,
+static int (PASCAL *pfn_WSAStartup) (WORD wVersionRequired, LPWSADATA lpWSAData);
+static void (PASCAL *pfn_WSASetLastError) (int iError);
+static int (PASCAL *pfn_WSAGetLastError) (void);
+static int (PASCAL *pfn_WSAEventSelect) (SOCKET s, HANDLE hEventObject, long lNetworkEvents);
+static int (PASCAL *pfn_WSAEnumNetworkEvents) (SOCKET s, HANDLE hEventObject,
 					WSANETWORKEVENTS *NetworkEvents);
 
-HANDLE (PASCAL *pfn_WSACreateEvent) (void);
-int (PASCAL *pfn_WSACloseEvent) (HANDLE hEvent);
-int (PASCAL *pfn_socket) (int af, int type, int protocol);
-int (PASCAL *pfn_bind) (SOCKET s, const struct sockaddr *addr, int namelen);
-int (PASCAL *pfn_connect) (SOCKET s, const struct sockaddr *addr, int namelen);
-int (PASCAL *pfn_ioctlsocket) (SOCKET s, long cmd, u_long *argp);
-int (PASCAL *pfn_recv) (SOCKET s, char * buf, int len, int flags);
-int (PASCAL *pfn_send) (SOCKET s, const char * buf, int len, int flags);
-int (PASCAL *pfn_closesocket) (SOCKET s);
-int (PASCAL *pfn_shutdown) (SOCKET s, int how);
-int (PASCAL *pfn_WSACleanup) (void);
+static HANDLE (PASCAL *pfn_WSACreateEvent) (void);
+static int (PASCAL *pfn_WSACloseEvent) (HANDLE hEvent);
+static int (PASCAL *pfn_socket) (int af, int type, int protocol);
+static int (PASCAL *pfn_bind) (SOCKET s, const struct sockaddr *addr, int namelen);
+static int (PASCAL *pfn_connect) (SOCKET s, const struct sockaddr *addr, int namelen);
+static int (PASCAL *pfn_ioctlsocket) (SOCKET s, long cmd, u_long *argp);
+static int (PASCAL *pfn_recv) (SOCKET s, char * buf, int len, int flags);
+static int (PASCAL *pfn_send) (SOCKET s, const char * buf, int len, int flags);
+static int (PASCAL *pfn_closesocket) (SOCKET s);
+static int (PASCAL *pfn_shutdown) (SOCKET s, int how);
+static int (PASCAL *pfn_WSACleanup) (void);
 
-u_short (PASCAL *pfn_htons) (u_short hostshort);
-u_short (PASCAL *pfn_ntohs) (u_short netshort);
-u_long (PASCAL *pfn_htonl) (u_long hostlong);
-u_long (PASCAL *pfn_ntohl) (u_long netlong);
-unsigned long (PASCAL *pfn_inet_addr) (const char * cp);
-int (PASCAL *pfn_gethostname) (char * name, int namelen);
-struct hostent * (PASCAL *pfn_gethostbyname) (const char * name);
-struct servent * (PASCAL *pfn_getservbyname) (const char * name, const char * proto);
-int (PASCAL *pfn_getpeername) (SOCKET s, struct sockaddr *addr, int * namelen);
-int (PASCAL *pfn_setsockopt) (SOCKET s, int level, int optname,
+static u_short (PASCAL *pfn_htons) (u_short hostshort);
+static u_short (PASCAL *pfn_ntohs) (u_short netshort);
+static u_long (PASCAL *pfn_htonl) (u_long hostlong);
+static u_long (PASCAL *pfn_ntohl) (u_long netlong);
+static unsigned long (PASCAL *pfn_inet_addr) (const char * cp);
+static int (PASCAL *pfn_gethostname) (char * name, int namelen);
+static struct hostent * (PASCAL *pfn_gethostbyname) (const char * name);
+static struct servent * (PASCAL *pfn_getservbyname) (const char * name, const char * proto);
+static int (PASCAL *pfn_getpeername) (SOCKET s, struct sockaddr *addr, int * namelen);
+static int (PASCAL *pfn_setsockopt) (SOCKET s, int level, int optname,
 			      const char * optval, int optlen);
-int (PASCAL *pfn_listen) (SOCKET s, int backlog);
-int (PASCAL *pfn_getsockname) (SOCKET s, struct sockaddr * name,
+static int (PASCAL *pfn_listen) (SOCKET s, int backlog);
+static int (PASCAL *pfn_getsockname) (SOCKET s, struct sockaddr * name,
 			       int * namelen);
-SOCKET (PASCAL *pfn_accept) (SOCKET s, struct sockaddr * addr, int * addrlen);
-int (PASCAL *pfn_recvfrom) (SOCKET s, char * buf, int len, int flags,
+static SOCKET (PASCAL *pfn_accept) (SOCKET s, struct sockaddr * addr, int * addrlen);
+static int (PASCAL *pfn_recvfrom) (SOCKET s, char * buf, int len, int flags,
 		       struct sockaddr * from, int * fromlen);
-int (PASCAL *pfn_sendto) (SOCKET s, const char * buf, int len, int flags,
+static int (PASCAL *pfn_sendto) (SOCKET s, const char * buf, int len, int flags,
 			  const struct sockaddr * to, int tolen);
 
-int (PASCAL *pfn_getaddrinfo) (const char *, const char *,
+static int (PASCAL *pfn_getaddrinfo) (const char *, const char *,
 			       const struct addrinfo *, struct addrinfo **);
-void (PASCAL *pfn_freeaddrinfo) (struct addrinfo *);
+static void (PASCAL *pfn_freeaddrinfo) (struct addrinfo *);
 
 /* SetHandleInformation is only needed to make sockets non-inheritable. */
-BOOL (WINAPI *pfn_SetHandleInformation) (HANDLE object, DWORD mask, DWORD flags);
+static BOOL (WINAPI *pfn_SetHandleInformation) (HANDLE object, DWORD mask, DWORD flags);
 #ifndef HANDLE_FLAG_INHERIT
 #define HANDLE_FLAG_INHERIT	1
 #endif
 
+extern HANDLE winsock_lib;
 HANDLE winsock_lib;
 static int winsock_inuse;
 
@@ -7918,7 +7959,7 @@ check_errno (void)
 }
 
 /* Extend strerror to handle the winsock-specific error codes.  */
-struct {
+static struct {
   int errnum;
   const char * msg;
 } _wsa_errlist[] = {
@@ -8223,25 +8264,38 @@ sys_inet_addr (const char * cp)
     pfn_inet_addr (cp) : INADDR_NONE;
 }
 
+/* Wrapper for gethostname.  Note: NAMELEN is the space available in
+   NAME excluding the terminating null.  */
 int
 sys_gethostname (char * name, int namelen)
 {
+  int retval;
+  int nlen = namelen;
+  char sname[256+1];
+
   if (winsock_lib != NULL)
     {
-      int retval;
-
       check_errno ();
-      retval = pfn_gethostname (name, namelen);
+      retval = pfn_gethostname (sname, sizeof(sname));
       if (retval == SOCKET_ERROR)
 	set_errno ();
-      return retval;
     }
-
-  if (namelen > MAX_COMPUTERNAME_LENGTH)
-    return !GetComputerName (name, (DWORD *)&namelen);
-
-  errno = EFAULT;
-  return SOCKET_ERROR;
+  else if (sizeof(sname) > MAX_COMPUTERNAME_LENGTH)
+    retval = !GetComputerNameA (sname, (DWORD *)&nlen);
+  else
+    {
+      retval = SOCKET_ERROR;
+      errno = EFAULT;
+    }
+  /* The rest of the code wants the name in UTF-8.  The host name is not
+     a file name, but it's encoded in the ANSI codepage and its size
+     must be at most 256 characters.  So treating it as a file name
+     should be okay.  */
+  char hostname[MAX_UTF8_PATH];
+  filename_from_ansi (sname, hostname);
+  strncpy (name, hostname, namelen);
+  name[namelen] = '\0';
+  return retval;
 }
 
 struct hostent *
@@ -8652,6 +8706,7 @@ sys_close (int fd)
 {
   int rc = -1;
   bool reader_thread_exited = false;
+  bool reader_thread_reading = false;
 
   if (fd < 0)
     {
@@ -8669,6 +8724,9 @@ sys_close (int fd)
 	  && GetExitCodeThread (cp->thrd, &thrd_status)
 	  && thrd_status != STILL_ACTIVE)
 	reader_thread_exited = true;
+
+      if (cp->thrd != NULL && cp->status == STATUS_READ_IN_PROGRESS)
+	reader_thread_reading = true;
 
       fd_info[fd].cp = NULL;
 
@@ -8719,7 +8777,13 @@ sys_close (int fd)
      because socket handles are fully fledged kernel handles. */
   if (fd < MAXDESC)
     {
-      if ((fd_info[fd].flags & FILE_DONT_CLOSE) == 0
+      if (((fd_info[fd].flags & FILE_DONT_CLOSE) == 0
+	   /* Don't attempt to close a descriptor while reader thread is
+              stuck in _sys_read_ahead attempting to read from it, as
+              that will hang Emacs.  */
+	   && !(((fd_info[fd].flags & (FILE_PIPE | FILE_READ))
+		 == (FILE_PIPE | FILE_READ))
+		&& reader_thread_reading))
 	  /* If the reader thread already exited, close the descriptor,
 	     since otherwise no one will close it, and we will be
 	     leaking descriptors.  */
@@ -10227,7 +10291,7 @@ w32_read_registry (HKEY rootkey, Lisp_Object lkey, Lisp_Object lname)
 	retval = Fnreverse (val);
 	break;
       default:
-	error ("unsupported registry data type: %d", (int)vtype);
+	error ("Unsupported registry data type: %d", (int)vtype);
     }
 
   xfree (pvalue);
@@ -10236,6 +10300,30 @@ w32_read_registry (HKEY rootkey, Lisp_Object lkey, Lisp_Object lname)
 }
 
 
+/* mingw.org's MinGW doesn't declare _dstbias.  MinGW64 defines it as a
+   macro.  */
+#ifndef _dstbias
+__MINGW_IMPORT int _dstbias;
+#endif
+
+/* Fix a bug in MS implementation of 'tzset'.  This function should be
+   called immediately after 'tzset'.  */
+void
+w32_fix_tzset (void)
+{
+  char *tz_env = getenv ("TZ");
+
+  /* When TZ is defined in the environment, '_tzset' updates _daylight,
+     but not _dstbias.  Then if we are switching from a timezone without
+     DST to a timezone with DST, 'localtime' and friends will apply zero
+     DST bias, which is incorrect. (When TZ is not defined, '_tzset'
+     does update _dstbias using values obtained from Windows API
+     GetTimeZoneInformation.)  Here we fix that blunder by detecting
+     this situation and forcing _dstbias to be 1 hour.  */
+  if (tz_env && _daylight && !_dstbias)
+    _dstbias = -3600;
+}
+
 /* The Windows CRT functions are "optimized for speed", so they don't
    check for timezone and DST changes if they were last called less
    than 1 minute ago (see http://support.microsoft.com/kb/821231).  So
@@ -10246,6 +10334,7 @@ struct tm *
 sys_localtime (const time_t *t)
 {
   tzset ();
+  w32_fix_tzset ();
   return localtime (t);
 }
 
@@ -10442,9 +10531,8 @@ check_windows_init_file (void)
     }
 }
 
-/* from w32fns.c */
+/* from w32fns.c  */
 extern void remove_w32_kbdhook (void);
-
 void
 term_ntproc (int ignored)
 {
@@ -10454,14 +10542,14 @@ term_ntproc (int ignored)
 
   term_timers ();
 
-  /* shutdown the socket interface if necessary */
+  /* Shut down the socket interface if necessary.  */
   term_winsock ();
 
   term_w32select ();
+  /* Exit all worker threads of sys_select if necessary.  */
+  free_wait_pool ();
 
-#if HAVE_NATIVE_IMAGE_API
   w32_gdiplus_shutdown ();
-#endif
 }
 
 void
@@ -10486,6 +10574,21 @@ init_ntproc (int dumping)
   /* Initial preparation for subprocess support: replace our standard
      handles with non-inheritable versions. */
   {
+
+#ifdef _UCRT
+    /* The non-UCRT code below relies on MSVCRT-only behavior, whereby
+       _fdopen reuses the first unused FILE slot, whereas UCRT skips the
+       first 3 slots, which correspond to stdin/stdout/stderr.  That
+       makes it impossible in the UCRT build to open these 3 streams
+       once they are closed.  So we use SetHandleInformation instead,
+       which is available on all versions of Windows that have UCRT.  */
+    SetHandleInformation (GetStdHandle(STD_INPUT_HANDLE),
+			  HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation (GetStdHandle(STD_OUTPUT_HANDLE),
+			  HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation (GetStdHandle(STD_ERROR_HANDLE),
+			  HANDLE_FLAG_INHERIT, 0);
+#else	/* !_UCRT */
     HANDLE parent;
     HANDLE stdin_save =  INVALID_HANDLE_VALUE;
     HANDLE stdout_save = INVALID_HANDLE_VALUE;
@@ -10493,8 +10596,8 @@ init_ntproc (int dumping)
 
     parent = GetCurrentProcess ();
 
-    /* ignore errors when duplicating and closing; typically the
-       handles will be invalid when running as a gui program. */
+    /* Ignore errors when duplicating and closing; typically the
+       handles will be invalid when running as a gui program.  */
     DuplicateHandle (parent,
 		     GetStdHandle (STD_INPUT_HANDLE),
 		     parent,
@@ -10540,6 +10643,7 @@ init_ntproc (int dumping)
     else
       _open ("nul", O_TEXT | O_NOINHERIT | O_WRONLY);
     _fdopen (2, "w");
+#endif	/* !_UCRT */
   }
 
   /* unfortunately, atexit depends on implementation of malloc */
@@ -10839,6 +10943,9 @@ w32_reexec_emacs (char *cmd_line, const char *wdir)
   DWORD dwCreationFlags = NORMAL_PRIORITY_CLASS;
 
   GetStartupInfo (&si);		/* Use the same startup info as the caller.  */
+  /* Reset undocumented bits in STARTUPINFO flags, as they could cause a
+     crash in the re-exec'ed Emacs.  */
+  si.dwFlags &= 0xbbff;	/* reset the 0x4000 and 0x0400 bits */
   if (inhibit_window_system)
     {
       HANDLE screen_handle;

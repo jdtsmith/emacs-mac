@@ -1,6 +1,6 @@
 ;;; erc-backend.el --- Backend network communication for ERC  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2004-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
 ;; Author: Lawrence Mitchell <wence@gmx.li>
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
@@ -429,15 +429,16 @@ this value to 120 or greater and/or exploring the option
 means of handling this situation on some servers."
   :type 'number)
 
-(defcustom erc-server-reconnect-function 'erc-server-delayed-reconnect
+(defcustom erc-server-reconnect-function 'erc-server-prefer-check-reconnect
   "Function called by the reconnect timer to create a new connection.
 Called with a server buffer as its only argument.  Potential uses
 include exponential backoff and probing for connectivity prior to
 dialing.  Use `erc-schedule-reconnect' to instead try again later
 and optionally alter the attempts tally."
-  :package-version '(ERC . "5.5")
+  :package-version '(ERC . "5.6.1")
   :type '(choice (function-item erc-server-delayed-reconnect)
                  (function-item erc-server-delayed-check-reconnect)
+                 (function-item erc-server-prefer-check-reconnect)
                  function))
 
 (defcustom erc-split-line-length 440
@@ -587,34 +588,35 @@ escape hatch for inhibiting their transmission.")
     (when (consp coding)
       (setq coding (car coding)))
     (setq coding (coding-system-change-eol-conversion coding 'unix))
-    (unwind-protect
-        (with-temp-buffer
-          (set-window-buffer (selected-window) (current-buffer))
-          (insert longline)
-          (goto-char (point-min))
-          (while (not (eobp))
-            (let ((upper (filepos-to-bufferpos erc-split-line-length
-                                               'exact coding)))
-              (goto-char (or upper (point-max)))
-              (unless (eobp)
-                (skip-chars-backward "^ \t"))
-              (when (bobp)
-                (when erc--reject-unbreakable-lines
-                  (user-error
-                   (substitute-command-keys
-                    (concat "Unbreakable line encountered "
-                            "(Recover input with \\[erc-previous-command])"))))
-                (goto-char upper))
-              (when-let ((cmp (find-composition (point) (1+ (point)))))
-                (if (= (car cmp) (point-min))
-                    (goto-char (nth 1 cmp))
-                  (goto-char (car cmp)))))
-            (when (= (point-min) (point))
-              (goto-char (point-max)))
-            (push (buffer-substring-no-properties (point-min) (point)) out)
-            (delete-region (point-min) (point)))
-          (or (nreverse out) (list "")))
-      (set-window-buffer (selected-window) original-window-buf))))
+    (with-temp-buffer
+      (unwind-protect
+          (progn
+            (set-window-buffer (selected-window) (current-buffer))
+            (insert longline)
+            (goto-char (point-min))
+            (while (not (eobp))
+              (let ((upper (filepos-to-bufferpos erc-split-line-length
+                                                 'exact coding)))
+                (goto-char (or upper (point-max)))
+                (unless (eobp)
+                  (skip-chars-backward "^ \t"))
+                (when (bobp)
+                  (when erc--reject-unbreakable-lines
+                    (user-error
+                     (substitute-command-keys
+                      (concat "Unbreakable line encountered (Recover input"
+                              " with \\[erc-previous-command])"))))
+                  (goto-char upper))
+                (when-let* ((cmp (find-composition (point) (1+ (point)))))
+                  (if (= (car cmp) (point-min))
+                      (goto-char (nth 1 cmp))
+                    (goto-char (car cmp)))))
+              (when (= (point-min) (point))
+                (goto-char (point-max)))
+              (push (buffer-substring-no-properties (point-min) (point)) out)
+              (delete-region (point-min) (point)))
+            (or (nreverse out) (list "")))
+        (set-window-buffer (selected-window) original-window-buf)))))
 
 ;; From Circe
 (defun erc-split-line (longline)
@@ -715,7 +717,8 @@ The current buffer is given by BUFFER."
   (run-hooks 'erc--server-post-connect-hook)
   (erc-login))
 
-(defvar erc--server-connect-function #'erc--server-propagate-failed-connection
+(defvar erc--server-post-dial-function
+  #'erc--server-propagate-failed-connection
   "Function called one second after creating a server process.
 Called with the newly created process just before the opening IRC
 protocol exchange.")
@@ -794,7 +797,7 @@ TLS (see `erc-session-client-certificate' for more details)."
         (let ((erc--msg-prop-overrides `((erc--skip . (stamp))
                                          ,@erc--msg-prop-overrides)))
           (erc-display-message nil nil buffer "Opening connection..\n")
-          (run-at-time 1 nil erc--server-connect-function process))
+          (run-at-time 1 nil erc--server-post-dial-function process))
       (message "%s...done" msg)
       (erc--register-connection))))
 
@@ -829,77 +832,140 @@ Make sure you are in an ERC buffer when running this."
     (with-current-buffer buffer
       (erc-server-reconnect))))
 
+(defun erc--server-reconnect-opened (buffer process)
+  "Reconnect session for server BUFFER using open PROCESS."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (let* ((orig erc-session-connector)
+             (erc-session-connector
+              (lambda (&rest _)
+                (setq erc-session-connector orig)
+                process)))
+        (erc-server-reconnect)))))
+
 (defvar-local erc--server-reconnect-timeout nil)
-(defvar-local erc--server-reconnect-timeout-check 10)
-(defvar-local erc--server-reconnect-timeout-scale-function
-    #'erc--server-reconnect-timeout-double)
+
+;; These variables exist for use in unit tests.
+(defvar erc--server-reconnect-timeout-check 10)
+(defvar erc--server-reconnect-timeout-scale-function
+  #'erc--server-reconnect-timeout-double)
 
 (defun erc--server-reconnect-timeout-double (existing)
   "Double EXISTING timeout, but cap it at 5 minutes."
   (min 300 (* existing 2)))
 
-;; This may appear to hang at various places.  It's assumed that when
-;; *Messages* contains "Waiting for socket ..."  or similar, progress
-;; will be made eventually.
+(defun erc--recon-probe-reschedule (proc)
+  "Print a message saying PROC's intended peer can't be reached.
+Then call `erc-schedule-reconnect'."
+  (let ((buffer (or (and-let* ((proc)
+                               (buffer (process-buffer proc))
+                               ((buffer-live-p buffer))
+                               (buffer)))
+                    (current-buffer))))
+    (with-current-buffer buffer
+      (let ((erc-server-reconnect-timeout
+             (or erc--server-reconnect-timeout
+                 erc-server-reconnect-timeout)))
+        (when (and proc (not (eq proc erc-server-process)))
+          (set-process-sentinel proc #'ignore)
+          (delete-process proc))
+        (erc-display-message nil '(notice error) buffer
+                             'recon-probe-nobody-home)
+        (erc-schedule-reconnect buffer 0)))))
 
+(defvar erc-server-delayed-check-reconnect-reuse-process-p t
+  "Whether to reuse a successful probe as the session process.")
+
+(defun erc--recon-probe-sentinel (proc event)
+  "Send a \"PING\" to PROC's peer on an \"open\" EVENT.
+Otherwise, try connecting from scratch again after timeout."
+  (pcase event
+    ("open\n"
+     (set-process-sentinel proc #'ignore)
+     ;; This has been observed to possibly raise a `file-error'.
+     (if erc-server-delayed-check-reconnect-reuse-process-p
+         (run-at-time nil nil #'erc--server-reconnect-opened
+                      (process-buffer proc) proc)
+       (run-at-time nil nil #'delete-process proc)
+       (run-at-time nil nil #'erc-server-delayed-reconnect
+                    (process-buffer proc))))
+    ((or "connection broken by remote peer\n" (rx bot "failed"))
+     (run-at-time nil nil #'erc--recon-probe-reschedule proc))))
+
+(defun erc--recon-probe-check (proc expire)
+  "Restart reconnect probe if PROC has failed or EXPIRE time has passed.
+Otherwise, if PROC's buffer is live and its status is `connect', arrange
+for running again in 1 second."
+  (let* ((buffer (process-buffer proc))
+         ;;
+         status)
+    (cond ((not (buffer-live-p buffer)))
+          ((time-less-p expire (current-time))
+           ;; TODO convert into proper catalog message for i18n.
+           (erc-display-message nil 'error buffer "Timed out while dialing...")
+           (erc--recon-probe-reschedule proc))
+          ((eq (setq status (process-status proc)) 'failed)
+           (erc--recon-probe-reschedule proc))
+          ((eq status 'connect)
+           (run-at-time 1 nil #'erc--recon-probe-check proc expire)))))
+
+;; This probing strategy may appear to hang at various junctures.  It's
+;; assumed that when *Messages* contains "Waiting for socket ..."  or
+;; similar, progress will be made eventually.
 (defun erc-server-delayed-check-reconnect (buffer)
   "Wait for internet connectivity before trying to reconnect.
-Expect BUFFER to be the server buffer for the current connection."
+Use server BUFFER's cached session info to reestablish the logical
+connection at the IRC protocol level.  Do this by probing for any
+response to a PING, including a hang up, before (possibly) dialing again
+and commencing with \"connection registration\".  Make no distinction
+between configuration issues and the absence of service in printed
+feedback.  For example, expect users of proxy-based connectors, like
+`erc-open-socks-tls-stream', to ensure their setup works before choosing
+this function as their reconnector."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (setq erc--server-reconnect-timeout
             (funcall erc--server-reconnect-timeout-scale-function
                      (or erc--server-reconnect-timeout
                          erc-server-reconnect-timeout)))
-      (let* ((reschedule (lambda (proc)
-                           (when (buffer-live-p buffer)
-                             (with-current-buffer buffer
-                               (let ((erc-server-reconnect-timeout
-                                      erc--server-reconnect-timeout))
-                                 (delete-process proc)
-                                 (erc-display-message nil 'error buffer
-                                                      "Nobody home...")
-                                 (erc-schedule-reconnect buffer 0))))))
-             (conchk-exp (time-add erc--server-reconnect-timeout-check
-                                   (current-time)))
-             (conchk-timer nil)
-             (conchk (lambda (proc)
-                       (let ((status (process-status proc))
-                             (xprdp (time-less-p conchk-exp (current-time))))
-                         (when (or (not (eq 'connect status)) xprdp)
-                           (cancel-timer conchk-timer))
-                         (when (buffer-live-p buffer)
-                           (cond (xprdp (erc-display-message
-                                         nil 'error buffer
-                                         "Timed out while dialing...")
-                                        (delete-process proc)
-                                        (funcall reschedule proc))
-                                 ((eq 'failed status)
-                                  (funcall reschedule proc)))))))
-             (sentinel (lambda (proc event)
-                         (pcase event
-                           ("open\n"
-                            (run-at-time nil nil #'send-string proc
-                                         (format "PING %d\r\n"
-                                                 (time-convert nil 'integer))))
-                           ((or "connection broken by remote peer\n"
-                                (rx bot "failed"))
-                            (run-at-time nil nil reschedule proc)))))
-             (filter (lambda (proc _)
-                       (delete-process proc)
-                       (with-current-buffer buffer
-                         (setq erc--server-reconnect-timeout nil))
-                       (run-at-time nil nil #'erc-server-delayed-reconnect
-                                    buffer))))
-        (condition-case _
-            (let ((proc (funcall erc-session-connector
-                                 "*erc-connectivity-check*" nil
-                                 erc-session-server erc-session-port
-                                 :nowait t)))
-              (setq conchk-timer (run-at-time 1 1 conchk proc))
-              (set-process-filter proc filter)
-              (set-process-sentinel proc sentinel))
-          (file-error (funcall reschedule nil)))))))
+      (condition-case _
+          (let* ((cert erc-session-client-certificate)
+                 (server (if (string-match erc--server-connect-dumb-ipv6-regexp
+                                           erc-session-server)
+                             (match-string 1 erc-session-server)
+                           erc-session-server))
+                 (name (if erc-server-delayed-check-reconnect-reuse-process-p
+                           (format "erc-%s-%s" server erc-session-port)
+                         "*erc-connectivity-check*"))
+                 (proc (apply erc-session-connector name
+                              nil server erc-session-port
+                              (and cert (list :client-certificate cert))))
+                 (status (process-status proc)))
+            (set-process-buffer proc buffer)
+            (set-process-filter proc #'ignore)
+            (if (not (eq status 'connect)) ; :nowait is nil
+                (erc--recon-probe-sentinel proc (if (eq status 'open)
+                                                    "open\n"
+                                                  "failed"))
+              (run-at-time 1 nil #'erc--recon-probe-check proc
+                           (time-add erc--server-reconnect-timeout-check
+                                     (current-time)))
+              (set-process-sentinel proc #'erc--recon-probe-sentinel)))
+        ;; E.g., "make client process failed" "Connection refused".
+        (file-error (erc--recon-probe-reschedule nil))
+        ;; C-g during blocking connect, like with the SOCKS connector.
+        (quit (erc--cancel-auto-reconnect-timer))))))
+
+(defun erc-server-prefer-check-reconnect (buffer)
+  "Defer to another reconnector based on BUFFER's `erc-session-connector'.
+Prefer `erc-server-delayed-check-reconnect' if the connector is known to
+be \"check-aware\".  Otherwise, use `erc-server-delayed-reconnect'."
+  (if (memq (buffer-local-value 'erc-session-connector buffer)
+            '(erc-open-tls-stream
+              erc-open-network-stream
+              erc-open-socks-tls-stream))
+      (erc-server-delayed-check-reconnect buffer)
+    (erc-server-delayed-reconnect buffer)))
 
 (defun erc-server-filter-function (process string)
   "The process filter for the ERC server."
@@ -1003,7 +1069,6 @@ When `erc-server-reconnect-attempts' is a number, increment
                          ?i (if count erc-server-reconnect-count "N")
                          ?n (if count erc-server-reconnect-attempts "A"))
     (set-process-sentinel proc #'ignore)
-    (set-process-filter proc nil)
     (delete-process proc)
     (erc-update-mode-line)
     (setq erc-server-reconnecting nil
@@ -1057,9 +1122,9 @@ Conditionally try to reconnect and take appropriate action."
     (setq erc--hidden-prompt-overlay nil)))
 
 (cl-defmethod erc--conceal-prompt ()
-  (when-let (((null erc--hidden-prompt-overlay))
-             (ov (make-overlay erc-insert-marker (1- erc-input-marker)
-                               nil 'front-advance)))
+  (when-let* (((null erc--hidden-prompt-overlay))
+              (ov (make-overlay erc-insert-marker (1- erc-input-marker)
+                                nil 'front-advance)))
     (defvar erc-prompt-hidden)
     (overlay-put ov 'display erc-prompt-hidden)
     (setq erc--hidden-prompt-overlay ov)))
@@ -1534,11 +1599,15 @@ See also `erc-server-responses'."
   (gethash (format (if (numberp command) "%03i" "%s") command)
            erc-server-responses))
 
+(defvar erc--parsed-response nil)
+
 (defun erc-call-hooks (process message)
   "Call hooks associated with MESSAGE in PROCESS.
 
 Finds hooks by looking in the `erc-server-responses' hash table."
-  (let ((hook (or (erc-get-hook (erc-response.command message))
+  (let ((erc--parsed-response message)
+        (erc--msg-prop-overrides erc--msg-prop-overrides)
+        (hook (or (erc-get-hook (erc-response.command message))
                   'erc-default-server-functions)))
     (run-hook-with-args-until-success hook process message)
     ;; Some handlers, like `erc-cmd-JOIN', open new targets without
@@ -1658,6 +1727,7 @@ Would expand to:
                                   ([&or integerp symbolp]
                                    &rest [&or integerp symbolp])]
                            &optional sexp sexp def-body))
+           (doc-string 2)
            (indent defun))
   (if (numberp name) (setq name (intern (format "%03i" name))))
   (setq aliases (mapcar (lambda (a)
@@ -1847,8 +1917,8 @@ add things to `%s' instead."
                                    ?t tgt ?m mode)
             (erc-display-message parsed 'notice buf
                                  'MODE ?n nick ?u login
-                                 ?h host ?t tgt ?m mode)))
-      (erc-banlist-update proc parsed))))
+                                 ?h host ?t tgt ?m mode)))))
+  nil)
 
 (defun erc--wrangle-query-buffers-on-nick-change (old new)
   "Create or reuse a query buffer for NEW nick after considering OLD nick.
@@ -2074,12 +2144,12 @@ like `erc-insert-modify-hook'.")
           (defvar erc-receive-query-display)
           (defvar erc-receive-query-display-defer)
           (if privp
-              (when-let ((erc-join-buffer
-                          (or (and (not erc-receive-query-display-defer)
-                                   erc-receive-query-display)
-                              (and erc-ensure-target-buffer-on-privmsg
-                                   (or erc-receive-query-display
-                                       erc-join-buffer)))))
+              (when-let* ((erc-join-buffer
+                           (or (and (not erc-receive-query-display-defer)
+                                    erc-receive-query-display)
+                               (and erc-ensure-target-buffer-on-privmsg
+                                    (or erc-receive-query-display
+                                        erc-join-buffer)))))
                 (push `(erc-receive-query-display . ,(intern cmd))
                       erc--display-context)
                 (setq buffer (erc--open-target nick)))
@@ -2258,12 +2328,12 @@ primitive value."
   (if-let* ((table (or erc--isupport-params
                        (erc-with-server-buffer erc--isupport-params)))
             (value (with-memoization (gethash key table)
-                     (when-let ((v (assoc (symbol-name key)
-                                          (or erc-server-parameters
-                                              (erc-with-server-buffer
+                     (when-let* ((v (assoc (symbol-name key)
+                                           (or erc-server-parameters
+                                               (erc-with-server-buffer
                                                 erc-server-parameters)))))
-                       (if-let ((val (cdr v))
-                                ((not (string-empty-p val))))
+                       (if-let* ((val (cdr v))
+                                 ((not (string-empty-p val))))
                            (erc--parse-isupport-value val)
                          '--empty--)))))
       (pcase value

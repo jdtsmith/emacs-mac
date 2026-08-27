@@ -1,6 +1,6 @@
 ;;; comp.el --- compilation of Lisp code into native code -*- lexical-binding: t -*-
 
-;; Copyright (C) 2019-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
 ;; Author: Andrea Corallo <acorallo@gnu.org>
 ;; Keywords: lisp
@@ -42,6 +42,7 @@
 (defvar comp-subr-arities-h)
 (defvar native-comp-eln-load-path)
 (defvar native-comp-enable-subr-trampolines)
+(defvar comp--\#$)
 
 (declare-function comp--compile-ctxt-to-file0 "comp.c")
 (declare-function comp--init-ctxt "comp.c")
@@ -155,7 +156,7 @@ native compilation runs.")
 
 (defvar comp-curr-allocation-class 'd-default
   "Current allocation class.
-Can be one of: `d-default', `d-impure' or `d-ephemeral'.  See `comp-ctxt'.")
+Can be one of: `d-default' or `d-ephemeral'.  See `comp-ctxt'.")
 
 (defconst comp-passes '(comp--spill-lap
                         comp--limplify
@@ -164,6 +165,7 @@ Can be one of: `d-default', `d-impure' or `d-ephemeral'.  See `comp-ctxt'.")
                         comp--ipa-pure
                         comp--add-cstrs
                         comp--fwprop
+                        comp--type-check-optim
                         comp--tco
                         comp--fwprop
                         comp--remove-type-hints
@@ -200,9 +202,9 @@ Useful to hook into pass checkers.")
   "Given FUNCTION return the corresponding `comp-constraint'."
   (when (symbolp function)
     (or (gethash function comp-primitive-func-cstr-h)
-        (when-let ((type (or (when-let ((f (comp--symbol-func-to-fun function)))
-                               (comp-func-declared-type f))
-                             (function-get function 'function-type))))
+        (when-let* ((type (or (when-let* ((f (comp--symbol-func-to-fun function)))
+                                (comp-func-declared-type f))
+                              (function-get function 'function-type))))
           (comp-type-spec-to-cstr type)))))
 
 ;; Keep it in sync with the `cl-deftype-satisfies' property set in
@@ -332,14 +334,14 @@ Useful to hook into pass checkers.")
   "Append ELT into VEC.
 Returns ELT."
   (puthash (comp-vec-end vec) elt (comp-vec-data vec))
-  (cl-incf (comp-vec-end vec))
+  (incf (comp-vec-end vec))
   elt)
 
 (defsubst comp-vec-prepend (vec elt)
   "Prepend ELT into VEC.
 Returns ELT."
   (puthash (1- (comp-vec-beg vec)) elt (comp-vec-data vec))
-  (cl-decf (comp-vec-beg vec))
+  (decf (comp-vec-beg vec))
   elt)
 
 
@@ -394,11 +396,11 @@ Needed to replace immediate byte-compiled lambdas with the compiled reference.")
                :documentation "Documentation index -> documentation")
   (d-default (make-comp-data-container) :type comp-data-container
              :documentation "Standard data relocated in use by functions.")
-  (d-impure (make-comp-data-container) :type comp-data-container
-            :documentation "Relocated data that cannot be moved into pure space.
-This is typically for top-level forms other than defun.")
   (d-ephemeral (make-comp-data-container) :type comp-data-container
                :documentation "Relocated data not necessary after load.")
+  (non-materializable-objs-h (make-hash-table :test #'equal) :type hash-table
+               :documentation "Objects produced by the propagation engine which can't be materialized.
+Typically floating points (which are not cons-hashed).")
   (with-late-load nil :type boolean
                   :documentation "When non-nil support late load."))
 
@@ -493,7 +495,7 @@ non local exit (ends with an `unreachable' insn)."))
   "Return a sequential number generator."
   (let ((n -1))
     (lambda ()
-      (cl-incf n))))
+      (incf n))))
 
 (cl-defstruct (comp-func (:copier nil))
   "LIMPLE representation of a function."
@@ -604,19 +606,16 @@ In use by the back-end."
 (defun comp--func-unique-in-cu-p (func)
   "Return t if FUNC is known to be unique in the current compilation unit."
   (if (symbolp func)
-      (cl-loop with h = (make-hash-table :test #'eq)
-               for f being the hash-value in (comp-ctxt-funcs-h comp-ctxt)
-               for name = (comp-func-name f)
-               when (gethash name h)
-                 return nil
-               do (puthash name t h)
+      (cl-loop for f being the hash-value in (comp-ctxt-funcs-h comp-ctxt)
+               count (eq func (comp-func-name f)) into n
+               when (> n 1) return nil
                finally return t)
     t))
 
 (defun comp--function-pure-p (f)
   "Return t if F is pure."
   (or (get f 'pure)
-      (when-let ((func (comp--symbol-func-to-fun f)))
+      (when-let* ((func (comp--symbol-func-to-fun f)))
         (comp-func-pure func))))
 
 (defun comp--alloc-class-to-container (alloc-class)
@@ -792,25 +791,33 @@ clashes."
                                                   :byte-func byte-code)))
       (maphash #'comp--intern-func-in-ctxt byte-to-native-lambdas-h)))
 
-(cl-defmethod comp--spill-lap-function ((form list))
-  "Byte-compile FORM, spilling data from the byte compiler."
-  (unless (memq (car-safe form) '(lambda closure))
-    (signal 'native-compiler-error
-            '("Cannot native-compile, form is not a lambda or closure")))
+(defun comp--spill-lap-single-function (function)
+  "Byte-compile FUNCTION, spilling data from the byte compiler."
   (unless (comp-ctxt-output comp-ctxt)
     (setf (comp-ctxt-output comp-ctxt)
           (make-temp-file "comp-lambda-" nil ".eln")))
-  (let* ((byte-code (byte-compile form))
+  (let* ((byte-code (byte-compile function))
          (c-name (comp-c-func-name "anonymous-lambda" "F")))
-      (setf (comp-ctxt-top-level-forms comp-ctxt)
-            (list (make-byte-to-native-func-def :name '--anonymous-lambda
-                                                :c-name c-name
-                                                :byte-func byte-code)))
-      (maphash #'comp--intern-func-in-ctxt byte-to-native-lambdas-h)))
+    (setf (comp-ctxt-top-level-forms comp-ctxt)
+          (list (make-byte-to-native-func-def :name '--anonymous-lambda
+                                              :c-name c-name
+                                              :byte-func byte-code)))
+    (maphash #'comp--intern-func-in-ctxt byte-to-native-lambdas-h)))
+
+(cl-defmethod comp--spill-lap-function ((form list))
+  "Byte-compile FORM, spilling data from the byte compiler."
+  (unless (eq (car-safe form) 'lambda)
+    (signal 'native-compiler-error
+            '("Cannot native-compile, form is not a lambda")))
+  (comp--spill-lap-single-function form))
+
+(cl-defmethod comp--spill-lap-function ((fun interpreted-function))
+  "Spill data from the byte compiler for the interpreted-function FUN."
+  (comp--spill-lap-single-function fun))
 
 (defun comp--intern-func-in-ctxt (_ obj)
   "Given OBJ of type `byte-to-native-lambda', create a function in `comp-ctxt'."
-  (when-let ((byte-func (byte-to-native-lambda-byte-func obj)))
+  (when-let* ((byte-func (byte-to-native-lambda-byte-func obj)))
     (let* ((lap (byte-to-native-lambda-lap obj))
            (top-l-form (cl-loop
                         for form in (comp-ctxt-top-level-forms comp-ctxt)
@@ -946,7 +953,7 @@ Points to the next slot to be filled.")
 Restore the original value afterwards."
   (declare (debug (form body))
            (indent defun))
-  (let ((sym (gensym)))
+  (cl-with-gensyms (sym)
     `(let ((,sym (comp--sp)))
        (setf (comp--sp) ,sp)
        (progn ,@body)
@@ -1181,7 +1188,7 @@ Return value is the fall-through block name."
 (defun comp--jump-table-optimizable (jmp-table)
   "Return t if JMP-TABLE can be optimized out."
   ;; Identify LAP sequences like:
-  ;; (byte-constant #s(hash-table test eq purecopy t data (created 126 deleted 126 changed 126)) . 24)
+  ;; (byte-constant #s(hash-table test eq data (created 126 deleted 126 changed 126)) . 24)
   ;; (byte-switch)
   ;; (TAG 126 . 10)
   (let ((targets (hash-table-values jmp-table)))
@@ -1295,7 +1302,7 @@ and the annotation emission."
                           ;;      ,(concat "LAP op " op-name)))
                           ;; Emit the stack adjustment if present.
                           ,(when (and sp-delta (not (eq 0 sp-delta)))
-			     `(cl-incf (comp--sp) ,sp-delta))
+                             `(incf (comp--sp) ,sp-delta))
                           ,@(comp--body-eff body op-name sp-delta))
                 else
 		collect `(',op (signal 'native-ice
@@ -1329,7 +1336,7 @@ and the annotation emission."
                              (make--comp-mvar :constant arg)
                              (comp--slot+1))))
       (byte-call
-       (cl-incf (comp--sp) (- arg))
+       (incf (comp--sp) (- arg))
        (comp--emit-set-call (comp--callref 'funcall (1+ arg) (comp--sp))))
       (byte-unbind
        (comp--emit (comp--call 'helper_unbind_n
@@ -1484,19 +1491,19 @@ and the annotation emission."
       (byte-numberp auto)
       (byte-integerp auto)
       (byte-listN
-       (cl-incf (comp--sp) (- 1 arg))
+       (incf (comp--sp) (- 1 arg))
        (comp--emit-set-call (comp--callref 'list arg (comp--sp))))
       (byte-concatN
-       (cl-incf (comp--sp) (- 1 arg))
+       (incf (comp--sp) (- 1 arg))
        (comp--emit-set-call (comp--callref 'concat arg (comp--sp))))
       (byte-insertN
-       (cl-incf (comp--sp) (- 1 arg))
+       (incf (comp--sp) (- 1 arg))
        (comp--emit-set-call (comp--callref 'insert arg (comp--sp))))
       (byte-stack-set
        (comp--copy-slot (1+ (comp--sp)) (- (comp--sp) arg -1)))
       (byte-stack-set2 (cl-assert nil)) ;; TODO
       (byte-discardN
-       (cl-incf (comp--sp) (- arg)))
+       (incf (comp--sp) (- arg)))
       (byte-switch
        ;; Assume to follow the emission of a setimm.
        ;; This is checked into comp--emit-switch.
@@ -1506,7 +1513,7 @@ and the annotation emission."
       (byte-constant
        (comp--emit-setimm arg))
       (byte-discardN-preserve-tos
-       (cl-incf (comp--sp) (- arg))
+       (incf (comp--sp) (- arg))
        (comp--copy-slot (+ arg (comp--sp)))))))
 
 (defun comp--emit-narg-prologue (minarg nonrest rest)
@@ -1536,7 +1543,7 @@ and the annotation emission."
   (comp--emit `(set-rest-args-to-local ,(comp--slot-n nonrest)))
   (setf (comp--sp) nonrest)
   (when (and (> nonrest 8) (null rest))
-    (cl-decf (comp--sp))))
+    (decf (comp--sp))))
 
 (defun comp--limplify-finalize-function (func)
   "Reverse insns into all basic blocks of FUNC."
@@ -1606,7 +1613,7 @@ and the annotation emission."
   (unless for-late-load
     (comp--emit
      (comp--call 'eval
-                (let ((comp-curr-allocation-class 'd-impure))
+                (let ((comp-curr-allocation-class 'd-default))
                   (make--comp-mvar :constant
                                   (byte-to-native-top-level-form form)))
                 (make--comp-mvar :constant
@@ -1616,7 +1623,7 @@ and the annotation emission."
   "Emit the creation of subrs for lambda FUNC.
 These are stored in the reloc data array."
   (let ((args (comp--prepare-args-for-top-level func)))
-    (let ((comp-curr-allocation-class 'd-impure))
+    (let ((comp-curr-allocation-class 'd-default))
       (comp--add-const-to-relocs (comp-func-byte-func func)))
     (comp--emit
      (comp--call 'comp--register-lambda
@@ -1696,7 +1703,7 @@ into the C code forwarding the compilation unit."
   ;; FIXME Actually we could have another hash for this.
   (cl-flet ((pred (bb)
               (equal (comp-block-lap-addr bb) addr)))
-    (if-let ((pending (cl-find-if #'pred
+    (if-let* ((pending (cl-find-if #'pred
                                   (comp-limplify-pending-blocks comp-pass))))
         (comp-block-name pending)
       (cl-loop for bb being the hash-value in (comp-func-blocks comp-func)
@@ -1715,7 +1722,7 @@ into the C code forwarding the compilation unit."
    for inst = (car inst-cell)
    for next-inst = (car-safe (cdr inst-cell))
    do (comp--limplify-lap-inst inst)
-      (cl-incf (comp-limplify-pc comp-pass))
+      (incf (comp-limplify-pc comp-pass))
    when (comp--lap-fall-through-p inst)
    do (pcase next-inst
         (`(TAG ,_label . ,label-sp)
@@ -1748,7 +1755,7 @@ into the C code forwarding the compilation unit."
       (let ((args (comp-func-l-args func)))
         (if (comp-args-p args)
             (cl-loop for i below (comp-args-max args)
-                     do (cl-incf (comp--sp))
+                     do (incf (comp--sp))
                         (comp--emit `(set-par-to-local ,(comp--slot) ,i)))
           (comp--emit-narg-prologue (comp-args-base-min args)
                                    (comp-nargs-nonrest args)
@@ -1873,9 +1880,9 @@ The assume is emitted at the beginning of the block BB."
                                      rhs)))
 	       (comp-block-insns bb))))
       ((pred comp--arithm-cmp-fun-p)
-       (when-let ((kind (if negated
-                            (comp--negate-arithm-cmp-fun kind)
-                          kind)))
+       (when-let* ((kind (if negated
+                             (comp--negate-arithm-cmp-fun kind)
+                           kind)))
          (push `(assume ,(make--comp-mvar :slot lhs-slot)
                         (,kind ,lhs
                                ,(if-let* ((vld (comp-cstr-imm-vld-p rhs))
@@ -1891,10 +1898,10 @@ The assume is emitted at the beginning of the block BB."
 (defun comp--maybe-add-vmvar (op cmp-res insns-seq)
   "If CMP-RES is clobbering OP emit a new constrained mvar and return it.
 Return OP otherwise."
-  (if-let ((match (eql (comp-mvar-slot op) (comp-mvar-slot cmp-res)))
-           (new-mvar (make--comp-mvar
-                      :slot
-                      (- (cl-incf (comp-func-vframe-size comp-func))))))
+  (if-let* ((match (eql (comp-mvar-slot op) (comp-mvar-slot cmp-res)))
+            (new-mvar (make--comp-mvar
+                       :slot
+                       (- (incf (comp-func-vframe-size comp-func))))))
       (progn
         (push `(assume ,new-mvar ,op) (cdr insns-seq))
         new-mvar)
@@ -1965,7 +1972,11 @@ TARGET-BB-SYM is the symbol name of the target block."
 (defun comp--add-cond-cstrs-simple ()
   "`comp--add-cstrs' worker function for each selected function."
   (cl-loop
-   for b being each hash-value of (comp-func-blocks comp-func)
+   ;; Don't iterate over hash values directly as
+   ;; `comp--add-cond-cstrs-target-block' can modify the hash table
+   ;; content.
+   for b in (cl-loop for b being each hash-value of (comp-func-blocks comp-func)
+                     collect b)
    do
    (cl-loop
     named in-the-basic-block
@@ -2016,15 +2027,11 @@ TARGET-BB-SYM is the symbol name of the target block."
               (call symbol-value ,(and (pred comp-cstr-cl-tag-p) mvar-tag)))
          (set ,(and (pred comp-mvar-p) mvar-3)
               (call memq ,(and (pred comp-mvar-p) mvar-1) ,(and (pred comp-mvar-p) mvar-2)))
-         (cond-jump ,(and (pred comp-mvar-p) mvar-3) ,(pred comp-mvar-p) ,bb1 ,bb2))
+         (cond-jump ,(and (pred comp-mvar-p) mvar-3) ,(pred comp-mvar-p) ,_bb1 ,bb2))
        (comp--emit-assume 'and mvar-tested
-                         (make--comp-mvar :type (comp-cstr-cl-tag mvar-tag))
-                         (comp--add-cond-cstrs-target-block b bb2)
-                         nil)
-       (comp--emit-assume 'and mvar-tested
-                         (make--comp-mvar :type (comp-cstr-cl-tag mvar-tag))
-                         (comp--add-cond-cstrs-target-block b bb1)
-                         t))
+                          (make--comp-mvar :type (comp-cstr-cl-tag mvar-tag))
+                          (comp--add-cond-cstrs-target-block b bb2)
+                          nil))
       (`((set ,(and (pred comp-mvar-p) cmp-res)
               (,(pred comp--call-op-p)
                ,(and (or (pred comp--equality-fun-p)
@@ -2039,24 +2046,36 @@ TARGET-BB-SYM is the symbol name of the target block."
         for branch-target-cell on blocks
         for branch-target = (car branch-target-cell)
         for negated in '(t nil)
+        for eq-fun = (comp--equality-fun-p fun)
+        for op1-imm = (and (comp-cstr-p op1) (comp-cstr-imm-vld-p op1))
+        for op2-imm = (and (comp-cstr-p op2) (comp-cstr-imm-vld-p op2))
+        ;; On a false equality branch only x != <immediate> remains a
+        ;; sound unary fact.  x != y with two non-immediates is
+        ;; relational and must not be encoded as a per-mvar constraint.
+        for skip = (and eq-fun negated (not op1-imm) (not op2-imm))
         for kind = (cl-case fun
                      (equal 'and-nhc)
                      (eql 'and-nhc)
                      (eq 'and)
                      (t fun))
-        when (or (comp--mvar-used-p target-mvar1)
-                 (comp--mvar-used-p target-mvar2))
+        when (and (not skip)
+                  (or (comp--mvar-used-p target-mvar1)
+                      (comp--mvar-used-p target-mvar2)))
         do
         (let ((block-target (comp--add-cond-cstrs-target-block b branch-target)))
           (setf (car branch-target-cell) (comp-block-name block-target))
           (when (comp--mvar-used-p target-mvar1)
             (comp--emit-assume kind target-mvar1
-                              (comp--maybe-add-vmvar op2 cmp-res prev-insns-seq)
+                              (if (comp-mvar-p op2)
+                                  (comp--maybe-add-vmvar op2 cmp-res prev-insns-seq)
+                                op2)
                               block-target negated))
           (when (comp--mvar-used-p target-mvar2)
             (comp--emit-assume (comp--reverse-arithm-fun kind)
                               target-mvar2
-                              (comp--maybe-add-vmvar op1 cmp-res prev-insns-seq)
+                              (if (comp-mvar-p op1)
+                                  (comp--maybe-add-vmvar op1 cmp-res prev-insns-seq)
+                                op1)
                               block-target negated)))
         finally (cl-return-from in-the-basic-block)))
       (`((set ,(and (pred comp-mvar-p) cmp-res)
@@ -2126,14 +2145,14 @@ TARGET-BB-SYM is the symbol name of the target block."
    for bb being each hash-value of (comp-func-blocks comp-func)
    do
    (comp--loop-insn-in-block bb
-     (when-let ((match
-                 (pcase insn
-                   (`(set ,lhs (,(pred comp--call-op-p) ,f . ,args))
-                    (when-let ((cstr-f (comp--get-function-cstr f)))
-                      (cl-values f cstr-f lhs args)))
-                   (`(,(pred comp--call-op-p) ,f . ,args)
-                    (when-let ((cstr-f (comp--get-function-cstr f)))
-                      (cl-values f cstr-f nil args))))))
+     (when-let* ((match
+                  (pcase insn
+                    (`(set ,lhs (,(pred comp--call-op-p) ,f . ,args))
+                     (when-let* ((cstr-f (comp--get-function-cstr f)))
+                       (cl-values f cstr-f lhs args)))
+                    (`(,(pred comp--call-op-p) ,f . ,args)
+                     (when-let* ((cstr-f (comp--get-function-cstr f)))
+                       (cl-values f cstr-f nil args))))))
        (cl-multiple-value-bind (f cstr-f lhs args) match
          (cl-loop
           with gen = (comp--lambda-list-gen (comp-cstr-f-args cstr-f))
@@ -2327,14 +2346,14 @@ blocks."
                           finger2 (comp-block-post-num b2))))
                 b1))
             (first-processed (l)
-              (if-let ((p (cl-find-if #'comp-block-idom l)))
+              (if-let* ((p (cl-find-if #'comp-block-idom l)))
                   p
                 (signal 'native-ice '("can't find first preprocessed")))))
 
-    (when-let ((blocks (comp-func-blocks comp-func))
-               (entry (gethash 'entry blocks))
-               ;; No point to go on if the only bb is 'entry'.
-               (bb0 (gethash 'bb_0 blocks)))
+    (when-let* ((blocks (comp-func-blocks comp-func))
+                (entry (gethash 'entry blocks))
+                ;; No point to go on if the only bb is 'entry'.
+                (bb0 (gethash 'bb_0 blocks)))
       (cl-loop
        with rev-bb-list = (comp--collect-rev-post-order entry)
        with changed = t
@@ -2437,7 +2456,7 @@ blocks."
 PRE-LAMBDA and POST-LAMBDA are called in pre or post-order if non-nil."
   (when pre-lambda
     (funcall pre-lambda bb))
-  (when-let ((out-edges (comp-block-out-edges bb)))
+  (when-let* ((out-edges (comp-block-out-edges bb)))
     (cl-loop for ed in out-edges
              for child = (comp-edge-dst ed)
              when (eq bb (comp-block-idom child))
@@ -2468,8 +2487,9 @@ PRE-LAMBDA and POST-LAMBDA are called in pre or post-order if non-nil."
                  (setf (comp-vec-aref frame slot-n) mvar
                        (cadr insn) mvar))))
      (pcase insn
-       (`(setimm ,(pred targetp) ,_imm)
-        (new-lvalue))
+       (`(setimm ,lval ,_imm)
+        (when (targetp lval)
+          (new-lvalue)))
        (`(,(pred comp--assign-op-p) ,(pred targetp) . ,_)
         (let ((mvar (comp-vec-aref frame slot-n)))
           (setf (cddr insn) (cl-nsubst-if mvar #'targetp (cddr insn))))
@@ -2495,7 +2515,7 @@ PRE-LAMBDA and POST-LAMBDA are called in pre or post-order if non-nil."
                              do (comp--ssa-rename-insn insn in-frame))
                     (setf (comp-block-final-frame bb)
                           (copy-sequence in-frame))
-                    (when-let ((out-edges (comp-block-out-edges bb)))
+                    (when-let* ((out-edges (comp-block-out-edges bb)))
                       (cl-loop
                        for ed in out-edges
                        for child = (comp-edge-dst ed)
@@ -2540,26 +2560,29 @@ Return t when one or more block was removed, nil otherwise."
               ret t)
    finally return ret))
 
+(defun comp--ssa-function (function)
+  "Port into minimal SSA FUNCTION."
+  (let* ((comp-func function)
+         (ssa-status (comp-func-ssa-status function)))
+    (unless (eq ssa-status t)
+      (cl-loop
+       when (eq ssa-status 'dirty)
+         do (comp--clean-ssa function)
+       do (comp--compute-edges)
+          (comp--compute-dominator-tree)
+       until (null (comp--remove-unreachable-blocks)))
+      (comp--compute-dominator-frontiers)
+      (comp--log-block-info)
+      (comp--place-phis)
+      (comp--ssa-rename)
+      (comp--finalize-phis)
+      (comp--log-func comp-func 3)
+      (setf (comp-func-ssa-status function) t))))
+
 (defun comp--ssa ()
-  "Port all functions into minimal SSA form."
-  (maphash (lambda (_ f)
-             (let* ((comp-func f)
-                    (ssa-status (comp-func-ssa-status f)))
-               (unless (eq ssa-status t)
-                 (cl-loop
-                  when (eq ssa-status 'dirty)
-                    do (comp--clean-ssa f)
-                  do (comp--compute-edges)
-                     (comp--compute-dominator-tree)
-                 until (null (comp--remove-unreachable-blocks)))
-                 (comp--compute-dominator-frontiers)
-                 (comp--log-block-info)
-                 (comp--place-phis)
-                 (comp--ssa-rename)
-                 (comp--finalize-phis)
-                 (comp--log-func comp-func 3)
-                 (setf (comp-func-ssa-status f) t))))
-           (comp-ctxt-funcs-h comp-ctxt)))
+  "Port all functions into minimal SSA all functions."
+  (cl-loop for f being the hash-value in (comp-ctxt-funcs-h comp-ctxt)
+           do (comp--ssa-function f)))
 
 
 ;;; propagate pass specific code.
@@ -2652,7 +2675,7 @@ Return non-nil if the function is folded successfully."
         ;; should do basic block pruning in order to be sure that this
         ;; is not dead-code.  This is now left to gcc, to be
         ;; implemented only if we want a reliable diagnostic here.
-        (let* ((f (if-let (f-in-ctxt (comp--symbol-func-to-fun f))
+        (let* ((f (if-let* ((f-in-ctxt (comp--symbol-func-to-fun f)))
                       ;; If the function is IN the compilation ctxt
                       ;; and know to be pure.
                       (comp-func-byte-func f-in-ctxt)
@@ -2669,7 +2692,7 @@ Fold the call in case."
                (comp-cstr-imm-vld-p (car args)))
       (setf f (comp-cstr-imm (car args))
             args (cdr args)))
-    (when-let ((cstr-f (comp--get-function-cstr f)))
+    (when-let* ((cstr-f (comp--get-function-cstr f)))
       (let ((cstr (comp-cstr-f-ret cstr-f)))
         (when (comp-cstr-empty-p cstr)
           ;; Store it to be rewritten as non local exit.
@@ -2720,7 +2743,8 @@ Fold the call in case."
        (<=
         (comp-cstr-<= lval (car operands) (cadr operands)))
        (=
-        (comp-cstr-= lval (car operands) (cadr operands)))))
+        (comp-cstr-= lval (car operands) (cadr operands)
+                     (comp-ctxt-non-materializable-objs-h comp-ctxt)))))
     (`(setimm ,lval ,v)
      (setf (comp-cstr-imm lval) v))
     (`(phi ,lval . ,rest)
@@ -2754,7 +2778,7 @@ Return t if something was changed."
                                  (comp--copy-insn insn))
                do
                (comp--fwprop-insn insn)
-               (cl-incf i)
+               (incf i)
                when (and (null modified) (not (equal insn orig-insn)))
                  do (setf modified t))
                when (> i comp--fwprop-max-insns-scan)
@@ -2800,6 +2824,69 @@ Return t if something was changed."
                  (comp--rewrite-non-locals)
                  (comp--log-func comp-func 3))))
            (comp-ctxt-funcs-h comp-ctxt)))
+
+
+;;; Type check optimizer pass specific code.
+
+;; This pass optimize-out unnecessary type checks, that is calls to
+;; `type-of' and corresponding conditional branches.
+;;
+;; This is often advantageous in cases where a function manipulates an
+;; object with several slot accesses like:
+;;
+;; (cl-defstruct foo a b c)
+;; (defun bar (x)
+;;   (setf (foo-a x) 3)
+;;   (+ (foo-b x) (foo-c x)))
+;;
+;; After x is accessed and type checked once, it's proved to be of type
+;; foo, and no other type checks are required.
+
+;; At present running this pass over the whole Emacs codebase triggers
+;; the optimization of 1972 type checks.
+
+(defun comp--type-check-optim-block (block)
+  "Optimize conditional branches in BLOCK when possible."
+  (cl-loop
+   named in-the-basic-block
+   for insns-seq on (comp-block-insns block)
+   do (pcase insns-seq
+        (`((set ,(and (pred comp-mvar-p) mvar-tested-copy)
+                ,(and (pred comp-mvar-p) mvar-tested))
+           (set ,(and (pred comp-mvar-p) mvar-1)
+                (call type-of ,(and (pred comp-mvar-p) mvar-tested-copy)))
+           (set ,(and (pred comp-mvar-p) mvar-2)
+                (call symbol-value ,(and (pred comp-cstr-cl-tag-p) mvar-tag)))
+           (set ,(and (pred comp-mvar-p) mvar-3)
+                (call memq ,(and (pred comp-mvar-p) mvar-1) ,(and (pred comp-mvar-p) mvar-2)))
+           (cond-jump ,(and (pred comp-mvar-p) mvar-3) ,(pred comp-mvar-p) ,bb1 ,bb2))
+         (cl-assert (comp-cstr-imm-vld-p mvar-tag))
+         (when (comp-cstr-type-p mvar-tested (comp-cstr-cl-tag mvar-tag))
+           (comp-log (format "Optimizing conditional branch %s in function: %s"
+                             bb1
+                             (comp-func-name comp-func))
+                     3)
+           (setf (car insns-seq) '(comment "optimized by comp--type-check-optim")
+                 (cdr insns-seq) `((jump ,bb2))
+                 ;; Set the SSA status as dirty so
+                 ;; `comp--ssa-function' will remove the unreachable
+                 ;; branches later.
+                 (comp-func-ssa-status comp-func) 'dirty))))))
+
+(defun comp--type-check-optim (_)
+  "Optimize conditional branches when possible."
+  (cl-loop
+   for f being each hash-value of (comp-ctxt-funcs-h comp-ctxt)
+   for comp-func = f
+   when (>= (comp-func-speed f) 2)
+   do (cl-loop
+       for b being each hash-value of (comp-func-blocks f)
+       do (comp--type-check-optim-block b)
+       finally
+       (progn
+         (when (eq (comp-func-ssa-status f) 'dirty)
+           (comp--ssa-function f))
+         (comp--log-func comp-func 3)))))
 
 
 ;;; Call optimizer pass specific code.
@@ -2889,14 +2976,14 @@ FUNCTION can be a function-name or byte compiled function."
    do (comp--loop-insn-in-block b
         (pcase insn
           (`(set ,lval (callref funcall ,f . ,rest))
-           (when-let ((ok (comp-cstr-imm-vld-p f))
-                      (new-form (comp--call-optim-form-call
-                                 (comp-cstr-imm f) rest)))
+           (when-let* ((ok (comp-cstr-imm-vld-p f))
+                       (new-form (comp--call-optim-form-call
+                                  (comp-cstr-imm f) rest)))
              (setf insn `(set ,lval ,new-form))))
           (`(callref funcall ,f . ,rest)
-           (when-let ((ok (comp-cstr-imm-vld-p f))
-                      (new-form (comp--call-optim-form-call
-                                 (comp-cstr-imm f) rest)))
+           (when-let* ((ok (comp-cstr-imm-vld-p f))
+                       (new-form (comp--call-optim-form-call
+                                  (comp-cstr-imm f) rest)))
              (setf insn new-form)))))))
 
 (defun comp--call-optim (_)
@@ -3178,7 +3265,9 @@ Set it into the `type' slot."
                  ;; from the corresponding m-var.
                  collect (if (gethash obj
                                       (comp-ctxt-byte-func-to-func-h comp-ctxt))
-                             'lambda-fixup
+                             ;; This prints as #$, so we can assert this
+                             ;; value does not remain in the data vector
+                             comp--\#$
                            obj))))
 
 (defun comp--finalize-relocs ()
@@ -3192,28 +3281,15 @@ Update all insn accordingly."
 
   (let* ((d-default (comp-ctxt-d-default comp-ctxt))
          (d-default-idx (comp-data-container-idx d-default))
-         (d-impure (comp-ctxt-d-impure comp-ctxt))
-         (d-impure-idx (comp-data-container-idx d-impure))
          (d-ephemeral (comp-ctxt-d-ephemeral comp-ctxt))
          (d-ephemeral-idx (comp-data-container-idx d-ephemeral)))
-    ;; We never want compiled lambdas ending up in pure space.  A copy must
-    ;; be already present in impure (see `comp--emit-lambda-for-top-level').
-    (cl-loop for obj being each hash-keys of d-default-idx
-             when (gethash obj (comp-ctxt-lambda-fixups-h comp-ctxt))
-               do (cl-assert (gethash obj d-impure-idx))
-                  (remhash obj d-default-idx))
-    ;; Remove entries in d-impure already present in d-default.
-    (cl-loop for obj being each hash-keys of d-impure-idx
-             when (gethash obj d-default-idx)
-               do (remhash obj d-impure-idx))
-    ;; Remove entries in d-ephemeral already present in d-default or
-    ;; d-impure.
+    ;; Remove entries in d-ephemeral already present in d-default
     (cl-loop for obj being each hash-keys of d-ephemeral-idx
-             when (or (gethash obj d-default-idx) (gethash obj d-impure-idx))
+             when (gethash obj d-default-idx)
                do (remhash obj d-ephemeral-idx))
     ;; Fix-up indexes in each relocation class and fill corresponding
     ;; reloc lists.
-    (mapc #'comp--finalize-container (list d-default d-impure d-ephemeral))
+    (mapc #'comp--finalize-container (list d-default d-ephemeral))
     ;; Make a vector from the function documentation hash table.
     (cl-loop with h = (comp-ctxt-function-docs comp-ctxt)
              with v = (make-vector (hash-table-count h) nil)
@@ -3223,13 +3299,13 @@ Update all insn accordingly."
              finally
              do (setf (comp-ctxt-function-docs comp-ctxt) v))
     ;; And now we conclude with the following: We need to pass to
-    ;; `comp--register-lambda' the index in the impure relocation
-    ;; array to store revived lambdas, but given we know it only now
-    ;; we fix it up as last.
+    ;; `comp--register-lambda' the index in the relocation array to
+    ;; store revived lambdas, but given we know it only now we fix it up
+    ;; as last.
     (cl-loop for f being each hash-keys of (comp-ctxt-lambda-fixups-h comp-ctxt)
              using (hash-value mvar)
              with reverse-h = (make-hash-table) ;; Make sure idx is unique.
-             for idx = (gethash f d-impure-idx)
+             for idx = (gethash f d-default-idx)
              do
              (cl-assert (null (gethash idx reverse-h)))
              (cl-assert (fixnump idx))
@@ -3301,7 +3377,7 @@ Prepare every function for final compilation and drive the C back-end."
 			 nil ".el"))
              (default-directory invocation-directory))
 	(with-temp-file temp-file
-          (insert ";; -*-coding: utf-8-emacs-unix; -*-\n")
+          (insert ";; -*- coding: utf-8-emacs-unix; lexical-binding: t -*-\n")
           (mapc (lambda (e)
                   (insert (prin1-to-string e)))
                 expr))
@@ -3461,6 +3537,21 @@ session."
                (rename-file newfile oldfile t)
              (delete-file oldfile)))))
 
+(defun comp--error-add-context (err ctxt)
+  "Add context information CTXT to the error descriptor ERR."
+  ;; There is currently no agreed upon way to do that, and if we want the
+  ;; context to be displayed, the only option currently is to add elements
+  ;; to the error descriptor.
+  (let ((err-data (cdr err)))
+    (setf (cdr err)
+	  (if (not (listp err-data)) ;; This should never happen.
+              (list err-data ctxt)
+            ;; We can't just insert arbitrary info in the
+            ;; error-data part of an error: the handler may
+            ;; expect specific data at specific positions,
+            ;; so add our info at the end.
+            (append err-data (list ctxt))))))
+
 (defun comp--native-compile (function-or-file &optional with-late-load output)
   "Compile FUNCTION-OR-FILE into native code.
 When WITH-LATE-LOAD is non-nil, mark the compilation unit for late
@@ -3495,7 +3586,7 @@ the deferred compilation mechanism."
                    for pass in comp-passes
                    unless (memq pass comp-disabled-passes)
                    do
-                   (comp-log (format "\n(%s) Running pass %s:\n"
+                   (comp-log (format "\n(%S) Running pass %s:\n"
                                      function-or-file pass)
                              2)
                    (setf data (funcall pass data))
@@ -3504,32 +3595,24 @@ the deferred compilation mechanism."
                             do (funcall f data))
                    finally
                    (when comp-log-time-report
-                     (comp-log (format "Done compiling %s" data) 0)
+                     (comp-log (format "Done compiling %S" data) 0)
                      (cl-loop for (pass . time) in (reverse report)
                               do (comp-log (format "Pass %s took: %fs."
                                                    pass time)
                                            0))))
-                (native-compiler-skip)
                 (t
-                 (let ((err-val (cdr err)))
-                   ;; If we are doing an async native compilation print the
-                   ;; error in the correct format so is parsable and abort.
-                   (if (and comp-async-compilation
-                            (not (eq (car err) 'native-compiler-error)))
-                       (progn
-                         (message "%s: Error %s"
-                                  function-or-file
-                                  (error-message-string err))
-                         (kill-emacs -1))
-                     ;; Otherwise re-signal it adding the compilation input.
-                     ;; FIXME: We can't just insert arbitrary info in the
-                     ;; error-data part of an error: the handler may expect
-                     ;; specific data at specific positions!
-	             (signal (car err) (if (consp err-val)
-			                   (cons function-or-file err-val)
-			                 ;; FIXME: `err-val' is supposed to be
-			                 ;; a list, so it can only be nil here!
-			                 (list function-or-file err-val)))))))
+                 ;; If we are doing an async native compilation print the
+                 ;; error in the correct format so is parsable and abort.
+                 (if (and comp-async-compilation
+                          (not (error-has-type-p err 'native-compiler-error)))
+                     (progn
+                       (message "%S: Error %s"
+                                function-or-file
+                                (error-message-string err))
+                       (kill-emacs -1))
+                   ;; Otherwise re-signal it adding the compilation input.
+                   (comp--error-add-context err function-or-file)
+	           (signal err))))
               (if (stringp function-or-file)
                   data
                 ;; So we return the compiled function.
@@ -3565,29 +3648,35 @@ the deferred compilation mechanism."
 Search happens in `native-comp-eln-load-path'."
   (cl-loop
    with eln-filename = (comp-el-to-eln-rel-filename filename)
-   for dir in native-comp-eln-load-path
-   for f = (expand-file-name eln-filename
-                             (expand-file-name comp-native-version-dir
-                                               (expand-file-name
-                                                dir
-                                                invocation-directory)))
+   for dir in (comp-eln-load-path-eff)
+   for f = (expand-file-name eln-filename dir)
    when (file-exists-p f)
      do (cl-return f)))
 
 ;;;###autoload
 (defun native-compile (function-or-file &optional output)
   "Compile FUNCTION-OR-FILE into native code.
-This is the synchronous entry-point for the Emacs Lisp native
-compiler.  FUNCTION-OR-FILE is a function symbol, a form, or the
-filename of an Emacs Lisp source file.  If OUTPUT is non-nil, use
-it as the filename for the compiled object.  If FUNCTION-OR-FILE
-is a filename, if the compilation was successful return the
-filename of the compiled object.  If FUNCTION-OR-FILE is a
-function symbol or a form, if the compilation was successful
-return the compiled function."
+This is the synchronous entry-point for the Emacs Lisp native compiler.
+FUNCTION-OR-FILE is a function symbol, a form, an interpreted-function,
+or the filename of an Emacs Lisp source file.  If OUTPUT is non-nil, use
+it as the filename for the compiled object.  If FUNCTION-OR-FILE is a
+filename, if the compilation was successful return the filename of the
+compiled object.  If FUNCTION-OR-FILE is a function symbol or a form, if
+the compilation was successful return the compiled function."
   (declare (ftype (function ((or string symbol) &optional string)
                             (or native-comp-function string))))
   (comp--native-compile function-or-file nil output))
+
+;;;###autoload
+(defun native-compile-directory (directory)
+  "Native compile if necessary all the .el files present in DIRECTORY.
+Each .el file is native-compiled if the corresponding .eln file is not
+found in any directory mentioned in `native-comp-eln-load-path'.
+The search within DIRECTORY is performed recursively."
+  (mapc (lambda (file)
+	  (unless (comp-lookup-eln file)
+	    (native-compile file)))
+	(directory-files-recursively directory ".+\\.el\\'")))
 
 ;;;###autoload
 (defun batch-native-compile (&optional for-tarball)
@@ -3655,6 +3744,7 @@ variable \"NATIVE_DISABLED\" is set, only byte compile."
       (comp--write-bytecode-file eln-file)
       (setq command-line-args-left (cdr command-line-args-left)))))
 
+;;;###autoload
 (defun native-compile-prune-cache ()
   "Remove *.eln files that aren't usable by the current Emacs build.
 

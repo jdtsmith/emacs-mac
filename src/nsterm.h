@@ -1,6 +1,6 @@
 /* -*- objc -*- */
 /* Definitions and headers for communication with NeXT/Open/GNUstep API.
-   Copyright (C) 1989, 1993, 2005, 2008-2025 Free Software Foundation,
+   Copyright (C) 1989, 1993, 2005, 2008-2026 Free Software Foundation,
    Inc.
 
 This file is part of GNU Emacs.
@@ -42,7 +42,7 @@ typedef float EmacsCGFloat;
 
 /* NSFilenamesPboardType is deprecated in macOS 10.14, but
    NSPasteboardTypeFileURL is only available in 10.13 (and GNUstep
-   probably lacks it too). */
+   probably lacks it too).  */
 #if defined NS_IMPL_COCOA && MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
 #define NS_USE_NSPasteboardTypeFileURL 1
 #else
@@ -60,16 +60,16 @@ typedef float EmacsCGFloat;
    Uncomment suitable NSTRACE_GROUP_xxx lines to trace more.
 
    Hint: keep the trailing whitespace -- the version control system
-   will reject accidental commits. */
+   will reject accidental commits.  */
 
 /* #define NSTRACE_ENABLED 1          */
 
 
 /* When non-zero, trace output is enabled for all parts, except those
-   explicitly disabled. */
+   explicitly disabled.  */
 /* #define NSTRACE_ALL_GROUPS     1     */
 
-/* When non-zero, trace output is enabled in the corresponding part. */
+/* When non-zero, trace output is enabled in the corresponding part.  */
 /* #define NSTRACE_GROUP_EVENTS  1     */
 /* #define NSTRACE_GROUP_UPDATES 1     */
 /* #define NSTRACE_GROUP_FRINGE  1     */
@@ -97,7 +97,7 @@ typedef float EmacsCGFloat;
    This is post prominent when the EVENTS part is enabled.
 
    Note that the trace system, when enabled, uses the GCC/Clang
-   "cleanup" extension. */
+   "cleanup" extension.  */
 
 /*   For example, the following is the output of `M-x
      toggle-frame-maximized RET'.
@@ -185,7 +185,7 @@ char const * nstrace_fullscreen_type_name (int);
 #define NSTRACE_MSG_NO_DASHES(...)                                          \
   do                                                                        \
     {                                                                       \
-      if (nstrace_enabled)                                                  \
+      if (nstrace_enabled_global)                                                  \
         {                                                                   \
           fprintf (stderr, "%-10s:%5d: [%5d]%.*s",                          \
                    __FILE__, __LINE__, nstrace_num++,                       \
@@ -279,7 +279,7 @@ char const * nstrace_fullscreen_type_name (int);
 
 #define NSTRACE_WHEN(cond, ...)                                         \
   __attribute__ ((cleanup (nstrace_restore_global_trace_state)))        \
-  int nstrace_saved_enabled_global = nstrace_enabled_global;            \
+  int __attribute__ ((unused)) nstrace_saved_enabled_global = nstrace_enabled_global;\
   __attribute__ ((cleanup (nstrace_leave)))                             \
   int nstrace_enabled = nstrace_enabled_global && (cond);               \
   if (nstrace_enabled) { ++nstrace_depth; }                             \
@@ -487,7 +487,7 @@ enum ns_return_frame_mode
   NSRect ns_userRect;
 }
 
-/* AppKit-side interface */
+/* AppKit-side interface.  */
 - (instancetype)menuDown: (id)sender;
 - (instancetype)toolbarClicked: (id)item;
 - (instancetype)toggleToolbar: (id)sender;
@@ -496,7 +496,7 @@ enum ns_return_frame_mode
 - (void)mouseUp: (NSEvent *)theEvent;
 - (instancetype)setMiniwindowImage: (BOOL)setMini;
 
-/* Emacs-side interface */
+/* Emacs-side interface.  */
 - (instancetype) initFrameFromEmacs: (struct frame *) f;
 - (void) setWindowClosing: (BOOL)closing;
 - (void) deleteWorkingText;
@@ -521,7 +521,7 @@ enum ns_return_frame_mode
 #endif
 - (void)copyRect:(NSRect)srcRect to:(NSPoint)dest;
 
-/* Non-notification versions of NSView methods. Used for direct calls.  */
+/* Non-notification versions of NSView methods.  Used for direct calls.  */
 - (void)adjustEmacsFrameRect;
 - (void)windowWillEnterFullScreen;
 - (void)windowDidEnterFullScreen;
@@ -671,7 +671,11 @@ enum ns_return_frame_mode
 {
   NSBitmapImageRep *bmRep; /* used for accessing pixel data */
   unsigned char *pixmapData[5]; /* shortcut to access pixel data */
+#ifdef NS_IMPL_COCOA
+  CGImageRef stippleMask;
+#else
   NSColor *stippleMask;
+#endif /* NS_IMPL_COCOA */
 @public
   NSAffineTransform *transform;
   BOOL smoothing;
@@ -688,7 +692,11 @@ enum ns_return_frame_mode
                green: (unsigned char)g blue: (unsigned char)b
               alpha:(unsigned char)a;
 - (void)setAlphaAtX: (int)x Y: (int)y to: (unsigned char)a;
+#ifdef NS_IMPL_COCOA
+- (CGImageRef)stippleMask;
+#else
 - (NSColor *)stippleMask;
+#endif /* NS_IMPL_COCOA */
 - (Lisp_Object)getMetadata;
 - (BOOL)setFrame: (unsigned int) index;
 - (void)setTransform: (double[3][3]) m;
@@ -704,26 +712,26 @@ enum ns_return_frame_mode
    ========================================================================== */
 
 @interface EmacsScroller : NSScroller
-  {
-   struct window *window;
-   struct frame *frame;
-   NSResponder *prevResponder;
+{
+  struct window *window;
+  struct frame *frame;
+  NSResponder *prevResponder;
 
-   /* offset to the bottom of knob of last mouse down */
-   CGFloat last_mouse_offset;
-   float min_portion;
-   int pixel_length;
-   enum scroll_bar_part last_hit_part;
+  /* Offset to the bottom of knob of last mouse down.  */
+  CGFloat last_mouse_offset;
+  float min_portion;
+  int pixel_length;
+  enum scroll_bar_part last_hit_part;
 
-   BOOL condemned;
+  BOOL condemned;
 
-   BOOL horizontal;
+  BOOL horizontal;
 
-   /* optimize against excessive positioning calls generated by emacs */
-   int em_position;
-   int em_portion;
-   int em_whole;
-   }
+  /* Optimize against excessive positioning calls generated by Emacs.  */
+  int em_position;
+  int em_portion;
+  int em_whole;
+}
 
 - (void) mark;
 - (instancetype) initFrame: (NSRect )r window: (Lisp_Object)win;
@@ -784,7 +792,7 @@ extern EmacsMenu *svcsMenu;
 
    ========================================================================== */
 
-/* Special keycodes that we pass down the event chain */
+/* Special keycodes that we pass down the event chain.  */
 #define KEY_NS_POWER_OFF               ((1<<28)|(0<<16)|1)
 #define KEY_NS_OPEN_FILE               ((1<<28)|(0<<16)|2)
 #define KEY_NS_OPEN_TEMP_FILE          ((1<<28)|(0<<16)|3)
@@ -817,7 +825,7 @@ struct nsfont_info
 {
   struct font font;
 
-  char *name;  /* PostScript name, uniquely identifies on NS systems */
+  char *name;  /* PostScript name, uniquely identifies on NS systems.  */
 
   /* The following metrics are stored as float rather than int.  */
 
@@ -866,10 +874,10 @@ struct ns_display_info
   ptrdiff_t bitmaps_size;
   ptrdiff_t bitmaps_last;
 
-  /* DPI resolution of this screen */
+  /* DPI resolution of this screen.  */
   double resx, resy;
 
-  /* Mask of things that cause the mouse to be grabbed */
+  /* Mask of things that cause the mouse to be grabbed.  */
   int grabbed;
 
   int n_planes;
@@ -965,10 +973,10 @@ struct ns_output
   Emacs_Cursor bottom_edge_cursor;
   Emacs_Cursor bottom_left_corner_cursor;
 
-  /* NS-specific */
+  /* NS-specific.  */
   Emacs_Cursor current_pointer;
 
-  /* lord knows why Emacs needs to know about our Window ids.. */
+  /* Lord knows why Emacs needs to know about our Window ids..  */
   Window window_desc, parent_desc;
   char explicit_parent;
 
@@ -1008,7 +1016,7 @@ struct ns_output
 
 #ifdef NS_IMPL_GNUSTEP
   /* Zero if this is the first time a toolbar has been updated on this
-     frame. */
+     frame.  */
   int tool_bar_adjusted;
 #endif
 };
@@ -1100,24 +1108,17 @@ struct x_output
 extern struct ns_display_info *ns_term_init (Lisp_Object display_name);
 extern void ns_term_shutdown (int sig);
 
-/* constants for text rendering */
-#define NS_DUMPGLYPH_NORMAL             0
-#define NS_DUMPGLYPH_CURSOR             1
-#define NS_DUMPGLYPH_FOREGROUND         2
-#define NS_DUMPGLYPH_MOUSEFACE          3
-
-
 #ifdef NS_IMPL_GNUSTEP
-/* In nsfont, called from fontset.c */
+/* In nsfont.m, called from fontset.c.  */
 extern void nsfont_make_fontset_for_font (Lisp_Object name,
                                          Lisp_Object font_object);
 
-/* In nsfont, for debugging */
+/* In nsfont.m, for debugging.  */
 struct glyph_string;
 void ns_dump_glyphstring (struct glyph_string *s) EXTERNALLY_VISIBLE;
 #endif
 
-/* Implemented in nsterm, published in or needed from nsfns.  */
+/* Implemented in nsterm.m, published in or needed from nsfns.m.  */
 extern Lisp_Object ns_list_fonts (struct frame *f, Lisp_Object pattern,
                                   int size, int maxnames);
 extern void ns_clear_frame (struct frame *f);
@@ -1148,7 +1149,8 @@ extern int ns_lisp_to_color (Lisp_Object color, NSColor **col);
 extern const char *ns_get_pending_menu_title (void);
 #endif
 
-/* Implemented in nsfns, published in nsterm.  */
+/* Implemented in nsfns.m, published in nsterm.m.  */
+extern void ns_init_colors (void);
 #ifdef __OBJC__
 extern void ns_move_tooltip_to_mouse_location (NSPoint);
 #endif
@@ -1160,8 +1162,7 @@ extern void ns_change_tab_bar_height (struct frame *f, int height);
 extern const char *ns_get_string_resource (void *_rdb,
                                            const char *name,
                                            const char *class);
-
-/* C access to ObjC functionality */
+/* C access to ObjC functionality.  */
 extern void  ns_release_object (void *obj);
 extern void  ns_retain_object (void *obj);
 extern void *ns_alloc_autorelease_pool (void);
@@ -1170,7 +1171,7 @@ extern const char *ns_get_defaults_value (const char *key);
 extern void ns_init_pool (void);
 extern void ns_init_locale (void);
 
-/* in nsmenu */
+/* Defined in nsmenu.m.  */
 extern void update_frame_tool_bar (struct frame *f);
 #ifdef __OBJC__
 extern void update_frame_tool_bar_1 (struct frame *f, EmacsToolbar *toolbar);
@@ -1197,7 +1198,7 @@ extern void syms_of_nsfns (void);
 extern void syms_of_nsmenu (void);
 extern void syms_of_nsselect (void);
 
-/* From nsimage.m, needed in image.c */
+/* From nsimage.m, needed in image.c.  */
 struct image;
 extern bool ns_can_use_native_image_api (Lisp_Object type);
 extern void *ns_image_from_XBM (char *bits, int width, int height,
@@ -1219,7 +1220,7 @@ extern int ns_display_pixel_height (struct ns_display_info *);
 extern int ns_display_pixel_width (struct ns_display_info *);
 extern size_t ns_image_size_in_bytes (void *img);
 
-/* This in nsterm.m */
+/* Defined in nsterm.m.  */
 extern float ns_antialias_threshold;
 extern void ns_make_frame_visible (struct frame *f);
 extern void ns_make_frame_invisible (struct frame *f);
@@ -1235,6 +1236,7 @@ extern void ns_set_no_accept_focus (struct frame *f, Lisp_Object new_value,
 extern void ns_set_z_group (struct frame *f, Lisp_Object new_value,
                             Lisp_Object old_value);
 #ifdef NS_IMPL_COCOA
+extern void ns_set_appearance_1 (struct frame *f, Lisp_Object value);
 extern void ns_set_appearance (struct frame *f, Lisp_Object new_value,
                                Lisp_Object old_value);
 extern void ns_set_transparent_titlebar (struct frame *f,
@@ -1276,7 +1278,7 @@ extern char gnustep_base_version[];  /* version tracking */
 #define NS_SELECTION_FG_COLOR_DEFAULT	@"Black";
 #define RESIZE_HANDLE_SIZE 12
 
-/* Little utility macros */
+/* Little utility macros.  */
 #define IN_BOUND(min, x, max) (((x) < (min)) \
                                 ? (min) : (((x)>(max)) ? (max) : (x)))
 #define SCREENMAXBOUND(x) IN_BOUND (-SCREENMAX, x, SCREENMAX)
@@ -1380,6 +1382,11 @@ enum NSWindowTabbingMode
 #define NSControlStateValueOff NSOffState
 #define NSBezelStyleRounded NSRoundedBezelStyle
 #define NSButtonTypeMomentaryPushIn NSMomentaryPushInButton
+#endif
+
+#if !defined (NS_IMPL_COCOA) || !defined (MAC_OS_X_VERSION_10_15)
+/* Deprecated in macOS 10.15.  */
+#define NSLevelIndicatorStyleContinuousCapacity NSContinuousCapacityLevelIndicatorStyle
 #endif
 
 extern void mark_nsterm (void);

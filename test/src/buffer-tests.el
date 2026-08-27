@@ -1,6 +1,6 @@
 ;;; buffer-tests.el --- tests for buffer.c functions -*- lexical-binding: t -*-
 
-;; Copyright (C) 2015-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -905,6 +905,7 @@ should evaporate overlays in both."
       (should-length 1 (overlays-at 10))
       (should-length 1 (overlays-at 20))
       (should-length 0 (overlays-at (point-max)))
+      (should-length 1 (overlays-at (1- (point-max))))
       (narrow-to-region 10 20)
       (should-length 1 (overlays-at (point-min)))
       (should-length 1 (overlays-at 15))
@@ -1060,7 +1061,9 @@ should evaporate overlays in both."
       (should-length 2 (overlays-in 1 (point-max)))
       (should-length 1 (overlays-in (point-max) (point-max)))
       (narrow-to-region 1 50)
-      (should-length 1 (overlays-in 1 (point-max)))
+      ;; We only count empty overlays in narrowed buffers excluding the
+      ;; real EOB when the region is confined to `point-max'.
+      (should-length 0 (overlays-in 1 (point-max)))
       (should-length 1 (overlays-in (point-max) (point-max))))))
 
 
@@ -1753,7 +1756,7 @@ quae ab illo inventore veritatis et quasi architecto beatae vitae
 dicta sunt, explicabo.  "))
 
       (while (< iteration-count iteration-target)
-        (cl-incf iteration-count)
+        (incf iteration-count)
 
         ;; Toggle GROWING if we've reached a size boundary.  The idea
         ;; is to initially steadily increase the overlay count, then
@@ -1780,7 +1783,7 @@ dicta sunt, explicabo.  "))
                    (ov (make-overlay begin end nil
                                      (= 0 (random 2)) (= 0 (random 2)))))
               (aset overlays overlay-count ov)
-              (cl-incf overlay-count)))
+              (incf overlay-count)))
            ((and (not create-overlay) (> overlay-count 0))
 
             ;; Possibly delete a random overlay.
@@ -1790,7 +1793,7 @@ dicta sunt, explicabo.  "))
               (when (< index last-index)
                 (aset overlays index (aref overlays last-index)))
               (aset overlays last-index nil)
-              (cl-decf overlay-count)
+              (decf overlay-count)
               (delete-overlay ov)))))
 
         ;; Modify the buffer on occasion, which exercises the
@@ -8375,8 +8378,11 @@ dicta sunt, explicabo.  "))
     (should (= (length (overlays-in 1 2)) 0))
     (narrow-to-region 1 2)
     ;; We've now narrowed, so the zero-length overlay is at the end of
-    ;; the (accessible part of the) buffer.
-    (should (= (length (overlays-in 1 2)) 1))
+    ;; the (accessible part of the) buffer, but we only count it when
+    ;; the region is confined to `point-max'.
+    (should (= (length (overlays-in 1 2)) 0))
+    (should (= (length (overlays-in 2 2)) 1))
+    (should (= (length (overlays-in (point-max) (point-max))) 1))
     (remove-overlays)
     (should (= (length (overlays-in (point-min) (point-max))) 0))))
 
@@ -8507,7 +8513,10 @@ Finally, kill the buffer and its temporary file."
 
       ;; Clean up.
       (when (file-exists-p buffer-auto-save-file-name)
-        (delete-file buffer-auto-save-file-name))))
+        (delete-file buffer-auto-save-file-name))
+      ;; Don't leave modified and unsaved files, to avoid confirmation
+      ;; prompts when exiting Emacs in interactive sessions.
+      (restore-buffer-modified-p nil)))
 
   (ert-with-temp-file file
     (setq file (file-truename file))
@@ -8518,27 +8527,28 @@ Finally, kill the buffer and its temporary file."
       (should (buffer-modified-p))
       (should-not (eq (buffer-modified-p) 'autosaved))
       (restore-buffer-modified-p 'autosaved)
-      (should (eq (buffer-modified-p) 'autosaved)))))
+      (should (eq (buffer-modified-p) 'autosaved))
+      ;; Don't leave modified and unsaved files, to avoid confirmation
+      ;; prompts when exiting Emacs in interactive sessions.
+      (restore-buffer-modified-p nil))))
 
 (ert-deftest test-buffer-chars-modified-ticks ()
   "Test `buffer-chars-modified-tick'."
   (setq temporary-file-directory (file-truename temporary-file-directory))
-  (let ((text "foobar")
-        f1 f2)
-    (unwind-protect
-        (progn
-          (setq f1 (make-temp-file "buf-modiff-tests")
-                f2 (make-temp-file "buf-modiff-tests"))
-          (with-current-buffer (find-file f1)
-            (should (= (buffer-chars-modified-tick) 1))
-            (should (= (buffer-chars-modified-tick) (buffer-modified-tick)))
-            (write-region text nil f2 nil 'silent)
-            (insert-file-contents f2)
-            (should (= (buffer-chars-modified-tick) (buffer-modified-tick)))
-            (should (> (buffer-chars-modified-tick) 1))))
-      (if f1 (delete-file f1))
-      (if f2 (delete-file f2))
-      )))
+  (ert-with-temp-file f1
+    (ert-with-temp-file f2
+      (let ((text "foobar"))
+        (with-current-buffer (find-file f1)
+          (should (= (buffer-chars-modified-tick) 1))
+          (should (= (buffer-chars-modified-tick) (buffer-modified-tick)))
+          (write-region text nil f2 nil 'silent)
+          (insert-file-contents f2)
+          (should (= (buffer-chars-modified-tick) (buffer-modified-tick)))
+          (should (> (buffer-chars-modified-tick) 1))
+          ;; Don't leave modified and unsaved files, to avoid
+          ;; confirmation prompts when exiting Emacs in interactive
+          ;; sessions.
+          (restore-buffer-modified-p nil))))))
 
 (ert-deftest test-labeled-narrowing ()
   "Test `with-restriction' and `without-restriction'."
@@ -8645,5 +8655,23 @@ Finally, kill the buffer and its temporary file."
       (should (= (point-max) 250))))
     (should (= (point-min) 1))
     (should (= (point-max) 5001))))
+
+(ert-deftest test-line-spacing ()
+  "Test `line-spacing' impact on text size"
+  (skip-unless (display-graphic-p))
+  (let*
+      ((size-with-text (lambda (ls)
+                         (with-temp-buffer
+                           (setq-local line-spacing ls)
+                           (insert "X\nX")
+                           (cdr (buffer-text-pixel-size))))))
+    (cl-loop for x from 0 to 50
+             for y from 0 to 50
+             do
+             (ert-info ((format "((linespacing '(%d . %d)) == (linespacing %d)" x y (+ x y))
+                        :prefix "Linespace check: ")
+               (should (=
+                        (funcall size-with-text (+ x y))
+                        (funcall size-with-text (cons x y))))))))
 
 ;;; buffer-tests.el ends here

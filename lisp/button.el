@@ -1,6 +1,6 @@
 ;;; button.el --- clickable buttons -*- lexical-binding: t -*-
 ;;
-;; Copyright (C) 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2026 Free Software Foundation, Inc.
 ;;
 ;; Author: Miles Bader <miles@gnu.org>
 ;; Keywords: extensions, hypermedia
@@ -80,8 +80,15 @@ Mode-specific keymaps may want to use this as their parent keymap."
   "<touchscreen-down>" #'push-button)
 
 (define-minor-mode button-mode
-  "A minor mode for navigating to buttons with the TAB key."
-  :keymap button-buffer-map)
+  "A minor mode for navigating to buttons with the TAB key.
+
+Disabling the mode will remove all buttons in the current buffer."
+  :keymap button-buffer-map
+  (when (not button-mode)
+    (save-excursion
+      (save-restriction
+        (widen)
+        (unbuttonize-region (point-min) (point-max))))))
 
 ;; Default properties for buttons.
 (put 'default-button 'face 'button)
@@ -90,7 +97,7 @@ Mode-specific keymaps may want to use this as their parent keymap."
 (put 'default-button 'type 'button)
 ;; `action' may be either a function to call, or a marker to go to.
 (put 'default-button 'action #'ignore)
-(put 'default-button 'help-echo (purecopy "mouse-2, RET: Push this button"))
+(put 'default-button 'help-echo "mouse-2, RET: Push this button")
 ;; Make overlay buttons go away if their underlying text is deleted.
 (put 'default-button 'evaporate t)
 ;; Prevent insertions adjacent to text-property buttons from
@@ -645,15 +652,19 @@ Also see `buttonize-region'."
     string))
 
 (defun button--properties (callback data help-echo)
-  (list 'font-lock-face 'button
-        'mouse-face 'highlight
-        'help-echo help-echo
-        'button t
-        'follow-link t
-        'category t
-        'button-data data
-        'keymap button-map
-        'action callback))
+  (append
+   (list 'font-lock-face 'button
+         'mouse-face 'highlight
+         'button t
+         'follow-link t
+         'category t
+         'button-data data
+         'keymap button-map
+         'action callback)
+   (and help-echo
+        (list 'help-echo help-echo
+              ;; Record that button.el is responsible for this property.
+              'help-echo-button t))))
 
 (defun buttonize-region (start end callback &optional data help-echo)
   "Make the region between START and END into a button.
@@ -663,9 +674,27 @@ itself will be used instead as the function argument.
 
 If HELP-ECHO, use that as the `help-echo' property.
 
-Also see `buttonize'."
+Also see `buttonize' and `unbuttonize-region'."
   (add-text-properties start end (button--properties callback data help-echo))
   (add-face-text-property start end 'button t))
+
+(defun unbuttonize-region (start end)
+  "Remove all the buttons between START and END.
+This removes both text-property and overlay based buttons."
+  (dolist (o (overlays-in start end))
+    (when (overlay-get o 'button)
+      (delete-overlay o)))
+  (with-silent-modifications
+    (remove-text-properties
+     start end
+     (append
+      (button--properties nil nil nil)
+      ;; Only remove help-echo if it was added by button.el.
+      (and (get-text-property start 'help-echo-button)
+           (list 'help-echo nil
+                 'help-echo-button nil))))
+    (add-face-text-property start end
+                            'button nil)))
 
 (provide 'button)
 

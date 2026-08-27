@@ -1,6 +1,6 @@
 ;;; keymap.el --- Keymap functions  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: internal
@@ -39,7 +39,7 @@
   (dolist (key keys)
     (when (or (vectorp key)
               (and (stringp key) (not (key-valid-p key))))
-      (byte-compile-warn "Invalid `kbd' syntax: %S" key))))
+      (byte-compile-warn "Invalid `key-valid-p' syntax: %S" key))))
 
 (defun keymap-set (keymap key definition)
   "Set KEY to DEFINITION in KEYMAP.
@@ -404,9 +404,16 @@ This function creates a `keyboard-translate-table' if necessary
 and then modifies one entry in it.
 
 Both FROM and TO should be specified by strings that satisfy `key-valid-p'.
-If TO is nil, remove any existing translation for FROM."
+If TO is nil, remove any existing translation for FROM.
+
+Interactively, prompt for FROM and TO with `read-char'."
   (declare (compiler-macro
             (lambda (form) (keymap--compile-check from to) form)))
+  ;; Using `key-description' is a necessary evil here, so that the
+  ;; values can be passed to keymap-* functions, even though those
+  ;; functions immediately undo it with `key-parse'.
+  (interactive `(,(key-description `[,(read-char "From: ")])
+                 ,(key-description `[,(read-char "To: ")])))
   (keymap--check from)
   (when to
     (keymap--check to))
@@ -428,6 +435,56 @@ If TO is nil, remove any existing translation for FROM."
     (aset keyboard-translate-table
           (aref from-key 0)
           (and to (aref to-key 0)))))
+
+(defun key-translate-select ()
+  "Prompt for a current keyboard translation pair with `completing-read'.
+
+Each pair is formatted as \"FROM -> TO\".
+
+Return the \"FROM\" as a key string."
+  (let* ((formatted-trans-alist nil)
+         ;; Alignment helpers
+         (pad 0)
+         (key-code-func
+          (lambda (kc trans)
+            (let* ((desc (key-description `[,kc]))
+                   (len (length desc)))
+              (when (> len pad)
+                (setq pad len))
+              (push
+               `(,desc . ,(key-description `[,trans]))
+               formatted-trans-alist))))
+         (format-func
+          (lambda (pair) ;; (key . value)
+            (format
+             "%s -> %s"
+             (string-pad (key-description `[,(car pair)]) pad)
+             (key-description `[,(cdr pair)])))))
+    ;; Set `pad' and `formatted-trans-alist'
+    (map-char-table
+     (lambda (chr trans)
+       (if (characterp chr)
+           (funcall key-code-func chr trans)
+         (require 'range)
+         (declare-function range-map "range" (func range))
+         (range-map
+          (lambda (kc) (funcall key-code-func kc trans))
+          chr)))
+     keyboard-translate-table)
+    (car
+     (split-string
+      (completing-read
+       "Key Translation: "
+       (mapcar format-func formatted-trans-alist)
+       nil t)))))
+
+(defun key-translate-remove (from)
+  "Remove translation of FROM from `keyboard-translate-table'.
+
+FROM must satisfy `key-valid-p'.  If FROM has no entry in
+`keyboard-translate-table', this has no effect."
+  (interactive (list (key-translate-select)))
+  (key-translate from nil))
 
 (defun keymap-lookup (keymap key &optional accept-default no-remap position)
   "Return the binding for command KEY in KEYMAP.
@@ -483,7 +540,7 @@ If optional argument ACCEPT-DEFAULT is non-nil, recognize default
 bindings; see the description of `keymap-lookup' for more details
 about this."
   (declare (compiler-macro (lambda (form) (keymap--compile-check keys) form)))
-  (when-let ((map (current-local-map)))
+  (when-let* ((map (current-local-map)))
     (keymap-lookup map keys accept-default)))
 
 (defun keymap-global-lookup (keys &optional accept-default message)
@@ -528,7 +585,7 @@ If MESSAGE (and interactively), message the result."
     (let* ((wargs args)
            (key (pop args)))
       (when (and (stringp key) (not (key-valid-p key)))
-        (byte-compile-warn-x wargs "Invalid `kbd' syntax: %S" key)))
+        (byte-compile-warn-x wargs "Invalid `key-valid-p' syntax: %S" key)))
     (when (null args)
       (byte-compile-warn-x form "Uneven number of key bindings in %S" form))
     (setq args (cdr args)))
@@ -552,14 +609,17 @@ pairs.  Available keywords are:
              (see `set-keymap-parent').
 
 :keymap    If non-nil, instead of creating a new keymap, the given keymap
-             will be destructively modified instead.
+             will be destructively modified instead.  This can be used to
+             add key bindings to an existing keymap.
 
 :name      If non-nil, this should be a string to use as the menu for
              the keymap in case you use it as a menu with `x-popup-menu'.
 
-:prefix    If non-nil, this should be a symbol to be used as a prefix
-             command (see `define-prefix-command').  If this is the case,
-             this symbol is returned instead of the map itself.
+:prefix    If non-nil, this should be a symbol to make into a prefix command
+             using the new keymap (see `define-prefix-command').
+             That is, store the keymap as the symbol's function definition.
+             In addition, when non-nil, return the symbol instead of the
+             new keymap.
 
 KEY/DEFINITION pairs are as KEY and DEF in `keymap-set'.  KEY can
 also be the special symbol `:menu', in which case DEFINITION
@@ -632,6 +692,9 @@ In addition to the keywords accepted by `define-keymap', this
 macro also accepts a `:doc' keyword, which (if present) is used
 as the variable documentation string.
 
+The `:prefix' keyword can take an additional value, t, which is an
+abbreviation for using VARIABLE-NAME as the prefix command name.
+
 The `:repeat' keyword can also be specified; it controls the
 `repeat-mode' behavior of the bindings in the keymap.  When it is
 non-nil, all commands in the map will have the `repeat-map'
@@ -642,6 +705,7 @@ value can also be a property list with properties `:enter',
 `:exit' and `:hints', for example:
 
      :repeat (:enter (commands ...) :exit (commands ...)
+              :continue (commands ...)
               :hints ((command . \"hint\") ...))
 
 `:enter' specifies the list of additional commands that only
@@ -656,6 +720,10 @@ list is empty, no commands in the map exit `repeat-mode'.
 Specifying a list of commands is useful when those commands exist
 in this specific map, but should not have the `repeat-map' symbol
 property.
+
+`:continue' specifies the list of commands that should not
+enter `repeat-mode'.  These command should only continue the
+already activated repeating sequence.
 
 `:hints' is a list of cons pairs where car is a command and
 cdr is a string that is displayed alongside of the repeatable key
@@ -672,10 +740,17 @@ in the echo area.
         (unless defs
           (error "Uneven number of keywords"))
         (cond
-         ((eq keyword :doc) (setq doc (pop defs)))
-         ((eq keyword :repeat) (setq repeat (pop defs)))
-         (t (push keyword opts)
-            (push (pop defs) opts)))))
+         ((eq keyword :doc)
+          (setq doc (pop defs)))
+         ((eq keyword :repeat)
+          (setq repeat (pop defs)))
+         ((and (eq keyword :prefix) (eq (car defs) t))
+          (setq defs (cdr defs))
+          (push keyword opts)
+          (push `',variable-name opts))
+         (t
+          (push keyword opts)
+          (push (pop defs) opts)))))
     (unless (zerop (% (length defs) 2))
       (error "Uneven number of key/definition pairs: %s" defs))
 
@@ -695,6 +770,12 @@ in the echo area.
             def)
         (dolist (def (plist-get repeat :enter))
           (push `(put ',def 'repeat-map ',variable-name) props))
+        (dolist (def (plist-get repeat :continue))
+          (push `(let ((val (get ',def 'repeat-continue)))
+                   (when (listp val)
+                     (put ',def 'repeat-continue
+                          (cons ',variable-name val))))
+                props))
         (while defs
           (pop defs)
           (setq def (pop defs))
@@ -718,6 +799,22 @@ in the echo area.
   "Mark SYMBOL as an event that shouldn't be returned from `where-is'."
   (put symbol 'non-key-event t)
   symbol)
+
+
+
+(defun keymap--read-only-filter (cmd)
+  "Return CMD if `browse-url' and similar button bindings should be active.
+They are considered active only in read-only buffers."
+  (when buffer-read-only cmd))
+
+(defun keymap-read-only-bind (binding)
+  "Behave like BINDING, but only when the buffer is read-only.
+BINDING should be a command to pput in a keymap.
+Return an element that can be added in a keymap with `keymap-set', such that
+it is active only when the current buffer is read-only."
+  `(menu-item
+    "" ,binding
+    :filter ,#'keymap--read-only-filter))
 
 (provide 'keymap)
 

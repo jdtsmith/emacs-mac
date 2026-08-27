@@ -1,6 +1,6 @@
 ;;; vc-sccs.el --- support for SCCS version-control  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
 ;; Author: FSF (see vc.el for full credits)
 ;; Maintainer: emacs-devel@gnu.org
@@ -77,7 +77,7 @@ If nil, use the value of `vc-diff-switches'.  If t, use no switches."
 ;; for a registered backend without loading every backend.
 ;;;###autoload
 (defcustom vc-sccs-master-templates
-  (purecopy '("%sSCCS/s.%s" "%ss.%s" vc-sccs-search-project-dir))
+  '("%sSCCS/s.%s" "%ss.%s" vc-sccs-search-project-dir)
   "Where to look for SCCS master files.
 For a description of possible values, see `vc-check-master-templates'."
   :type '(choice (const :tag "Use standard SCCS file names"

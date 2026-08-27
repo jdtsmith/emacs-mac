@@ -1,6 +1,6 @@
 ;;; fill-tests.el --- ERT tests for fill.el -*- lexical-binding: t -*-
 
-;; Copyright (C) 2017-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
 ;; Author:     Marcin Borkowski <mbork@mbork.pl>
 ;; Keywords:   text
@@ -28,6 +28,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'ert-x)
 
 (ert-deftest fill-test-no-fill-polish-nobreak-p nil
   "Tests of the `fill-polish-nobreak-p' function."
@@ -78,7 +79,7 @@
                (buffer-string)
                "aaa =   baaaaaaaa aaaaaaaaaa\n         aaaaaaaaaa\n")))))
 
-(ert-deftest test-fill-end-period ()
+(ert-deftest fill-test-end-period ()
   (should
    (equal
     (with-temp-buffer
@@ -100,7 +101,7 @@
     "Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do
 eius. Foo")))
 
-(ert-deftest test-fill-haskell ()
+(ert-deftest fill-test-haskell ()
   (should
    (equal
     (with-temp-buffer
@@ -120,6 +121,51 @@ eius. Foo")))
   ;; x y z
   ;; w
 ")))
+
+(ert-deftest fill-test-fill-region-as-paragraph-default ()
+  "Test the `fill-region-as-paragraph-default' function."
+  (ert-test-erts-file (ert-resource-file "fill-region-as-paragraph-default.erts")))
+
+(ert-deftest fill-test-fill-region-as-paragraph-semlf ()
+  "Test the `fill-region-as-paragraph-semlf' function."
+  (ert-test-erts-file (ert-resource-file "fill-region-as-paragraph-semlf.erts")))
+
+(ert-deftest fill-test-fill-region-as-paragraph ()
+  "Test the `fill-region-as-paragraph' function."
+  (ert-test-erts-file (ert-resource-file "fill-region-as-paragraph.erts")))
+
+(ert-deftest fill-test-fill-region ()
+  "Test the `fill-region' function."
+  (ert-test-erts-file (ert-resource-file "fill-region.erts")))
+
+(ert-deftest fill-test-fill-paragraph ()
+  "Test the `fill-paragraph' function."
+  (ert-test-erts-file (ert-resource-file "fill-paragraph.erts")))
+
+(ert-deftest fill-test-fill-paragraph-semlf ()
+  "Test the `fill-paragraph-semlf' function."
+  (ert-test-erts-file (ert-resource-file "fill-paragraph-semlf.erts")))
+
+(ert-deftest fill-test-fill-paragraph-semlf-emacs-lisp-mode ()
+  "Test the `fill-paragraph-semlf' function in `emacs-lisp-mode'."
+  (ert-test-erts-file (ert-resource-file "fill-paragraph-semlf-emacs-lisp-mode.erts")))
+
+(ert-deftest fill-test-fill-paragraph-semlf-c-mode ()
+  "Test the `fill-paragraph-semlf' function in `c-mode'."
+  (ert-test-erts-file (ert-resource-file "fill-paragraph-semlf-c-mode.erts")))
+
+(ert-deftest fill-test-fill-paragraph-semlf-org-mode ()
+  "Test the `fill-paragraph-semlf' function in `org-mode'."
+  (ert-test-erts-file (ert-resource-file "fill-paragraph-semlf-org-mode.erts")))
+
+(ert-deftest fill-test-fill-paragraph-semlf-markdown-mode ()
+  "Test the `fill-paragraph-semlf' function in `markdown-mode'."
+  (skip-unless (functionp 'markdown-mode))
+  (ert-test-erts-file (ert-resource-file "fill-paragraph-semlf-markdown-mode.erts")))
+
+(ert-deftest fill-test-fill-paragraph-handle-comment ()
+  "Test the `fill-paragraph-handle-comment' variable."
+  (ert-test-erts-file (ert-resource-file "fill-paragraph-handle-comment.erts")))
 
 (provide 'fill-tests)
 

@@ -1,6 +1,6 @@
 ;;; timeclock.el --- mode for keeping track of how much you work  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 ;; Created: 25 Mar 1999
@@ -37,12 +37,12 @@
 ;; You'll probably want to bind the timeclock commands to some handy
 ;; keystrokes.  Assuming C-c t is unbound, you might use:
 ;;
-;;   (define-key (kbd "C-c t i") 'timeclock-in)
-;;   (define-key (kbd "C-c t o") 'timeclock-out)
-;;   (define-key (kbd "C-c t c") 'timeclock-change)
-;;   (define-key (kbd "C-c t r") 'timeclock-reread-log)
-;;   (define-key (kbd "C-c t u") 'timeclock-update-mode-line)
-;;   (define-key (kbd "C-c t w") 'timeclock-when-to-leave-string)
+;;   (keymap-set "C-c t i" 'timeclock-in)
+;;   (keymap-set "C-c t o" 'timeclock-out)
+;;   (keymap-set "C-c t c" 'timeclock-change)
+;;   (keymap-set "C-c t r" 'timeclock-reread-log)
+;;   (keymap-set "C-c t u" 'timeclock-update-mode-line)
+;;   (keymap-set "C-c t w" 'timeclock-when-to-leave-string)
 
 ;; If you want Emacs to display the amount of time "left" to your
 ;; workday in the mode-line, you can either set the value of
@@ -296,7 +296,7 @@ set before switching this mode on."
 `timeclock-use-display-time' to see timeclock information"))
               (add-hook 'display-time-hook #'timeclock-update-mode-line))
           (setq timeclock-update-timer
-                (run-at-time nil 60 'timeclock-update-mode-line))))
+                (run-at-time nil 60 #'timeclock-update-mode-line))))
     (setq global-mode-string
           (delq 'timeclock-mode-string global-mode-string))
     (remove-hook 'timeclock-event-hook #'timeclock-update-mode-line)
@@ -513,8 +513,8 @@ non-nil, the amount returned will be relative to past time worked."
 	(message "%s" string)
       string)))
 
-(define-obsolete-function-alias 'timeclock-time-to-seconds 'float-time "26.1")
-(define-obsolete-function-alias 'timeclock-seconds-to-time 'time-convert "26.1")
+(define-obsolete-function-alias 'timeclock-time-to-seconds #'float-time "26.1")
+(define-obsolete-function-alias 'timeclock-seconds-to-time #'time-convert "26.1")
 
 ;; Should today-only be removed in favor of timeclock-relative? - gm
 (defsubst timeclock-when-to-leave (&optional today-only)

@@ -1,10 +1,11 @@
 # libgmp.m4
-# serial 8
+# serial 9
 # Configure the GMP library or a replacement.
-dnl Copyright 2020-2025 Free Software Foundation, Inc.
+dnl Copyright 2020-2026 Free Software Foundation, Inc.
 dnl This file is free software; the Free Software Foundation
 dnl gives unlimited permission to copy and/or distribute it,
 dnl with or without modifications, as long as this notice is preserved.
+dnl This file is offered as-is, without any warranty.
 
 dnl gl_LIBGMP
 dnl Search for an installed libgmp.
@@ -33,7 +34,11 @@ AC_DEFUN([gl_LIBGMP],
               # include <gmp.h>
               #else
               # include <gmp/gmp.h>
-              #endif],
+              #endif
+              #if ! (6 < __GNU_MP_VERSION + (2 <= __GNU_MP_VERSION_MINOR))
+              # error "GMP < 6.2.0, so mpz_probab_prime_p lacks Baillie-PSW"
+              #endif
+              ],
              [static const mp_limb_t x[2] = { 0x73, 0x55 };
               mpz_t tmp;
               mpz_roinit_n (tmp, x, 2);

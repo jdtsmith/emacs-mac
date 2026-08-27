@@ -1,5 +1,5 @@
 /* Header for coding system handler.
-   Copyright (C) 2001-2025 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
    Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
      2005, 2006, 2007, 2008, 2009, 2010, 2011
      National Institute of Advanced Industrial Science and Technology (AIST)
@@ -193,7 +193,7 @@ enum coding_attr_index
 /* Return the ID of CODING_SYSTEM_SYMBOL.  */
 
 #define CODING_SYSTEM_ID(coding_system_symbol)			\
-  hash_lookup (XHASH_TABLE (Vcoding_system_hash_table),		\
+  hash_find (XHASH_TABLE (Vcoding_system_hash_table),		\
 	       coding_system_symbol)
 
 /* Return true if CODING_SYSTEM_SYMBOL is a coding system.  */
@@ -683,7 +683,6 @@ struct coding_system
 /* Extern declarations.  */
 extern Lisp_Object code_conversion_save (bool, bool);
 extern bool encode_coding_utf_8 (struct coding_system *);
-extern bool utf8_string_p (Lisp_Object);
 extern void setup_coding_system (Lisp_Object, struct coding_system *);
 extern Lisp_Object coding_charset_list (struct coding_system *);
 extern Lisp_Object coding_system_charset_list (Lisp_Object);

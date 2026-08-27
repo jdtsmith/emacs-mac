@@ -1,6 +1,6 @@
 ;;; cl.el --- Compatibility aliases for the old CL library.  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2012-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Deprecated-since: 27.1
@@ -182,7 +182,6 @@
                assoc-if-not
                assoc-if
                member-if-not
-               member-if
                merge
                stable-sort
                search
@@ -272,10 +271,6 @@
                first
                svref
                copy-seq
-               evenp
-               oddp
-               minusp
-               plusp
                floatp-safe
                declaim
                proclaim
@@ -286,8 +281,6 @@
                values-list
                values
                pushnew
-               decf
-               incf
                ))
   (let ((new (if (consp fun) (prog1 (cdr fun) (setq fun (car fun)))
                (intern (format "cl-%s" fun)))))
@@ -331,7 +324,7 @@ The two cases that are handled are:
                         (cddr f))))
       (if (and cl-closure-vars
                (cl--expr-contains-any body cl-closure-vars))
-          (let* ((new (mapcar #'cl-gensym cl-closure-vars))
+          (let* ((new (mapcar #'gensym cl-closure-vars))
                  (sub (cl-pairlis cl-closure-vars new)) (decls nil))
             (while (or (stringp (car body))
                        (eq (car-safe (car body)) 'interactive))
@@ -378,7 +371,7 @@ lexical closures as in Common Lisp.
 	   (cons (cons 'function #'cl--function-convert)
                  macroexpand-all-environment))))
     (if (not (get (car (last cl-closure-vars)) 'used))
-        ;; Turn (let ((foo (cl-gensym)))
+        ;; Turn (let ((foo (gensym)))
         ;;        (set foo <val>) ...(symbol-value foo)...)
         ;; into (let ((foo <val>)) ...(symbol-value 'foo)...).
         ;; This is good because it's more efficient but it only works with

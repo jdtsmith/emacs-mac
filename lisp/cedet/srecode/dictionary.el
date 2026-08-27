@@ -1,6 +1,6 @@
 ;;; srecode/dictionary.el --- Dictionary code for the semantic recoder.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -369,7 +369,7 @@ values but STATE is nil."
 	(srecode-dictionary-set-value
 	 dict name
 	 (srecode-dictionary-compound-variable
-	  name :value value :state state)))))
+	  :value value :state state)))))
     (setq entries (nthcdr 2 entries)))
   dict)
 
@@ -536,7 +536,7 @@ inserted with a new editable field.")
 	(error "Unknown default value for value %S" name)))
 
       ;; Create a field from the inserter.
-      (srecode-field name :name name
+      (srecode-field :name name
 		     :start start
 		     :end (point)
 		     :prompt (oref sti prompt)

@@ -1,6 +1,6 @@
 <!-- @configure_input@
 
-Copyright (C) 2023-2025 Free Software Foundation, Inc.
+Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -207,7 +207,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
 
   <uses-sdk android:minSdkVersion="@ANDROID_MIN_SDK@"
-	    android:targetSdkVersion="34"/>
+	    android:targetSdkVersion="36"/>
 
   <application android:name="org.gnu.emacs.EmacsApplication"
 	       android:label="Emacs"
@@ -350,6 +350,6 @@ repositories require an incrementing numeric version code to detect
 upgrades, which is provided here and is altered by admin/admin.el.
 Refer to e.g. https://forum.f-droid.org/t/emacs-packaging/30424/25.
 
-Version-code: 300250000
+Version-code: 310100000
 
 -->

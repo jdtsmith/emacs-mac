@@ -1,5 +1,5 @@
 /* Input event support for Emacs on the Microsoft Windows API.
-   Copyright (C) 1992-1993, 1995, 2001-2025 Free Software Foundation,
+   Copyright (C) 1992-1993, 1995, 2001-2026 Free Software Foundation,
    Inc.
 
 This file is part of GNU Emacs.
@@ -72,6 +72,7 @@ w32_read_console_input (HANDLE h, INPUT_RECORD *rec, DWORD recsize,
 }
 
 /* Set by w32_console_toggle_lock_key.  */
+extern int faked_key;
 int faked_key;
 
 static int
@@ -467,12 +468,16 @@ do_mouse_event (MOUSE_EVENT_RECORD *event,
 		struct input_event *emacs_ev)
 {
   static DWORD button_state = 0;
-  static Lisp_Object last_mouse_window;
   DWORD but_change, mask, flags = event->dwEventFlags;
   int i;
 
-  /* Mouse didn't move unless MOUSE_MOVED says it did.  */
   struct frame *f = get_frame ();
+
+  /* For now, mouse events on child frames are ignored, because the
+     coordinate conversion is not in place; FIXME.  */
+  if (FRAMEP (f->parent_frame))
+    return 0;
+  /* Mouse didn't move unless MOUSE_MOVED says it did.  */
   f->mouse_moved = 0;
 
   switch (flags)
@@ -618,6 +623,10 @@ maybe_generate_resize_event (void)
 {
   CONSOLE_SCREEN_BUFFER_INFO info;
   struct frame *f = get_frame ();
+
+  /* Only resize the root frame.  */
+  if (FRAMEP (f->parent_frame))
+    return;
 
   GetConsoleScreenBufferInfo (GetStdHandle (STD_OUTPUT_HANDLE), &info);
 
@@ -804,7 +813,16 @@ w32_console_read_socket (struct terminal *terminal,
 		  add = 1;
 		}
 	      if (add)
-		kbd_buffer_store_event_hold (&inev, hold_quit);
+		{
+		  Mouse_HLInfo *hlinfo =
+		    &terminal->display_info.tty->mouse_highlight;
+		  if (!hlinfo->mouse_face_hidden && FIXNUMP (Vmouse_highlight))
+		    {
+		      clear_mouse_face (hlinfo);
+		      hlinfo->mouse_face_hidden = true;
+		    }
+		  kbd_buffer_store_event_hold (&inev, hold_quit);
+		}
 	      break;
 
             case MOUSE_EVENT:

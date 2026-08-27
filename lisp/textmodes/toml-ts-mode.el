@@ -1,6 +1,6 @@
 ;;; toml-ts-mode.el --- tree-sitter support for TOML  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; Author     : Jostein Kjønigsen <jostein@kjonigsen.net>
 ;; Maintainer : Jostein Kjønigsen <jostein@kjonigsen.net>
@@ -36,7 +36,15 @@
 (declare-function treesit-node-child "treesit.c")
 (declare-function treesit-node-child-by-field-name "treesit.c")
 
-(defcustom toml-ts-mode-indent-offset 2
+(add-to-list
+ 'treesit-language-source-alist
+ '(toml "https://github.com/tree-sitter-grammars/tree-sitter-toml"
+        :commit "64b56832c2cffe41758f28e05c756a3a98d16f41")
+ t)
+
+(define-obsolete-variable-alias 'toml-ts-mode-indent-offset
+  'toml-ts-indent-offset "31")
+(defcustom toml-ts-indent-offset 2
   "Number of spaces for each indentation step in `toml-ts-mode'."
   :version "29.1"
   :type 'natnum
@@ -58,8 +66,8 @@
 (defvar toml-ts-mode--indent-rules
   `((toml
      ((node-is "]") parent-bol 0)
-     ((parent-is "string") parent-bol toml-ts-mode-indent-offset)
-     ((parent-is "array") parent-bol toml-ts-mode-indent-offset))))
+     ((parent-is "string") parent-bol toml-ts-indent-offset)
+     ((parent-is "array") parent-bol toml-ts-indent-offset))))
 
 (defvar toml-ts-mode--font-lock-settings
   (treesit-font-lock-rules
@@ -109,6 +117,13 @@
    '((ERROR) @font-lock-warning-face))
   "Font-lock settings for TOML.")
 
+(defvar toml-ts-mode--font-lock-feature-list
+  '((comment)
+    (constant number pair string)
+    (escape-sequence)
+    (delimiter error))
+  "Font-lock feature list for TOML.")
+
 (defun toml-ts-mode--defun-name (node)
   "Return the defun name of NODE.
 Return nil if there is no name or if NODE is not a defun node."
@@ -123,8 +138,10 @@ Return nil if there is no name or if NODE is not a defun node."
   :group 'toml-mode
   :syntax-table toml-ts-mode--syntax-table
 
-  (when (treesit-ready-p 'toml)
-    (treesit-parser-create 'toml)
+  ;; `treesit-ready-p' also checks for buffer size.
+  (when (and (treesit-ensure-installed 'toml)
+             (treesit-ready-p 'toml))
+    (setq treesit-primary-parser (treesit-parser-create 'toml))
 
     ;; Comments
     (setq-local comment-start "# ")
@@ -137,14 +154,18 @@ Return nil if there is no name or if NODE is not a defun node."
     (setq-local treesit-defun-type-regexp
                 (rx (or "table" "table_array_element")))
     (setq-local treesit-defun-name-function #'toml-ts-mode--defun-name)
+    (setq-local treesit-thing-settings
+                `((toml
+                   (list
+                    ,(rx bos (or "array" "inline_table") eos))
+                   (sentence
+                    ,(rx bos (or "pair") eos))
+                   (text
+                    ,(rx bos (or "comment") eos)))))
 
     ;; Font-lock.
     (setq-local treesit-font-lock-settings toml-ts-mode--font-lock-settings)
-    (setq-local treesit-font-lock-feature-list
-                '((comment)
-                  (constant number pair string)
-                  (escape-sequence)
-                  (delimiter error)))
+    (setq-local treesit-font-lock-feature-list toml-ts-mode--font-lock-feature-list)
 
     ;; Imenu.
     (setq-local treesit-simple-imenu-settings
@@ -155,8 +176,10 @@ Return nil if there is no name or if NODE is not a defun node."
 
 (derived-mode-add-parents 'toml-ts-mode '(toml-mode))
 
-(if (treesit-ready-p 'toml)
-    (add-to-list 'auto-mode-alist '("\\.toml\\'" . toml-ts-mode)))
+;;;###autoload
+(when (boundp 'treesit-major-mode-remap-alist)
+  (add-to-list 'treesit-major-mode-remap-alist
+               '(conf-toml-mode . toml-ts-mode)))
 
 (provide 'toml-ts-mode)
 

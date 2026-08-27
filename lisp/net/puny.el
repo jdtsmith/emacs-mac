@@ -1,6 +1,6 @@
 ;;; puny.el --- translate non-ASCII domain names to ASCII  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2015-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: mail, net
@@ -114,7 +114,7 @@ For instance \"xn--bcher-kva\" => \"bücher\"."
             n m)
       (cl-loop for char across string
                when (< char n)
-               do (cl-incf delta)
+               do (incf delta)
                when (= char ijv)
                do (progn
                     (setq q delta)
@@ -137,8 +137,8 @@ For instance \"xn--bcher-kva\" => \"bücher\"."
                     (setq bias (puny-adapt delta (+ h 1) (= h insertion-points))
                           delta 0
                           h (1+ h))))
-      (cl-incf delta)
-      (cl-incf n))
+      (incf delta)
+      (incf n))
     (nreverse result)))
 
 (defun puny-decode-digit (cp)
@@ -174,8 +174,8 @@ For instance \"xn--bcher-kva\" => \"bücher\"."
               digit t1)
           (cl-loop do (progn
                         (setq digit (puny-decode-digit (aref encoded ic)))
-                        (cl-incf ic)
-                        (cl-incf i (* digit w))
+                        (incf ic)
+                        (incf i (* digit w))
                         (setq t1 (cond
                                   ((<= k bias)
                                    puny-tmin)
@@ -194,7 +194,7 @@ For instance \"xn--bcher-kva\" => \"bücher\"."
         (goto-char (point-min))
         (forward-char i)
         (insert (format "%c" n))
-        (cl-incf i)))
+        (incf i)))
     (buffer-string)))
 
 ;; https://www.unicode.org/reports/tr39/#Restriction_Level_Detection

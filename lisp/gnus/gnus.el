@@ -1,6 +1,6 @@
 ;;; gnus.el --- a newsreader for GNU Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1987-1990, 1993-1998, 2000-2025 Free Software
+;; Copyright (C) 1987-1990, 1993-1998, 2000-2026 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Masanobu UMEDA <umerin@flab.flab.fujitsu.junet>
@@ -369,7 +369,7 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-group)
 
 (defface gnus-group-news-1
-  '((t (:inherit gnus-group-news-1-empty :bold t)))
+  '((t (:inherit gnus-group-news-1-empty :weight bold)))
   "Level 1 newsgroup face."
   :group 'gnus-group)
 
@@ -386,7 +386,7 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-group)
 
 (defface gnus-group-news-2
-  '((t (:inherit gnus-group-news-2-empty :bold t)))
+  '((t (:inherit gnus-group-news-2-empty :weight bold)))
   "Level 2 newsgroup face."
   :group 'gnus-group)
 
@@ -403,7 +403,7 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-group)
 
 (defface gnus-group-news-3
-  '((t (:inherit gnus-group-news-3-empty :bold t)))
+  '((t (:inherit gnus-group-news-3-empty :weight bold)))
   "Level 3 newsgroup face."
   :group 'gnus-group)
 
@@ -420,7 +420,7 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-group)
 
 (defface gnus-group-news-4
-  '((t (:inherit gnus-group-news-4-empty :bold t)))
+  '((t (:inherit gnus-group-news-4-empty :weight bold)))
   "Level 4 newsgroup face."
   :group 'gnus-group)
 
@@ -437,7 +437,7 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-group)
 
 (defface gnus-group-news-5
-  '((t (:inherit gnus-group-news-5-empty :bold t)))
+  '((t (:inherit gnus-group-news-5-empty :weight bold)))
   "Level 5 newsgroup face."
   :group 'gnus-group)
 
@@ -454,7 +454,7 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-group)
 
 (defface gnus-group-news-6
-  '((t (:inherit gnus-group-news-6-empty :bold t)))
+  '((t (:inherit gnus-group-news-6-empty :weight bold)))
   "Level 6 newsgroup face."
   :group 'gnus-group)
 
@@ -471,7 +471,7 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-group)
 
 (defface gnus-group-news-low
-  '((t (:inherit gnus-group-news-low-empty :bold t)))
+  '((t (:inherit gnus-group-news-low-empty :weight bold)))
   "Low level newsgroup face."
   :group 'gnus-group)
 
@@ -483,12 +483,12 @@ If nil, there will be no Gnus logo in the mode-line."
       (background light))
      (:foreground "DeepPink3"))
     (t
-     (:italic t)))
+     (:slant italic)))
   "Level 1 empty mailgroup face."
   :group 'gnus-group)
 
 (defface gnus-group-mail-1
-  '((t (:inherit gnus-group-mail-1-empty :bold t)))
+  '((t (:inherit gnus-group-mail-1-empty :weight bold)))
   "Level 1 mailgroup face."
   :group 'gnus-group)
 
@@ -500,12 +500,12 @@ If nil, there will be no Gnus logo in the mode-line."
       (background light))
      (:foreground "HotPink3"))
     (t
-     (:italic t)))
+     (:slant italic)))
   "Level 2 empty mailgroup face."
   :group 'gnus-group)
 
 (defface gnus-group-mail-2
-  '((t (:inherit gnus-group-mail-2-empty :bold t)))
+  '((t (:inherit gnus-group-mail-2-empty :weight bold)))
   "Level 2 mailgroup face."
   :group 'gnus-group)
 
@@ -522,7 +522,7 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-group)
 
 (defface gnus-group-mail-3
-  '((t (:inherit gnus-group-mail-3-empty :bold t)))
+  '((t (:inherit gnus-group-mail-3-empty :weight bold)))
   "Level 3 mailgroup face."
   :group 'gnus-group)
 
@@ -534,12 +534,12 @@ If nil, there will be no Gnus logo in the mode-line."
       (background light))
      (:foreground "DeepPink4"))
     (t
-     (:bold t)))
+     (:weight bold)))
   "Low level empty mailgroup face."
   :group 'gnus-group)
 
 (defface gnus-group-mail-low
-  '((t (:inherit gnus-group-mail-low-empty :bold t)))
+  '((t (:inherit gnus-group-mail-low-empty :weight bold)))
   "Low level mailgroup face."
   :group 'gnus-group)
 
@@ -569,12 +569,12 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-summary)
 
 (defface gnus-summary-high-ticked
-  '((t (:inherit gnus-summary-normal-ticked :bold t)))
+  '((t (:inherit gnus-summary-normal-ticked :weight bold)))
   "Face used for high interest ticked articles."
   :group 'gnus-summary)
 
 (defface gnus-summary-low-ticked
-  '((t (:inherit gnus-summary-normal-ticked :italic t)))
+  '((t (:inherit gnus-summary-normal-ticked :slant italic)))
   "Face used for low interest ticked articles."
   :group 'gnus-summary)
 
@@ -591,12 +591,12 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-summary)
 
 (defface gnus-summary-high-ancient
-  '((t (:inherit gnus-summary-normal-ancient :bold t)))
+  '((t (:inherit gnus-summary-normal-ancient :weight bold)))
   "Face used for high interest ancient articles."
   :group 'gnus-summary)
 
 (defface gnus-summary-low-ancient
-  '((t (:inherit gnus-summary-normal-ancient :italic t)))
+  '((t (:inherit gnus-summary-normal-ancient :slant italic)))
   "Face used for low interest ancient articles."
   :group 'gnus-summary)
 
@@ -611,12 +611,12 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-summary)
 
 (defface gnus-summary-high-undownloaded
-  '((t (:inherit gnus-summary-normal-undownloaded :bold t)))
+  '((t (:inherit gnus-summary-normal-undownloaded :weight bold)))
   "Face used for high interest uncached articles."
   :group 'gnus-summary)
 
 (defface gnus-summary-low-undownloaded
-  '((t (:inherit gnus-summary-normal-undownloaded :italic t)))
+  '((t (:inherit gnus-summary-normal-undownloaded :slant italic)))
   "Face used for low interest uncached articles."
   :group 'gnus-summary)
 
@@ -627,12 +627,12 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-summary)
 
 (defface gnus-summary-high-unread
-  '((t (:inherit gnus-summary-normal-unread :bold t)))
+  '((t (:inherit gnus-summary-normal-unread :weight bold)))
   "Face used for high interest unread articles."
   :group 'gnus-summary)
 
 (defface gnus-summary-low-unread
-  '((t (:inherit gnus-summary-normal-unread :italic t)))
+  '((t (:inherit gnus-summary-normal-unread :slant italic)))
   "Face used for low interest unread articles."
   :group 'gnus-summary)
 
@@ -649,12 +649,12 @@ If nil, there will be no Gnus logo in the mode-line."
   :group 'gnus-summary)
 
 (defface gnus-summary-high-read
-  '((t (:inherit gnus-summary-normal-read :bold t)))
+  '((t (:inherit gnus-summary-normal-read :weight bold)))
   "Face used for high interest read articles."
   :group 'gnus-summary)
 
 (defface gnus-summary-low-read
-  '((t (:inherit gnus-summary-normal-read :italic t)))
+  '((t (:inherit gnus-summary-normal-read :slant italic)))
   "Face used for low interest read articles."
   :group 'gnus-summary)
 
@@ -757,15 +757,22 @@ be used directly.")
     (september "#bf9900" "#ffcc00"))
   "Color alist used for the Gnus logo.")
 
+(defcustom gnus-logo-colors nil
+  "Colors used for the Gnus logo."
+  :set-after '(gnus-logo-color-style)
+  :type '(choice (const :tag "Use default" nil)
+                 (list color color))
+  :group 'gnus-xmas)
+
 (defcustom gnus-logo-color-style 'ma
   "Color styles used for the Gnus logo."
   :type `(choice ,@(mapcar (lambda (elem) (list 'const (car elem)))
 			   gnus-logo-color-alist))
+  :set (lambda (sym val)
+         (set-default-toplevel-value sym val)
+         (set-default-toplevel-value 'gnus-logo-colors
+                                     (cdr (assq val gnus-logo-color-alist))))
   :group 'gnus-xmas)
-
-(defvar gnus-logo-colors
-  (cdr (assq gnus-logo-color-style gnus-logo-color-alist))
-  "Colors used for the Gnus logo.")
 
 (defvar image-load-path)
 (declare-function image-size "image.c" (spec &optional pixels frame))
@@ -1413,7 +1420,7 @@ this variable.  I think."
 
 (gnus-redefine-select-method-widget)
 
-(defcustom gnus-updated-mode-lines '(group article summary tree)
+(defcustom gnus-updated-mode-lines '(group article summary tree server)
   "List of buffers that should update their mode lines.
 The list may contain the symbols `group', `article', `tree' and
 `summary'.  If the corresponding symbol is present, Gnus will keep
@@ -1423,7 +1430,8 @@ If this variable is nil, screen refresh may be quicker."
   :type '(set (const group)
 	      (const article)
 	      (const summary)
-	      (const tree)))
+	      (const tree)
+              (const server)))
 
 (defcustom gnus-mode-non-string-length 30
   "Max length of mode-line non-string contents.
@@ -1918,7 +1926,6 @@ spam-autodetect-recheck-messages is set.")
 	  (variable-item spam-use-bsfilter-headers)
 	  (variable-item spam-use-stat)
 	  (variable-item spam-use-blackholes)
-	  (variable-item spam-use-hashcash)
 	  (variable-item spam-use-bogofilter-headers)
 	  (variable-item spam-use-bogofilter)))
    :function-document
@@ -1951,7 +1958,6 @@ set."
 	(variable-item spam-use-crm114)
 	(variable-item spam-use-stat)
 	(variable-item spam-use-blackholes)
-	(variable-item spam-use-hashcash)
 	(variable-item spam-use-spamassassin)
 	(variable-item spam-use-spamassassin-headers)
 	(variable-item spam-use-bsfilter)
@@ -2798,23 +2804,27 @@ See Info node `(gnus)Formatting Variables'."
 ;;;
 
 (defun gnus-suppress-keymap (keymap)
+  (declare (obsolete nil "31.1"))
   (suppress-keymap keymap)
   (let ((keys '([delete] "\177" "\M-u"))) ;[mouse-2]
     (while keys
       (define-key keymap (pop keys) 'undefined))))
 
-(defvar gnus-article-mode-map
-  (let ((keymap (make-sparse-keymap)))
-    (gnus-suppress-keymap keymap)
-    keymap))
-(defvar gnus-summary-mode-map
-  (let ((keymap (make-keymap)))
-    (gnus-suppress-keymap keymap)
-    keymap))
-(defvar gnus-group-mode-map
-  (let ((keymap (make-keymap)))
-    (gnus-suppress-keymap keymap)
-    keymap))
+(defvar-keymap gnus-article-mode-map
+  :suppress t
+  "<delete>" #'undefined
+  "DEL"      #'undefined
+  "M-u"      #'undefined)
+(defvar-keymap gnus-summary-mode-map
+  :full t :suppress t
+  "<delete>" #'undefined
+  "DEL"      #'undefined
+  "M-u"      #'undefined)
+(defvar-keymap gnus-group-mode-map
+  :full t :suppress t
+  "<delete>" #'undefined
+  "DEL"      #'undefined
+  "M-u"      #'undefined)
 
 
 
@@ -3124,9 +3134,9 @@ g -- Group name."
   "Check whether GROUP supports function FUNC.
 GROUP can either be a string (a group name) or a select method."
   (ignore-errors
-    (when-let ((method (if (stringp group)
-		           (car (gnus-find-method-for-group group))
-		         group)))
+    (when-let* ((method (if (stringp group)
+		            (car (gnus-find-method-for-group group))
+		          group)))
       (unless (featurep method)
 	(require method))
       (fboundp (intern (format "%s-%s" method func))))))
@@ -3780,7 +3790,7 @@ just the host name."
 		gsep "."))
 	(setq levels (- glen levels))
 	(dolist (g glist)
-	  (push (if (>= (cl-decf levels) 0)
+          (push (if (>= (decf levels) 0)
 		    (if (zerop (length g))
 			""
 		      (substring g 0 1))

@@ -1,6 +1,6 @@
 ;;; help.el --- help commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1986, 1993-1994, 1998-2025 Free Software
+;; Copyright (C) 1985-1986, 1993-1994, 1998-2026 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -57,7 +57,7 @@ buffer.")
 
 (defun help-key ()
   "Return `help-char' in a format suitable for the `keymap-set' KEY argument."
-  (key-description (char-to-string help-char)))
+  (key-description (vector help-char)))
 
 (defvar-keymap help-map
   :doc "Keymap for characters following the Help key."
@@ -99,6 +99,7 @@ buffer.")
   "f"    #'describe-function
   "g"    #'describe-gnu-project
   "h"    #'view-hello-file
+  "u"    #'apropos-user-option
 
   "i"    #'info
   "4 i"  #'info-other-window
@@ -305,6 +306,8 @@ specifies what to do when the user exits the help buffer.
 
 Do not call this in the scope of `with-help-window'."
   (and (not (get-buffer-window standard-output))
+       ;; FIXME: Call this code *after* we display the buffer, so we can
+       ;; detect reliably whether it's been put in its own frame or what.
        (let ((first-message
 	      (cond ((or
 		      pop-up-frames
@@ -331,7 +334,7 @@ Do not call this in the scope of `with-help-window'."
 			   (list (selected-window) (window-buffer)
 				 (window-start) (window-point)))
 		     "Type \\[switch-to-buffer] RET to remove help window."))))
-	 (funcall (or function 'message)
+	 (funcall (or function #'message)
 		  (concat
 		   (if first-message
 		       (substitute-command-keys first-message))
@@ -395,7 +398,7 @@ Do not call this in the scope of `with-help-window'."
 
 (defalias 'help #'help-for-help)
 (make-help-screen help-for-help
-  (purecopy "Type a help option: [abcCdefFgiIkKlLmnprstvw.] C-[cdefmnoptw] or ?")
+  "Type a help option: [abcCdefFgiIkKlLmnprstvw.] C-[cdefmnoptw] or ?"
   (concat
    "(Type "
    (help--key-description-fontified (kbd "<PageDown>"))
@@ -516,6 +519,67 @@ If that doesn't give a function, return nil."
                 (and (fboundp sym) sym))))))))
 
 
+;;; Lossage
+
+(defcustom view-lossage-auto-refresh nil
+  "Whether to auto-refresh the lossage buffer.
+If non-nil, the lossage buffer will be refreshed automatically for each
+new input keystroke and command performed."
+  :type 'boolean
+  :group 'help
+  :version "31.1")
+
+(defvar-local help--lossage-update nil
+  "Variable used to determine if lossage buffer should be refreshed.")
+
+(defun help--lossage-make-recent-keys (&optional most-recent)
+  "Return a string containing all the recent keys and its commands.
+If MOST-RECENT is non-nil, only return the most recent key and its
+command."
+  (let ((keys
+         (if most-recent
+             `[,@(this-single-command-raw-keys) (nil . ,this-command)]
+           (recent-keys 'include-cmds))))
+    (mapconcat
+     (lambda (key)
+       (cond
+        ((and (consp key) (null (car key)))
+         (concat
+          ";; "
+          (if (symbolp (cdr key))
+              (buttonize
+               (symbol-name (cdr key))
+               (lambda (&rest _)
+                 (interactive)
+                 (describe-function (cdr key)))
+               "mouse-1: go to the documentation for this command.")
+	    (propertize "anonymous-command" 'face 'shadow))
+          "\n"))
+        ((or (integerp key) (symbolp key) (listp key))
+         (propertize (single-key-description key)
+                     'face 'help-key-binding
+                     'rear-nonsticky t))
+        (t
+         (propertize (prin1-to-string key nil)
+                     'face 'help-key-binding
+                     'rear-nonsticky t))))
+     keys
+     " ")))
+
+(defun help--refresh-lossage-buffer ()
+  (if-let* ((buf (get-buffer "*Help*"))
+            (_ (buffer-local-value 'help--lossage-update buf)))
+      (with-current-buffer buf
+        (let ((inhibit-read-only t))
+          (save-excursion
+            (goto-char (point-max))
+            (insert-before-markers
+             (concat " " (help--lossage-make-recent-keys :most-recent)))
+            (forward-line -1)
+            (comment-indent))))
+    (remove-hook 'post-command-hook #'help--refresh-lossage-buffer)))
+
+
 ;;; `User' help functions
 
 (defun view-help-file (file &optional dir)
@@ -622,6 +686,7 @@ With argument, display info only for the selected version."
 		(t (format "NEWS.%d" vn))))
 	 res)
     (find-file (expand-file-name file data-directory))
+    (widen)  ; In case we already are visiting that NEWS file
     (emacs-news-view-mode)
     (goto-char (point-min))
     (when (stringp version)
@@ -689,43 +754,50 @@ the variable `message-log-max'."
   (interactive)
   (info "(efaq)Packages that do not come with Emacs"))
 
-(defun view-lossage ()
+(defun view-lossage (&optional auto-refresh)
   "Display last few input keystrokes and the commands run.
 For convenience this uses the same format as
 `edit-last-kbd-macro'.
 See `lossage-size' to update the number of recorded keystrokes.
 
+With argument, auto-refresh the lossage buffer for each new input
+keystroke, see also `view-lossage-auto-refresh'.
+
 To record all your input, use `open-dribble-file'."
-  (interactive)
-  (let ((help-buffer-under-preparation t))
-    (help-setup-xref (list #'view-lossage)
-		     (called-interactively-p 'interactive))
+  (interactive "P")
+  (let ((help-buffer-under-preparation t)
+        (view-lossage-auto-refresh
+         (if auto-refresh t view-lossage-auto-refresh)))
+    (unless view-lossage-auto-refresh
+      ;; `view-lossage-auto-refresh' conflicts with xref buttons, add
+      ;; them if `view-lossage-auto-refresh' is nil.
+      (help-setup-xref (list #'view-lossage)
+		       (called-interactively-p 'interactive)))
     (with-help-window (help-buffer)
       (princ " ")
-      (princ (mapconcat (lambda (key)
-			  (cond
-			   ((and (consp key) (null (car key)))
-			    (format ";; %s\n" (if (symbolp (cdr key)) (cdr key)
-						"anonymous-command")))
-			   ((or (integerp key) (symbolp key) (listp key))
-			    (single-key-description key))
-			   (t
-			    (prin1-to-string key nil))))
-			(recent-keys 'include-cmds)
-			" "))
+      (insert (help--lossage-make-recent-keys))
       (with-current-buffer standard-output
 	(goto-char (point-min))
-	(let ((comment-start ";; ")
-              ;; Prevent 'comment-indent' from handling a single
-              ;; semicolon as the beginning of a comment.
-              (comment-start-skip ";; ")
-              (comment-use-syntax nil)
-              (comment-column 24))
-          (while (not (eobp))
-            (comment-indent)
-	    (forward-line 1)))
+        (setq-local comment-start ";; "
+                    ;; Prevent 'comment-indent' from handling a single
+                    ;; semicolon as the beginning of a comment.
+                    comment-start-skip ";; "
+                    comment-use-syntax nil
+                    comment-column 24)
+	(while (not (eobp))
+          (comment-indent)
+	  (forward-line 1))
 	;; Show point near the end of "lossage", as we did in Emacs 24.
-	(set-marker help-window-point-marker (point))))))
+	(set-marker help-window-point-marker (point))
+
+        (when view-lossage-auto-refresh
+          (setq-local help--lossage-update t)
+          (add-hook 'post-command-hook #'help--refresh-lossage-buffer))))
+
+    ;; `help-make-xrefs' adds a newline at the end of the buffer, which
+    ;; makes impossible to reposition point in `with-help-window'.
+    (when view-lossage-auto-refresh
+      (set-window-point (get-buffer-window (help-buffer)) (point-max)))))
 
 
 ;; Key bindings
@@ -791,7 +863,6 @@ or a buffer name."
 
 	(when describe-bindings-outline
           (setq-local outline-regexp ".*:$")
-          (setq-local outline-heading-end-regexp ":\n")
           (setq-local outline-level (lambda () 1))
           (setq-local outline-minor-mode-cycle t
                       outline-minor-mode-highlight t
@@ -883,8 +954,8 @@ If INSERT (the prefix arg) is non-nil, insert the message in the buffer."
       (let ((otherstring (help--key-description-fontified untranslated)))
 	(if (equal string otherstring)
 	    string
-          (if-let ((char-name (and (length= string 1)
-                                   (char-to-name (aref string 0)))))
+          (if-let* ((char-name (and (length= string 1)
+                                    (char-to-name (aref string 0)))))
               (format "%s '%s' (translated from %s)" string char-name otherstring)
             (format "%s (translated from %s)" string otherstring)))))))
 
@@ -1396,9 +1467,10 @@ Otherwise, return a new string."
     ;; overriding-local-map, or from a \\<mapname> construct in STRING
     ;; itself.
     (let ((keymap overriding-local-map)
-          (inhibit-modification-hooks t)
+          (inhibit-read-only t)
           (orig-buf (current-buffer)))
       (with-temp-buffer
+        (setq-local inhibit-modification-hooks t) ;; For speed.
         (insert string)
         (goto-char (point-min))
         (while (< (point) (point-max))
@@ -1668,7 +1740,7 @@ Return nil if the key sequence is too long."
   (cond ((or (stringp definition) (vectorp definition))
          (if translation
              (insert (concat (key-description definition nil)
-                             (when-let ((char-name (char-to-name (aref definition 0))))
+                             (when-let* ((char-name (char-to-name (aref definition 0))))
                                (format "\t%s" char-name))
                              "\n"))
            ;; These should be rare nowadays, replaced by `kmacro's.
@@ -1884,79 +1956,6 @@ in `help--describe-map-tree'."
                            (- width (car elem))
                          (mod width tab-width))))))
 
-;;;; This Lisp version is 100 times slower than its C equivalent:
-;;
-;; (defun help--describe-vector
-;;     (vector prefix transl partial shadow entire-map mention-shadow)
-;;   "Insert in the current buffer a description of the contents of VECTOR.
-;;
-;; PREFIX a prefix key which leads to the keymap that this vector is
-;; in.
-;;
-;; If PARTIAL, it means do not mention suppressed commands
-;; (that assumes the vector is in a keymap).
-;;
-;; SHADOW is a list of keymaps that shadow this map.  If it is
-;; non-nil, look up the key in those maps and don't mention it if it
-;; is defined by any of them.
-;;
-;; ENTIRE-MAP is the vector in which this vector appears.
-;; If the definition in effect in the whole map does not match
-;; the one in this vector, we ignore this one."
-;;   ;; Converted from describe_vector in keymap.c.
-;;   (let* ((first t)
-;;          (idx 0))
-;;     (while (< idx (length vector))
-;;       (let* ((val (aref vector idx))
-;;              (definition (keymap--get-keyelt val nil))
-;;              (start-idx idx)
-;;              this-shadowed
-;;              found-range)
-;;         (when (and definition
-;;                    ;; Don't mention suppressed commands.
-;;                    (not (and partial
-;;                              (symbolp definition)
-;;                              (get definition 'suppress-keymap)))
-;;                    ;; If this binding is shadowed by some other map,
-;;                    ;; ignore it.
-;;                    (not (and shadow
-;;                              (help--shadow-lookup shadow (vector start-idx) t nil)
-;;                              (if mention-shadow
-;;                                  (prog1 nil (setq this-shadowed t))
-;;                                t)))
-;;                    ;; Ignore this definition if it is shadowed by an earlier
-;;                    ;; one in the same keymap.
-;;                    (not (and entire-map
-;;                              (not (eq (lookup-key entire-map (vector start-idx) t)
-;;                                       definition)))))
-;;           (when first
-;;             (insert "\n")
-;;             (setq first nil))
-;;           (when (and prefix (> (length prefix) 0))
-;;             (insert (format "%s" prefix)))
-;;           (insert (help--key-description-fontified (vector start-idx) prefix))
-;;           ;; Find all consecutive characters or rows that have the
-;;           ;; same definition.
-;;           (while (equal (keymap--get-keyelt (aref vector (1+ idx)) nil)
-;;                         definition)
-;;             (setq found-range t)
-;;             (setq idx (1+ idx)))
-;;           ;; If we have a range of more than one character,
-;;           ;; print where the range reaches to.
-;;           (when found-range
-;;             (insert " .. ")
-;;             (when (and prefix (> (length prefix) 0))
-;;               (insert (format "%s" prefix)))
-;;             (insert (help--key-description-fontified (vector idx) prefix)))
-;;           (if transl
-;;               (help--describe-translation definition)
-;;             (help--describe-command definition))
-;;           (when this-shadowed
-;;             (goto-char (1- (point)))
-;;             (insert "  (binding currently shadowed)")
-;;             (goto-char (1+ (point))))))
-;;       (setq idx (1+ idx)))))
-
 
 (declare-function x-display-pixel-height "xfns.c" (&optional terminal))
 (declare-function x-display-pixel-width "xfns.c" (&optional terminal))
@@ -1999,18 +1998,20 @@ function is called, the window to be resized is selected."
 (define-minor-mode temp-buffer-resize-mode
   "Toggle auto-resizing temporary buffer windows (Temp Buffer Resize Mode).
 
-When Temp Buffer Resize mode is enabled, the windows in which we
-show a temporary buffer are automatically resized in height to
+When Temp Buffer Resize mode is enabled, the windows in which Emacs
+shows a temporary buffer are automatically resized in height to
 fit the buffer's contents, but never more than
 `temp-buffer-max-height' nor less than `window-min-height'.
 
-A window is resized only if it has been specially created for the
-buffer.  Windows that have shown another buffer before are not
-resized.  A frame is resized only if `fit-frame-to-buffer' is
-non-nil.
+When this mode is enabled, a window is resized only if it has been
+specially created for a temporary buffer.  Windows that have shown
+another buffer before being reused for displaying a temporary buffer
+are not resized (but note that if `even-window-sizes' is non-nil, they
+might be resized in some situations anyway).  A frame is resized only
+if `fit-frame-to-buffer' is non-nil.
 
 This mode is used by `help', `apropos' and `completion' buffers,
-and some others."
+and some others, when they display their pop-up buffers."
   :global t :group 'help
   (if temp-buffer-resize-mode
       ;; `help-make-xrefs' may add a `back' button and thus increase the
@@ -2051,7 +2052,10 @@ provided `fit-frame-to-buffer' is non-nil."
 	 (quit-cadr (cadr (window-parameter window 'quit-restore))))
     ;; Resize WINDOW only if it was made by `display-buffer'.
     (when (or (and (eq quit-cadr 'window)
-		   (or (and (window-combined-p window)
+                   ;; When WINDOW was reused, its buffer must be the one
+                   ;; initially shown in it (Bug#81207).
+                   (eq buffer (nth 3 (window-parameter window 'quit-restore)))
+                   (or (and (window-combined-p window)
 			    (not (eq fit-window-to-buffer-horizontally
 				     'only))
 			    (pos-visible-in-window-p
@@ -2111,7 +2115,7 @@ Also see `help-window-select'."
   'help-enable-autoload "27.1")
 
 (defcustom help-enable-autoload t
-  "Whether Help commands can perform autoloading.
+  "Whether Help commands can perform autoloading in order to show key bindings.
 If non-nil, whenever \\[describe-function] is called for an
 autoloaded function whose docstring contains any key substitution
 construct (see `substitute-command-keys'), the library is loaded,
@@ -2232,6 +2236,7 @@ The `temp-buffer-window-setup-hook' hook is called."
   `(help--window-setup ,buffer-or-name (lambda () ,@body)))
 
 (defun help--window-setup (buffer callback)
+  (setq help-window-old-frame (selected-frame))
   ;; Make `help-window-point-marker' point nowhere.  The only place
   ;; where this should be set to a buffer position is within BODY.
   (set-marker help-window-point-marker nil)
@@ -2242,8 +2247,7 @@ The `temp-buffer-window-setup-hook' hook is called."
           buffer-file-name nil)
     (setq-local help-mode--current-data nil)
     (buffer-disable-undo)
-    (let ((inhibit-read-only t)
-	  (inhibit-modification-hooks t))
+    (let ((inhibit-read-only t))
       (erase-buffer)
       (delete-all-overlays)
       (prog1
@@ -2275,18 +2279,17 @@ The `temp-buffer-window-setup-hook' hook is called."
                                    (current-active-maps t)))))
     (catch 'res
       (dolist (val help-event-list)
-        (let ((key (vector (if (eql val 'help)
-                               help-char
-                             val))))
-          (unless (seq-find (lambda (map) (and (keymapp map) (lookup-key map key)))
-                            bindings)
-            (throw 'res
-                   (concat
-                    str
-                    (substitute-command-keys
-                     (format
-                      " (\\`%s' for help)"
-                      (key-description key))))))))
+        (when (setq val (if (eql val 'help) help-char val))
+          (let ((key (vector val)))
+            (unless (seq-find (lambda (map) (and (keymapp map) (lookup-key map key)))
+                              bindings)
+              (throw 'res
+                     (concat
+                      str
+                      (substitute-command-keys
+                       (format
+                        " (\\`%s' for help)"
+                        (key-description key)))))))))
       str)))
 
 
@@ -2358,53 +2361,56 @@ ARGLIST can also be t or a string of the form \"(FUN ARG1 ARG2 ...)\"."
   "Return a formal argument list for the function DEF.
 If PRESERVE-NAMES is non-nil, return a formal arglist that uses
 the same names as used in the original source code, when possible."
-  ;; Handle symbols aliased to other symbols.
-  (if (and (symbolp def) (fboundp def)) (setq def (indirect-function def)))
-  ;; Advice wrappers have "catch all" args, so fetch the actual underlying
-  ;; function to find the real arguments.
-  (setq def (advice--cd*r def))
-  ;; If definition is a macro, find the function inside it.
-  (if (eq (car-safe def) 'macro) (setq def (cdr def)))
-  (cond
-   ((and (closurep def) (listp (aref def 0))) (aref def 0))
-   ((eq (car-safe def) 'lambda) (nth 1 def))
-   ((and (featurep 'native-compile)
-         (subrp def)
-         (listp (subr-native-lambda-list def)))
-    (subr-native-lambda-list def))
-   ((or (and (byte-code-function-p def) (integerp (aref def 0)))
-        (subrp def) (module-function-p def))
-    (or (when preserve-names
-          (let* ((doc (condition-case nil (documentation def 'raw) (error nil)))
-                 (docargs (if doc (car (help-split-fundoc doc nil))))
-                 (arglist (if docargs
-                              (cdar (read-from-string (downcase docargs)))))
-                 (valid t))
-            ;; Check validity.
-            (dolist (arg arglist)
-              (unless (and (symbolp arg)
-                           (let ((name (symbol-name arg)))
-                             (if (and (> (length name) 0) (eq (aref name 0) ?&))
-                                 (memq arg '(&rest &optional))
-                               (not (string-search "." name)))))
-                (setq valid nil)))
-            (when valid arglist)))
-        (let* ((arity (func-arity def))
-               (max (cdr arity))
-               (min (car arity))
-               (arglist ()))
-          (dotimes (i min)
-            (push (intern (concat "arg" (number-to-string (1+ i)))) arglist))
-          (when (and (integerp max) (> max min))
-            (push '&optional arglist)
-            (dotimes (i (- max min))
-              (push (intern (concat "arg" (number-to-string (+ 1 i min))))
-                    arglist)))
-          (unless (integerp max) (push '&rest arglist) (push 'rest arglist))
-          (nreverse arglist))))
-   ((and (autoloadp def) (not (eq (nth 4 def) 'keymap)))
-    "[Arg list not available until function definition is loaded.]")
-   (t t)))
+  (let ((orig-def def))
+    (let ((seen nil))
+      ;; Advice wrappers have "catch all" args, so fetch the actual underlying
+      ;; function to find the real arguments.  Also follow aliases.
+      (while (not (memq def seen))
+        (push def seen)
+        (setq def (advice--cd*r (indirect-function def)))))
+    ;; If definition is a macro, find the function inside it.
+    (if (eq (car-safe def) 'macro) (setq def (cdr def)))
+    (cond
+     ((and (closurep def) (listp (aref def 0))) (aref def 0))
+     ((eq (car-safe def) 'lambda) (nth 1 def))
+     ((and (featurep 'native-compile)
+           (subrp def)
+           (listp (subr-native-lambda-list def)))
+      (subr-native-lambda-list def))
+     ((or (and (byte-code-function-p def) (integerp (aref def 0)))
+          (subrp def) (module-function-p def))
+      (or (when preserve-names
+            (let* ((doc (ignore-errors (documentation orig-def 'raw)))
+                   (docargs (if doc (car (help-split-fundoc doc nil))))
+                   (arglist (if docargs
+                                (cdar (read-from-string (downcase docargs)))))
+                   (valid t))
+              ;; Check validity.
+              (dolist (arg arglist)
+                (unless (and (symbolp arg)
+                             (let ((name (symbol-name arg)))
+                               (if (and (> (length name) 0)
+                                        (eq (aref name 0) ?&))
+                                   (memq arg '(&rest &optional))
+                                 (not (string-search "." name)))))
+                  (setq valid nil)))
+              (when valid arglist)))
+          (let* ((arity (func-arity def))
+                 (max (cdr arity))
+                 (min (car arity))
+                 (arglist ()))
+            (dotimes (i min)
+              (push (intern (concat "arg" (number-to-string (1+ i)))) arglist))
+            (when (and (integerp max) (> max min))
+              (push '&optional arglist)
+              (dotimes (i (- max min))
+                (push (intern (concat "arg" (number-to-string (+ 1 i min))))
+                      arglist)))
+            (unless (integerp max) (push '&rest arglist) (push 'rest arglist))
+            (nreverse arglist))))
+     ((and (autoloadp def) (not (eq (nth 4 def) 'keymap)))
+      "[Arg list not available until function definition is loaded.]")
+     (t t))))
 
 (defun help--make-usage (function arglist)
   (cons (if (symbolp function) function 'anonymous)

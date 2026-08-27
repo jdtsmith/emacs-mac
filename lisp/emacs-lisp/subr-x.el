@@ -1,6 +1,6 @@
 ;;; subr-x.el --- extra Lisp functions  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2013-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2026 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: convenience
@@ -37,6 +37,7 @@
 
 (eval-when-compile (require 'cl-lib))
 
+(require 'mule-util)
 
 (defmacro internal--thread-argument (first? &rest forms)
   "Internal implementation for `thread-first' and `thread-last'.
@@ -281,35 +282,6 @@ the string."
   (declare (pure t) (side-effect-free t))
   (string-remove-suffix "\n" string))
 
-(defun replace-region-contents (beg end replace-fn
-                                    &optional max-secs max-costs)
-  "Replace the region between BEG and END using REPLACE-FN.
-REPLACE-FN runs on the current buffer narrowed to the region.  It
-should return either a string or a buffer replacing the region.
-
-The replacement is performed using `replace-buffer-contents'
-which also describes the MAX-SECS and MAX-COSTS arguments and the
-return value.
-
-Note: If the replacement is a string, it'll be placed in a
-temporary buffer so that `replace-buffer-contents' can operate on
-it.  Therefore, if you already have the replacement in a buffer,
-it makes no sense to convert it to a string using
-`buffer-substring' or similar."
-  (save-excursion
-    (save-restriction
-      (narrow-to-region beg end)
-      (goto-char (point-min))
-      (let ((repl (funcall replace-fn)))
-	(if (bufferp repl)
-	    (replace-buffer-contents repl max-secs max-costs)
-	  (let ((source-buffer (current-buffer)))
-	    (with-temp-buffer
-	      (insert repl)
-	      (let ((tmp-buffer (current-buffer)))
-		(set-buffer source-buffer)
-		(replace-buffer-contents tmp-buffer max-secs max-costs)))))))))
-
 ;;;###autoload
 (defmacro named-let (name bindings &rest body)
   "Looping construct taken from Scheme.
@@ -336,10 +308,88 @@ This construct can only be used with lexical binding."
       (cl-labels ((,name ,fargs . ,body)) #',name)
       . ,aargs)))
 
-;;;###autoload
-(defun string-pixel-width (string)
-  "Return the width of STRING in pixels.
+(defvar work-buffer--list nil)
+(defvar work-buffer-limit 10
+  "Maximum number of reusable work buffers.
+When this limit is exceeded, newly allocated work buffers are
+automatically killed, which means that in a such case
+`with-work-buffer' becomes equivalent to `with-temp-buffer'.")
 
+(defsubst work-buffer--get ()
+  "Get a work buffer."
+  (let ((buffer (pop work-buffer--list)))
+    (if (buffer-live-p buffer)
+        buffer
+      (generate-new-buffer " *work*" t))))
+
+;;;###autoload
+(defun work-buffer--release (buffer)
+  "Release work BUFFER."
+  (if (buffer-live-p buffer)
+      (with-current-buffer buffer
+        ;; Flush BUFFER before making it available again, i.e. clear
+        ;; its contents, remove all overlays and buffer-local
+        ;; variables.  Is it enough to safely reuse the buffer?
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (delete-all-overlays))
+        (let (change-major-mode-hook)
+          ;; `kill-all-local-variables' does not kill permanent locals
+          ;; like `buffer-read-only'.
+          (setq buffer-read-only nil)
+          (kill-all-local-variables t))
+        ;; Make the buffer available again.
+        (push buffer work-buffer--list)))
+  ;; If the maximum number of reusable work buffers is exceeded, kill
+  ;; work buffer in excess, taking into account that the limit could
+  ;; have been let-bound to temporarily increase its value.
+  (when (> (length work-buffer--list) work-buffer-limit)
+    (mapc #'kill-buffer (nthcdr work-buffer-limit work-buffer--list))
+    (setq work-buffer--list (ntake work-buffer-limit work-buffer--list))))
+
+;;;###autoload
+(defmacro with-work-buffer (&rest body)
+  "Create a work buffer, and evaluate BODY there like `progn'.
+Like `with-temp-buffer', but reuse an already created temporary
+buffer when possible, instead of creating a new one on each call.
+Avoid retaining state referring to a work buffer, and kill
+any indirect buffers you create that use a work buffer as a base."
+  (declare (indent 0) (debug t))
+  (let ((work-buffer (make-symbol "work-buffer")))
+    `(let ((,work-buffer (work-buffer--get)))
+       (with-current-buffer ,work-buffer
+         (unwind-protect
+             (progn ,@body)
+           (work-buffer--release ,work-buffer))))))
+
+(defun work-buffer--prepare-pixelwise (string buffer)
+  "Set up the current buffer to correctly compute STRING's pixel width.
+Call this with a work buffer as the current buffer.
+BUFFER is the originating buffer and if non-nil, make the current
+buffer's (work buffer) face remappings match it."
+  (when buffer
+    (dolist (v '(face-remapping-alist
+                 char-property-alias-alist
+                 default-text-properties))
+      (if (local-variable-p v buffer)
+          (set (make-local-variable v)
+               (buffer-local-value v buffer)))))
+  ;; Avoid deactivating the region as side effect.
+  (let (deactivate-mark)
+    (insert string))
+  ;; If `display-line-numbers' is enabled in internal
+  ;; buffers (e.g. globally), it breaks width calculation
+  ;; (bug#59311).  Disable `line-prefix' and `wrap-prefix',
+  ;; for the same reason.
+  (add-text-properties
+   (point-min) (point-max)
+   '(display-line-numbers-disable t line-prefix "" wrap-prefix "")))
+
+;;;###autoload
+(defun string-pixel-width (string &optional buffer)
+  "Return the width of STRING in pixels.
+If BUFFER is non-nil, use the face remappings, alternative and default
+properties from that buffer when determining the width.
 If you call this function to measure pixel width of a string
 with embedded newlines, it returns the width of the widest
 substring that does not include newlines."
@@ -348,16 +398,79 @@ substring that does not include newlines."
       0
     ;; Keeping a work buffer around is more efficient than creating a
     ;; new temporary buffer.
-    (with-current-buffer (get-buffer-create " *string-pixel-width*")
-      ;; If `display-line-numbers' is enabled in internal buffers
-      ;; (e.g. globally), it breaks width calculation (bug#59311)
-      (setq-local display-line-numbers nil)
-      (delete-region (point-min) (point-max))
-      ;; Disable line-prefix and wrap-prefix, for the same reason.
-      (setq line-prefix nil
-	    wrap-prefix nil)
-      (insert (propertize string 'line-prefix nil 'wrap-prefix nil))
+    (with-work-buffer
+     (work-buffer--prepare-pixelwise string buffer)
       (car (buffer-text-pixel-size nil nil t)))))
+
+;;;###autoload
+(defun truncate-string-pixelwise (string max-pixels &optional buffer
+                                  ellipsis ellipsis-pixels)
+  "Return STRING truncated to fit within MAX-PIXELS.
+If BUFFER is non-nil, use the face remappings, alternative and default
+properties from that buffer when determining the width.
+If you call this function to measure pixel width of a string
+with embedded newlines, it returns the width of the widest
+substring that does not include newlines.
+
+If ELLIPSIS is non-nil, it should be a string which will replace the end
+of STRING if it extends beyond MAX-PIXELS, unless the pixel width of
+STRING is equal to or less than the pixel width of ELLIPSIS.  If it is
+non-nil and not a string, then ELLIPSIS defaults to
+`truncate-string-ellipsis', or to three dots when it's nil.
+
+If ELLIPSIS-PIXELS is non-nil, it is the pixel width of ELLIPSIS, and
+can be used to avoid the cost of recomputing this for multiple calls to
+this function using the same ELLIPSIS."
+  (declare (important-return-value t))
+  (if (zerop (length string))
+      string
+    ;; Keeping a work buffer around is more efficient than creating a
+    ;; new temporary buffer.
+    (let* ((window (selected-window))
+           (original-buffer (window-buffer window))
+           (window-dedication (window-dedicated-p window))
+           (buffer-list-update-hook)
+           (window-scroll-functions)
+           (window-configuration-change-hook))
+      (with-work-buffer
+        ;; Use a binary search to prune the number of calls to
+        ;; `window-text-pixel-size'.
+        ;; These are 1-based buffer indexes.
+        (unwind-protect
+            (let* ((low 1)
+                   (high (1+ (length string)))
+                   mid)
+              (work-buffer--prepare-pixelwise string buffer)
+              (set-window-dedicated-p window nil)
+              (set-window-buffer window (current-buffer) 'keep-margins)
+              (when (> (car (window-text-pixel-size nil 1 high)) max-pixels)
+                (when (and ellipsis (not (stringp ellipsis)))
+                  (setq ellipsis (truncate-string-ellipsis)))
+                (setq ellipsis-pixels (if ellipsis
+                                          (if ellipsis-pixels
+                                              ellipsis-pixels
+                                            (string-pixel-width ellipsis buffer))
+                                        0))
+                (let ((adjusted-pixels
+                       (if (> max-pixels ellipsis-pixels)
+                           (- max-pixels ellipsis-pixels)
+                         max-pixels)))
+                  (while (<= low high)
+                    (setq mid (floor (+ low high) 2))
+                    (if (<= (car (window-text-pixel-size nil 1 mid))
+                            adjusted-pixels)
+                        (setq low (1+ mid))
+                      (setq high (1- mid))))))
+              (if mid
+                  ;; Binary search ran.
+                  (if (and ellipsis (> max-pixels ellipsis-pixels))
+                      (concat (substring string 0 (1- high)) ellipsis)
+                    (substring string 0 (1- high)))
+                ;; Fast path.
+                string))
+          (set-window-buffer window original-buffer 'keep-margins)
+          (set-window-dedicated-p window window-dedication)
+          (unrecord-window-buffer window (current-buffer) t))))))
 
 ;;;###autoload
 (defun string-glyph-split (string)
@@ -387,48 +500,81 @@ and the current buffer must be displayed in some window."
         (setq start (1+ start))))
     (nreverse result)))
 
-;;;###autoload
-(defun add-display-text-property (start end prop value
-                                        &optional object)
-  "Add display property PROP with VALUE to the text from START to END.
-If any text in the region has a non-nil `display' property, those
-properties are retained.
-
-If OBJECT is non-nil, it should be a string or a buffer.  If nil,
-this defaults to the current buffer."
+(defun add-remove--display-text-property (start end spec value
+                                                &optional object remove)
   (let ((sub-start start)
         (sub-end 0)
+        (limit (if (stringp object)
+                   (min (length object) end)
+                 (min end (point-max))))
         disp)
     (while (< sub-end end)
       (setq sub-end (next-single-property-change sub-start 'display object
-                                                 (if (stringp object)
-                                                     (min (length object) end)
-                                                   (min end (point-max)))))
+                                                 limit))
       (if (not (setq disp (get-text-property sub-start 'display object)))
           ;; No old properties in this range.
-          (put-text-property sub-start sub-end 'display (list prop value)
-                             object)
+          (unless remove
+            (put-text-property sub-start sub-end 'display (list spec value)
+                               object))
         ;; We have old properties.
-        (let ((vector nil))
+        (let ((changed nil)
+              type)
           ;; Make disp into a list.
           (setq disp
                 (cond
                  ((vectorp disp)
-                  (setq vector t)
+                  (setq type 'vector)
                   (seq-into disp 'list))
-                 ((not (consp (car disp)))
+                 ((or (not (consp (car-safe disp)))
+                      ;; If disp looks like ((margin ...) ...), that's
+                      ;; still a single display specification.
+                      (eq (caar disp) 'margin))
+                  (setq type 'scalar)
                   (list disp))
                  (t
+                  (setq type 'list)
                   disp)))
           ;; Remove any old instances.
-          (when-let ((old (assoc prop disp)))
-            (setq disp (delete old disp)))
-          (setq disp (cons (list prop value) disp))
-          (when vector
-            (setq disp (seq-into disp 'vector)))
-          ;; Finally update the range.
-          (put-text-property sub-start sub-end 'display disp object)))
+          (when-let* ((old (assoc spec disp)))
+            ;; If the property value was a list, don't modify the
+            ;; original value in place; it could be used by other
+            ;; regions of text.
+            (setq disp (if (eq type 'list)
+                           (remove old disp)
+                         (delete old disp))
+                  changed t))
+          (unless remove
+            (setq disp (cons (list spec value) disp)
+                  changed t))
+          (when changed
+            (if (not disp)
+                (remove-text-properties sub-start sub-end '(display nil) object)
+              (when (eq type 'vector)
+                (setq disp (seq-into disp 'vector)))
+              ;; Finally update the range.
+              (put-text-property sub-start sub-end 'display disp object)))))
       (setq sub-start sub-end))))
+
+;;;###autoload
+(defun add-display-text-property (start end spec value &optional object)
+  "Add the display specification (SPEC VALUE) to the text from START to END.
+If any text in the region has a non-nil `display' property, the existing
+display specifications are retained.
+
+OBJECT is either a string or a buffer to add the specification to.
+If omitted, OBJECT defaults to the current buffer."
+  (add-remove--display-text-property start end spec value object))
+
+;;;###autoload
+(defun remove-display-text-property (start end spec &optional object)
+  "Remove the display specification SPEC from the text from START to END.
+SPEC is the car of the display specification to remove, e.g. `height'.
+If any text in the region has other display specifications, those specs
+are retained.
+
+OBJECT is either a string or a buffer to remove the specification from.
+If omitted, OBJECT defaults to the current buffer."
+  (add-remove--display-text-property start end spec nil object 'remove))
 
 ;;;###autoload
 (defun read-process-name (prompt)
@@ -492,8 +638,7 @@ as changes in text properties, `buffer-file-coding-system', buffer
 multibyteness, etc. -- will not be noticed, and the buffer will still
 be marked unmodified, effectively ignoring those changes."
   (declare (debug t) (indent 0))
-  (let ((hash (gensym))
-        (buffer (gensym)))
+  (cl-with-gensyms (hash buffer)
     `(let ((,hash (and (not (buffer-modified-p))
                        (buffer-hash)))
            (,buffer (current-buffer)))

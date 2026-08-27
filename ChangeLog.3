@@ -3149,7 +3149,7 @@
 
 	Remove mention of removed `gnus-treat-play-sounds' variable from manual
 
-	* info/gnus.info: Remove `gnus-treat-play-sounds' from
+	* doc/misc/gnus.texi: Remove `gnus-treat-play-sounds' from
 	manual. According to lisp/gnus/ChangeLog.3 this variable was
 	removed in 2010 (bug#53192).
 
@@ -5864,7 +5864,7 @@
 	* doc/lispref/symbols.texi (Shorthand, Exceptions): New
 	subsubsection.
 
-	* src/lread.c (read1): Exempt punctionation-only symbols from
+	* src/lread.c (read1): Exempt punctuation-only symbols from
 	oblookup_considering_shorthand.
 
 	* test/lisp/progmodes/elisp-mode-tests.el
@@ -74080,7 +74080,7 @@
 	* lisp/emacs-lisp/bytecomp.el (byte-compile-associative): Rename to...
 	(byte-compile-variadic-numeric): ...this function and simplify,
 	fixing incorrect comments.  The 3-arg strength reduction is now
-	always done in the optimisers and is no longer needed here.
+	always done in the optimizers and is no longer needed here.
 	(byte-compile-min-max): New function.
 	(byte-compile-minus): Simplify, remove incorrect comment, and use
 	byte-compile-variadic-numeric.
@@ -99202,12 +99202,11 @@
 
 	Improve ERC's matching of nicks and URLs (bug#38257)
 
-	* lisp/erc/erc-button.el (erc-button-syntax-table):
+	* lisp/erc/erc-{button,match}.el (erc-{button,match}-syntax-table):
 	Omit (, ), and '; as they're not valid nick characters, per RFC 2812
 	section 2.3.1.  This enables correct matching/highlighting of nicks
 	when they're surrounded by parens, like (nick), and when adjacent to
 	an apostrophe, like nick's.
-	* lisp/erc/erc-match.el (erc-match-syntax-table): Likewise.
 	* lisp/erc/erc-button.el (erc-button-url-regexp): Use the regexp from
 	browse-url-button-regexp, which among other things, seems to handle
 	surrounding pair of parens better.
@@ -115590,7 +115589,7 @@
 
 	* lisp/progmodes/hideif.el (hide-ifdef-mode-prefix-key): Make into
 	a defcustom since it seems like this is something that should be
-	user-customisable (bug#8922).
+	user-customizable (bug#8922).
 
 2019-08-21  Lars Ingebrigtsen  <larsi@gnus.org>
 
@@ -131652,7 +131651,7 @@
 	cache.
 	(c-parse-ps-state-below): Use the new function c-state-semi-trim-cache.
 	(c-before-change-check-<>-operators): Check simply for < or > in the
-	neighbourhood before doing more expensive processing.
+	neighborhood before doing more expensive processing.
 	(c-maybe-re-mark-raw-string): Give a backward search limit to an operation
 	which was needlessly lacking one.
 
@@ -149160,7 +149159,7 @@
 
 2018-09-26  Charles A. Roelli  <charles@aurox.ch>
 
-	* lisp/vc/vc-bzr.el (log-view-current-tag-function): Remove unused defvar.
+	* lisp/vc-bzr.el (log-view-current-tag-function): Remove unused defvar.
 
 2018-09-26  Alan Mackenzie  <acm@muc.de>
 
@@ -160420,7 +160419,7 @@
 	The split regexp is modified to match either `@` or `.` as domain
 	separator to comply with RFC2919 IDs too.
 
-	* lisp/gnus/nnmail.el: Add new `list' split abbreviation matching common
+	* lisp/nnmail.el: Add new `list' split abbreviation matching common
 	mailing-list headers.
 
 2018-04-11  Lars Ingebrigtsen  <larsi@gnus.org>
@@ -192377,7 +192376,7 @@
 	let-bind `case-fold-search' to nil in order to be case-sensitive
 	when matching a string.  (Bug#27518)
 
-2017-08-11  Stephen Berman  <steve@rosalinde.fritz.box>
+2017-08-11  Stephen Berman  <stephen.berman@gmx.net>
 
 	Fix a minor todo-mode regression
 
@@ -199539,7 +199538,7 @@
 	(tramp-smb-handle-set-file-acl)
 	(tramp-smb-maybe-open-connection): Adapt according to defstruct.
 
-2017-05-24  Stephen Berman  <steve@rosalinde.fritz.box>
+2017-05-24  Stephen Berman  <stephen.berman@gmx.net>
 
 	Fix and improve UI of scroll bar menu (bug#27047)
 
@@ -200273,7 +200272,7 @@
 	(string-trim): Add optional args that serve as defaults per the
 	original behavior.  (Bug#26908)
 
-2017-05-19  Stephen Berman  <steve@rosalinde.fritz.box>
+2017-05-19  Stephen Berman  <stephen.berman@gmx.net>
 
 	Fix typo in last change to auto-hscroll-mode
 
@@ -237356,7 +237355,7 @@ See ChangeLog.2 for earlier changes.
 ;; coding: utf-8
 ;; End:
 
-  Copyright (C) 2015-2025 Free Software Foundation, Inc.
+  Copyright (C) 2015-2026 Free Software Foundation, Inc.
 
   This file is part of GNU Emacs.
 

@@ -1,6 +1,6 @@
 ;;; sh-script.el --- shell-script editing commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1993-1997, 1999, 2001-2025 Free Software Foundation,
+;; Copyright (C) 1993-1997, 1999, 2001-2026 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Daniel Pfeiffer <occitan@esperanto.org>
@@ -149,8 +149,7 @@
   (require 'subr-x))
 (require 'executable)
 (require 'treesit)
-
-(declare-function treesit-parser-create "treesit.c")
+(treesit-declare-unavailable-functions)
 
 (autoload 'comint-completion-at-point "comint")
 (autoload 'comint-filename-completion "comint")
@@ -300,6 +299,18 @@ naming the shell."
 	(nil
 	 "^\\s-*\\([[:alpha:]_][[:alnum:]_]*\\)\\s-*()"
 	 1)))
+    ;; The difference between the Bash regular expression and the sh regular
+    ;; expression is that Bash also allows hyphens (-) in function names.
+    (bash
+     . ((nil
+         ;; function FOO
+         ;; function FOO()
+         "^\\s-*function\\s-+\\([[:alpha:]_][[:alnum:]_-]*\\)\\s-*\\(?:()\\)?"
+         1)
+        ;; FOO()
+        (nil
+         "^\\s-*\\([[:alpha:]_][[:alnum:]_-]*\\)\\s-*()"
+         1)))
     (mksh
      . ((nil
          ;; function FOO
@@ -395,13 +406,13 @@ name symbol."
 	;; to work fine. This is needed so that dabbrev-expand
 	;; $VARNAME works.
 	?$ "'"
-	?! "_"
-	?% "_"
-	?: "_"
-	?. "_"
-	?^ "_"
-	?~ "_"
-	?, "_"
+	?! "."
+	?% "."
+	?: "."
+	?. "."
+	?^ "."
+	?~ "."
+	?, "."
 	?= "."
         ?/ "."
 	?\; "."
@@ -1026,7 +1037,7 @@ subshells can nest."
               ;; Skip through one pattern
               (while
                   (or (/= 0 (skip-syntax-backward "w_"))
-                      (/= 0 (skip-chars-backward "-$=?[]*@/\\\\"))
+                      (/= 0 (skip-chars-backward "-$=?[]*@/\\\\!%:.^~,"))
                       (and (sh-is-quoted-p (1- (point)))
                            (goto-char (- (point) 2)))
                       (when (memq (char-before) '(?\" ?\' ?\}))
@@ -1117,9 +1128,9 @@ subshells can nest."
   (let ((q (nth 3 state)))
     (if q
         (if (characterp q)
-            (if (eq q ?\`) 'sh-quoted-exec font-lock-string-face)
+            (if (eq q ?\`) 'sh-quoted-exec 'font-lock-string-face)
           'sh-heredoc)
-      font-lock-comment-face)))
+      'font-lock-comment-face)))
 
 (defgroup sh-indentation nil
   "Variables controlling indentation in shell scripts.
@@ -1142,47 +1153,12 @@ and command `sh-reset-indent-vars-to-global-values'."
   :options '(sh-electric-here-document-mode)
   :group 'sh-script)
 
-(defcustom sh-popup-occur-buffer nil
-  "Controls when  `smie-config-guess' pops the `*indent*' buffer.
-If t it is always shown.  If nil, it is shown only when there
-are conflicts."
-  :type '(choice
-	  (const :tag "Only when there are conflicts." nil)
-	  (const :tag "Always"  t))
-  :group 'sh-indentation)
-
-(defcustom sh-first-lines-indent 0
-  "The indentation of the first non-blank non-comment line.
-Usually 0 meaning first column.
-Can be set to a number, or to nil which means leave it as is."
-  :type '(choice
-	  (const :tag "Leave as is"	nil)
-	  (integer :tag "Column number"
-		   :menu-tag "Indent to this col (0 means first col)" ))
-  :group 'sh-indentation)
-
-
 (defcustom sh-basic-offset 4
   "The default indentation increment.
 This value is used for the `+' and `-' symbols in an indentation variable."
   :type 'integer
   :safe #'integerp
   :group 'sh-indentation)
-
-(defcustom sh-indent-comment t
-  "How a comment line is to be indented.
-nil means leave it as it is;
-t  means indent it as a normal line, aligning it to previous non-blank
-   non-comment line;
-a number means align to that column, e.g. 0 means first column."
-  :type '(choice
-	  (const :tag "Leave as is." nil)
-	  (const :tag "Indent as a normal line."  t)
-	  (integer :menu-tag "Indent to this col (0 means first col)."
-		   :tag "Indent to column number.") )
-  :version "24.3"
-  :group 'sh-indentation)
-
 
 (defvar sh-debug nil
   "Enable lots of debug messages - if function `sh-debug' is enabled.")
@@ -1208,16 +1184,6 @@ a number means align to that column, e.g. 0 means first column."
 	   :menu-tag "*   Indent right half sh-basic-offset")
     (const :tag "/ " :value /
 	   :menu-tag "/   Indent left  half sh-basic-offset")))
-
-(defcustom sh-indent-for-else 0
-  "How much to indent an `else' relative to its `if'.  Usually 0."
-  :type `(choice
-	  (integer :menu-tag "A number (positive=>indent right)"
-		   :tag "A number")
-	  (const :tag "--") ;; separator!
-	  ,@ sh-symbol-list
-	  )
-  :group 'sh-indentation)
 
 (defconst sh-number-or-symbol-list
   (append '((integer :menu-tag "A number (positive=>indent right)"
@@ -1369,19 +1335,17 @@ punctuation characters like `-'."
 
 (defconst sh-var-list
   '(
-    sh-basic-offset sh-first-lines-indent sh-indent-after-case
+    sh-basic-offset sh-indent-after-case
     sh-indent-after-do sh-indent-after-done
     sh-indent-after-else
     sh-indent-after-if
     sh-indent-after-loop-construct
     sh-indent-after-open
-    sh-indent-comment
     sh-indent-for-case-alt
     sh-indent-for-case-label
     sh-indent-for-continuation
     sh-indent-for-do
     sh-indent-for-done
-    sh-indent-for-else
     sh-indent-for-fi
     sh-indent-for-then
     )
@@ -1435,8 +1399,9 @@ If FORCE is non-nil and no process found, create one."
 (defun sh-show-shell ()
   "Pop the shell interaction buffer."
   (interactive)
-  (with-suppressed-warnings ((obsolete display-comint-buffer-action))
-    (pop-to-buffer (process-buffer (sh-shell-process t)) display-comint-buffer-action)))
+  (pop-to-buffer (process-buffer (sh-shell-process t))
+                 (append display-buffer--same-window-action
+                         '((category . comint)))))
 
 (defun sh-send-text (text)
   "Send TEXT to `sh-shell-process'."
@@ -1618,12 +1583,14 @@ with your script for an edit-interpret-debug cycle."
 This mode automatically falls back to `sh-mode' if the buffer is
 not written in Bash or sh."
   :syntax-table sh-mode-syntax-table
-  (when (treesit-ready-p 'bash)
+  ;; `treesit-ready-p' also checks for buffer size.
+  (when (and (treesit-ensure-installed 'bash)
+             (treesit-ready-p 'bash))
     (sh-set-shell "bash" nil nil)
     (add-hook 'flymake-diagnostic-functions #'sh-shellcheck-flymake nil t)
     (add-hook 'hack-local-variables-hook
               #'sh-after-hack-local-variables nil t)
-    (treesit-parser-create 'bash)
+    (setq treesit-primary-parser (treesit-parser-create 'bash))
     (setq-local treesit-font-lock-feature-list
                 '(( comment function)
                   ( command declaration-command keyword string)
@@ -1634,13 +1601,59 @@ not written in Bash or sh."
                 sh-mode--treesit-settings)
     (setq-local treesit-thing-settings
                 `((bash
-                   (sentence ,(regexp-opt '("comment"
-                                            "heredoc_start"
-                                            "heredoc_body"))))))
+                   (list
+                    ,(rx bos (or "do_group"
+                                 "if_statement"
+                                 "case_statement"
+                                 "compound_statement"
+                                 "subshell"
+                                 "test_command"
+                                 "parenthesized_expression"
+                                 "arithmetic_expansion"
+                                 "brace_expression"
+                                 "string"
+                                 "array"
+                                 "expansion" ;; but not "simple_expansion"
+                                 "command_substitution"
+                                 "process_substitution")
+                         eos))
+                   (sexp-default
+                    ;; For `C-M-f' in "$|{a}" or "$|(a)"
+                    ("$[{(]" .
+                     ,(lambda (node)
+                        (member (treesit-node-type (treesit-node-parent node))
+                                '("expansion" "command_substitution")))))
+                   (sentence
+                    ,(rx bos (or "redirected_statement"
+                                 "declaration_command"
+                                 "unset_command"
+                                 "command"
+                                 "variable_assignment")
+                         eos))
+                   (text
+                    ,(rx bos (or "comment"
+                                 "heredoc_body")
+                         eos)))))
     (setq-local treesit-defun-type-regexp "function_definition")
+    (setq-local treesit-defun-name-function
+                (lambda (node)
+                  (treesit-node-text
+                   (treesit-node-child-by-field-name node "name")
+                   t)))
+    (setq-local treesit-simple-imenu-settings
+                '((nil "\\`function_definition\\'" nil nil)))
+    ;; Override regexp-based outline variable from `sh-base-mode'
+    ;; to use `treesit-simple-imenu-settings' for outlines:
+    (kill-local-variable 'outline-regexp)
+
     (treesit-major-mode-setup)))
 
 (derived-mode-add-parents 'bash-ts-mode '(sh-mode))
+
+;;;###autoload
+(when (boundp 'treesit-major-mode-remap-alist)
+  (add-to-list 'treesit-major-mode-remap-alist
+               '(sh-mode . bash-ts-mode)))
 
 (advice-add 'bash-ts-mode :around #'sh--redirect-bash-ts-mode
             ;; Give it lower precedence than normal advice, so other
@@ -3259,6 +3272,12 @@ member of `flymake-diagnostic-functions'."
 
 ;;; Tree-sitter font-lock
 
+(add-to-list
+ 'treesit-language-source-alist
+ '(bash "https://github.com/tree-sitter/tree-sitter-bash"
+        :commit "487734f87fd87118028a65a4599352fa99c9cde8")
+ t)
+
 (defvar sh-mode--treesit-operators
   '("|" "|&" "||" "&&" ">" ">>" "<" "<<" "<<-" "<<<" "==" "!=" ";&" ";;&")
   "A list of `sh-mode' operators to fontify.")
@@ -3310,8 +3329,12 @@ See `sh-mode--treesit-other-keywords' and
    :feature 'string-interpolation
    :language 'bash
    :override t
-   '((command_substitution) @sh-quoted-exec
-     (string (expansion (variable_name) @font-lock-variable-use-face)))
+   '((command_substitution (command) @sh-quoted-exec)
+     (expansion (variable_name) @font-lock-variable-use-face)
+     (expansion ["${" "}"] @font-lock-bracket-face)
+     (simple_expansion
+      "$" @font-lock-bracket-face
+      (variable_name) @font-lock-variable-use-face))
 
    :feature 'heredoc
    :language 'bash
@@ -3338,7 +3361,7 @@ See `sh-mode--treesit-other-keywords' and
    :feature 'command
    :language 'bash
    `(;; function/non-builtin command calls
-     (command_name (word) @font-lock-function-name-face)
+     (command_name (word) @font-lock-function-call-face)
      ;; builtin commands
      (command_name
       ((word) @font-lock-builtin-face

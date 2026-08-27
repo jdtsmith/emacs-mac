@@ -1,5 +1,5 @@
 /* Definitions for asynchronous process control in GNU Emacs.
-   Copyright (C) 1985, 1994, 2001-2025 Free Software Foundation, Inc.
+   Copyright (C) 1985, 1994, 2001-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -83,13 +83,20 @@ struct Lisp_Process
     Lisp_Object mark;
 
     /* Symbol indicating status of process.
-       This may be a symbol: run, open, closed, listen, or failed.
+       This may be a symbol: run, listen, or failed.
        Or it may be a pair (connect . ADDRINFOS) where ADDRINFOS is
        a list of remaining (PROTOCOL . ADDRINFO) pairs to try.
        Or it may be (failed ERR) where ERR is an integer, string or symbol.
        Or it may be a list, whose car is stop, exit or signal
        and whose cdr is a pair (EXIT_CODE . COREDUMP_FLAG)
-       or (SIGNAL_NUMBER . COREDUMP_FLAG).  */
+       or (SIGNAL_NUMBER . COREDUMP_FLAG).
+       The symbols open and closed are not used here: an open network
+       process has an internal status of "run" and a closed network
+       process an internal status of "exit".
+       Stopped network processes do not set this status to "stop";
+       instead, they set command to t. "stop" is only used here to
+       indicate stopped system processes.
+     */
     Lisp_Object status;
 
     /* Coding-system for decoding the input from this process.  */
@@ -256,6 +263,8 @@ pset_gnutls_cred_type (struct Lisp_Process *p, Lisp_Object val)
 /* True means don't run process sentinels.  This is used
    when exiting.  */
 extern bool inhibit_sentinels;
+/* True means that Glib clobbers Emacs SIGCHLD handler.  */
+extern bool glib_installs_sigchld_handler;
 
 /* Exit statuses for GNU programs that exec other programs.  */
 enum

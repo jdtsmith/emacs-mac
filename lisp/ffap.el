@@ -1,6 +1,6 @@
 ;;; ffap.el --- find file (or url) at point  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1995-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1995-2026 Free Software Foundation, Inc.
 
 ;; Author: Michelangelo Grigni <mic@mathcs.emory.edu>
 ;; Maintainer: emacs-devel@gnu.org
@@ -179,12 +179,13 @@ Note this name may be omitted if it equals the default
   :group 'ffap)
 
 (defvar ffap-url-regexp
-  (concat
-   "\\("
-   "news\\(post\\)?:\\|mailto:\\|file:" ; no host ok
-   "\\|"
-   "\\(ftp\\|https?\\|telnet\\|gopher\\|gemini\\|www\\|wais\\)://" ; needs host
-   "\\)")
+  (eval-when-compile
+    (concat
+     "\\("
+     "news\\(post\\)?:\\|mailto:\\|file:" ; no host ok
+     "\\|"
+     "\\(ftp\\|https?\\|telnet\\|gopher\\|gemini\\|www\\|wais\\)://" ;Needs host
+     "\\)"))
   "Regexp matching the beginning of a URI, for ffap.
 If the value is nil, disable URL-matching features in ffap.")
 
@@ -197,6 +198,16 @@ Sensible values are nil, \"news\", or \"mailto\"."
 		 ;; string -- possible, but not really useful
 		 )
   :group 'ffap)
+
+(defcustom ffap-prefer-remote-file nil
+  "Whether to prefer remote files in remote context.
+If non-nil, ffap always finds remote files in buffers with remote
+`default-directory'.  If nil, ffap finds local files first for absolute
+filenames in above buffers.  Relative filenames are not affected by this
+option."
+  :type 'boolean
+  :group 'ffap
+  :version "31.1")
 
 (defvar ffap-max-region-length 1024
   "Maximum active region length.
@@ -448,11 +459,12 @@ Returned values:
 		"ffap-machine-p" nil host (or service "discard")))
 	      t)
 	  (error
-	   (let ((mesg (car (cdr error))))
+	   (let ((mesg (error-slot-value error 1)))
 	     (cond
 	      ;; v18:
 	      ((string-match "\\(^Unknown host\\|Name or service not known$\\)"
-			     mesg) nil)
+		             mesg)
+	       nil)
 	      ((string-match "not responding$" mesg) mesg)
 	      ;; v19:
               ;; (file-error "Connection failed" "permission denied"
@@ -462,12 +474,13 @@ Returned values:
               ;; (file-error "Connection failed" "address already in use"
 	      ;;	     "ftp.uu.net" "ffap-machine-p")
 	      ((equal mesg "connection failed")
-	       (if (string= (downcase (nth 2 error)) "permission denied")
+               (if (string-equal-ignore-case (error-slot-value error 2)
+                                             "permission denied")
 		   nil			; host does not exist
 		 ;; Other errors mean the host exists:
-		 (nth 2 error)))
+		 (error-slot-value error 2)))
 	      ;; Could be "Unknown service":
-	      (t (signal (car error) (cdr error))))))))))))
+	      (t (signal error)))))))))))
 
 
 ;;; Possibly Remote Resources:
@@ -487,7 +500,7 @@ Returned values:
 (defvar ffap-compression-suffixes '(".gz" ".Z")	; .z is mostly dead
   "List of suffixes tried by `ffap-file-exists-string'.")
 
-(defun ffap-file-exists-string (file &optional nomodify)
+(defun ffap-file-exists-string (file &optional nomodify remote-prefix)
   ;; Early jka-compr versions modified file-exists-p to return the
   ;; filename, maybe modified by adding a suffix like ".gz".  That
   ;; broke the interface of file-exists-p, so it was later dropped.
@@ -495,23 +508,32 @@ Returned values:
   "Return FILE (maybe modified) if the file exists, else nil.
 When using jka-compr (a.k.a. `auto-compression-mode'), the returned
 name may have a suffix added from `ffap-compression-suffixes'.
-The optional NOMODIFY argument suppresses the extra search."
-  (cond
-   ((or (not file)			; quietly reject nil
-	(zerop (length file)))		; and also ""
-    nil)
-   ((file-exists-p file) file)		; try unmodified first
-   ;; three reasons to suppress search:
-   (nomodify nil)
-   ((not (rassq 'jka-compr-handler file-name-handler-alist)) nil)
-   ((member (file-name-extension file t) ffap-compression-suffixes) nil)
-   (t					; ok, do the search
-    (let ((list ffap-compression-suffixes) try ret)
-      (while list
-	(if (file-exists-p (setq try (concat file (car list))))
-	    (setq ret try list nil)
-	  (setq list (cdr list))))
-      ret))))
+The optional NOMODIFY argument suppresses the extra search.
+
+If the caller ensures that FILE is not remote, this function can accept
+an optional argument, REMOTE-PREFIX.  When REMOTE-PREFIX is non-nil (a
+string typically returned by `file-remote-p') and FILE is absolute,
+check whether FILE exists on the remote system.  If the file is present,
+the returned name uses REMOTE-PREFIX as the prefix."
+  (let ((non-essential t))
+    (cond
+     ((zerop (length file)) nil)        ; quietly reject nil and ""
+     ((and remote-prefix                ; prepend remote prefix to file
+           (file-name-absolute-p file)
+           (setq file (concat remote-prefix file))
+           nil))
+     ((file-exists-p file) file)
+     ;; three reasons to suppress search:
+     (nomodify nil)
+     ((not (rassq 'jka-compr-handler file-name-handler-alist)) nil)
+     ((member (file-name-extension file t) ffap-compression-suffixes) nil)
+     (t					; ok, do the search
+      (let ((list ffap-compression-suffixes) try ret)
+        (while list
+	  (if (file-exists-p (setq try (concat file (car list))))
+	      (setq ret try list nil)
+	    (setq list (cdr list))))
+        ret)))))
 
 (defun ffap-file-remote-p (filename)
   "If FILENAME looks remote, return it (maybe slightly improved)."
@@ -805,8 +827,10 @@ to extract substrings.")
 
 (declare-function project-root "project" (project))
 (defun ffap-in-project (name)
-  (when-let (project (project-current))
-    (file-name-concat (project-root project) name)))
+  (when-let* ((project (project-current)))
+    (ffap-file-exists-string
+     (file-name-concat (project-root project) name)
+     'nomodify)))
 
 (defun ffap-home (name) (ffap-locate-file name t '("~")))
 
@@ -831,28 +855,79 @@ to extract substrings.")
   (and (not (string-match "\\.el\\'" name))
        (ffap-locate-file name '(".el") load-path)))
 
-;; FIXME this duplicates the logic of Man-header-file-path.
-;; There should be a single central variable or function for this.
-;; See also (bug#10702):
-;; cc-search-directories, semantic-c-dependency-system-include-path,
-;; semantic-gcc-setup
-(defvar ffap-c-path
-  (let ((arch (with-temp-buffer
-                (when (eq 0 (ignore-errors
-                              (call-process "gcc" nil '(t nil) nil
-                                            "-print-multiarch")))
-                  (goto-char (point-min))
-                  (buffer-substring (point) (line-end-position)))))
-        (base '("/usr/include" "/usr/local/include")))
-    (if (zerop (length arch))
-        base
-      (append base (list (expand-file-name arch "/usr/include")))))
+(defun ffap--gcc-is-clang-p ()
+  "Return non-nil if the `gcc' command actually runs the Clang compiler."
+  ;; Recent macOS machines run llvm when you type gcc by default.  (!)
+  ;; We can't even check if it's a symlink; it's a binary placed in
+  ;; "/usr/bin/gcc".  So we need to check the output.
+  (when-let* ((out (ignore-errors
+                     (with-temp-buffer
+                       (call-process "gcc" nil t nil "--version")
+                       (buffer-string)))))
+   (string-match "Apple \\(LLVM\\|[Cc]lang\\)\\|Xcode\\.app" out)))
+
+(defun ffap--c-path ()
+  "Return search path for C header files (a list of strings)."
+  ;; FIXME: It's not clear that this is a good place to put this, or
+  ;; even that this should necessarily be internal.
+  ;; See also (Bug#10702):
+  ;; cc-search-directories, semantic-c-dependency-system-include-path,
+  ;; semantic-gcc-setup
+  (delete-dups
+   ;; We treat MS-Windows/MS-DOS specially, since there's no
+   ;; widely-accepted canonical directory for C include files.
+   (let ((base (if (not (memq system-type '(windows-nt ms-dos)))
+                   '("/usr/include" "/usr/local/include")))
+         (call-clang-p (or (ffap--gcc-is-clang-p)
+                           (and (executable-find "clang")
+                                (not (executable-find "gcc"))))))
+     (cond ((or call-clang-p
+                (memq system-type '(windows-nt ms-dos)))
+            ;; This is either macOS, or MS-Windows/MS-DOS, or a system
+            ;; with clang only.
+            (with-temp-buffer
+              (ignore-errors
+                (call-process (if call-clang-p "clang" "gcc")
+                              nil t nil
+                              "-v" "-E" "-"))
+              (goto-char (point-min))
+              (narrow-to-region
+               (save-excursion
+                 (re-search-forward
+                  "^#include <\\.\\.\\.> search starts here:\n" nil t)
+                 (point))
+               (save-excursion
+                 (re-search-forward "^End of search list.$" nil t)
+                 (pos-bol)))
+              (while (search-forward "(framework directory)" nil t)
+                (delete-line))
+              ;; "gcc -v" reports file names with many "..", so we
+              ;; normalize it.
+              (or (mapcar #'expand-file-name
+                          (append base
+                                  (split-string (buffer-substring-no-properties
+                                                 (point-min) (point-max)))))
+                  ;; Fallback for when the compiler is not available.
+                  (list (expand-file-name "/usr/include")
+                        (expand-file-name "/usr/local/include")))))
+           ;; Prefer GCC.
+           ((let ((arch (with-temp-buffer
+                          (when (eq 0 (ignore-errors
+                                        (call-process "gcc" nil '(t nil) nil
+                                                      "-print-multiarch")))
+                            (goto-char (point-min))
+                            (buffer-substring (point) (line-end-position))))))
+              (if (zerop (length arch))
+                  base
+                (append base (list (expand-file-name arch "/usr/include"))))))))))
+
+(defvar ffap-c-path (ffap--c-path)      ;FIXME: Delay initialization?
   "List of directories to search for include files.")
 
 (defun ffap-c-mode (name)
   (ffap-locate-file name t ffap-c-path))
 
-(defvar ffap-c++-path
+(defvar ffap-c++-path      ;FIXME: Delay initialization?
   (let ((c++-include-dir (with-temp-buffer
                            (when (eq 0 (ignore-errors
                                          (call-process "g++" nil t nil "-v")))
@@ -971,10 +1046,16 @@ out of NAME."
                    (exec-path (buffer-local-value 'exec-path curbuf)))
                (apply #'call-process "kpsewhich" nil t nil
                       (mapcar (lambda (rule)
-                                          (concat (car rule) name (cdr rule)))
-                                        guess-rules)))
-             (when (< (point-min) (point-max))
-               (buffer-substring (goto-char (point-min)) (line-end-position))))))))
+                                (concat (car rule) name (cdr rule)))
+                              guess-rules)))
+             ;; Starting with TeXlive 2025, kpsewhich returns blank
+             ;; lines when multiple filenames are given and a given file
+             ;; is not found, so we have to go to the first non-blank
+             ;; line in order to find a file-path (bug#79397):
+             (goto-char (point-min))
+             (skip-chars-forward "\r\n")
+             (when (< (point) (line-end-position))
+               (buffer-substring (point) (line-end-position))))))))
 
 (defun ffap-tex (name)
   (ffap-tex-init)
@@ -1088,7 +1169,7 @@ The arguments CHARS, BEG and END are handled as described in
   "Last string returned by the function `ffap-string-at-point'.")
 
 (defcustom ffap-file-name-with-spaces nil
-  "If non-nil, enable looking for paths with spaces in `ffap-string-at-point'.
+  "If non-nil, allow file names with spaces in `ffap-string-at-point'.
 Enabling this variable may lead to `find-file-at-point' guessing
 wrong more often when trying to find a file name intermingled
 with normal text, but can be useful when working on systems that
@@ -1234,10 +1315,16 @@ return an empty string, and set `ffap-string-at-point-region' to `(1 1)'."
 	          (if (and ffap-file-name-with-spaces
 			   (memq mode '(nil file)))
 		      (when (setq dir-separator (ffap-dir-separator-near-point))
-		        (while (re-search-backward
-			        (regexp-quote dir-separator)
-			        (line-beginning-position) t)
-		          (goto-char (match-beginning 0))))
+                        (let ((dirsep-re (regexp-quote dir-separator))
+                              (line-beg (line-beginning-position)))
+		          (while (re-search-backward dirsep-re line-beg t)
+		            (goto-char (match-beginning 0)))
+                          (if (and (looking-at dirsep-re)
+                                   (looking-back
+                                    ;; Either "~[USER]" or drive letter.
+                                    "\\(~[[:graph:]]*\\|[a-zA-Z]:\\)"
+                                    line-beg))
+                              (goto-char (match-beginning 0)))))
 		    (skip-chars-backward (car args))
 		    (skip-chars-forward (nth 1 args) pt))
 		  (point))))
@@ -1405,6 +1492,8 @@ which may actually result in an URL rather than a filename."
 	      string))
 	 (abs (file-name-absolute-p name))
 	 (default-directory default-directory)
+         (remote-p (and ffap-prefer-remote-file
+                        (file-remote-p default-directory)))
          (oname name))
     (unwind-protect
 	(cond
@@ -1424,10 +1513,11 @@ which may actually result in an URL rather than a filename."
 	 ;; Accept remote names without actual checking (too slow):
 	 ((and abs (ffap-file-remote-p name)))
 	 ;; Ok, not remote, try the existence test even if it is absolute:
-	 ((and abs (ffap-file-exists-string name)))
+	 ((and abs (ffap-file-exists-string name nil remote-p)))
 	 ;; Try stripping off line numbers.
 	 ((and abs (string-match ":[0-9]" name)
-	       (ffap-file-exists-string (substring name 0 (match-beginning 0)))))
+	       (ffap-file-exists-string (substring name 0 (match-beginning 0))
+                                        nil remote-p)))
 	 ;; If it contains a colon, get rid of it (and return if exists)
 	 ((and (string-match path-separator name)
 	       (let ((this-name (ffap-string-at-point 'nocolon)))
@@ -1435,7 +1525,7 @@ which may actually result in an URL rather than a filename."
                  ;; the empty string.
 	         (when (> (length this-name) 0)
                    (setq name this-name)
-	           (ffap-file-exists-string name)))))
+	           (ffap-file-exists-string name nil remote-p)))))
          ;; File does not exist, try the alist:
 	 ((let ((alist ffap-alist) tem try case-fold-search)
 	    (while (and alist (not try))
@@ -1450,7 +1540,7 @@ which may actually result in an URL rather than a filename."
 		       (setq try (or
 				  (ffap-url-p try) ; not a file!
 				  (ffap-file-remote-p try)
-				  (ffap-file-exists-string try))))))
+				  (ffap-file-exists-string try nil remote-p))))))
 	    try))
          ;; Try adding a leading "/" (common omission in ftp file names).
          ;; Note that this uses oname, which still has any colon part.
@@ -1483,17 +1573,18 @@ which may actually result in an URL rather than a filename."
 	       (string-match ffap-dired-wildcards name)
 	       abs
 	       (ffap-file-exists-string (file-name-directory
-					 (directory-file-name name)))
+					 (directory-file-name name))
+                                        nil remote-p)
 	       name))
          ;; Try all parent directories by deleting the trailing directory
          ;; name until existing directory is found or name stops changing
          ((let ((dir name))
             (while (and dir
-                        (not (ffap-file-exists-string dir))
+                        (not (ffap-file-exists-string dir nil remote-p))
                         (not (equal dir (setq dir (file-name-directory
                                                    (directory-file-name dir)))))))
             (and (not (string= dir "/"))
-		 (ffap-file-exists-string dir))))
+		 (ffap-file-exists-string dir nil remote-p))))
 	 )
       (set-match-data data))))
 
@@ -1512,10 +1603,11 @@ which may actually result in an URL rather than a filename."
       ;; We mainly just want to disable these bits:
       (substitute-in-file-name (car args))
       (expand-file-name (car args))
+      (unhandled-file-name-directory temporary-file-directory)
       (otherwise
        (apply operation args)))))
 
-(defun ffap-read-file-or-url (prompt guess)
+(defun ffap-read-file-or-url (prompt guess &optional read-dir)
   "Read file or URL from minibuffer, with PROMPT and initial GUESS."
   (let ((elem (cons ffap-url-regexp #'ffap--url-file-handler)))
     (unwind-protect
@@ -1531,9 +1623,14 @@ which may actually result in an URL rather than a filename."
               (setq guess default-directory))
             (unless (ffap-file-remote-p guess)
               (setq guess (abbreviate-file-name (expand-file-name guess))))
-            (read-file-name prompt
-                            (file-name-directory guess) nil nil
-                            (file-name-nondirectory guess))))
+            (funcall
+             ;; Copied from `dired-read-dir-and-switches'.
+	     (if (and read-dir (next-read-file-uses-dialog-p))
+	         #'read-directory-name
+	       #'read-file-name)
+	     prompt
+             (file-name-directory guess) nil nil
+             (file-name-nondirectory guess))))
       ;; Remove the special handler manually.  We used to just let-bind
       ;; file-name-handler-alist to preserve its value, but that caused
       ;; other modifications to be lost (e.g. when Tramp gets loaded
@@ -1738,14 +1835,15 @@ Function CONT is applied to the entry chosen by the user."
 				    alist))))))
      ;; minibuffer with completion buffer:
      (t
-      (let ((minibuffer-setup-hook 'minibuffer-completion-help))
-	;; Bug: prompting may assume unique strings, no "".
-	(setq choice
-	      (completing-read
-	       (format-prompt title (car (car alist)))
-	       alist nil t
-	       ;; (cons (car (car alist)) 0)
-	       nil)))
+      ;; Bug: prompting may assume unique strings, no "".
+      (setq choice
+	    (completing-read
+	     (format-prompt title (car (car alist)))
+             (completion-table-with-metadata
+	      alist '((category . ffap-menu) (eager-display . t)))
+             nil t
+	     ;; (cons (car (car alist)) 0)
+	     nil))
       (sit-for 0)			; redraw original screen
       ;; Convert string to its entry, or else the default:
       (setq choice (or (assoc choice alist) (car alist)))))
@@ -2065,7 +2163,8 @@ If `dired-at-point-require-prefix' is set, the prefix meaning is reversed."
 		    ((file-regular-p guess)
 		     (file-name-directory guess))
 		    (guess))))
-	 (and guess (ffap-highlight))))
+	 (and guess (ffap-highlight)))
+       'read-dir)
     (ffap-highlight t)))
 
 ;;; ffap-dired-other-*, ffap-list-directory commands:

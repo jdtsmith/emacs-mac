@@ -1,7 +1,7 @@
 /* Declaration of functions and data types used for MD5 sum computing
    library functions.
-   Copyright (C) 1995-1997, 1999-2001, 2004-2006, 2008-2025 Free
-   Software Foundation, Inc.
+   Copyright (C) 1995-1997, 1999-2001, 2004-2006, 2008-2026 Free Software
+   Foundation, Inc.
    This file is part of the GNU C Library.
 
    This file is free software: you can redistribute it and/or modify
@@ -52,10 +52,14 @@
 #define MD5_DIGEST_SIZE 16
 #define MD5_BLOCK_SIZE 64
 
+#if defined __clang__
+  /* clang really only groks GNU C 4.2, regardless of its value of __GNUC__.  */
+# undef __GNUC_PREREQ
+# define __GNUC_PREREQ(maj, min) ((maj) < 4 + ((min) <= 2))
+#endif
 #ifndef __GNUC_PREREQ
 # if defined __GNUC__ && defined __GNUC_MINOR__
-#  define __GNUC_PREREQ(maj, min)                                       \
-  ((__GNUC__ << 16) + __GNUC_MINOR__ >= ((maj) << 16) + (min))
+#  define __GNUC_PREREQ(maj, min) ((maj) < __GNUC__ + ((min) <= __GNUC_MINOR__))
 # else
 #  define __GNUC_PREREQ(maj, min) 0
 # endif
@@ -117,28 +121,30 @@ extern void __md5_init_ctx (struct md5_ctx *ctx) __THROW;
    initialization function update the context for the next LEN bytes
    starting at BUFFER.
    It is necessary that LEN is a multiple of 64!!! */
-extern void __md5_process_block (const void *buffer, size_t len,
-                                 struct md5_ctx *ctx) __THROW;
+extern void __md5_process_block (void const *restrict buffer, size_t len,
+                                 struct md5_ctx *restrict ctx) __THROW;
 
 /* Starting with the result of former calls of this function (or the
    initialization function update the context for the next LEN bytes
    starting at BUFFER.
    It is NOT required that LEN is a multiple of 64.  */
-extern void __md5_process_bytes (const void *buffer, size_t len,
-                                 struct md5_ctx *ctx) __THROW;
+extern void __md5_process_bytes (void const *restrict buffer, size_t len,
+                                 struct md5_ctx *restrict ctx) __THROW;
 
 /* Process the remaining bytes in the buffer and put result from CTX
    in first 16 bytes following RESBUF.  The result is always in little
    endian byte order, so that a byte-wise output yields to the wanted
    ASCII representation of the message digest.  */
-extern void *__md5_finish_ctx (struct md5_ctx *ctx, void *restrict resbuf)
+extern void *__md5_finish_ctx (struct md5_ctx *restrict ctx,
+                               void *restrict resbuf)
      __THROW;
 
 
 /* Put result from CTX in first 16 bytes following RESBUF.  The result is
    always in little endian byte order, so that a byte-wise output yields
    to the wanted ASCII representation of the message digest.  */
-extern void *__md5_read_ctx (const struct md5_ctx *ctx, void *restrict resbuf)
+extern void *__md5_read_ctx (struct md5_ctx const *restrict ctx,
+                             void *restrict resbuf)
      __THROW;
 
 
@@ -146,7 +152,7 @@ extern void *__md5_read_ctx (const struct md5_ctx *ctx, void *restrict resbuf)
    result is always in little endian byte order, so that a byte-wise
    output yields to the wanted ASCII representation of the message
    digest.  */
-extern void *__md5_buffer (const char *buffer, size_t len,
+extern void *__md5_buffer (char const *restrict buffer, size_t len,
                            void *restrict resblock) __THROW;
 
 # endif
@@ -157,7 +163,8 @@ extern void *__md5_buffer (const char *buffer, size_t len,
    The case that the last operation on STREAM was an 'ungetc' is not supported.
    The resulting message digest number will be written into the 16 bytes
    beginning at RESBLOCK.  */
-extern int __md5_stream (FILE *stream, void *resblock) __THROW;
+extern int __md5_stream (FILE *restrict stream, void *restrict resblock)
+  __THROW;
 
 
 # ifdef __cplusplus

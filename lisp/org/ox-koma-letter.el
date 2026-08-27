@@ -1,12 +1,11 @@
 ;;; ox-koma-letter.el --- KOMA Scrlttr2 Backend for Org Export Engine  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: Nicolas Goaziou <n.goaziou AT gmail DOT com>
 ;;         Alan Schmitt <alan.schmitt AT polytechnique DOT org>
 ;;         Viktor Rosenfeld <listuser36 AT gmail DOT com>
 ;;         Rasmus Pank Roulund <emacs AT pank DOT eu>
-;; Maintainer: Marco Wahl <marcowahlsoft@gmail.com>
 ;; Keywords: org, text, tex
 
 ;; This file is part of GNU Emacs.

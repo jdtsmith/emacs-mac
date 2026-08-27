@@ -1,6 +1,6 @@
 ;;; nnregistry.el --- access to articles via Gnus' message-id registry  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2010-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
 ;; Author: Ludovic Courtès <ludo@gnu.org>
 ;; Keywords: news, mail
@@ -46,6 +46,9 @@
 
 (deffoo nnregistry-open-server (_server &optional _defs)
   gnus-registry-db)
+
+(deffoo nnregistry-request-group (_group &optional _server _dont-check _info)
+  t)
 
 (defvar nnregistry-within-nnregistry nil)
 

@@ -1,6 +1,6 @@
 @comment -*-texinfo-*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1992--1994, 1998--1999, 2001--2025 Free Software
+@c Copyright (C) 1992--1994, 1998--1999, 2001--2026 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 
@@ -12,7 +12,7 @@
 
 @node Edebug
 @section Edebug
-@cindex Edebug debugging facility
+@cindex edebug
 
   Edebug is a source-level debugger for Emacs Lisp programs, with which
 you can:
@@ -82,11 +82,12 @@ start using it.
 @node Using Edebug
 @subsection Using Edebug
 
+@cindex Edebug, how to start debugging
   To debug a Lisp program with Edebug, you must first @dfn{instrument}
 the Lisp code that you want to debug.  A simple way to do this is to
 first move point into the definition of a function or macro and then do
-@kbd{C-u C-M-x} (@code{eval-defun} with a prefix argument).  See
-@ref{Instrumenting}, for alternative ways to instrument code.
+@kbd{C-u C-M-x} (@code{eval-defun} with a prefix argument).
+@xref{Instrumenting}, for alternative ways to instrument code.
 
   Once a function is instrumented, any call to the function activates
 Edebug.  Depending on which Edebug execution mode you have selected,
@@ -94,6 +95,10 @@ activating Edebug may stop execution and let you step through the
 function, or it may update the display and continue execution while
 checking for debugging commands.  The default execution mode is step,
 which stops execution.  @xref{Edebug Execution Modes}.
+
+  When you are done debugging and want to run the function without
+instrumentation, you can remove the instrumentation using one of the
+methods described in @ref{Instrumenting}.
 
   Within Edebug, you normally view an Emacs buffer showing the source of
 the Lisp code you are debugging.  This is referred to as the @dfn{source
@@ -222,12 +227,16 @@ Example:
 macro definitions are not yet known to Emacs.  To work around this,
 load the file which defines the function you are about to instrument.
 
+@cindex remove Edebug instrumentation
+@cindex Edebug, finish debugging
 @findex eval-expression @r{(Edebug)}
   To remove instrumentation from a definition, simply re-evaluate its
 definition in a way that does not instrument.  There are two ways of
 evaluating forms that never instrument them: from a file with
 @code{load}, and from the minibuffer with @code{eval-expression}
-(@kbd{M-:}).
+(@kbd{M-:}).  In addition, @kbd{C-M-x} without prefix argument and with
+@code{edebug-all-defs} set to @code{nil} also evaluates the function's
+definition without instrumenting it.
 
 @findex edebug-remove-instrumentation
   A different way to remove the instrumentation from a definition is
@@ -618,7 +627,7 @@ should reset the condition to @code{nil} when not using it.
 @node Source Breakpoints
 @subsubsection Source Breakpoints
 
-@findex edebug
+@findex edebug@r{ function}
 @cindex source breakpoints
   All breakpoints in a definition are forgotten each time you
 reinstrument it.  If you wish to make a breakpoint that won't be
@@ -677,8 +686,7 @@ effect outside of Edebug.
 
 @table @kbd
 @findex edebug-view-outside
-@item P
-@itemx v
+@item v
 Switch to viewing the outside window configuration
 (@code{edebug-view-outside}).  Type @kbd{C-x X w} to return to Edebug.
 
@@ -686,6 +694,14 @@ Switch to viewing the outside window configuration
 @item p
 Temporarily display the outside current buffer with point at its
 outside position (@code{edebug-bounce-point}), pausing for one second
+before returning to Edebug.  With a prefix argument @var{n}, pause for
+@var{n} seconds instead.
+
+@findex edebug-bounce-to-previous-value
+@item P
+Temporarily display the outside current buffer with the outside point
+corresponding to the previously-evaluated value
+(@code{edebug-bounce-to-previous-value}), pausing for one second
 before returning to Edebug.  With a prefix argument @var{n}, pause for
 @var{n} seconds instead.
 
@@ -712,6 +728,23 @@ source code buffer, you must use @kbd{C-x X W} from the global keymap.
   You can view the outside window configuration with @kbd{v} or just
 bounce to the point in the current buffer with @kbd{p}, even if
 it is not normally displayed.
+
+  You can also bounce to buffer positions other than the current point.
+Suppose you are debugging the form
+
+@example
+(make-overlay beg end)
+@end example
+
+@noindent
+and you would like to know where @code{beg} and @code{end} are located
+in the outside buffer.  Then you could either evaluate these, for
+example, with @kbd{C-x C-e}, or step over them with @kbd{n}, and
+immediately after that press @kbd{P}, to bounce to the position you have
+previously evaluated.  The previous value for the purpose of the @kbd{P}
+command is what Edebug has evaluated before its last stop point or what
+you have evaluated in the context outside of Edebug, for example, with
+@kbd{C-x C-e}.
 
   After moving point, you may wish to jump back to the stop point.
 You can do that with @kbd{w} from a source code buffer.  You can jump
@@ -1506,7 +1539,7 @@ specification fails and the argument is not instrumented.
 Some suitable predicates include @code{symbolp}, @code{integerp},
 @code{stringp}, @code{vectorp}, and @code{atom}.
 
-@cindex [@dots{}] (Edebug)
+@cindex [@dots{}] (Edebug specification)
 @item [@var{elements}@dots{}]
 A vector of elements groups the elements into a single @dfn{group
 specification}.  Its meaning has nothing to do with vectors.

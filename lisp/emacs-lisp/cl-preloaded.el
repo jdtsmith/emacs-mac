@@ -1,6 +1,6 @@
 ;;; cl-preloaded.el --- Preloaded part of the CL library  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2015-2025 Free Software Foundation, Inc
+;; Copyright (C) 2015-2026 Free Software Foundation, Inc
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Package: emacs
@@ -37,11 +37,11 @@
 ;;; Code:
 
 (eval-when-compile (require 'cl-lib))
-(eval-when-compile (require 'cl-macs))  ;For cl--struct-class.
+(eval-when-compile (require 'cl-macs))  ;For cl--find-class.
 
 ;; The `assert' macro from the cl package signals
 ;; `cl-assertion-failed' at runtime so always define it.
-(define-error 'cl-assertion-failed (purecopy "Assertion failed"))
+(define-error 'cl-assertion-failed "Assertion failed")
 
 (defun cl--assertion-failed (form &optional string sargs args)
   (if debug-on-error
@@ -161,7 +161,7 @@
                                   (car slot) (nth 1 slot)
                                   type props)))
                      (puthash (car slot) (+ i offset) index-table)
-                     (cl-incf i))
+                     (incf i))
                    v))
          (class (cl--struct-new-class
                  name docstring
@@ -183,20 +183,7 @@
     (add-to-list 'current-load-list `(define-type . ,name))
     (cl--struct-register-child parent-class tag)
     (unless (or (eq named t) (eq tag name))
-      ;; We used to use `defconst' instead of `set' but that
-      ;; has a side-effect of purecopying during the dump, so that the
-      ;; class object stored in the tag ends up being a *copy* of the
-      ;; one stored in the `cl--class' property!  We could have fixed
-      ;; this needless duplication by using the purecopied object, but
-      ;; that then breaks down a bit later when we modify the
-      ;; cl-structure-class class object to close the recursion
-      ;; between cl-structure-object and cl-structure-class (because
-      ;; modifying purecopied objects is not allowed.  Since this is
-      ;; done during dumping, we could relax this rule and allow the
-      ;; modification, but it's cumbersome).
-      ;; So in the end, it's easier to just avoid the duplication by
-      ;; avoiding the use of the purespace here.
-      (set tag class)
+      (eval `(defconst ,tag ',class) t)
       ;; In the cl-generic support, we need to be able to check
       ;; if a vector is a cl-struct object, without knowing its particular type.
       ;; So we use the (otherwise) unused function slots of the tag symbol
@@ -298,18 +285,33 @@
 
 (defun cl--class-allparents (class)
   (cons (cl--class-name class)
-        (merge-ordered-lists (mapcar #'cl--class-allparents
-                                     (cl--class-parents class)))))
+        (let* ((parents (cl--class-parents class))
+               (aps (mapcar #'cl--class-allparents parents)))
+          (if (null (cdr aps)) ;; Single-inheritance fast-path.
+              (car aps)
+            (merge-ordered-lists
+             ;; Add the list of immediate parents, to control which
+             ;; linearization is chosen.  doi:10.1145/236337.236343
+             (nconc aps (list (mapcar #'cl--class-name parents))))))))
 
 (cl-defstruct (built-in-class
                (:include cl--class)
+               (:conc-name built-in-class--)
                (:noinline t)
                (:constructor nil)
-               (:constructor built-in-class--make (name docstring parents))
+               (:constructor built-in-class--make
+                (name docstring parent-types &optional non-abstract-supertype
+                      &aux (parents
+                            (mapcar (lambda (type)
+                                      (or (get type 'cl--class)
+                                          (error "Unknown type: %S" type)))
+                                    parent-types))))
                (:copier nil))
   "Type descriptors for built-in types.
 The `slots' (and hence `index-table') are currently unused."
-  )
+  ;; As a general rule, built-in types are abstract if-and-only-if they have
+  ;; other built-in types as subtypes.  But there are a few exceptions.
+  (non-abstract-supertype nil :read-only t))
 
 (defmacro cl--define-built-in-type (name parents &optional docstring &rest slots)
   ;; `slots' is currently unused, but we could make it take
@@ -323,25 +325,22 @@ The `slots' (and hence `index-table') are currently unused."
   (let ((predicate (intern-soft (format
                                  (if (string-match "-" (symbol-name name))
                                      "%s-p" "%sp")
-                                 name))))
+                                 name)))
+        (nas nil))
     (unless (fboundp predicate) (setq predicate nil))
     (while (keywordp (car slots))
       (let ((kw (pop slots)) (val (pop slots)))
         (pcase kw
           (:predicate (setq predicate val))
+          (:non-abstract-supertype (setq nas val))
           (_ (error "Unknown keyword arg: %S" kw)))))
     `(progn
        ,(if predicate `(put ',name 'cl-deftype-satisfies #',predicate)
           ;; (message "Missing predicate for: %S" name)
           nil)
        (put ',name 'cl--class
-            (built-in-class--make ',name ,docstring
-                                  (mapcar (lambda (type)
-                                            (let ((class (get type 'cl--class)))
-                                              (unless class
-                                                (error "Unknown type: %S" type))
-                                              class))
-                                          ',parents))))))
+            (built-in-class--make ',name ,docstring ',parents
+                                  ,@(if nas '(t)))))))
 
 ;; FIXME: Our type DAG has various quirks:
 ;; - Some `keyword's are also `symbol-with-pos' but that's not reflected
@@ -388,6 +387,7 @@ regardless if `funcall' would accept to call them."
   "Abstract supertype of both `number's and `marker's.")
 (cl--define-built-in-type symbol atom
   "Type of symbols."
+  :non-abstract-supertype t
   ;; Example of slots we could document.  It would be desirable to
   ;; have some way to extract this from the C code, or somehow keep it
   ;; in sync (probably not for `cons' and `symbol' but for things like
@@ -418,7 +418,8 @@ The size depends on the Emacs version and compilation options.
 For this build of Emacs it's %dbit."
           (1+ (logb (1+ most-positive-fixnum)))))
 (cl--define-built-in-type boolean (symbol)
-  "Type of the canonical boolean values, i.e. either nil or t.")
+  "Type of the canonical boolean values, i.e. either nil or t."
+  :non-abstract-supertype t)
 (cl--define-built-in-type symbol-with-pos (symbol)
   "Type of symbols augmented with source-position information.")
 (cl--define-built-in-type vector (array))
@@ -457,9 +458,9 @@ The fields are used as follows:
   5 [iform]      The interactive form (if present)")
 (cl--define-built-in-type byte-code-function (compiled-function closure)
   "Type of functions that have been byte-compiled.")
-(cl--define-built-in-type subr (atom)
-  "Abstract type of functions compiled to machine code.")
-(cl--define-built-in-type module-function (function)
+(cl--define-built-in-type subr (atom)   ;Beware: not always a function.
+  "Abstract type of functions and special forms compiled to machine code.")
+(cl--define-built-in-type module-function (compiled-function)
   "Type of functions provided via the module API.")
 (cl--define-built-in-type interpreted-function (closure)
   "Type of functions that have not been compiled.")
@@ -477,6 +478,63 @@ The fields are used as follows:
   ;; Fix it now to close the recursion.
   (setf (cl--class-parents (cl--find-class 'cl-structure-object))
       (list (cl--find-class 'record))))
+
+;;;; Support for `cl-deftype'.
+
+;; FIXME: The `cl-deftype-handler' property should arguably be turned
+;; into a field of this struct (but it has performance and
+;; compatibility implications, so let's not make that change for now).
+(cl-defstruct
+    (cl-derived-type-class
+     (:include cl--class)
+     (:noinline t)
+     (:constructor nil)
+     (:constructor cl--derived-type-class-make
+                   (name
+                    docstring
+                    parent-types
+                    &aux (parents
+                          (mapcar
+                           (lambda (type)
+                             (or (cl--find-class type)
+                                 (error "Unknown type: %S" type)))
+                           parent-types))))
+     (:copier nil))
+  "Type descriptors for derived types, i.e. defined by `cl-deftype'.")
+
+(defun cl--define-derived-type (name expander predicate &optional parents)
+  "Register derived type with NAME for method dispatching.
+EXPANDER is the function that computes the type specifier from
+the arguments passed to the derived type.
+PREDICATE is the precomputed function to test this type when used as an
+atomic type, or nil if it cannot be used as an atomic type.
+PARENTS is a list of types NAME is a subtype of, or nil."
+  (let* ((class (cl--find-class name)))
+    (when class
+      (or (cl-derived-type-class-p class)
+          ;; FIXME: We have some uses `cl-deftype' in Emacs that
+          ;; "complement" another declaration of the same type,
+          ;; so maybe we should turn this into a warning (and
+          ;; not overwrite the `cl--find-class' in that case)?
+          (error "Type %S already in another class: %S" name (type-of class))))
+    ;; Setup a type descriptor for NAME.
+    (setf (cl--find-class name)
+          (cl--derived-type-class-make
+           name
+           (and (fboundp 'function-documentation) ;Bootstrap corner case.
+                (function-documentation expander))
+           parents))
+    (define-symbol-prop name 'cl-deftype-handler expander)
+    (when predicate
+      (define-symbol-prop name 'cl-deftype-satisfies predicate))))
+
+(cl-deftype natnum  () (declare (parents integer)) '(satisfies natnump))
+(cl-deftype keyword () (declare (parents symbol)) '(satisfies keywordp))
+(cl-deftype command ()
+  ;; FIXME: Can't use `function' as parent because of arrays as
+  ;; keyboard macros, which are redundant since `kmacro.el'!!
+  ;;(declare (parents function))
+  '(satisfies commandp))
 
 ;; Make sure functions defined with cl-defsubst can be inlined even in
 ;; packages which do not require CL.  We don't put an autoload cookie

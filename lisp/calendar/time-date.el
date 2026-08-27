@@ -1,6 +1,6 @@
 ;;; time-date.el --- Date and time handling functions  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;;	Masanobu Umeda <umerin@mse.kyutech.ac.jp>
@@ -145,30 +145,24 @@ it is assumed that PICO was omitted and should be treated as zero."
 (autoload 'timezone-make-date-arpa-standard "timezone")
 
 ;;;###autoload
-;; `parse-time-string' isn't sufficiently general or robust.  It fails
-;; to grok some of the formats that timezone does (e.g. dodgy
-;; post-2000 stuff from some Elms) and either fails or returns bogus
-;; values.  timezone-make-date-arpa-standard should help.
 (defun date-to-time (date)
   "Parse a string DATE that represents a date-time and return a time value.
 DATE should be in one of the forms recognized by `parse-time-string'.
-If DATE lacks timezone information, GMT is assumed."
+If DATE lacks time zone information, local time is assumed."
   (condition-case err
+      ;; Parse DATE. If it contains a year, use defaults for other components.
+      ;; Then encode the result; this signals an error if the year is missing,
+      ;; because encode-time signals if crucial time components are nil.
+      ;; This heuristic uses local time if the string lacks time zone info,
+      ;; because encode-time treats a nil time zone as local time.
       (let ((parsed (parse-time-string date)))
 	(when (decoded-time-year parsed)
 	  (decoded-time-set-defaults parsed))
 	(encode-time parsed))
     (error
-     (let ((overflow-error '(error "Specified time is not representable")))
-       (if (equal err overflow-error)
-	   (signal (car err) (cdr err))
-	 (condition-case err
-	     (encode-time (parse-time-string
-			   (timezone-make-date-arpa-standard date)))
-	   (error
-	    (if (equal err overflow-error)
-		(signal (car err) (cdr err))
-	      (error "Invalid date: %s" date)))))))))
+     (if (equal err '(error "Specified time is not representable"))
+	 (signal err)
+       (error "Invalid date: %s" date)))))
 
 ;;;###autoload
 (defalias 'time-to-seconds #'float-time)
@@ -311,7 +305,7 @@ right of \"%x\", trailing zero units are not output."
                  ("x")))
         (case-fold-search t)
         spec match usedunits zeroflag larger prev name unit num
-        leading-zeropos trailing-zeropos fraction
+	leading-zeropos trailing-zeropos fraction minus
         chop-leading chop-trailing)
     (while (string-match "%\\.?[0-9]*\\(,[0-9]\\)?\\(.\\)" string start)
       (setq start (match-end 0)
@@ -333,8 +327,11 @@ right of \"%x\", trailing zero units are not output."
       (error "Units are not in decreasing order of size"))
     (unless (numberp seconds)
       (setq seconds (float-time seconds)))
-    (setq fraction (mod seconds 1)
-          seconds (round seconds))
+    (setq minus (when (< seconds 0) "-") ; Treat -0.0 like 0.0.
+	  seconds (abs seconds)
+	  seconds (let ((s (floor seconds)))
+		    (setq fraction (- seconds s))
+		    s))
     (dolist (u units)
       (setq spec (car u)
             name (cadr u)
@@ -398,8 +395,8 @@ right of \"%x\", trailing zero units are not output."
       ;; string in full.
       (when (equal string "")
         (setq string pre)))
-    (setq string (replace-regexp-in-string "%[zx]" "" string)))
-  (string-trim (string-replace "%%" "%" string)))
+    (setq string (replace-regexp-in-string "%[zx]" "" string))
+    (concat minus (string-trim (string-replace "%%" "%" string)))))
 
 (defvar seconds-to-string
   (list (list 1 "ms" 0.001)
@@ -409,11 +406,85 @@ right of \"%x\", trailing zero units are not output."
         (list (* 3600 24 400) "d" (* 3600.0 24.0))
         (list nil "y" (* 365.25 24 3600)))
   "Formatting used by the function `seconds-to-string'.")
+
+(defvar seconds-to-string-readable
+  `(("Y" "year"   "years"   ,(round (* 60 60 24 365.2425)))
+    ("M" "month"  "months"  ,(round (* 60 60 24 30.436875)))
+    ("w" "week"   "weeks"   ,(* 60 60 24 7))
+    ("d" "day"    "days"    ,(* 60 60 24))
+    ("h" "hour"   "hours"   ,(* 60 60))
+    ("m" "minute" "minutes" 60)
+    ("s" "second" "seconds" 1))
+  "Formatting used by the function `seconds-to-string' with READABLE set.
+The format is an alist, with string keys ABBREV-UNIT, and elements like:
+
+  (ABBREV-UNIT UNIT UNIT-PLURAL SECS)
+
+where UNIT is a unit of time, ABBREV-UNIT is the abbreviated form of
+UNIT, UNIT-PLURAL is the plural form of UNIT, and SECS is the number of
+seconds per UNIT.")
+
 ;;;###autoload
-(defun seconds-to-string (delay)
-  ;; FIXME: There's a similar (tho fancier) function in mastodon.el!
-  "Convert the time interval in seconds to a short string."
-  (cond ((> 0 delay) (concat "-" (seconds-to-string (- delay))))
+(defun seconds-to-string (delay &optional readable abbrev precision)
+  "Convert time interval DELAY (in seconds) to a string.
+By default, the returned string is formatted as a float in the smallest
+unit from the variable `seconds-to-string' that is longer than DELAY,
+and a precision of two.  If READABLE is non-nil, convert DELAY into a
+readable string, using the information provided in the variable
+`seconds-to-string-readable'.  If it is the symbol `expanded', use two
+units to describe DELAY, if appropriate.  E.g. \"1 hour 32 minutes\".
+If ABBREV is non-nil, abbreviate the readable units.  If PRECISION is a
+whole number, round the value associated with the smallest displayed
+unit to that many digits after the decimal.  If it is a non-negative
+float less than 1.0, round to that value."
+  (cond ((< delay 0)
+	 (concat "-" (seconds-to-string (- delay) readable precision)))
+        (readable
+         (let* ((stsa seconds-to-string-readable)
+		(expanded (eq readable 'expanded))
+		digits
+		(round-to (cond ((wholenump precision)
+				 (setq digits precision)
+				 (expt 10 (- precision)))
+				((and (floatp precision) (< precision 1.))
+				 (setq digits (- (floor (log precision 10))))
+				 precision)
+				(t (setq digits 0) 1)))
+		(dformat (if (> digits 0) (format "%%0.%df" digits)))
+		(padding (if abbrev "" " "))
+		here cnt cnt-pre here-pre cnt-val isfloatp)
+	   (if (= (round delay round-to) 0)
+	       (format "0%s" (if abbrev "s" " seconds"))
+	     (while (and (setq here (pop stsa)) stsa
+			 (< (/ delay (nth 3 here)) 1)))
+	     (or (and
+		  expanded stsa 	; smaller unit remains
+		  (progn
+		    (setq
+		     here-pre here here (car stsa)
+		     cnt-pre (floor (/ (float delay) (nth 3 here-pre)))
+		     cnt (round
+			  (/ (- (float delay) (* cnt-pre (nth 3 here-pre)))
+			     (nth 3 here))
+			  round-to))
+		    (if (> cnt 0) t (setq cnt cnt-pre here here-pre here-pre nil))))
+		 (setq cnt (round (/ (float delay) (nth 3 here)) round-to)))
+	     (setq cnt-val (* cnt round-to)
+                   isfloatp (and (> digits 0)
+			            (> (- cnt-val (floor cnt-val)) 0.)))
+	     (cl-labels
+		 ((unit (val here &optional plural)
+		    (cond (abbrev (car here))
+			  ((and (not plural) (<= (floor val) 1)) (nth 1 here))
+			  (t (nth 2 here)))))
+	       (concat
+		(when here-pre
+		  (concat (number-to-string cnt-pre) padding
+			  (unit cnt-pre here-pre) " "))
+		(if isfloatp (format dformat cnt-val)
+                  (number-to-string (floor cnt-val)))
+                padding
+                (unit cnt-val here isfloatp)))))) ; float formats are always plural
         ((= 0 delay) "0s")
         (t (let ((sts seconds-to-string) here)
              (while (and (car (setq here (pop sts)))
@@ -470,13 +541,13 @@ changes in daylight saving time are not taken into account."
         seconds)
     ;; Years are simple.
     (when (decoded-time-year delta)
-      (cl-incf (decoded-time-year time) (decoded-time-year delta)))
+      (incf (decoded-time-year time) (decoded-time-year delta)))
 
     ;; Months are pretty simple, but start at 1 (for January).
     (when (decoded-time-month delta)
       (let ((new (+ (1- (decoded-time-month time)) (decoded-time-month delta))))
         (setf (decoded-time-month time) (1+ (mod new 12)))
-        (cl-incf (decoded-time-year time) (/ new 12))))
+        (incf (decoded-time-year time) (floor new 12))))
 
     ;; Adjust for month length (as described in the doc string).
     (setf (decoded-time-day time)
@@ -490,7 +561,7 @@ changes in daylight saving time are not taken into account."
             (days (abs days)))
         (while (> days 0)
           (decoded-time--alter-day time increase)
-          (cl-decf days))))
+          (decf days))))
 
     ;; Do the time part, which is pretty simple (except for leap
     ;; seconds, I guess).
@@ -510,26 +581,26 @@ changes in daylight saving time are not taken into account."
   "Increase or decrease the month in TIME by 1."
   (if increase
       (progn
-        (cl-incf (decoded-time-month time))
+        (incf (decoded-time-month time))
         (when (> (decoded-time-month time) 12)
           (setf (decoded-time-month time) 1)
-          (cl-incf (decoded-time-year time))))
-    (cl-decf (decoded-time-month time))
+          (incf (decoded-time-year time))))
+    (decf (decoded-time-month time))
     (when (zerop (decoded-time-month time))
       (setf (decoded-time-month time) 12)
-      (cl-decf (decoded-time-year time)))))
+      (decf (decoded-time-year time)))))
 
 (defun decoded-time--alter-day (time increase)
   "Increase or decrease the day in TIME by 1."
   (if increase
       (progn
-        (cl-incf (decoded-time-day time))
+        (incf (decoded-time-day time))
         (when (> (decoded-time-day time)
                  (date-days-in-month (decoded-time-year time)
                                      (decoded-time-month time)))
           (setf (decoded-time-day time) 1)
           (decoded-time--alter-month time t)))
-    (cl-decf (decoded-time-day time))
+    (decf (decoded-time-day time))
     (when (zerop (decoded-time-day time))
       (decoded-time--alter-month time nil)
       (setf (decoded-time-day time)

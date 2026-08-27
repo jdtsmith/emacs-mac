@@ -1,6 +1,6 @@
 ;;; image-dired.el --- use dired to browse and manipulate your images -*- lexical-binding: t -*-
 
-;; Copyright (C) 2005-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2026 Free Software Foundation, Inc.
 
 ;; Author: Mathias Dahl <mathias.rem0veth1s.dahl@gmail.com>
 ;; Maintainer: Stefan Kangas <stefankangas@gmail.com>
@@ -608,8 +608,8 @@ thumbnail buffer to be selected."
           (when (string-match-p (image-dired--file-name-regexp) file)
             (image-dired-insert-thumbnail
              (image-dired--get-create-thumbnail-file file) file dired-buf)
-            (cl-incf image-dired--number-of-thumbnails))))
-      (if (> image-dired--number-of-thumbnails 0)
+            (incf image-dired--number-of-thumbnails))))
+      (if (plusp image-dired--number-of-thumbnails)
           (if do-not-pop
               (display-buffer buf)
             (pop-to-buffer buf))
@@ -618,19 +618,25 @@ thumbnail buffer to be selected."
       (image-dired--update-header-line))))
 
 ;;;###autoload
-(defun image-dired-show-all-from-dir (dir)
-  "Make a thumbnail buffer for all images in DIR and display it.
-Any file matching `image-dired--file-name-regexp' is considered an
-image file.
+(defun image-dired-show-all-from-dir (dirname)
+  "Make a thumbnail buffer for all images in DIRNAME and display it.
+
+The DIRNAME argument is passed along to `dired', and can therefore be
+either a string with wildcards or a cons, as described in the
+documentation for that function.  Refer to it for more details.
 
 If the number of image files in DIR exceeds
 `image-dired-show-all-from-dir-max-files', ask for confirmation
 before creating the thumbnail buffer.  If that variable is nil,
-never ask for confirmation."
+never ask for confirmation.
+
+Any file matching `image-dired--file-name-regexp' is considered an
+image file."
   (interactive "DShow thumbnails for directory: ")
-  (dired dir)
+  (dired dirname)
   (dired-mark-files-regexp (image-dired--file-name-regexp))
-  (let ((files (dired-get-marked-files nil nil nil t)))
+  (let ((files (dired-get-marked-files nil nil nil t))
+        (dired-default-directory default-directory))
     (cond ((and (null (cdr files)))
            (message "No image files in directory"))
           ((or (not image-dired-show-all-from-dir-max-files)
@@ -644,7 +650,7 @@ never ask for confirmation."
            (let ((inhibit-message t))
              (dired-unmark-all-marks))
            (pop-to-buffer image-dired-thumbnail-buffer)
-           (setq default-directory dir)
+           (setq default-directory dired-default-directory)
            (image-dired--update-header-line))
           (t (message "Image-Dired canceled")))))
 
@@ -663,7 +669,7 @@ only useful if `image-dired-track-movement' is nil."
     (image-dired--with-dired-buffer
       (if (not (dired-goto-file file-name))
           (message "Could not find image in Dired buffer for tracking")
-        (when-let (window (image-dired-get-buffer-window (current-buffer)))
+        (when-let* ((window (image-dired-get-buffer-window (current-buffer))))
           (set-window-point window (point)))))))
 
 (defun image-dired-toggle-movement-tracking ()
@@ -691,21 +697,21 @@ point is on the last image, move to the last one and vice versa."
   (setq arg (or arg 1))
   (let (pos)
     (dotimes (_ (abs arg))
-      (if (and (not (if (> arg 0) (eobp) (bobp)))
+      (if (and (not (if (plusp arg) (eobp) (bobp)))
                (save-excursion
-                 (forward-char (if (> arg 0) 1 -1))
-                 (while (and (not (if (> arg 0) (eobp) (bobp)))
+                 (forward-char (if (plusp arg) 1 -1))
+                 (while (and (not (if (plusp arg) (eobp) (bobp)))
                              (not (image-dired-image-at-point-p)))
-                   (forward-char (if (> arg 0) 1 -1)))
+                   (forward-char (if (plusp arg) 1 -1)))
                  (setq pos (point))
                  (image-dired-image-at-point-p)))
           (goto-char pos)
         (if wrap-around
-            (goto-char (if (> arg 0)
+            (goto-char (if (plusp arg)
                            (point-min)
                          ;; There are two spaces after the last image.
                          (- (point-max) 2)))
-          (message "At %s image" (if (> arg 0) "last" "first"))))))
+          (message "At %s image" (if (plusp arg) "last" "first"))))))
   (image-dired--update-header-line)
   (when image-dired-track-movement
     (image-dired-track-original-file)))
@@ -863,7 +869,7 @@ for.  The default is to look for `dired-marker-char'."
   "Run BODY in associated Dired buffer with point on current file's line.
 Should be called from commands in `image-dired-thumbnail-mode'."
   (declare (indent defun) (debug t))
-  `(if-let ((file-name (image-dired-original-file-name)))
+  `(if-let* ((file-name (image-dired-original-file-name)))
        (image-dired--with-dired-buffer
          (when (dired-goto-file file-name)
            ,@body))
@@ -871,9 +877,9 @@ Should be called from commands in `image-dired-thumbnail-mode'."
 
 (defmacro image-dired--with-thumbnail-buffer (&rest body)
   (declare (indent defun) (debug t))
-  `(if-let ((buf (get-buffer image-dired-thumbnail-buffer)))
+  `(if-let* ((buf (get-buffer image-dired-thumbnail-buffer)))
        (with-current-buffer buf
-         (if-let ((win (get-buffer-window buf)))
+         (if-let* ((win (get-buffer-window buf)))
              (with-selected-window win
                ,@body)
            ,@body))
@@ -932,7 +938,7 @@ You probably want to use this together with
 `image-dired-track-original-file'."
   (interactive nil image-dired-thumbnail-mode)
   (image-dired--with-dired-buffer
-    (if-let ((window (image-dired-get-buffer-window (current-buffer))))
+    (if-let* ((window (image-dired-get-buffer-window (current-buffer))))
         (progn
           (if (not (equal (selected-frame) (window-frame window)))
               (select-frame-set-input-focus (window-frame window)))
@@ -944,6 +950,15 @@ You probably want to use this together with
 
 (defvar-keymap image-dired-thumbnail-mode-map
   :doc "Keymap for `image-dired-thumbnail-mode'."
+
+  ;; Regular navigation
+  "f"          #'image-dired-forward-image
+  "b"          #'image-dired-backward-image
+  "n"          #'image-dired-next-line
+  "p"          #'image-dired-previous-line
+  "a"          #'image-dired-move-beginning-of-line
+  "e"          #'image-dired-move-end-of-line
+
   "d"          #'image-dired-flag-thumb-original-file
   "<delete>"   #'image-dired-flag-thumb-original-file
   "m"          #'image-dired-mark-thumb-original-file
@@ -1078,7 +1093,7 @@ Resized or in full-size."
 (defcustom image-dired-slideshow-delay 5.0
   "Seconds to wait before showing the next image in a slideshow.
 This is used by `image-dired-slideshow-start'."
-  :type 'float
+  :type 'number
   :version "29.1")
 
 (define-obsolete-variable-alias 'image-dired-slideshow-timer
@@ -1090,7 +1105,7 @@ This is used by `image-dired-slideshow-start'."
 
 (defun image-dired--slideshow-step ()
   "Step to the next image in a slideshow."
-  (if-let ((buf (get-buffer image-dired-thumbnail-buffer)))
+  (if-let* ((buf (get-buffer image-dired-thumbnail-buffer)))
       (with-current-buffer buf
         (image-dired-display-next))
     (image-dired--slideshow-stop)))
@@ -1118,7 +1133,7 @@ With a negative prefix argument, prompt user for the delay."
   (let ((delay
          (cond ((not arg)
                 image-dired-slideshow-delay)
-               ((> arg 0)
+               ((plusp arg)
                 arg)
                ((<= arg 0)
                 (string-to-number
@@ -1169,7 +1184,7 @@ With a negative prefix argument, prompt user for the delay."
   (interactive nil image-dired-thumbnail-mode)
   (let ((inhibit-read-only t))
     (delete-char 1)
-    (cl-decf image-dired--number-of-thumbnails))
+    (decf image-dired--number-of-thumbnails))
   (let ((pos (point)))
     (image-dired--line-up-with-method)
     (goto-char pos)
@@ -1201,9 +1216,9 @@ See also `image-dired-line-up-dynamic'."
         (forward-char)
         (if (= image-dired-thumbs-per-row 1)
             (insert "\n")
-          (cl-incf thumb-prev-pos thumb-width-chars)
+          (incf thumb-prev-pos thumb-width-chars)
           (insert (propertize " " 'display `(space :align-to ,thumb-prev-pos)))
-          (cl-incf seen)
+          (incf seen)
           (when (and (= seen (- image-dired-thumbs-per-row 1))
                      (not (eobp)))
             (forward-char)
@@ -1232,7 +1247,7 @@ Ask user how many thumbnails should be displayed per row."
   (interactive nil image-dired-thumbnail-mode)
   (let ((image-dired-thumbs-per-row
          (string-to-number (read-string "How many thumbs per row: "))))
-    (if (not (> image-dired-thumbs-per-row 0))
+    (if (not (plusp image-dired-thumbs-per-row))
         (message "Number must be greater than 0")
       (image-dired-line-up))))
 
@@ -1268,23 +1283,23 @@ which is based on `image-mode'."
   (setq file (expand-file-name file))
   (when (not (file-exists-p file))
     (error "No such file: %s" file))
-  (let ((buf (get-buffer image-dired-display-image-buffer))
+  (let ((buf (get-buffer-create image-dired-display-image-buffer))
         (cur-win (selected-window)))
-    (when buf
-      (kill-buffer buf))
-    (when-let ((buf (find-file-noselect file nil t)))
-      (pop-to-buffer buf)
-      (rename-buffer image-dired-display-image-buffer)
-      (if (string-match (image-file-name-regexp) file)
-          (image-dired-image-mode)
-        ;; Support visiting PDF files.
-        (normal-mode))
-      (select-window cur-win))))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert-file-contents file)
+        (if (string-match (image-file-name-regexp) file)
+            (image-dired-image-mode)
+          ;; Support visiting PDF files.
+          (normal-mode))))
+    (when buf (pop-to-buffer buf))
+    (select-window cur-win)))
 
-(defun image-dired-display-this (&optional arg)
+(defun image-dired-display-this (&optional _ignore)
   "Display current thumbnail's original image in display buffer.
-See documentation for `image-dired-display-image' for more information.
-With prefix argument ARG, display image in its original size."
+See documentation for `image-dired-display-image' for more information."
+  (declare (advertised-calling-convention () "29.1"))
   (interactive "P" image-dired-thumbnail-mode)
   (unless (string-equal major-mode "image-dired-thumbnail-mode")
     (user-error "Not in `image-dired-thumbnail-mode'"))
@@ -1294,7 +1309,7 @@ With prefix argument ARG, display image in its original size."
           ((not file)
            (message "No original file name found"))
           (t
-           (image-dired-display-image file arg)))))
+           (image-dired-display-image file)))))
 
 (defun image-dired-display-next (&optional arg)
   "Move to the next image in the thumbnail buffer and display it.
@@ -1975,7 +1990,7 @@ when using per-directory thumbnail file storage"))
               (setq tag-link-list
                     (append tag-link-list (list (cons tag tag-link))))
             (setq tag-link-list (list (cons tag tag-link))))
-          (setq count (1+ count))))
+          (incf count)))
       (setq count 1)
       ;; Main loop where we generated thumbnail pages per tag
       (dolist (curr tags)
@@ -2022,7 +2037,7 @@ when using per-directory thumbnail file storage"))
             (insert "  <p><a href=\"index.html\">Index</a></p>\n")
             (insert "  </body>\n")
             (insert "</html>\n"))
-          (setq count (1+ count))))
+          (incf count)))
       (insert "  </body>\n")
       (insert "</html>"))))
 
@@ -2078,13 +2093,13 @@ when using per-directory thumbnail file storage"))
 ;;            ;; Sort function.  Compare time between two files.
 ;;            (lambda (l1 l2)
 ;;               (time-less-p (car l1) (car l2)))))
-;;          (dirsize (apply '+ (mapcar (lambda (x) (cadr x)) files))))
+;;          (dirsize (apply #'+ (mapcar #'cadr files))))
 ;;     (while (> dirsize image-dired-dir-max-size)
 ;;       (y-or-n-p
 ;;        (format "Size of thumbnail directory: %d, delete old file %s? "
 ;;                dirsize (cadr (cdar files))))
 ;;       (delete-file (cadr (cdar files)))
-;;       (setq dirsize (- dirsize (car (cdar files))))
+;;       (decf dirsize (car (cdar files)))
 ;;       (setq files (cdr files)))))
 
 (provide 'image-dired)

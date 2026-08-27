@@ -1,6 +1,6 @@
 /* Communication module for Android terminals.  -*- c-file-style: "GNU" -*-
 
-Copyright (C) 2023-2025 Free Software Foundation, Inc.
+Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -49,6 +49,11 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 
 import android.widget.FrameLayout;
+
+import android.window.BackEvent;
+import android.window.OnBackAnimationCallback;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 
 public class EmacsActivity extends Activity
   implements EmacsWindowManager.WindowConsumer,
@@ -252,6 +257,59 @@ public class EmacsActivity extends Activity
     return window;
   }
 
+  private void
+  interceptBackGesture ()
+  {
+    OnBackInvokedDispatcher dispatcher;
+    int priority = OnBackInvokedDispatcher.PRIORITY_DEFAULT;
+    OnBackInvokedCallback callback;
+
+    dispatcher = getOnBackInvokedDispatcher ();
+    callback = new OnBackAnimationCallback () {
+	@Override
+	public void
+	onBackInvoked ()
+	{
+	  View view = EmacsActivity.this.getCurrentFocus ();
+	  EmacsWindow window;
+
+	  if (view instanceof EmacsView)
+	    {
+	      window = ((EmacsView) view).window;
+	      window.onBackInvoked ();
+	    }
+	}
+
+	/* The three functions are overridden to prevent a misleading
+	   back animation from being displayed, as Emacs intercepts all
+	   back gestures and will not return to the home screen.  */
+
+	@Override
+	public void
+	onBackCancelled ()
+	{
+
+	}
+
+	@Override
+	public void
+	onBackProgressed (BackEvent gestureEvent)
+	{
+
+	}
+
+	@Override
+	public void
+	onBackStarted (BackEvent gestureEvent)
+	{
+
+	}
+    };
+    dispatcher.registerOnBackInvokedCallback (priority, callback);
+  }
+
+
+
   @Override
   public void
   onCreate (Bundle savedInstanceState)
@@ -279,6 +337,17 @@ public class EmacsActivity extends Activity
 
     /* Set it as the content view.  */
     setContentView (layout);
+
+    /* Android 15 also realigns activity contents to originate beneath
+       system windows, e.g. the navigation bar, so request the original
+       behavior.  */
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM)
+      layout.setFitsSystemWindows (true);
+
+    /* Android 16 replaces KEYCODE_BACK with a callback registered at
+       the window level.  */
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA)
+      interceptBackGesture ();
 
     /* Maybe start the Emacs service if necessary.  */
     EmacsService.startEmacsService (this);

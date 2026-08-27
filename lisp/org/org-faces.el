@@ -1,8 +1,9 @@
 ;;; org-faces.el --- Face definitions -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2004-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
 ;; Author: Carsten Dominik <carsten.dominik@gmail.com>
+;; Maintainer: Ihor Radchenko <yantar92 at posteo dot net>
 ;; Keywords: outlines, hypermedia, calendar, text
 ;; URL: https://orgmode.org
 ;;
@@ -103,8 +104,8 @@ color of the frame."
     (((class color) (min-colors 88) (background dark)) (:foreground "LightSkyBlue"))
     (((class color) (min-colors 16) (background light)) (:foreground "Blue"))
     (((class color) (min-colors 16) (background dark)) (:foreground "LightSkyBlue"))
-    (((class color) (min-colors 8)) (:foreground "blue" :bold t))
-    (t (:bold t)))
+    (((class color) (min-colors 8)) (:foreground "blue" :weight bold))
+    (t (:weight bold)))
   "Face used for drawers."
   :group 'org-faces)
 
@@ -228,30 +229,30 @@ calendar."
   "Face for diary-like sexp date specifications."
   :group 'org-faces)
 
-(defface org-tag '((t (:bold t)))
+(defface org-tag '((t (:weight bold)))
   "Default face for tags.
 Note that the variable `org-tag-faces' can be used to overrule this face for
 specific tags."
   :group 'org-faces)
 
-(defface org-list-dt '((t (:bold t)))
+(defface org-list-dt '((t (:weight bold)))
   "Default face for definition terms in lists."
   :group 'org-faces)
 
 (defface org-todo		 ;Copied from `font-lock-warning-face'
-  '((((class color) (min-colors 16) (background light)) (:foreground "Red1" :bold t))
-    (((class color) (min-colors 16) (background dark))  (:foreground "Pink" :bold t))
-    (((class color) (min-colors 8)  (background light)) (:foreground "red"  :bold t))
-    (((class color) (min-colors 8)  (background dark))  (:foreground "red"  :bold t))
-    (t (:inverse-video t :bold t)))
+  '((((class color) (min-colors 16) (background light)) (:foreground "Red1" :weight bold))
+    (((class color) (min-colors 16) (background dark))  (:foreground "Pink" :weight bold))
+    (((class color) (min-colors 8)  (background light)) (:foreground "red"  :weight bold))
+    (((class color) (min-colors 8)  (background dark))  (:foreground "red"  :weight bold))
+    (t (:inverse-video t :weight bold)))
   "Face for TODO keywords."
   :group 'org-faces)
 
 (defface org-done		    ;Copied from `font-lock-type-face'
-  '((((class color) (min-colors 16) (background light)) (:foreground "ForestGreen" :bold t))
-    (((class color) (min-colors 16) (background dark)) (:foreground "PaleGreen" :bold t))
+  '((((class color) (min-colors 16) (background light)) (:foreground "ForestGreen" :weight bold))
+    (((class color) (min-colors 16) (background dark)) (:foreground "PaleGreen" :weight bold))
     (((class color) (min-colors 8)) (:foreground "green"))
-    (t (:bold t)))
+    (t (:weight bold)))
   "Face used for todo keywords that indicate DONE items."
   :group 'org-faces)
 
@@ -271,7 +272,7 @@ of the frame, for example."
 (defface org-headline-todo	  ;Copied from `font-lock-string-face'
   '((((class color) (min-colors 16) (background light)) (:foreground "Red4"))
     (((class color) (min-colors 16) (background dark)) (:foreground "Pink2"))
-    (((class color) (min-colors 8)  (background light)) (:bold t)))
+    (((class color) (min-colors 8)  (background light)) (:weight bold)))
   "Face used to indicate that a headline is marked as TODO.
 This face is only used if `org-fontify-todo-headline' is set.  If applies
 to the part of the headline after the TODO keyword."
@@ -324,20 +325,23 @@ determines if it is a foreground or a background color."
 
 (defcustom org-priority-faces nil
   "Faces for specific Priorities.
-This is a list of cons cells, with priority character in the car
-and faces in the cdr.  The face can be a symbol, a color
-as a string, or a property list of attributes, like
+This is an association list, whose keys are priorities and values are
+faces.  The face can be a symbol, a color as a string, or a property
+list of attributes, like
     (:foreground \"blue\" :weight bold :underline t).
 If it is a color string, the variable `org-faces-easy-properties'
 determines if it is a foreground or a background color."
   :group 'org-faces
   :group 'org-todo
-  :type '(repeat
-	  (cons
-	   (character :tag "Priority")
-	   (choice    :tag "Face    "
-		      (string :tag "Color")
-		      (sexp :tag "Face")))))
+  :type '(choice (const :tag "Defaults" nil)
+                 (alist :tag "Association list"
+                        :key-type
+                        (choice :tag "Priority"
+                                (character :tag "Character" :value ?A)
+                                (natnum :tag "Number" :value 1))
+                        :value-type (choice :tag "Face    "
+		                            (string :tag "Color")
+		                            (sexp :tag "Face")))))
 
 (defvar org-tags-special-faces-re nil)
 (defun org-set-tag-faces (var value)
@@ -404,7 +408,7 @@ changes."
     (((class color) (min-colors 88) (background dark)) (:foreground "chocolate1"))
     (((class color) (min-colors 8)  (background light)) (:foreground "red"))
     (((class color) (min-colors 8)  (background dark)) (:foreground "red"))
-    (t (:bold t :italic t)))
+    (t (:weight bold :slant italic)))
   "Face for formulas."
   :group 'org-faces)
 
@@ -509,8 +513,8 @@ content of these blocks will still be treated as Org syntax."
     (((class color) (min-colors 88) (background dark)) (:foreground "LightSkyBlue"))
     (((class color) (min-colors 16) (background light)) (:foreground "Blue"))
     (((class color) (min-colors 16) (background dark)) (:foreground "LightSkyBlue"))
-    (((class color) (min-colors 8)) (:foreground "blue" :bold t))
-    (t (:bold t)))
+    (((class color) (min-colors 8)) (:foreground "blue" :weight bold))
+    (t (:weight bold)))
   "Face used in agenda for captions and dates."
   :group 'org-faces)
 
@@ -529,7 +533,7 @@ it (e.g. if that is assigned a different font height or family)."
   :group 'org-faces)
 
 (defface org-agenda-date-today
-  '((t (:inherit org-agenda-date :weight bold :italic t)))
+  '((t (:inherit org-agenda-date :weight bold :slant italic)))
   "Face used in agenda for today."
   :group 'org-faces)
 
@@ -552,7 +556,7 @@ which days belong to the weekend."
   '((((class color) (min-colors 88) (background light)) (:foreground "DarkGreen"))
     (((class color) (min-colors 88) (background dark)) (:foreground "PaleGreen"))
     (((class color) (min-colors 8)) (:foreground "green"))
-    (t (:bold t :italic t)))
+    (t (:weight bold :slant italic)))
   "Face for items scheduled for a certain day."
   :group 'org-faces)
 
@@ -560,7 +564,7 @@ which days belong to the weekend."
   '((((class color) (min-colors 88) (background light)) (:foreground "DarkGreen"))
     (((class color) (min-colors 88) (background dark)) (:foreground "PaleGreen"))
     (((class color) (min-colors 8)) (:foreground "green"))
-    (t (:bold t :italic t)))
+    (t (:weight bold :slant italic)))
   "Face for items scheduled for a certain day."
   :group 'org-faces)
 
@@ -574,8 +578,8 @@ which days belong to the weekend."
   '((((class color) (min-colors 88) (background light)) (:foreground "Firebrick"))
     (((class color) (min-colors 88) (background dark)) (:foreground "chocolate1"))
     (((class color) (min-colors 8)  (background light)) (:foreground "red"))
-    (((class color) (min-colors 8)  (background dark)) (:foreground "red" :bold t))
-    (t (:bold t)))
+    (((class color) (min-colors 8)  (background dark)) (:foreground "red" :weight bold))
+    (t (:weight bold)))
   "Face for items scheduled previously, and not yet done."
   :group 'org-faces)
 
@@ -588,8 +592,8 @@ See also `org-agenda-deadline-faces'."
   '((((class color) (min-colors 88) (background light)) (:foreground "Firebrick"))
     (((class color) (min-colors 88) (background dark)) (:foreground "chocolate1"))
     (((class color) (min-colors 8)  (background light)) (:foreground "red"))
-    (((class color) (min-colors 8)  (background dark)) (:foreground "red" :bold t))
-    (t (:bold t)))
+    (((class color) (min-colors 8)  (background dark)) (:foreground "red" :weight bold))
+    (t (:weight bold)))
   "Face for items scheduled previously, and not yet done.
 See also `org-agenda-deadline-faces'."
   :group 'org-faces)

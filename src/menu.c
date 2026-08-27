@@ -1,6 +1,6 @@
 /* Platform-independent code for terminal communications.
 
-Copyright (C) 1986, 1988, 1993-1994, 1996, 1999-2025 Free Software
+Copyright (C) 1986, 1988, 1993-1994, 1996, 1999-2026 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -404,8 +404,7 @@ single_menu_item (Lisp_Object key, Lisp_Object item, Lisp_Object dummy, void *sk
 	}
   }
 
-  if ((FRAME_TERMCAP_P (XFRAME (Vmenu_updating_frame))
-       || FRAME_MSDOS_P (XFRAME (Vmenu_updating_frame)))
+  if (is_tty_frame (XFRAME (Vmenu_updating_frame))
       && !NILP (map))
     /* Indicate visually that this is a submenu.  */
     {
@@ -1412,8 +1411,13 @@ x_popup_menu_1 (Lisp_Object position, Lisp_Object menu)
      doesn't have its hooks set (e.g., in a batch session), because
      such a frame cannot display menus.  */
   if (!FRAME_INITIAL_P (f))
-    selection = FRAME_TERMINAL (f)->menu_show_hook (f, xpos, ypos, menuflags,
-						    title, &error_name);
+    {
+      if (FRAME_TERMCAP_P (f) && !NILP (Vx_popup_menu_function))
+	selection  = calln (Vx_popup_menu_function, position, menu);
+      else
+	selection = FRAME_TERMINAL (f)->menu_show_hook (f, xpos, ypos, menuflags,
+							title, &error_name);
+    }
 
   unbind_to (specpdl_count, Qnil);
 
@@ -1603,9 +1607,10 @@ for instance using the window manager, then this produces a quit and
       Lisp_Object selection
 	= FRAME_TERMINAL (f)->popup_dialog_hook (f, header, contents);
 #ifdef HAVE_NTGUI
-      /* NTGUI supports only simple dialogs with Yes/No choices.  For
-	 other dialogs, it returns the symbol 'unsupported--w32-dialog',
-	 as a signal for the caller to fall back to the emulation code.  */
+      /* NTGUI on Windows versions before Vista supports only simple
+	 dialogs with Yes/No choices.  For other dialogs, it returns the
+	 symbol 'unsupported--w32-dialog', as a signal for the caller to
+	 fall back to the emulation code.  */
       if (!EQ (selection, Qunsupported__w32_dialog))
 #endif
 	return selection;
@@ -1629,6 +1634,12 @@ It is only run before the menu is really going to be displayed.  It
 won't be run if `x-popup-menu' fails or returns for some other reason
 (such as the keymap is invalid).  */);
   Vx_pre_popup_menu_hook = Qnil;
+
+  DEFVAR_LISP ("x-popup-menu-function", Vx_popup_menu_function,
+	       doc: /* Function to call to pop up a menu.
+ The function is called like `x-popup-menu'.  This is currently only
+ used for frames on text terminals.  */);
+  Vx_popup_menu_function = Qnil;
 
   defsubr (&Sx_popup_menu);
   defsubr (&Sx_popup_dialog);

@@ -3,7 +3,7 @@
 
 # Update an FSF copyright year list to include the current year.
 
-# Copyright (C) 2009-2025 Free Software Foundation, Inc.
+# Copyright (C) 2009-2026 Free Software Foundation, Inc.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -47,8 +47,8 @@
 # Each file's copyright statement must be formatted correctly in
 # order to be recognized.  For example, each of these is fine:
 #
-#   Copyright @copyright{} 1990-2005, 2007-2009, 2025 Free Software Foundation,
-#   Inc.
+#   Copyright @copyright{} 1990-2005, 2007-2009, 2025-2026 Free Software
+#   Foundation, Inc.
 #
 #   # Copyright (C) 1990-2005, 2007-2009 Free Software
 #   # Foundation, Inc.
@@ -138,7 +138,7 @@
 eval 'exec perl -wSx -0777 -pi "$0" "$@"'
      if 0;
 
-my $VERSION = '2025-01-01.07:36'; # UTC
+my $VERSION = '2025-06-10.02:42'; # UTC
 # The definition above must lie within the first 8 lines in order
 # for the Emacs time-stamp write hook (at end) to update it.
 # If you change this file with Emacs, please let the write hook
@@ -301,7 +301,7 @@ if (!$found)
 # eval: (add-hook 'before-save-hook 'time-stamp nil t)
 # time-stamp-line-limit: 200
 # time-stamp-start: "my $VERSION = '"
-# time-stamp-format: "%:y-%02m-%02d.%02H:%02M"
+# time-stamp-format: "%Y-%02m-%02d.%02H:%02M"
 # time-stamp-time-zone: "UTC0"
 # time-stamp-end: "'; # UTC"
 # End:

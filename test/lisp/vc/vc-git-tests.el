@@ -1,6 +1,6 @@
 ;;; vc-git-tests.el --- tests for vc/vc-git.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2016-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2026 Free Software Foundation, Inc.
 
 ;; Author: Justin Schell <justinmschell@gmail.com>
 ;; Maintainer: emacs-devel@gnu.org
@@ -26,6 +26,7 @@
 
 (require 'ert-x)
 (require 'vc)
+(require 'vc-dir)
 (require 'vc-git)
 
 (ert-deftest vc-git-test-program-version-general ()
@@ -95,7 +96,7 @@ allow `git commit' to determine identities for authors and committers."
   (declare (indent 1))
   `(ert-with-temp-directory ,name
      (let ((default-directory ,name)
-           (process-environment (append '("EMAIL=john@doe.ee"
+           (process-environment (append '("EMAIL=john.doe@example.com"
                                           "GIT_AUTHOR_NAME=A"
                                           "GIT_COMMITTER_NAME=C")
                                         process-environment)))
@@ -103,29 +104,142 @@ allow `git commit' to determine identities for authors and committers."
        ,@body)))
 
 (defun vc-git-test--run (&rest args)
-  "Run git ARGS…, check for non-zero status, and return output."
+  "Run git ARGS…, check for non-zero status, and return output.
+If the exit status is non-zero, log the command output and re-throw."
   (with-temp-buffer
-    (apply 'vc-git-command t 0 nil args)
+    (condition-case err
+        (apply 'vc-git-command t 0 nil args)
+      (t (message "Error running Git: %s" err)
+         (message "(buffer-string:\n%s\n)" (buffer-string))
+         (signal err)))
     (buffer-string)))
 
-(ert-deftest vc-git-test-dir-track-local-branch ()
-  "Test that `vc-dir' works when tracking local branches.  Bug#68183."
+(defun vc-git-test--start-branch ()
+  "Get a branch started in a freshly initialized repository.
+
+This returns the name of the current branch, so that tests can remain
+agnostic of init.defaultbranch."
+  (write-region "hello" nil "README")
+  (vc-git-test--run "add" "README")
+  (vc-git-test--run "commit" "-mFirst")
+  (string-trim (vc-git-test--run "rev-parse" "--abbrev-ref" "HEAD")))
+
+(defun vc-git-test--dir-headers (headers)
+  "Return an alist of header values as they would appear in `vc-dir'.
+HEADERS should be a list of (NAME ...) strings.  This function will
+return a list of (NAME . VALUE) pairs, where VALUE is nil if the header
+is absent."
+  (with-temp-buffer
+    ;; We invoke the backend's dir-extra-headers function directly
+    ;; because (a) that covers the logic we mean to test (b) going
+    ;; through vc-dir "like a user would" has proven fraught; see
+    ;; bug#76187 for hard-to-reproduce and hard-to-diagnose errors.
+    (insert (vc-git-dir-extra-headers default-directory) "\n")
+    (mapcar
+     (lambda (header)
+       (let* ((pattern
+               (rx bol
+                   (literal header) (* space) ": " (group (+ nonl))
+                   eol))
+              (value (and (goto-char (point-min))
+                          (re-search-forward pattern nil t)
+                          (match-string 1))))
+         (cons header value)))
+     headers)))
+
+(ert-deftest vc-git-test-dir-branch-headers ()
+  "Check that dir-extra-headers recognizes various branch arrangements."
+  (skip-unless (executable-find vc-git-program))
+  ;; Create a repository that will serve as the "remote".
+  (vc-git-test--with-repo origin-repo
+    (let ((main-branch (vc-git-test--start-branch)))
+      ;; 'git clone' this repository and test things in this clone.
+      (ert-with-temp-directory clone-repo
+        (vc-git-test--run "clone" origin-repo clone-repo)
+        (let ((default-directory clone-repo))
+          (should
+           (equal
+            (vc-git-test--dir-headers
+             '("Branch" "Tracking" "Remote"))
+            `(("Branch"   . ,main-branch)
+              ("Tracking" . ,(concat "origin/" main-branch))
+              ("Remote"   . ,origin-repo))))
+          ;; Checkout a new branch: no tracking information.
+          (vc-git-test--run "checkout" "-b" "feature/foo" main-branch)
+          (should
+           (equal
+            (vc-git-test--dir-headers
+             '("Branch" "Tracking" "Remote"))
+            '(("Branch"   . "feature/foo")
+              ("Tracking" . nil)
+              ("Remote"   . nil))))
+          ;; Push with '--set-upstream origin': tracking information
+          ;; should be updated.
+          (vc-git-test--run "push" "--set-upstream" "origin" "feature/foo")
+          (should
+           (equal
+            (vc-git-test--dir-headers
+             '("Branch" "Tracking" "Remote"))
+            `(("Branch"   . "feature/foo")
+              ("Tracking" . "origin/feature/foo")
+              ("Remote"   . ,origin-repo))))
+          ;; Checkout a new branch tracking the _local_ main branch.
+          ;; Bug#68183.
+          (vc-git-test--run "checkout" "-b" "feature/bar" "--track" main-branch)
+          (should
+           (equal
+            (vc-git-test--dir-headers
+             '("Branch" "Tracking" "Remote"))
+            `(("Branch"   . "feature/bar")
+              ("Tracking" . ,main-branch)
+              ("Remote"   . "none (tracking local branch)")))))))))
+
+(ert-deftest vc-git-test-branch-remotes ()
+  "Test behavior of `vc-git--branch-remotes'."
   (skip-unless (executable-find vc-git-program))
   (vc-git-test--with-repo repo
-    ;; Create an initial commit to get a branch started.
-    (write-region "hello" nil "README")
+    (let ((main-branch (vc-git-test--start-branch)))
+      (should (null (vc-git--branch-remotes)))
+      (vc-git--out-ok "config"
+                      (format "branch.%s.remote" main-branch)
+                      "origin")
+      (should (null (vc-git--branch-remotes)))
+      (vc-git--out-ok "config"
+                      (format "branch.%s.merge" main-branch)
+                      main-branch)
+      (let ((alist (vc-git--branch-remotes)))
+        (should (assq 'upstream alist))
+        (should (null (assq 'push alist))))
+      (vc-git--out-ok "config"
+                      (format "branch.%s.pushRemote" main-branch)
+                      "fork")
+      (let ((alist (vc-git--branch-remotes)))
+        (should (assq 'upstream alist))
+        (should (equal (cdr (assq 'push alist))
+                       (concat "fork/" main-branch))))
+      (vc-git--out-ok "config" "--unset"
+                      (format "branch.%s.pushRemote" main-branch))
+      (vc-git--out-ok "config" "remote.pushDefault" "fork")
+      (let ((alist (vc-git--branch-remotes)))
+        (should (assq 'upstream alist))
+        (should (equal (cdr (assq 'push alist))
+                       (concat "fork/" main-branch))))
+      (vc-git--out-ok "config" "remote.pushDefault" "origin")
+      (let ((alist (vc-git--branch-remotes)))
+        (should (assq 'upstream alist))
+        (should (null (assq 'push alist)))))))
+
+(ert-deftest vc-git-test-checkin-patch-staged-diff ()
+  "Checking in a patch that matches staged changes should not error."
+  (skip-unless (executable-find vc-git-program))
+  (require 'log-edit)
+  (vc-git-test--with-repo repo
+    (vc-git-test--start-branch)
+    (write-region "Hello\n" nil "README")
     (vc-git-test--run "add" "README")
-    (vc-git-test--run "commit" "-mFirst")
-    ;; Get current branch name lazily, to remain agnostic of
-    ;; init.defaultbranch.
-    (let ((upstream-branch
-           (string-trim (vc-git-test--run "branch" "--show-current"))))
-      (vc-git-test--run "checkout" "--track" "-b" "hack" upstream-branch)
-      (vc-dir default-directory)
-      (pcase-dolist (`(,header ,value)
-                     `(("Branch" "hack")
-                       ("Tracking" ,upstream-branch)))
-        (goto-char (point-min))
-        (re-search-forward (format "^%s *: %s$" header value))))))
+    (let ((patch (vc-git-test--run "diff" "--cached")))
+      (vc-git--checkin "Second" nil patch))
+    (should (equal (string-trim (vc-git-test--run "log" "-1" "--pretty=%s"))
+                   "Second"))))
 
 ;;; vc-git-tests.el ends here

@@ -1,6 +1,6 @@
 ;;; testcover.el --- Visual code-coverage tool  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2002-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
 ;; Author: Jonathan Yavner <jyavner@member.fsf.org>
 ;; Keywords: lisp utility
@@ -263,15 +263,11 @@ vector.  Return VALUE."
       (aset testcover-vector after-index
             (cons old-result (testcover--copy-object value))))
      ((and (eq (car-safe old-result) 'testcover-1value)
-           (not (condition-case ()
-                    (equal (cdr old-result) value)
-                  (circular-list t))))
+           (not (equal (cdr old-result) value)))
       (error "Value of form expected to be constant does vary, from %s to %s"
              old-result value))
      ;; Test if a different result.
-     ((not (condition-case ()
-               (equal value old-result)
-             (circular-list nil)))
+     ((not (equal value old-result))
       (aset testcover-vector after-index 'edebug-ok-coverage))))
   value)
 
@@ -296,7 +292,7 @@ iteratively copies its cdr.  When VECP is non-nil, copy
 vectors as well as conses."
   (if (and (atom obj) (or (not vecp) (not (vectorp obj))))
       obj
-    (let ((copy (gethash obj hash-table nil)))
+    (let ((copy (gethash obj hash-table)))
       (unless copy
         (cond
          ((consp obj)
@@ -315,7 +311,7 @@ vectors as well as conses."
                           (testcover--copy-object1 rest vecp hash-table))
                     nil)
                    ((gethash rest hash-table nil)
-                    (setf (cdr current) (gethash rest hash-table nil))
+                    (setf (cdr current) (gethash rest hash-table))
                     nil)
                    (t (setq current
                             (setf (cdr current) (cons nil nil)))))))))
@@ -469,7 +465,7 @@ or return multiple values."
      ;; form to look odd. See bug#25316.
      'testcover-1value)
 
-    (`(\` ,bq-form)
+    (`(,'\` ,bq-form)
      (testcover-analyze-coverage-backquote-form bq-form))
 
     ((or 't 'nil (pred keywordp))
@@ -548,7 +544,7 @@ FORM is treated as if it will be evaluated."
        'testcover-1value))
     ((pred atom)
      'testcover-1value)
-    (`(\` ,bq-form)
+    (`(,'\` ,bq-form)
      (testcover-analyze-coverage-backquote-form bq-form))
     (`(defconst ,sym ,val . ,_)
      (push sym testcover-module-constants)

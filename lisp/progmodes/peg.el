@@ -1,10 +1,11 @@
 ;;; peg.el --- Parsing Expression Grammars in Emacs Lisp  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2008-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2026 Free Software Foundation, Inc.
 ;;
 ;; Author: Helmut Eller <eller.helmut@gmail.com>
 ;; Maintainer: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Version: 1.0.1
+;; Package-Requires: ((emacs "25"))
 ;;
 ;; This program is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -316,11 +317,15 @@ EXPS is a list of rules/expressions that failed.")
   "Match PEXS at point.
 PEXS is a sequence of PEG expressions, implicitly combined with `and'.
 Returns STACK if the match succeed and signals an error on failure,
-moving point along the way."
+moving point along the way.
+For backward compatibility (and convenience) PEXS can also be a list of
+RULES in which case we run the first such rule.  In case of ambiguity,
+prefix PEXS with \"\" so it doesn't look like a list of rules."
   (if (and (consp (car pexs))
            (symbolp (caar pexs))
-           (not (ignore-errors
-                  (not (eq 'call (car (peg-normalize (car pexs))))))))
+           (not (or (get (peg--rule-id (caar pexs)) 'peg--rule-definition)
+                    (ignore-errors
+                      (not (eq 'call (car (peg-normalize (car pexs)))))))))
       ;; The first of `pexs' has not been defined as a rule, so assume
       ;; that none of them have been and they should be fed to
       ;; `with-peg-rules'
@@ -438,10 +443,9 @@ rulesets defined previously with `define-peg-ruleset'."
     (macroexpand-all
      `(cl-labels
           ,(mapcar (lambda (rule)
-		     ;; FIXME: Use `peg--lambda' as well.
 		     `(,(peg--rule-id (car rule))
-		       ()
-		       ,(peg--translate-rule-body (car rule) (cdr rule))))
+		       (peg--lambda ',(cdr rule) ()
+		         ,(peg--translate-rule-body (car rule) (cdr rule)))))
 		   rules)
         ,@body)
      `((:peg-rules ,@(append rules (cdr ctx)))
@@ -660,7 +664,7 @@ rulesets defined previously with `define-peg-ruleset'."
 
 ;; This is the main translation function.
 (defun peg-translate-exp (exp)
-  "Return the ELisp code to match the PE EXP."
+  "Return the Emacs Lisp code to match the PE EXP."
   ;; FIXME: This expansion basically duplicates `exp' in the output, which is
   ;; a serious problem because it's done recursively, so it makes the output
   ;; code's size exponentially larger than the input!
@@ -833,7 +837,7 @@ input.  PATH is the list of rules that we have visited so far."
 (cl-defgeneric peg--detect-cycles (head _path &rest args)
   (error "No detect-cycle method for: %S" (cons head args)))
 
-(cl-defmethod peg--detect-cycles (path (_ (eql call)) name)
+(cl-defmethod peg--detect-cycles (path (_ (eql call)) name &rest _args)
   (if (member name path)
       (error "Possible left recursion: %s"
 	     (mapconcat (lambda (x) (format "%s" x))
@@ -881,6 +885,13 @@ input.  PATH is the list of rules that we have visited so far."
 (cl-defmethod peg--detect-cycles (_path (_ (eql guard)) _e)      t)
 (cl-defmethod peg--detect-cycles (_path (_ (eql =)) _s)          nil)
 (cl-defmethod peg--detect-cycles (_path (_ (eql syntax-class)) _n) nil)
+
+(cl-defmethod peg--detect-cycles (_path (_ (eql funcall)) &rest _args)
+  ;; There might very well be a cycle here, and we may very well match
+  ;; the empty string, but it's much too hard (and in general
+  ;; impossible) to try and figure out.
+  nil)
+
 (cl-defmethod peg--detect-cycles (_path (_ (eql action)) _form)  t)
 
 (defun peg-merge-errors (exps)
@@ -893,8 +904,8 @@ input.  PATH is the list of rules that we have visited so far."
 (defun peg-merge-error (exp merged)
   (apply #'peg--merge-error merged exp))
 
-(cl-defgeneric peg--merge-error (_merged head &rest args)
-  (error "No merge-error method for: %S" (cons head args)))
+(cl-defgeneric peg--merge-error (merged head &rest args)
+  (cl-adjoin (cons head args) merged :test #'equal))
 
 (cl-defmethod peg--merge-error (merged (_ (eql or)) e1 e2)
   (peg-merge-error e2 (peg-merge-error e1 merged)))
@@ -907,35 +918,24 @@ input.  PATH is the list of rules that we have visited so far."
   ;;(add-to-list 'merged str)
   (cl-adjoin str merged :test #'equal))
 
-(cl-defmethod peg--merge-error (merged (_ (eql call)) rule)
-  ;; (add-to-list 'merged rule)
-  (cl-adjoin rule merged :test #'equal))
+(cl-defmethod peg--merge-error (merged (_ (eql call)) rule &rest args)
+  (cl-adjoin (if args (cons rule args) rule) merged :test #'equal))
 
 (cl-defmethod peg--merge-error (merged (_ (eql char)) char)
-  ;; (add-to-list 'merged (string char))
   (cl-adjoin (string char) merged :test #'equal))
 
 (cl-defmethod peg--merge-error (merged (_ (eql set)) r c k)
-  ;; (add-to-list 'merged (peg-make-charset-regexp r c k))
   (cl-adjoin (peg-make-charset-regexp r c k) merged :test #'equal))
 
 (cl-defmethod peg--merge-error (merged (_ (eql range)) from to)
-  ;; (add-to-list 'merged (format "[%c-%c]" from to))
   (cl-adjoin (format "[%c-%c]" from to) merged :test #'equal))
 
 (cl-defmethod peg--merge-error (merged (_ (eql *)) exp)
   (peg-merge-error exp merged))
 
-(cl-defmethod peg--merge-error (merged (_ (eql any)))
-  ;; (add-to-list 'merged '(any))
-  (cl-adjoin '(any) merged :test #'equal))
-
-(cl-defmethod peg--merge-error (merged (_ (eql not)) x)
-  ;; (add-to-list 'merged `(not ,x))
-  (cl-adjoin `(not ,x) merged :test #'equal))
-
 (cl-defmethod peg--merge-error (merged (_ (eql action)) _action) merged)
-(cl-defmethod peg--merge-error (merged (_ (eql null))) merged)
+(cl-defmethod peg--merge-error (merged (_ (eql guard)) e)
+  (if (eq e t) merged (cl-call-next-method)))
 
 (provide 'peg)
 (require 'peg)

@@ -1,6 +1,6 @@
 ;;; mb-depth.el --- Indicate minibuffer-depth in prompt -*- lexical-binding: t -*-
 ;;
-;; Copyright (C) 2006-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2026 Free Software Foundation, Inc.
 ;;
 ;; Author: Miles Bader <miles@gnu.org>
 ;; Keywords: convenience
@@ -50,8 +50,7 @@ the `minibuffer-depth-indicator' face."
 ;; An overlay covering the prompt.  This is a buffer-local variable in
 ;; each affected minibuffer.
 ;;
-(defvar minibuffer-depth-overlay)
-(make-variable-buffer-local 'minibuffer-depth-overlay)
+(defvar-local minibuffer-depth-overlay)
 
 ;; This function goes on minibuffer-setup-hook
 (defun minibuffer-depth-setup ()

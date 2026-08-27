@@ -1,6 +1,6 @@
 ;;; strokes.el --- control Emacs through mouse strokes  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997, 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: David Bakhash <cadet@alum.mit.edu>
 ;; Maintainer: emacs-devel@gnu.org
@@ -1382,9 +1382,7 @@ Encode/decode your strokes with \\[strokes-encode-buffer],
 
 \\{strokes-mode-map}"
   :lighter strokes-lighter :global t
-  (cond ((not (display-mouse-p))
-	 (error "Can't use Strokes without a mouse"))
-	(strokes-mode			; turn on strokes
+  (cond (strokes-mode			; turn on strokes
 	 (and (file-exists-p strokes-file)
 	      (null strokes-global-map)
 	      (strokes-load-user-strokes))
@@ -1563,7 +1561,7 @@ XPM-BUFFER defaults to \" *strokes-xpm*\"."
 		   ;; yet another of the same bit-type, so we continue
 		   ;; counting...
 		   (progn
-		     (cl-incf count)
+                     (incf count)
 		     (forward-char 1))
 		 ;; otherwise, it's the opposite bit-type, so we do a
 		 ;; write and then restart count ### NOTE (for myself

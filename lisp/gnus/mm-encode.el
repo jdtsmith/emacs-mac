@@ -1,6 +1,6 @@
 ;;; mm-encode.el --- Functions for encoding MIME things  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;;	MORIOKA Tomohiko <morioka@jaist.ac.jp>
@@ -23,7 +23,6 @@
 
 ;;; Code:
 
-(eval-when-compile (require 'cl-lib))
 (require 'mail-parse)
 (autoload 'mailcap-extension-to-mime "mailcap")
 (autoload 'mm-body-7-or-8 "mm-bodies")
@@ -106,6 +105,13 @@ This variable should never be set directly, but bound before a call to
   (if (not (string-match "\\.[^.]+\\'" file))
       "application/octet-stream"
     (mailcap-extension-to-mime (match-string 0 file))))
+
+(defun mm-default-buffer-type (buffer)
+  "Return a default content type for BUFFER, a buffer name."
+  (if-let* ((buf (get-buffer buffer))
+            ((provided-mode-derived-p (buffer-local-value 'major-mode buf)
+                                      'diff-mode)))
+      "text/x-patch" "text/plain"))
 
 (defun mm-safer-encoding (encoding &optional type)
   "Return an encoding similar to ENCODING but safer than it."
@@ -207,7 +213,7 @@ This is either `base64' or `quoted-printable'."
 	(goto-char (point-min))
 	(skip-chars-forward "\x20-\x7f\r\n\t" limit)
 	(while (< (point) limit)
-	  (cl-incf n8bit)
+          (incf n8bit)
 	  (forward-char 1)
 	  (skip-chars-forward "\x20-\x7f\r\n\t" limit))
 	(if (or (< (* 6 n8bit) (- limit (point-min)))

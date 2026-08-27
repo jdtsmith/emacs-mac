@@ -1,6 +1,6 @@
 ;;; latexenc.el --- guess correct coding system in LaTeX files -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2005-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2026 Free Software Foundation, Inc.
 
 ;; Author: Arne Jørgensen <arne@arnested.dk>
 ;; Keywords: mule, coding system, latex
@@ -51,7 +51,6 @@
 
 ;;;###autoload
 (defcustom latex-inputenc-coding-alist
-  (purecopy
   '(("ansinew" . windows-1252) ; MS Windows ANSI encoding, extension of Latin-1
     ("applemac" . mac-roman)
     ("ascii" . us-ascii)
@@ -74,7 +73,7 @@
     ;; ("macce" . undecided) ; Apple Central European
     ("next" . next) ; The Next encoding
     ("utf8" . utf-8)
-    ("utf8x" . utf-8))) ; used by the Unicode LaTeX package
+    ("utf8x" . utf-8)) ; used by the Unicode LaTeX package
   "Mapping from LaTeX encodings in \"inputenc.sty\" to Emacs coding systems.
 LaTeX encodings are specified with \"\\usepackage[encoding]{inputenc}\".
 Used by the function `latexenc-find-file-coding-system'."
@@ -145,24 +144,29 @@ coding system names is determined from `latex-inputenc-coding-alist'."
 				       (file-name-directory (nth 1 arg-list))
 				     default-directory))
 		latexenc-main-file)
-            ;; Is there a TeX-master or tex-main-file in the local variables
-            ;; section?
+            ;; Is there a TeX-master or tex-main-file in the local
+            ;; variables section or is it globally set to a constant
+            ;; string?
             (unless latexenc-dont-use-TeX-master-flag
               (goto-char (point-max))
 	      (search-backward "\n\^L" (max (- (point-max) 3000) (point-min))
                                'move)
-	      (search-forward "Local Variables:" nil t)
-              (when (re-search-forward
-                     "^%+ *\\(TeX-master\\|tex-main-file\\): *\"\\(.+\\)\""
-                     nil t)
-                (let ((file (match-string 2)))
-                  (dolist (ext `("" ,(if (boundp 'TeX-default-extension)
-                                         (concat "." TeX-default-extension)
-                                       "")
-                                 ".tex" ".ltx" ".dtx" ".drv"))
-                    (if (and (null latexenc-main-file) ;Stop at first.
-                             (file-exists-p (concat file ext)))
-                        (setq latexenc-main-file (concat file ext)))))))
+	      (re-search-forward "^%+ *Local Variables:" nil t)
+              (let ((file (if (re-search-forward
+                               "^%+ *\\(TeX-master\\|tex-main-file\\): *\"\\(.+\\)\""
+                               nil t)
+                              (match-string 2)
+                            (or (and (bound-and-true-p TeX-master)
+                                     (stringp TeX-master)
+                                     TeX-master)
+                                (bound-and-true-p tex-main-file)))))
+                (dolist (ext `("" ,(if (boundp 'TeX-default-extension)
+                                       (concat "." TeX-default-extension)
+                                     "")
+                               ".tex" ".ltx" ".dtx" ".drv"))
+                  (if (and (null latexenc-main-file) ;Stop at first.
+                           (file-exists-p (concat file ext)))
+                      (setq latexenc-main-file (concat file ext))))))
             ;; try tex-modes tex-guess-main-file
             (when (and (not latexenc-dont-use-tex-guess-main-file-flag)
                        (not latexenc-main-file))

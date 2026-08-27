@@ -2,7 +2,7 @@
 #define EMACS_W32_H
 
 /* Support routines for the NT version of Emacs.
-   Copyright (C) 1994, 2001-2025 Free Software Foundation, Inc.
+   Copyright (C) 1994, 2001-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -29,7 +29,11 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 /* File descriptor set emulation.  */
 
 /* MSVC runtime library has limit of 64 descriptors by default */
-#define FD_SETSIZE  64
+#ifdef FD_SETSIZE
+# undef FD_SETSIZE
+#endif
+
+#define FD_SETSIZE  2048
 typedef struct {
   unsigned int bits[FD_SETSIZE / 32];
 } fd_set;
@@ -230,6 +234,7 @@ extern int openat (int, const char *, int, int);
 extern int fchmodat (int, char const *, mode_t, int);
 extern int lchmod (char const *, mode_t);
 extern bool symlinks_supported (const char *);
+extern void w32_fix_tzset (void);
 
 
 /* Return total and free memory info.  */
@@ -249,6 +254,9 @@ extern Lisp_Object w32_read_registry (HKEY, Lisp_Object, Lisp_Object);
 
 /* Used instead of execvp to restart Emacs.  */
 extern int w32_reexec_emacs (char *, const char *);
+
+/* From w32proc.c.  */
+extern void free_wait_pool (void);
 
 #ifdef HAVE_GNUTLS
 #include <gnutls/gnutls.h>

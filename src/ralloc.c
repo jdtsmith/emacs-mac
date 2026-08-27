@@ -1,5 +1,5 @@
 /* Block-relocating memory allocator.
-   Copyright (C) 1993, 1995, 2000-2025 Free Software Foundation, Inc.
+   Copyright (C) 1993, 1995, 2000-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -175,13 +175,11 @@ find_heap (void *address)
 {
   heap_ptr heap;
 
-  for (heap = last_heap; heap; heap = heap->prev)
+  for (heap = last_heap; ; heap = heap->prev)
     {
       if (heap->start <= address && address <= heap->end)
 	return heap;
     }
-
-  return NIL_HEAP;
 }
 
 /* Find SIZE bytes of space in a heap.
@@ -509,10 +507,8 @@ update_heap_bloc_correspondence (bloc_ptr bloc, heap_ptr heap)
     {
       /* Advance through heaps, marking them empty,
 	 till we get to the one that B is in.  */
-      while (heap)
+      while (! (heap->bloc_start <= b->data && b->data <= heap->end))
 	{
-	  if (heap->bloc_start <= b->data && b->data <= heap->end)
-	    break;
 	  heap = heap->next;
 	  /* We know HEAP is not null now,
 	     because there has to be space for bloc B.  */
@@ -1162,7 +1158,7 @@ r_alloc_init (void)
   r_alloc_initialized = 1;
 
   page_size = PAGE;
-#if !defined SYSTEM_MALLOC && !defined HYBRID_MALLOC
+#if !defined SYSTEM_MALLOC
   real_morecore = __morecore;
   __morecore = r_alloc_sbrk;
 
@@ -1181,7 +1177,7 @@ r_alloc_init (void)
   mallopt (M_TOP_PAD, 64 * 4096);
   unblock_input ();
 #else
-#if !defined SYSTEM_MALLOC && !defined HYBRID_MALLOC
+#if !defined SYSTEM_MALLOC
   /* Give GNU malloc's morecore some hysteresis so that we move all
      the relocatable blocks much less often.  The number used to be
      64, but alloc.c would override that with 32 in code that was
@@ -1194,7 +1190,7 @@ r_alloc_init (void)
 #endif
 #endif
 
-#if !defined SYSTEM_MALLOC && !defined HYBRID_MALLOC
+#if !defined SYSTEM_MALLOC
   first_heap->end = (void *) PAGE_ROUNDUP (first_heap->start);
 
   /* The extra call to real_morecore guarantees that the end of the

@@ -1,6 +1,6 @@
 ;;; calc-arith.el --- arithmetic functions for Calc  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1990-1993, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1990-1993, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: David Gillespie <daveg@synaptics.com>
 
@@ -874,7 +874,7 @@
 (defun calcFunc-dint (expr)
   (let ((types (math-possible-types expr)))
     (if (= types 1) 1
-      (if (= (logand types 1) 0) 0
+      (if (evenp types) 0
 	(math-reject-arg expr 'integerp 'quiet)))))
 
 (defun calcFunc-dnumint (expr)

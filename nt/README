@@ -1,6 +1,6 @@
 	     Emacs for Windows NT/2000 and Windows 98/ME
 
-  Copyright (C) 2001-2025 Free Software Foundation, Inc.
+  Copyright (C) 2001-2026 Free Software Foundation, Inc.
   See the end of the file for license conditions.
 
   This directory contains support for compiling and running GNU Emacs on
@@ -44,7 +44,7 @@
   + addpm.exe - A basic installer that creates Start Menu icons for Emacs.
     Running this is optional.
 
-  + ctags.exe, etags.exe - Tools for generating tag files.  See the
+  + etags.exe - Tool for generating tag files.  See the
     `Tags' node of the Emacs manual.
 
   + ebrowse.exe - A tool for generating C++ browse information.  See the

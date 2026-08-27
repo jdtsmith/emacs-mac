@@ -1,6 +1,6 @@
 Known Problems with GNU Emacs
 
-Copyright (C) 1987-1989, 1993-1999, 2001-2025 Free Software Foundation,
+Copyright (C) 1987-1989, 1993-1999, 2001-2026 Free Software Foundation,
 Inc.
 See the end of the file for license conditions.
 
@@ -135,6 +135,9 @@ result in an endless loop.
 
 If you need Emacs to be able to recover from closing displays, compile
 it with the Lucid toolkit instead of GTK.
+
+One possible mitigation for the problem is described in
+https://debbugs.gnu.org/81124
 
 ** Emacs compiled with GTK+ 3 crashes when run under some X servers.
 This happens when the X server does not provide certain display
@@ -494,6 +497,23 @@ installed GTK packages.  Some GNU/Linux distros no longer install
 support for those formats by default, so you might need to install
 additional support packages.  E.g., on Fedora you need to install the
 'gdk-pixbuf2-modules-extra' package.
+
+*** Resizing frames of GTK Emacs does not work on Wayland running on X11.
+
+This was reported with KDE Plasma, which recently is based on Wayland
+exclusively (as is GNOME).  The default character-wise resizing of the
+frame depends on whether the window manager is willing to process the
+hints provided by Emacs; evidently, Wayland-based window managers no
+longer do.
+
+One workaround is to customize frame-resize-pixelwise to a non-nil
+value.  Another workaround is to add a window rule in KDE Plasma's
+System Settings (under "Window Management->Application settings for
+Emacs->Size and Position") that forces KDE Plasma to obey geometry
+restrictions.
+
+Yet another solution is to use the PGTK build of Emacs, which works
+better on Wayland.
 
 ** Lisp problems
 
@@ -956,6 +976,16 @@ specified run-time search path in the executable.
 
 Please refer to the documentation of your dynamic linker for details.
 
+*** Using Enchant 2.x as the Ispell back-end signals an error.
+
+The error message says "enchant-2: Unknown option -C".
+
+This is because many dictionary definitions in the default value of
+'ispell-dictionary-alist' use the '-C' command-line option, which is not
+supported by some versions of Enchant 2.x.  Support for '-C' was added
+to Enchant in version 2.8.17, so use that or later version to solve this
+problem.
+
 *** When you run Ispell from Emacs, it reports a "misalignment" error.
 
 This can happen if you compiled the Ispell program to use ASCII
@@ -1381,6 +1411,19 @@ input method developers to fix their crashes.  You can work around
 these problems by disabling XIM in your X resources:
 
   Emacs.useXIM: false
+
+** When the compose key is pressed, a small window appears that won't go away
+
+In some circumstances, pressing the compose key under X pops up a small
+character-selection window next to the cursor, which can be moved but
+not closed; it disappears when some window manager operation is
+performed, like creating or deleting a window.  You can prevent this
+window from appearing by completely disabling the X input method (XIM).
+If this is acceptable to you, you should set the 'XMODIFIERS'
+environment variable to the value '@im=none', and export it before
+calling Emacs, for example by invoking Emacs like so:
+
+  env XMODIFIERS=@im=none emacs
 
 ** On Haiku, BeCJK doesn't work properly with Emacs
 
@@ -2013,6 +2056,15 @@ Very long popup menus cannot be shown in their entirety, and don't have
 a scroll bar to scroll them vertically.  Lucid does not support this
 feature.  A workaround is to use other toolkits (GTK, LessTif, etc.).
 
+*** In Emacs built with Lucid cannot keep context menus open.
+
+After enabling context-menu-mode, when the menu is opened by
+<down-mouse-3>, it closes right away when the right mouse button
+is released.  It's possible to keep the context menu open
+after releasing the mouse button by disabling XInput 2 support:
+
+  ./configure --with-x-toolkit=lucid --without-xinput2
+
 *** Emacs running under X Window System does not handle mouse clicks.
 *** 'emacs -geometry 80x20' finds a file named '80x20'.
 
@@ -2627,6 +2679,45 @@ all such characters will look the same on display, and the only way of
 knowing what is the real codepoint in the buffer is to go to the
 character and type "C-u C-x =".
 
+*** Display problems with Emoji on text terminals
+
+Some text-mode terminals cause problems with Emoji sequences: when
+displaying them, the Emacs text-mode frame could show gaps, misalignment
+between the display and cursor motion, and other visual artifacts and
+display problems.
+
+This can happen if the terminal and Emacs differ in their notions of how
+many columns (a.k.a. "character cells") a given sequence of characters
+takes on the screen when displayed.  As one example, Emoji sequences
+that begin with a non-Emoji character and end in U+FE0F VARIATION
+SELECTOR 16 are composed on display into an Emoji glyph, but the width
+of this glyph is up to the terminal and the font it uses to show the
+Emoji.  If the non-Emoji character that begins the sequence has the
+width 1, Emacs will think that its composition with VS-16 also takes 1
+column on the screen, because VS-16 has width of zero.  But some
+terminals which support Emoji sequences will show a double-width Emoji
+glyph in this case, without any way for Emacs to know that.  This causes
+cursor addressing to get out of sync and eventually messes up the
+display.  In particular, Kitty, Alacritty, Ghostty, and some other
+terminal emulators are known to behave like that.
+
+Similar problems can happen with composition of characters other than
+Emoji.
+
+The solution is to disable 'auto-composition-mode' on these
+terminals, for example, like this:
+
+  (setq auto-composition-mode "alacritty")
+
+This disables 'auto-composition-mode' on frames that display on
+terminals of the named type.  More generally, customizing the
+'auto-composition-mode' variable to have as value a string that the
+'tty-type' function returns on a terminal will disable compositions in
+windows shown on terminals of that type.  (You can also disable
+'auto-composition-mode' globally, if all your frames are on terminals
+that have this problem, by setting 'auto-composition-mode' to the nil
+value.)
+
 *** Messed-up display on the Kitty text terminal
 
 This terminal has its own peculiar ideas about display of unusual
@@ -2652,33 +2743,6 @@ Another workaround is to set 'nobreak-char-ascii-display' to a non-nil
 value, which will cause any non-ASCII space and hyphen characters to
 be displayed as their ASCII counterparts, with a special face.
 
-Kitty also differs from many other character terminals in how it
-handles character compositions.  As one example, Emoji sequences that
-begin with a non-Emoji character and end in U+FE0F VARIATION SELECTOR
-16 should be composed into an Emoji glyph; Kitty assumes that all such
-Emoji glyphs have 2-column width, whereas Emacs and many other text
-terminals display them as 1-column glyphs.  Again, this causes cursor
-addressing to get out of sync and eventually messes up the display.
-
-One possible workaround for problems caused by character composition
-is to turn off 'auto-composition-mode' on Kitty terminals, e.g. by
-customizing the 'auto-composition-mode' variable to have as value a
-string that the 'tty-type' function returns on those terminals.
-
-*** Display artifacts on the Alacritty text terminal
-
-This terminal is known to cause problems with Emoji sequences: when
-displaying them, the Emacs text-mode frame could show gaps and other
-visual artifacts.
-
-The solution is to disable 'auto-composition-mode' on these
-terminals, for example, like this:
-
-  (setq auto-composition-mode "alacritty")
-
-This disables 'auto-composition-mode' on frames that display on
-terminals of this type.
-
 ** Screen readers get confused about character position
 
 The Emacs display code sometimes emits TAB characters purely for motion
@@ -2690,6 +2754,12 @@ This can confuse screen reader software under certain terminal emulators
 
 in the terminal before starting Emacs may mitigate this.  See also the
 discussion in Bug#78474 <https://debbugs.gnu.org/78474>.
+
+Starting from version 31.1, Emacs by default no longer outputs series of
+TAB characters followed by BACKSPACE, which used to confuse some of the
+screen readers.  If you encounter some problems in this area, verify
+that the variable 'tty-cursor-movement-use-TAB-BS' is set to its default
+nil value.
 
 * Runtime problems specific to individual Unix variants
 
@@ -2978,20 +3048,6 @@ This was observed for Emacs 28.1 on Solaris 10 32-bit sparc, with
 Oracle Developer Studio 12.6 (Sun C 5.15).  The failure was intermittent,
 and running GNU Make a second time would typically finish the build.
 
-*** On Solaris 10, Emacs crashes during the build process.
-(This applies only with './configure --with-unexec=yes', which is rare.)
-This was reported for Emacs 25.2 on i386-pc-solaris2.10 with Sun
-Studio 12 (Sun C 5.9) and with Oracle Developer Studio 12.6 (Sun C
-5.15), and intermittently for sparc-sun-solaris2.10 with Oracle
-Developer Studio 12.5 (Sun C 5.14).  Disabling compiler optimization
-seems to fix the bug, as does upgrading the Solaris 10 operating
-system to Update 11.  The cause of the bug is unknown: it may be that
-Emacs's archaic memory-allocation scheme is not compatible with
-slightly-older versions of Solaris and/or Oracle Studio, or it may be
-something else.  Since the cause is not known, possibly the bug is
-still present in newer versions of Emacs, Oracle Studio, and/or
-Solaris.  See Bug#26638.
-
 *** On Solaris, C-x doesn't get through to Emacs when you use the console.
 
 This is a Solaris feature (at least on Intel x86 cpus).  Type C-r
@@ -3148,6 +3204,25 @@ XKeymacs Version 3.47, deactivating XKeymacs when Emacs is active is
 not enough to avoid its messing with the keyboard input.  Exiting
 XKeymacs completely is reported to solve the problem.
 
+** Pasting non-ASCII characters into "emacs -nw" doesn't work.
+
+This happens if you paste using the Windows shortcuts, such as
+S-<Insert> and C-v or C-S-v.  Evidently, these paste methods support
+only ASCII text, at least in some Windows configurations.
+
+Instead, use the Emacs C-y key to paste from the clipboard, which on
+Windows works on text-only frames as well.  Make sure your
+customizations don't affect the value of 'interprogram-paste-function',
+which should be 'gui-selection-value', even in -nw sessions.  In
+addition, you should make sure the font used by the Windows Terminal
+supports the characters you paste (the default font set by Windows
+should be okay).  For best results, we also recommend to set the console
+codepage to 65001, which is the UTF-8 codepage.  You can do that with
+the following command, which should be done _before_ running Emacs on
+the Windows Terminal:
+
+  c:\> chcp 65001
+
 ** Pasting from Windows clipboard into Emacs doesn't work.
 
 This was reported to be the result of an anti-virus software blocking
@@ -3254,6 +3329,30 @@ To turn the Windows Magnifier off, click "Start->All Programs", or
 "Accessibility" and click "Magnifier".  In the Magnifier Settings
 dialog that opens, click "Exit".
 
+** Cursor is invisible, or appears at times and then disappears
+
+This is known to happen if 'w32-use-visible-system-caret' is non-nil.
+That variable is nil by default, but if your system has the "Speech
+Recognition" feature enabled, Emacs automatically sets this variable
+non-nil at startup to allow the screen reader to read the relevant part
+of the Emacs display and dictate it.
+
+To turn this off on modern Windows systems, go to "Settings ->
+Accessibility -> Speech", and turn off "Voice access".  If you need to
+leave this accessibility feature turned on, you can alternatively set
+'w32-use-visible-system-caret' to the nil value in your init file:
+
+  (setq w32-use-visible-system-caret nil)
+
+If you do need to see the system caret in Emacs windows, you can instead
+work around this problem by disabling double-buffering in your init
+file:
+
+  (set-frame-parameter nil 'inhibit-double-buffering nil)
+
+Note that inhibiting double-buffering might cause the Emacs display to
+flicker in some cases.
+
 ** Problems with mouse-tracking and focus management
 
 There are problems with display if mouse-tracking is enabled and the
@@ -3313,11 +3412,6 @@ Files larger than 4GB cause overflow in the size (represented as a
 32-bit integer) reported by 'file-attributes'.  This affects Dired as
 well, since the Windows port uses a Lisp emulation of 'ls', which relies
 on 'file-attributes'.
-
-** Playing sound doesn't support the :data method
-
-Sound playing is not supported with the ':data DATA' key-value pair.
-You _must_ use the ':file FILE' method.
 
 ** Typing Alt-Shift has strange effects on MS-Windows.
 
@@ -3598,6 +3692,53 @@ file; for example:
       "/usr/local/opt/libgccjit/lib/gcc/11"
       "/usr/local/opt/gcc/lib/gcc/11/gcc/x86_64-apple-darwin20/11.2.0") ":"))
 
+** Stuttering and missed keypresses during Native Compilation on macOS
+
+Natively compiled modules are validated by macOS the first time that
+they are loaded.  On some machines, this can cause Emacs to be
+temporarily less responsive while a large number of '*.eln' files are
+being compiled and loaded.
+
+One can force the first load of the module to happen in the async
+compilation worker by adding this to their early-init.el:
+
+  (setq native-comp-async-env-modifier-form
+	'(progn
+	   (defun c/native-comp--preload-eln-after-compile
+	       (compile function-or-file &optional with-late-load output)
+	     "Preload async native-comp output in the compiler child."
+	     (prog1 (funcall compile function-or-file with-late-load output)
+	       (when (and (stringp function-or-file) with-late-load)
+		 (with-demoted-errors "Async native .eln preload: %S"
+		   (let ((eln-file (comp-el-to-eln-filename function-or-file)))
+		     (when (file-exists-p eln-file)
+		       (native-elisp-load eln-file t)))))))
+
+	   (advice-add 'comp--native-compile
+		       :around #'c/native-comp--preload-eln-after-compile)))
+
+Alternatively, if one is willing to accept the associated security
+risks, one could disable library validation on their Emacs binary:
+
+  codesign --force --sign - \
+      --entitlements macos-disable-library-validation.entitlements \
+      src/emacs
+
+Disabling validation might expose you to security risks, so please
+consider that before using this recipe.
+
+** Text dictation doesn't work on macOS
+
+The indication is that the macOS keyboard shortcut for dictation is ignored.
+
+One reason for this is that the Emacs permissions for using the
+microphone were rejected in the past.  To reset the permissions, run
+this command:
+
+  tccutil reset Microphone org.gnu.Emacs
+
+Another reason may be an unsupported macOS version. For example: macOS 12.
+
 * Runtime problems specific to PGTK build
 
 ** Whether a display server is available cannot be automatically detected.
@@ -3825,6 +3966,18 @@ The organization of the Settings app might disagree with that
 illustrated above, which if true you should consult the documentation
 or any search mechanism for it.
 
+** Emacs Input Methods don't work.
+
+When using the Android touchscreen keyboard, Emacs input methods set by
+'C-\' don't work.  This is because Android's virtual input methods
+function by applying editing commands directly to Emacs buffers, which
+circumvents and is not compatible with Emacs's character-centric input
+methods.  You can disable what the virtual input methods do by setting
+'overriding-text-conversion-style' to nil rather than 'lambda', at the
+cost of your virtual input method's own text editing aids, or (in some
+cases) the ability to perform character composition or input CJK or
+non-Latin scripts.
+
 ** Emacs is not compatible with the "Microsoft SwiftKey" input method.
 
 When enabled, windows are repeatedly recentered around earlier buffer
@@ -3893,6 +4046,12 @@ this form.
 The solution is to tell configure to use the correct C preprocessor
 for your C compiler (CPP="/opt/developerstudio12.6/bin/cc -E" in the
 above example).
+
+*** The Android build works with only older versions of Java.
+
+Only Java 19 and older work, because Java 19 was the last version to
+support "-source 7".  See <URL:https://debbugs.gnu.org/81211> for more
+details.
 
 ** Compilation
 
@@ -4011,7 +4170,7 @@ There are several known workarounds:
 
 The linker error messages look like this:
 
- oo-spd/i386/ctags.o:ctags.c:(.text+0x156e): undefined reference to `_imp__re_set_syntax'
+ oo-spd/i386/etags.o:etags.c:(.text+0x156e): undefined reference to `_imp__re_set_syntax'
  collect2: ld returned 1 exit status
 
 This happens because GCC finds an incompatible regex.h header
@@ -4042,7 +4201,7 @@ Some versions of mingw32 make on some versions of Windows do not seem
 to detect the shell correctly.  Try "make SHELL=cmd.exe", or if that
 fails, try running make from Cygwin bash instead.
 
-*** Building 'ctags' for MS-Windows with the MinGW port of GCC fails.
+*** Building 'etags' for MS-Windows with the MinGW port of GCC fails.
 
 This might happen due to a bug in the MinGW header assert.h, which
 defines the 'assert' macro with a trailing semi-colon.  The following
@@ -4169,96 +4328,6 @@ minimum supported Windows version is 8.1, and the computer hardware
 (CPU, memory, disk) should also match the minimum Windows 8.1
 requirements.
 
-*** Segfault during 'make'
-
-If Emacs segfaults when 'make' executes one of these commands:
-
-  LC_ALL=C ./temacs -batch -l loadup bootstrap
-  LC_ALL=C ./temacs -batch -l loadup dump
-
-the problem may be due to inadequate workarounds for address space
-layout randomization (ASLR), an operating system feature that
-randomizes the virtual address space of a process.  ASLR is commonly
-enabled in Linux and NetBSD kernels, and is intended to deter exploits
-of pointer-related bugs in applications.  If ASLR is enabled, the
-command:
-
-   cat /proc/sys/kernel/randomize_va_space  # GNU/Linux
-   sysctl security.pax.aslr.global          # NetBSD
-
-outputs a nonzero value.
-
-These segfaults should not occur on most modern systems, because the
-Emacs build procedure uses the command 'setfattr' or 'paxctl' to mark
-the Emacs executable as requiring non-randomized address space, and
-Emacs uses the 'personality' system call to disable address space
-randomization when dumping.  However, older kernels may not support
-'setfattr', 'paxctl', or 'personality', and newer Linux kernels have a
-secure computing mode (seccomp) that can be configured to disable the
-'personality' call.
-
-It may be possible to work around the 'personality' problem in a newer
-Linux kernel by configuring seccomp to allow the 'personality' call.
-For example, if you are building Emacs under Docker, you can run the
-Docker container with a security profile that allows 'personality' by
-using Docker's --security-opt option with an appropriate profile; see
-<https://docs.docker.com/engine/security/seccomp/>.
-
-To work around the ASLR problem in either an older or a newer kernel,
-you can temporarily disable the feature while building Emacs.  On
-GNU/Linux you can do so using the following command (as root).
-
-    echo 0 > /proc/sys/kernel/randomize_va_space
-
-You can re-enable the feature when you are done, by echoing the
-original value back to the file.  NetBSD uses a different command,
-e.g., 'sysctl -w security.pax.aslr.global=0'.
-
-Alternatively, you can try using the 'setarch' command when building
-temacs like this, where -R disables address space randomization:
-
-    setarch $(uname -m) -R make
-
-ASLR is not the only problem that can break Emacs dumping.  Another
-issue is that in Red Hat Linux kernels, Exec-shield is enabled by
-default, and this creates a different memory layout.  Emacs should
-handle this at build time, but if this fails the following
-instructions may be useful.  Exec-shield is enabled on your system if
-
-    cat /proc/sys/kernel/exec-shield
-
-prints a nonzero value.  You can temporarily disable it as follows:
-
-    echo 0 > /proc/sys/kernel/exec-shield
-
-As with randomize_va_space, you can re-enable Exec-shield when you are
-done, by echoing the original value back to the file.
-
-*** temacs prints "Pure Lisp storage exhausted".
-
-This means that the Lisp code loaded from the .elc and .el files during
-'temacs --batch --load loadup dump' took up more space than was allocated.
-
-This could be caused by
- 1) adding code to the preloaded Lisp files
- 2) adding more preloaded files in loadup.el
- 3) having a site-init.el or site-load.el which loads files.
-   Note that ANY site-init.el or site-load.el is nonstandard;
-   if you have received Emacs from some other site and it contains a
-   site-init.el or site-load.el file, consider deleting that file.
- 4) getting the wrong .el or .elc files
-   (not from the directory you expected).
- 5) deleting some .elc files that are supposed to exist.
-   This would cause the source files (.el files) to be
-   loaded instead.  They take up more room, so you lose.
- 6) a bug in the Emacs distribution which underestimates the space required.
-
-If the need for more space is legitimate, change the definition
-of PURESIZE in puresize.h.
-
-But in some of the cases listed above, this problem is a consequence
-of something else that is wrong.  Be sure to check and fix the real problem.
-
 *** openSUSE 10.3: Segfault in bcopy during dumping.
 
 This is due to a bug in the bcopy implementation in openSUSE 10.3.
@@ -4277,13 +4346,6 @@ binary null characters, and the 'file' utility says:
 
 We don't know what exactly causes this failure.  A work-around is to
 build Emacs in a directory on a local disk.
-
-*** The dumped Emacs crashes when run, trying to write pure data.
-
-On a system where getpagesize is not a system call, it is defined
-as a macro.  If the definition (in both unex*.c and malloc.c) is wrong,
-it can cause problems like this.  You might be able to find the correct
-value in the man page for a.out(5).
 
 * Problems on legacy systems
 
@@ -4412,17 +4474,6 @@ should do.
 
 pen@lysator.liu.se says (Feb 1998) that the Compose key does work
 if you link with the MIT X11 libraries instead of the Solaris X11 libraries.
-
-** OpenBSD
-
-*** OpenBSD 4.0 macppc: Segfault during dumping.
-
-The build aborts with signal 11 when the command './temacs --batch
---load loadup bootstrap' tries to load files.el.  A workaround seems
-to be to reduce the level of compiler optimization used during the
-build (from -O2 to -O1).  It is possible this is an OpenBSD
-GCC problem specific to the macppc architecture, possibly only
-occurring with older versions of GCC (e.g. 3.3.5).
 
 ** AIX
 

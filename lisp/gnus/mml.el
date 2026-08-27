@@ -1,6 +1,6 @@
 ;;; mml.el --- A package for parsing and validating MML documents  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; This file is part of GNU Emacs.
@@ -507,7 +507,7 @@ type detected."
       (when (and (consp (car cont))
 		 (= (length cont) 1)
 		 content-type)
-        (when-let ((spec (assq 'type (cdr (car cont)))))
+        (when-let* ((spec (assq 'type (cdr (car cont)))))
 	  (setcdr spec content-type)))
       (when (fboundp 'libxml-parse-html-region)
 	(setq cont (mapcar #'mml-expand-all-html-into-multipart-related cont)))
@@ -850,7 +850,7 @@ type detected."
 (defun mml-compute-boundary (cont)
   "Return a unique boundary that does not exist in CONT."
   (let ((mml-boundary (funcall mml-boundary-function
-			       (cl-incf mml-multipart-number))))
+                               (incf mml-multipart-number))))
     (unless mml-inhibit-compute-boundary
       ;; This function tries again and again until it has found
       ;; a unique boundary.
@@ -870,7 +870,7 @@ type detected."
       (when (re-search-forward (concat "^--" (regexp-quote mml-boundary))
 			       nil t)
 	(setq mml-boundary (funcall mml-boundary-function
-				    (cl-incf mml-multipart-number)))
+                                    (incf mml-multipart-number)))
 	(throw 'not-unique nil))))
    ((eq (car cont) 'multipart)
     (mapc #'mml-compute-boundary-1 (cddr cont))))
@@ -943,7 +943,7 @@ type detected."
       (when parameters
 	(let ((cont (copy-sequence cont)))
 	  ;; Set the file name to what's specified by the user.
-	  (when-let ((recipient-filename (cdr (assq 'recipient-filename cont))))
+	  (when-let* ((recipient-filename (cdr (assq 'recipient-filename cont))))
 	    (setcdr cont
 		    (cons (cons 'filename recipient-filename)
 			  (cdr cont))))
@@ -1508,7 +1508,8 @@ FILENAME is a suggested file name for the attachment should a
 recipient wish to save a copy separate from the message."
   (interactive
    (let* ((buffer (read-buffer "Attach buffer: "))
-	  (type (mml-minibuffer-read-type buffer "text/plain"))
+	  (type (mml-minibuffer-read-type
+                 buffer (mm-default-buffer-type buffer)))
 	  (description (mml-minibuffer-read-description))
 	  (disposition (mml-minibuffer-read-disposition type nil)))
      (list buffer type description disposition)))

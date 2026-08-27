@@ -1,6 +1,6 @@
 ;;; allout-widgets.el --- Visually highlight allout outline structure.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2005-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2026 Free Software Foundation, Inc.
 
 ;; Author: Ken Manheimer <ken dot manheimer at gmail...>
 ;; Version: 1.0
@@ -275,8 +275,8 @@ buffer rather than as a prevailing configuration (but it's handy
 to publicize it by making it a customization variable)."
   :version "24.1"
   :type 'boolean
+  :local t
   :group 'allout-widgets-developer)
-(make-variable-buffer-local 'allout-widgets-track-decoration)
 
 ;;;_ : Mode context - variables, hookup, and hooks
 ;;;_  . internal mode variables

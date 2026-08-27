@@ -1,6 +1,6 @@
 ;;; latin-ltx.el --- Quail package for TeX-style input -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2026 Free Software Foundation, Inc.
 ;; Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
 ;;   2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -65,6 +65,22 @@ system, including many technical ones.  Examples:
 
   (defun latin-ltx--ascii-p (char)
     (and (characterp char) (< char 128)))
+
+  ;; For mathematical alphabets
+  (defconst latin-ltx--math-variant-prefix-map
+    '(("BOLD" . "bf")
+      ("ITALIC" . "it")
+      ("BOLD ITALIC" . "bfit")
+      ("DOUBLE-STRUCK" . "bb")
+      ("SCRIPT" . "scr")
+      ("BOLD SCRIPT" . "bfscr")
+      ("FRAKTUR" . "frak")
+      ("BOLD FRAKTUR" . "bffrak")
+      ("SANS-SERIF" . "sf")
+      ("SANS-SERIF BOLD" . "bfsf")
+      ("SANS-SERIF ITALIC" . "sfit")
+      ("SANS-SERIF BOLD ITALIC" . "bfsfit")
+      ("MONOSPACE" . "tt")))
 
   (defmacro latin-ltx--define-rules (&rest rules)
     (load "uni-name" nil t)
@@ -212,6 +228,12 @@ system, including many technical ones.  Examples:
         (string (if (match-end 2) ?^ ?_) basechar))))
   "\\(.*\\)SU\\(?:B\\|\\(PER\\)\\)SCRIPT \\(.*\\)")
 
+ ;; There are just a small number of these, and only SMALL, no CAPITAL
+ ((lambda (name _char)
+    (let* ((basename (match-string 1 name)))
+      (concat "_\\" (downcase basename))))
+  "\\`GREEK SUBSCRIPT SMALL LETTER \\([[:ascii:]]+\\)\\'")
+
  ((lambda (name _char)
     (let* ((basename (match-string 2 name))
            (name (if (match-end 1) (capitalize basename) (downcase basename))))
@@ -281,6 +303,7 @@ system, including many technical ones.  Examples:
  ("\\Vert" ?‖)
  ("\\Vvdash" ?⊪)
  ("\\above" ?┴)
+ ("\\acute" ?́) ;; synonymous with \'‌
  ("\\aleph" ?ℵ)
  ("\\amalg" ?∐)
  ("\\angle" ?∠)
@@ -297,6 +320,7 @@ system, including many technical ones.  Examples:
  ("\\backsim" ?∽)
  ("\\backsimeq" ?⋍)
  ("\\backslash" ?\\)
+ ("\\bar" ?̄) ;; synonymous with \=
  ("\\barwedge" ?⊼)
  ("\\because" ?∵)
  ("\\begin" ?\〖)
@@ -328,11 +352,14 @@ system, including many technical ones.  Examples:
  ("\\boxplus" ?⊞)
  ("\\boxtimes" ?⊠)
  ("\\bra" ?\⟨)
+ ("\\breve" ?̆) ;; synonymous with \u
  ("\\bullet" ?•)
  ("\\bumpeq" ?≏)
  ("\\cap" ?∩)
+ ("\\cbrt" ?∛)
  ("\\cdots" ?⋯)
  ("\\centerdot" ?·)
+ ("\\check" ?̌) ;; synonymous with \v
  ("\\checkmark" ?✓)
  ("\\chi" ?χ)
  ("\\circ" ?∘)
@@ -370,10 +397,14 @@ system, including many technical ones.  Examples:
  ("\\ddagger" ?‡)
  ("\\ddddot" ?⃜)
  ("\\dddot" ?⃛)
+ ("\\ddot" ?̈) ;; synonymous with \"
  ("\\ddots" ?⋱)
+ ("\\diagdown" ?⟍)
+ ("\\diagup" ?⟋)
  ("\\diamond" ?⋄)
  ("\\diamondsuit" ?♢)
  ("\\divideontimes" ?⋇)
+ ("\\dot" ?̇)
  ("\\doteq" ?≐)
  ("\\doteqdot" ?≑)
  ("\\dotplus" ?∔)
@@ -397,13 +428,17 @@ system, including many technical ones.  Examples:
  ("\\fallingdotseq" ?≒)
  ("\\flat" ?♭)
  ("\\forall" ?∀)
+ ("\\frac03" ?↉)
  ("\\frac1" ?⅟)
+ ("\\frac110" ?⅒)
  ("\\frac12" ?½)
  ("\\frac13" ?⅓)
  ("\\frac14" ?¼)
  ("\\frac15" ?⅕)
  ("\\frac16" ?⅙)
+ ("\\frac17" ?⅐)
  ("\\frac18" ?⅛)
+ ("\\frac19" ?⅑)
  ("\\frac23" ?⅔)
  ("\\frac25" ?⅖)
  ("\\frac34" ?¾)
@@ -426,6 +461,7 @@ system, including many technical ones.  Examples:
  ("\\gneq" ?≩)
  ("\\gneqq" ?≩)
  ("\\gnsim" ?⋧)
+ ("\\grave" ?̀) ;; synonymous with \`
  ("\\gtrapprox" ?≳)
  ("\\gtrdot" ?⋗)
  ("\\gtreqless" ?⋛)
@@ -433,6 +469,7 @@ system, including many technical ones.  Examples:
  ("\\gtrless" ?≷)
  ("\\gtrsim" ?≳)
  ("\\gvertneqq" ?≩)
+ ("\\hat" ?̂) ;; synonymous with \^
  ("\\hbar" ?ℏ)
  ("\\heartsuit" ?♥)
  ("\\hookleftarrow" ?↩)
@@ -451,10 +488,17 @@ system, including many technical ones.  Examples:
  ("\\intercal" ?⊺)
  ("\\jj" ?ⅉ)
  ("\\jmath" ?ȷ)
- ("\\langle" ?⟨) ;; Was ?〈, see bug#12948.
- ("\\lbrace" ?{)
+ ("\\ket" ?\⟩)
+ ("\\land" ?∧) ;; logical and, same symbol as \wedge
+ ("\\langle" ?\⟨) ;; Was ?〈, see bug#12948.
+ ("\\lAngle" ?\⟪)
+ ("\\lbrace" ?\{)
  ("\\lbrack" ?\[)
- ("\\lceil" ?⌈)
+ ("\\lBrack" ?\⟦)
+ ("\\lblkbrbrak" ?\⦗)
+ ("\\lbrbrak" ?\❲)
+ ("\\Lbrbrak" ?\⟬)
+ ("\\lceil" ?\⌈)
  ("\\ldiv" ?∕)
  ("\\ldots" ?…)
  ("\\le" ?≤)
@@ -479,12 +523,14 @@ system, including many technical ones.  Examples:
  ("\\lesseqqgtr" ?⋚)
  ("\\lessgtr" ?≶)
  ("\\lesssim" ?≲)
- ("\\lfloor" ?⌊)
+ ("\\lfloor" ?\⌊)
+ ("\\lgroup" ?\⟮)
  ("\\lhd" ?◁)
  ("\\rhd" ?▷)
  ("\\ll" ?≪)
  ("\\llcorner" ?⌞)
  ("\\lll" ?⋘)
+ ("\\lmoustache" ?⎰)
  ("\\lnapprox" ?⋦)
  ("\\lneq" ?≨)
  ("\\lneqq" ?≨)
@@ -495,6 +541,7 @@ system, including many technical ones.  Examples:
  ("\\longrightarrow" ?⟶)
  ("\\looparrowleft" ?↫)
  ("\\looparrowright" ?↬)
+ ("\\lor" ?∨) ;; logical or, same symbol as \vee
  ("\\lozenge" ?✧)
  ("\\lq" ?‘)
  ("\\lrcorner" ?⌟)
@@ -502,6 +549,7 @@ system, including many technical ones.  Examples:
  ("\\lvertneqq" ?≨)
  ("\\maltese" ?✠)
  ("\\mapsto" ?↦)
+ ("\\mathring" ?̊)
  ("\\measuredangle" ?∡)
  ("\\mho" ?℧)
  ("\\mid" ?∣)
@@ -569,8 +617,12 @@ system, including many technical ones.  Examples:
  ("\\oplus" ?⊕)
  ("\\oslash" ?⊘)
  ("\\otimes" ?⊗)
+ ("\\overbar" ?̅)
  ("\\overbrace" ?⏞)
+ ("\\overleftarrow" ?⃖)
  ("\\overparen" ?⏜)
+ ("\\overrightarrow" ?⃗) ;; synonymous with \vec
+ ("\\owns" ?∋) ;; synonymous with \ni
  ("\\par" ? )
  ("\\parallel" ?∥)
  ("\\partial" ?∂)
@@ -594,13 +646,18 @@ system, including many technical ones.  Examples:
  ("\\qed" ?∎)
  ("\\quad" ? )
  ("\\rangle" ?\⟩) ;; Was ?〉, see bug#12948.
+ ("\\rAngle" ?\⟫)
  ("\\ratio" ?∶)
- ("\\rbrace" ?})
+ ("\\rbrace" ?\})
  ("\\rbrack" ?\])
- ("\\rceil" ?⌉)
+ ("\\rBrack" ?\⟧)
+ ("\\rblkbrbrak" ?\⦘)
+ ("\\rbrbrak" ?\❳)
+ ("\\Rbrbrak" ?\⟭)
+ ("\\rceil" ?\⌉)
  ("\\rddots" ?⋰)
  ("\\rect" ?▭)
- ("\\rfloor" ?⌋)
+ ("\\rfloor" ?\⌋)
  ("\\rightarrow" ?→)
  ("\\rightarrowtail" ?↣)
  ("\\rightharpoondown" ?⇁)
@@ -611,6 +668,8 @@ system, including many technical ones.  Examples:
  ("\\rightrightarrows" ?⇉)
  ("\\rightthreetimes" ?⋌)
  ("\\risingdotseq" ?≓)
+ ("\\rgroup" ?\⟯)
+ ("\\rmoustache" ?⎱)
  ("\\rrect" ?▢)
  ("\\sdiv" ?⁄)
  ("\\rtimes" ?⋊)
@@ -662,6 +721,7 @@ system, including many technical ones.  Examples:
  ("\\therefore" ?∴)
  ("\\thickapprox" ?≈)
  ("\\thicksim" ?∼)
+ ("\\tilde" ?̃) ;; synonymous with \~
  ("\\to" ?→)
  ("\\top" ?⊤)
  ("\\triangle" ?▵)
@@ -678,6 +738,8 @@ system, including many technical ones.  Examples:
  ("\\updownarrow" ?↕)
  ("\\underbar" ?▁)
  ("\\underbrace" ?⏟)
+ ("\\underleftarrow" ?⃮)
+ ("\\underrightarrow" ?⃯)
  ("\\underparen" ?⏝)
  ("\\upleftharpoon" ?↿)
  ("\\uplus" ?⊎)
@@ -686,6 +748,7 @@ system, including many technical ones.  Examples:
  ("\\urcorner" ?⌝)
  ("\\u{i}" ?ĭ)
  ("\\vbar" ?│)
+ ("\\vec" ?⃗)
  ("\\vDash" ?⊨)
 
  ((lambda (name char)
@@ -712,6 +775,77 @@ system, including many technical ones.  Examples:
  ("\\wedge" ?∧)
  ("\\wp" ?℘)
  ("\\wr" ?≀)
+
+ ;;;; Mathematical alphabets
+ ;; Latin letters
+ ((lambda (name _char)
+    (let* ((variant (match-string 1 name))
+           (prefix (cdr (assoc variant latin-ltx--math-variant-prefix-map)))
+           (basename (match-string 3 name))
+           (name (if (match-end 2) (capitalize basename) (downcase basename))))
+      (concat "\\" prefix name)))
+  "\\`MATHEMATICAL \\(.+\\) \\(?:SMALL\\|CAPITA\\(L\\)\\) \\([[:ascii:]]+\\)\\'")
+
+ ;; Digits
+ ((lambda (name _char)
+    (let* ((variant (match-string 1 name))
+           (prefix (cdr (assoc variant latin-ltx--math-variant-prefix-map)))
+           (basename (match-string 2 name)))
+      (concat "\\" prefix (char-to-string (char-from-name basename)))))
+  "\\`MATHEMATICAL \\(.+\\) \\(DIGIT [[:ascii:]]+\\)\\'")
+
+ ;; Some Greek variants
+ ;; NOTE: Check if any of these are reversed from their counterparts, like
+ ;; the claim above of \phi and \varphi being swapped
+ ((lambda (name _char)
+    (let* ((variant (match-string 1 name))
+           (prefix (cdr (assoc variant latin-ltx--math-variant-prefix-map)))
+           (basename (downcase (match-string 2 name))))
+      (if prefix ;; This avoids e.g. MATHEMATICAL BOLD CAPITAL <greek> SYMBOL
+          (concat "\\" prefix "var" basename))))
+  "\\`MATHEMATICAL \\(.+\\) \\([A-Z]+\\) SYMBOL\\'")
+
+ ((lambda (name _char)
+    (let* ((variant (match-string 1 name))
+           (prefix (cdr (assoc variant latin-ltx--math-variant-prefix-map)))
+           (basename (if (match-end 2) "partial" "nabla")))
+      (concat "\\" prefix basename)))
+  "\\`MATHEMATICAL \\(.*\\) \\(?:NABLA\\|PARTIAL DIFFERENTIA\\(L\\)\\)\\'")
+
+ ;; Some of the math alphabet characters have other canonical names and must be
+ ;; added manually
+ ("\\scrB" ?ℬ)
+ ("\\scrE" ?ℰ)
+ ("\\scrF" ?ℱ)
+ ("\\scrH" ?ℋ)
+ ("\\scrI" ?ℐ)
+ ("\\scrL" ?ℒ)
+ ("\\scrM" ?ℳ)
+ ("\\scrR" ?ℛ)
+ ("\\frakC" ?ℭ)
+ ("\\frakH" ?ℌ)
+ ("\\frakI" ?ℑ)
+ ("\\frakR" ?ℜ)
+ ("\\frakZ" ?ℨ)
+ ("\\bbC" ?ℂ)
+ ("\\bbH" ?ℍ)
+ ("\\bbN" ?ℕ)
+ ("\\bbP" ?ℙ)
+ ("\\bbQ" ?ℚ)
+ ("\\bbR" ?ℝ)
+ ("\\bbZ" ?ℤ)
+ ("\\ith" ?ℎ)
+ ("\\scre" ?ℯ)
+ ("\\scrg" ?ℊ)
+ ("\\scro" ?ℴ)
+
+ ("\\bbsum" ?⅀)
+ ("\\bbSigma" ?⅀)
+ ("\\bbgamma" ?ℽ)
+ ("\\bbGamma" ?ℾ)
+ ("\\bbprod" ?ℿ)
+ ("\\bbPi" ?ℿ)
+ ("\\bbpi" ?ℼ)
 
  ("\\Bbb{A}" ?𝔸)			; AMS commands for blackboard bold
  ("\\Bbb{B}" ?𝔹)			; Also sometimes \mathbb.
@@ -772,6 +906,7 @@ system, including many technical ones.  Examples:
  ;; ("\\Yinyang" ?☯)
  ;; ("\\Heart" ?♡)
  ("\\dh" ?ð)
+ ("\\eth" ?ð)
  ("\\DH" ?Ð)
  ("\\th" ?þ)
  ("\\TH" ?Þ)
@@ -787,16 +922,16 @@ system, including many technical ones.  Examples:
  ("\\sqrt" ?√)
  ("\\sqrt[3]" ?∛)
  ("\\sqrt[4]" ?∜)
- ("\\llbracket" ?\〚) 			; stmaryrd
- ("\\rrbracket" ?\〛)
+ ("\\llbracket" ?\⟦) 			; stmaryrd
+ ("\\rrbracket" ?\⟧)
  ;; ("\\lbag" ?\〚) 			; fuzz
  ;; ("\\rbag" ?\〛)
- ("\\ldata" ?\《) 			; fuzz/zed
- ("\\rdata" ?\》)
+ ("\\ldata" ?\⟪) 			; fuzz/zed
+ ("\\rdata" ?\⟫)
  ;; From Karl Eichwalder.
- ("\\glq"  ?‚)
+ ("\\glq"  ?\‚)
  ("\\grq"  ?‘)
- ("\\glqq"  ?„) ("\\\"`"  ?„)
+ ("\\glqq"  ?\„) ("\\\"`"  ?\„)
  ("\\grqq"  ?“) ("\\\"'"  ?“)
  ("\\flq" ?‹)
  ("\\frq" ?›)

@@ -1,6 +1,6 @@
 ;;; json-ts-mode.el --- tree-sitter support for JSON  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; Author     : Theodor Thornhill <theo@thornhill.no>
 ;; Maintainer : Theodor Thornhill <theo@thornhill.no>
@@ -22,6 +22,15 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
+;;; Tree-sitter language versions
+;;
+;; json-ts-mode has been tested with the following grammars and version:
+;; - tree-sitter-json: v0.24.8-1-g4d770d3
+;;
+;; We try our best to make builtin modes work with latest grammar
+;; versions, so a more recent grammar has a good chance to work too.
+;; Send us a bug report if it doesn't.
+
 ;;; Commentary:
 ;;
 
@@ -29,15 +38,17 @@
 
 (require 'treesit)
 (require 'rx)
+(treesit-declare-unavailable-functions)
 
-(declare-function treesit-parser-create "treesit.c")
-(declare-function treesit-induce-sparse-tree "treesit.c")
-(declare-function treesit-node-start "treesit.c")
-(declare-function treesit-node-type "treesit.c")
-(declare-function treesit-node-child-by-field-name "treesit.c")
+(add-to-list
+ 'treesit-language-source-alist
+ '(json "https://github.com/tree-sitter/tree-sitter-json"
+        :commit "4d770d31f732d50d3ec373865822fbe659e47c75")
+ t)
 
-
-(defcustom json-ts-mode-indent-offset 2
+(define-obsolete-variable-alias 'json-ts-mode-indent-offset
+  'json-ts-indent-offset "31")
+(defcustom json-ts-indent-offset 2
   "Number of spaces for each indentation step in `json-ts-mode'."
   :version "29.1"
   :type 'integer
@@ -71,8 +82,8 @@
      ((node-is "}") parent-bol 0)
      ((node-is ")") parent-bol 0)
      ((node-is "]") parent-bol 0)
-     ((parent-is "object") parent-bol json-ts-mode-indent-offset)
-     ((parent-is "array") parent-bol json-ts-mode-indent-offset))))
+     ((parent-is "object") parent-bol json-ts-indent-offset)
+     ((parent-is "array") parent-bol json-ts-indent-offset))))
 
 (defvar json-ts-mode--font-lock-settings
   (treesit-font-lock-rules
@@ -119,16 +130,70 @@ Return nil if there is no name or if NODE is not a defun node."
                    t)
                   "\"" "\""))))
 
+(defun json-ts--get-path-at-node (node)
+  "Get the path from the root of the JSON tree to NODE.
+Return a list of keys (strings) and indices (numbers).
+NODE is a tree-sitter node."
+  (let ((path nil)
+        (parent nil))
+    (while (setq parent (treesit-node-parent node))
+      (let ((type (treesit-node-type parent)))
+        (cond
+         ((equal type "array")
+          (push (treesit-node-index node t) path))
+         ((equal type "pair")
+          (let ((key (treesit-node-child-by-field-name parent "key")))
+             (push (treesit-node-text key t) path)))))
+      (setq node parent))
+    path))
+
+(defun json-ts--path-to-jq (path)
+  "Convert PATH list to a jq-style path string.
+PATH is a list of keys (strings) and indices (numbers)."
+  (mapconcat
+   (lambda (x)
+     (cond
+      ((numberp x) (format "[%d]" x))
+      ((stringp x)
+       (let ((key (string-trim x "\"" "\"")))
+         (if (string-match-p (rx bos (any alpha "_") (* (any alnum "_")) eos) key)
+             (format ".%s" key)
+           (format "[%S]" key))))
+      (t "")))
+   path
+   ""))
+
+(defun json-ts--path-to-python (path)
+  "Convert PATH list to a Python-style path string.
+PATH is a list of keys (strings) and indices (numbers)."
+  (mapconcat
+   (lambda (x)
+     (cond
+      ((numberp x) (format "[%d]" x))
+      ((stringp x) (format "[\"%s\"]" x))
+      (t "")))
+   path
+   ""))
+
+(defun json-ts-jq-path-at-point ()
+  "Show the JSON path at point in jq format."
+  (interactive)
+  (if-let* ((node (treesit-node-at (point))))
+      (let ((path (json-ts--path-to-jq (json-ts--get-path-at-node node))))
+        (kill-new path)
+        (message "%s" path))
+    (user-error "No JSON node at point")))
+
 ;;;###autoload
 (define-derived-mode json-ts-mode prog-mode "JSON"
   "Major mode for editing JSON, powered by tree-sitter."
   :group 'json
   :syntax-table json-ts-mode--syntax-table
 
-  (unless (treesit-ready-p 'json)
+  (unless (treesit-ensure-installed 'json)
     (error "Tree-sitter for JSON isn't available"))
 
-  (treesit-parser-create 'json)
+  (setq treesit-primary-parser (treesit-parser-create 'json))
 
   ;; Comments.
   (setq-local comment-start "// ")
@@ -149,6 +214,7 @@ Return nil if there is no name or if NODE is not a defun node."
 
   (setq-local treesit-thing-settings
               `((json
+                 (list ,(rx (or "object" "array")))
                  (sentence "pair"))))
 
   ;; Font-lock.
@@ -162,13 +228,19 @@ Return nil if there is no name or if NODE is not a defun node."
   (setq-local treesit-simple-imenu-settings
               '((nil "\\`pair\\'" nil nil)))
 
-  (treesit-major-mode-setup))
+  (treesit-major-mode-setup)
+
+  ;; Disable outlines since they are created for 'pair' from
+  ;; 'treesit-simple-imenu-settings' almost on every line:
+  (kill-local-variable 'outline-search-function)
+  (kill-local-variable 'outline-level))
 
 (derived-mode-add-parents 'json-ts-mode '(json-mode))
 
-(if (treesit-ready-p 'json)
-    (add-to-list 'auto-mode-alist
-                 '("\\.json\\'" . json-ts-mode)))
+;;;###autoload
+(when (boundp 'treesit-major-mode-remap-alist)
+  (add-to-list 'treesit-major-mode-remap-alist
+               '(js-json-mode . json-ts-mode)))
 
 (provide 'json-ts-mode)
 

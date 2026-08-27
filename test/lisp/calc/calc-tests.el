@@ -1,6 +1,6 @@
 ;;; calc-tests.el --- tests for calc                 -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2014-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2014-2026 Free Software Foundation, Inc.
 
 ;; Author: Leo Liu <sdl.web@gmail.com>
 ;; Keywords: maint
@@ -26,6 +26,7 @@
 
 (require 'cl-lib)
 (require 'ert)
+(require 'ert-x)
 (require 'calc)
 (require 'calc-ext)
 (require 'calc-units)
@@ -878,6 +879,47 @@ An existing calc stack is reused, otherwise a new one is created."
   ;; ... signals an error if the argument is not a string
   (should-error (math-read-preprocess-string nil))
   (should-error (math-read-preprocess-string 42)))
+
+(ert-deftest calc-math-vector-is-string ()
+  "Test `math-vector-is-string' with varying `calc-string-maximum-character'.
+When `calc-string-maximum-character' isn’t a valid character,
+`math-vector-is-string' should return nil for all vectors."
+  (cl-flet* ((make-vec (lambda (contents) (append (list 'vec) contents)))
+             (make-cplx (lambda (x) (list 'cplx x 0)))
+             (make-cplx-vec (lambda (contents)
+                              (make-vec (mapcar #'make-cplx contents)))))
+    ;; 1: calc-string-maximum-character is a valid character
+    (dolist (maxchar '(#x7F #xFF #x10FFFF #x3FFFFD #x3FFFFF))
+      (let* ((calc-string-maximum-character maxchar)
+             (small-chars (number-sequence (- maxchar 2) maxchar))
+             (large-chars (number-sequence maxchar (+ maxchar 2))))
+        (should (math-vector-is-string (make-vec small-chars)))
+        (should-not (math-vector-is-string (make-vec large-chars)))
+        (should (math-vector-is-string (make-cplx-vec small-chars)))
+        (should-not (math-vector-is-string (make-cplx-vec large-chars)))))
+    ;; 2: calc-string-maximum-character is not a valid character
+    (dolist (maxchar (list -1 (1+ (max-char)) "wrong type"))
+      (let ((calc-string-maximum-character maxchar)
+            (valid-chars (number-sequence 0 2))
+            (invalid-chars (number-sequence -2 -1)))
+        (should-not (math-vector-is-string (make-vec valid-chars)))
+        (should-not (math-vector-is-string (make-vec invalid-chars)))
+        (should-not (math-vector-is-string (make-cplx-vec valid-chars)))
+        (should-not (math-vector-is-string (make-cplx-vec invalid-chars)))))))
+
+(ert-deftest calc-inhibit-startup-message ()
+  "Test user option `calc-inhibit-startup-message'."
+  (let ((welcome-message "Welcome to the GNU Emacs Calculator!"))
+    (ert-with-message-capture messages
+      (let ((calc-inhibit-startup-message t))
+        (calc))
+      (should-not (string-match-p welcome-message messages))
+      (calc-quit))
+    (ert-with-message-capture messages
+      (let ((calc-inhibit-startup-message nil))
+        (calc))
+      (should (string-match-p welcome-message messages))
+      (calc-quit))))
 
 (provide 'calc-tests)
 ;;; calc-tests.el ends here

@@ -1,6 +1,6 @@
 ;;; fontset.el --- commands for handling fontset  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2026 Free Software Foundation, Inc.
 ;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
 ;;   2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -33,8 +33,6 @@
 ;; Setup font-encoding-alist for all known encodings.
 
 (setq font-encoding-alist
-      (mapcar (lambda (arg)
-		(cons (purecopy (car arg)) (cdr arg)))
       '(("iso8859-1$" . iso-8859-1)
 	("iso8859-2$" . iso-8859-2)
 	("iso8859-3$" . iso-8859-3)
@@ -88,6 +86,7 @@
 	("iso10646-1$" . (unicode-bmp . nil))
 	("iso10646.indian-1" . (unicode-bmp . nil))
 	("unicode-bmp" . (unicode-bmp . nil))
+        ("unicode-sip" . (unicode-sip . nil)) ; used by w32font.c
 	("abobe-symbol" . symbol)
 	("sisheng_cwnn" . chinese-sisheng)
 	("mulearabic-0" . arabic-digit)
@@ -121,7 +120,7 @@
 	("mulelao-1" . mule-lao)
 	("muletibetan-2" . tibetan)
 	("muletibetan-0" . tibetan)
-	("muletibetan-1" . tibetan-1-column))))
+        ("muletibetan-1" . tibetan-1-column)))
 
 (defvar font-encoding-charset-alist)
 
@@ -199,6 +198,7 @@
         (tai-tham #x1A20 #x1A55 #x1A61 #x1A80)
 	(symbol . [#x201C #x2200 #x2500])
 	(braille #x2800)
+        (tifinagh #x2D30 #x2D60)
 	(ideographic-description #x2FF0)
         ;; Noto Sans Phags Pa is broken and reuses the CJK misc code
         ;; points for some of its own characters.  Add one actual CJK
@@ -207,7 +207,7 @@
 	(kana #x304B)
 	(bopomofo #x3105)
 	(kanbun #x319D)
-	(han #x5B57)
+	(han #x3410 #x4e10 #x5B57 #xfe30 #xf900)
 	(yi #xA288)
         (syloti-nagri #xA807 #xA823 #xA82C)
         (rejang #xA930 #xA947 #xA95F)
@@ -235,17 +235,20 @@
 	(elbasan #x10500)
 	(caucasian-albanian #x10530)
 	(vithkuqi #x10570)
+        (todhri #x105C0 #x105ED)
 	(linear-a #x10600)
 	(cypriot-syllabary #x10800)
 	(palmyrene #x10860)
 	(nabataean #x10880)
 	(phoenician #x10900)
 	(lydian #x10920)
+        (sidetic #x10940)
 	(kharoshthi #x10A00)
 	(manichaean #x10AC0)
 	(avestan #x10B00)
 	(old-turkic #x10C00 #x10C01)
 	(hanifi-rohingya #x10D00 #x10D24 #x10D39)
+        (garay #x10D50 #x10D70 #x10D4A #x10D41)
 	(yezidi #x10E80)
 	(old-sogdian #x10F00)
 	(sogdian #x10F30)
@@ -260,6 +263,7 @@
 	(khojki #x11200)
 	(khudawadi #x112B0)
 	(grantha #x11315 #x1133E #x11374)
+        (tulu-tigalari #x11380 #x113B8)
 	(newa #x11400)
 	(tirhuta #x11481 #x1148F #x114D0)
 	(siddham #x1158E #x115AF #x115D4)
@@ -272,20 +276,25 @@
 	(zanabazar-square #x11A00)
 	(soyombo #x11A50)
 	(pau-cin-hau #x11AC0)
+        (sunuwar #x11BC0 #x11BF1)
 	(bhaiksuki #x11C00)
 	(marchen #x11C72)
 	(masaram-gondi #x11D00)
 	(gunjala-gondi #x11D60)
+        (tolong-siki #x11DB0)
 	(makasar #x11EE0 #x11EF7)
         (kawi #x11F04 #x11F41 #x11F4F)
 	(cuneiform #x12000)
 	(cypro-minoan #x12F90)
 	(egyptian #x13000)
+        (gurung-khema #x16100 #x1611E #x16131)
 	(mro #x16A40)
 	(tangsa #x16A70 #x16AC0)
 	(bassa-vah #x16AD0)
 	(pahawh-hmong #x16B11)
+        (kirat-rai #x16D43 #x16D63 #x16D71)
 	(medefaidrin #x16E40)
+        (beria-erfe #x16EA0)
 	(tangut #x17000)
 	(khitan-small-script #x18B00)
 	(nushu #x1B170)
@@ -301,6 +310,8 @@
 	(toto #x1E290 #x1E295 #x1E2AD)
 	(wancho #x1E2C0 #x1E2E8 #x1E2EF)
         (nag-mundari #x1E4D0 #x1E4EB #x1E4F0)
+        (ol-onal #x1E5D0 #x1E5F2)
+        (tai-yo #x1E6E0)
 	(mende-kikakui #x1E810 #x1E8A6)
 	(adlam #x1E900 #x1E943)
 	(indic-siyaq-number #x1EC71 #x1EC9F)
@@ -312,7 +323,7 @@
 
 (defvar otf-script-alist)
 
-;; The below was synchronized with the latest Sep 12, 2021 version of
+;; The below was synchronized with the latest May 31, 2024 version of
 ;; https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags
 (setq otf-script-alist
       '((adlm . adlam)
@@ -328,6 +339,7 @@
 	(batk . batak)
 	(bng2 . bengali)
 	(beng . bengali)
+        (berf . beria-erfe)
 	(bhks . bhaiksuki)
 	(bopo . bopomofo)
 	(brah . brahmi)
@@ -357,6 +369,7 @@
 	(elba . elbasan)
 	(elym . elymaic)
 	(ethi . ethiopic)
+        (gara . garay)
 	(geor . georgian)
 	(glag . glagolitic)
 	(goth . gothic)
@@ -367,6 +380,7 @@
 	(gong . gunjala-gondi)
 	(guru . gurmukhi)
 	(gur2 . gurmukhi)
+        (gukh . gurung-khema)
 	(hani . han)
 	(hang . hangul)
 	(jamo . hangul) ; Not recommended; use 'hang' instead.
@@ -389,6 +403,7 @@
 	(khmr . khmer)
 	(khoj . khojki)
 	(sind . khudawadi)
+        (krai . kirat-rai)
 	(lao\  . lao)
 	(latn . latin)
 	(lepc . lepcha)
@@ -429,6 +444,7 @@
 	(hmnp . nyiakeng-puachue-hmong)
 	(ogam . ogham)
 	(olck . ol-chiki)
+        (omao . ol-onal)
 	(ital . old-italic)
 	(xpeo . old-persian)
 	(narb . old-north-arabian)
@@ -456,12 +472,14 @@
 	(shrd . sharada)
 	(shaw . shavian)
 	(sidd . siddham)
+        (sidt . sidetic)
 	(sgnw . sutton-sign-writing)
 	(sinh . sinhala)
 	(sogd . sogdian)
 	(sora . sora-sompeng)
 	(soyo . soyombo)
 	(sund . sundanese)
+        (sunu . sunuwar)
 	(sylo . syloti-nagri)
 	(syrc . syriac)
 	(tglg . tagalog)
@@ -475,6 +493,7 @@
 	(tml2 . tamil)
         (tnsa . tangsa)
 	(tang . tangut)
+        (tayo . tai-yo)
 	(telu . telugu)
 	(tel2 . telugu)
 	(thaa . thaana)
@@ -482,7 +501,10 @@
 	(tibt . tibetan)
 	(tfng . tifinagh)
 	(tirh . tirhuta)
+        (todr . todhri)
+        (tols . tolong-siki)
         (toto . toto)
+        (tutg . tulu-tigalari)
 	(ugar . ugaritic)
         (vith . vithkuqi)
 	(vai\  . vai)
@@ -857,7 +879,18 @@
 		    pahawh-hmong
 		    medefaidrin
                     znamenny-musical-notation
+                    khudawadi
+                    khojki
+                    mahajani
+                    sogdian
+                    old-sogdian
                     old-turkic
+                    nabataean
+                    palmyrene
+                    linear-a
+                    linear-b
+                    caucasian-albanian
+                    elbasan
 		    byzantine-musical-symbol
 		    musical-symbol
 		    ancient-greek-musical-notation
@@ -868,14 +901,30 @@
                     wancho
                     nag-mundari
                     mende-kikakui
+                    nyiakeng-puachue-hmong
+                    mro
+                    masaram-gondi
+                    pau-cin-hau
+                    soyombo
+                    zanabazar-square
+                    warang-citi
+                    dogra
+                    takri
 		    adlam
+                    tifinagh
                     tai-tham
                     indic-siyaq-number
                     ottoman-siyaq-number
 		    mahjong-tile
 		    domino-tile
                     emoji
-                    chess-symbol))
+                    chess-symbol
+                    garay
+                    sunuwar
+                    sidetic
+                    tolong-siki
+                    beria-erfe
+                    tai-yo))
     (set-fontset-font "fontset-default"
 		      script (font-spec :registry "iso10646-1" :script script)
 		      nil 'append))
@@ -1211,17 +1260,17 @@ Internal use only.  Should be called at startup time."
 
 ;; Setting for suppressing XLoadQueryFont on big fonts.
 (setq x-pixel-size-width-font-regexp
-      (purecopy "gb2312\\|gbk\\|gb18030\\|jisx0208\\|ksc5601\\|cns11643\\|big5"))
+      "gb2312\\|gbk\\|gb18030\\|jisx0208\\|ksc5601\\|cns11643\\|big5")
 
 ;; These fonts require vertical centering.
 (setq vertical-centering-font-regexp
-      (purecopy "gb2312\\|gbk\\|gb18030\\|jisx0208\\|jisx0212\\|ksc5601\\|cns11643\\|big5"))
+      "gb2312\\|gbk\\|gb18030\\|jisx0208\\|jisx0212\\|ksc5601\\|cns11643\\|big5")
 (put 'vertical-centering-font-regexp 'standard-value
      (list vertical-centering-font-regexp))
 
 ;; CDAC fonts are actually smaller than their design sizes.
 (setq face-font-rescale-alist
-      (list (cons (purecopy "-cdac$")  1.3)))
+      (list '("-cdac$" . 1.3)))
 
 (defvar x-font-name-charset-alist nil
   "This variable has no meaning starting with Emacs 22.1.")
@@ -1541,7 +1590,7 @@ It returns a name of the created fontset."
 ;; specified here because FAMILY of those fonts are not "fixed" in
 ;; many cases.
 (defvar standard-fontset-spec
-  (purecopy "-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard")
+  "-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard"
   "String of fontset spec of the standard fontset.
 You have the biggest chance to display international characters
 with correct glyphs by using the standard fontset.

@@ -1,6 +1,6 @@
 ;;; gnus-registry.el --- article registry for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
 ;; Author: Ted Zlatanov <tzz@lifelogs.com>
 ;; Keywords: news registry
@@ -1142,7 +1142,7 @@ non-nil."
            (expected (length old))
            entry)
       (while (car-safe old)
-        (cl-incf count)
+        (incf count)
         ;; todo: use progress reporters.
         (when (and (< 0 expected)
                    (= 0 (mod count 100)))
@@ -1174,7 +1174,7 @@ non-nil."
 
 (defun gnus-registry-clear ()
   "Clear the registry."
-  (gnus-registry-unload-hook)
+  (gnus-registry-unload-function)
   (setq gnus-registry-db nil))
 
 (gnus-add-shutdown 'gnus-registry-clear 'gnus)
@@ -1198,7 +1198,7 @@ non-nil."
 
   (add-hook 'gnus-summary-prepare-hook #'gnus-registry-register-message-ids))
 
-(defun gnus-registry-unload-hook ()
+(defun gnus-registry-unload-function ()
   "Uninstall the registry hooks."
   (remove-hook 'gnus-summary-article-move-hook #'gnus-registry-action)
   (remove-hook 'gnus-summary-article-delete-hook #'gnus-registry-action)
@@ -1208,9 +1208,8 @@ non-nil."
   (remove-hook 'gnus-save-newsrc-hook #'gnus-registry-save)
   (remove-hook 'gnus-read-newsrc-el-hook #'gnus-registry-load)
 
-  (remove-hook 'gnus-summary-prepare-hook #'gnus-registry-register-message-ids))
-
-(add-hook 'gnus-registry-unload-hook #'gnus-registry-clear)
+  (remove-hook 'gnus-summary-prepare-hook #'gnus-registry-register-message-ids)
+  nil)
 
 (defun gnus-registry-install-p ()
   "Return non-nil if the registry is enabled (and maybe enable it first).
@@ -1296,6 +1295,9 @@ from your existing entries."
 		 (registry-delete db (list k) nil)
 		 (gnus-registry-insert db k newv)))
       (registry-reindex db))))
+
+(define-obsolete-function-alias 'gnus-registry-unload-hook
+  #'gnus-registry-unload-function "31.1")
 
 (provide 'gnus-registry)
 

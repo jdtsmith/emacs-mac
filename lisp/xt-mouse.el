@@ -1,6 +1,6 @@
 ;;; xt-mouse.el --- support the mouse when emacs run in an xterm -*- lexical-binding: t -*-
 
-;; Copyright (C) 1994, 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1994, 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: Per Abrahamsen <abraham@dina.kvl.dk>
 ;; Keywords: mouse, terminals
@@ -133,8 +133,11 @@ https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)."
 
 (defun xterm-mouse--handle-mouse-movement ()
   "Handle mouse motion that was just generated for XTerm mouse."
-  (display--update-for-mouse-movement (terminal-parameter nil 'xterm-mouse-x)
-                                      (terminal-parameter nil 'xterm-mouse-y)))
+  (when-let* ((frame (terminal-parameter nil 'xterm-mouse-frame)))
+    (display--update-for-mouse-movement
+     frame
+     (terminal-parameter nil 'xterm-mouse-x)
+     (terminal-parameter nil 'xterm-mouse-y))))
 
 ;; These two variables have been converted to terminal parameters.
 ;;
@@ -150,10 +153,11 @@ https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)."
 
 (defun xterm-mouse-position-function (pos)
   "Bound to `mouse-position-function' in XTerm mouse mode."
-  (when (terminal-parameter nil 'xterm-mouse-x)
-    (setcdr pos (cons (terminal-parameter nil 'xterm-mouse-x)
-		      (terminal-parameter nil 'xterm-mouse-y))))
-  pos)
+  (if (terminal-parameter nil 'xterm-mouse-x)
+      (cons (terminal-parameter nil 'xterm-mouse-frame)
+            (cons (terminal-parameter nil 'xterm-mouse-x)
+		  (terminal-parameter nil 'xterm-mouse-y)))
+    pos))
 
 (define-obsolete-function-alias 'xterm-mouse-truncate-wrap 'truncate "27.1")
 
@@ -293,20 +297,50 @@ which is the \"1006\" extension implemented in Xterm >= 277."
 			    (progn (setq xt-mouse-epoch (float-time)) 0)
 			  (car (time-convert (time-since xt-mouse-epoch)
 					     1000))))
-             (w (window-at x y))
-             (ltrb (window-edges w))
-             (left (nth 0 ltrb))
-             (top (nth 1 ltrb))
-             (posn (if w
-		       (posn-at-x-y (- x left) (- y top) w t)
-		     (append (list nil (if (and tab-bar-mode
-                                                (or (not menu-bar-mode)
-                                                    ;; The tab-bar is on the
-                                                    ;; second row below menu-bar
-                                                    (eq y 1)))
-                                           'tab-bar
-                                         'menu-bar))
-                             (nthcdr 2 (posn-at-x-y x y (selected-frame))))))
+             ;; FIXME: The test for running in batch mode is here solely
+             ;; for the sake of xt-mouse-tests where the only frame is
+             ;; the initial frame.  The same goes for the computation of
+             ;; x and y.
+             (frame-and-xy (unless noninteractive (tty-frame-at x y)))
+             (frame (nth 0 frame-and-xy))
+             (x (or (nth 1 frame-and-xy) x))
+             (y (or (nth 2 frame-and-xy) y))
+             (w (window-at x y frame))
+             (posn
+	      (if w
+		  (let* ((ltrb (window-edges w))
+			 (left (nth 0 ltrb))
+			 (top (nth 1 ltrb)))
+		    (posn-at-x-y (- x left) (- y top) w t))
+		(let* ((frame-has-menu-bar
+			(not (zerop (frame-parameter frame 'menu-bar-lines))))
+		       (frame-has-tab-bar
+			(not (zerop (frame-parameter frame 'tab-bar-lines))))
+		       (item
+			(cond
+                         ((and frame-has-menu-bar (eq y 0))
+			  'menu-bar)
+			 ((and frame-has-tab-bar
+			       (or (and frame-has-menu-bar
+					(eq y 1))
+				   (eq y 0)))
+                          'tab-bar)
+			 ((eq x -1)
+			  (cond
+			   ((eq y -1) 'top-left-corner)
+			   ((eq y (frame-height frame)) 'bottom-left-corner)
+			   (t 'left-edge)))
+			 ((eq x (frame-width frame))
+			  (cond
+			   ((eq y -1) 'top-right-corner)
+			   ((eq y (frame-height frame)) 'bottom-right-corner)
+			   (t 'right-edge)))
+			 ((eq y -1) 'top-edge)
+			 (t 'bottom-edge))))
+		  (append (list (unless (memq item '(menu-bar tab-bar))
+				  frame)
+				item)
+			  (nthcdr 2 (posn-at-x-y x y (selected-frame)))))))
              (event (list type posn)))
         (setcar (nthcdr 3 posn) timestamp)
 
@@ -345,19 +379,29 @@ which is the \"1006\" extension implemented in Xterm >= 277."
 
         (set-terminal-parameter nil 'xterm-mouse-x x)
         (set-terminal-parameter nil 'xterm-mouse-y y)
+        (set-terminal-parameter nil 'xterm-mouse-frame frame)
         (setq last-input-event event)))))
+
+;;;###autoload
+(defvar xterm-mouse-mode-called nil
+  "If `xterm-mouse-mode' has been called already.
+This can be used to detect if xterm-mouse-mode was explicitly set.")
 
 ;;;###autoload
 (define-minor-mode xterm-mouse-mode
   "Toggle XTerm mouse mode.
 
-Turn it on to use Emacs mouse commands, and off to use xterm mouse commands.
-This works in terminal emulators compatible with xterm.  It only
-works for simple uses of the mouse.  Basically, only non-modified
-single clicks are supported.  When turned on, the normal xterm
-mouse functionality for such clicks is still available by holding
-down the SHIFT key while pressing the mouse button."
+Turn it on to use Emacs mouse commands, and off to use xterm mouse
+commands.  This works in terminal emulators compatible with xterm.  When
+turned on, the normal xterm mouse functionality for such clicks is still
+available by holding down the SHIFT key while pressing the mouse button.
+
+On text terminals that Emacs knows are compatible with the mouse as well
+as other critical editing functionality, this is automatically turned on
+at startup.  See Info node `(elisp)Terminal-Specific' and `xterm--init'."
   :global t :group 'mouse
+  :version "31.1"
+  (setq xterm-mouse-mode-called t)
   (funcall (if xterm-mouse-mode 'add-hook 'remove-hook)
            'terminal-init-xterm-hook
            'turn-on-xterm-mouse-tracking-on-terminal)
@@ -465,13 +509,17 @@ enable, ?l to disable)."
   "Enable xterm mouse tracking on TERMINAL."
   (when (and xterm-mouse-mode (eq t (terminal-live-p terminal))
 	     ;; Avoid the initial terminal which is not a termcap device.
-	     ;; FIXME: is there more elegant way to detect the initial
-             ;; terminal?
-	     (not (string= (terminal-name terminal) "initial_terminal")))
+             (not (frame-initial-p terminal)))
     (unless (terminal-parameter terminal 'xterm-mouse-mode)
       ;; Simulate selecting a terminal by selecting one of its frames
       ;; so that we can set the terminal-local `input-decode-map'.
-      (with-selected-frame (car (frames-on-display-list terminal))
+      ;; Use the tty-top-frame to avoid accidentally making an invisible
+      ;; child frame visible by selecting it (bug#79960).
+      ;; The test for batch mode is here because xt-mouse-tests run in
+      ;; batch mode, and there is no top-frame in that case.
+      (with-selected-frame (if noninteractive
+                               (car (frame-list))
+                             (tty-top-frame terminal))
         (define-key input-decode-map "\e[M" 'xterm-mouse-translate)
         (define-key input-decode-map "\e[<" 'xterm-mouse-translate-extended))
       (let ((enable (xterm-mouse-tracking-enable-sequence))
@@ -479,9 +527,10 @@ enable, ?l to disable)."
         (condition-case err
             (send-string-to-terminal enable terminal)
           ;; FIXME: This should use a dedicated error signal.
-          (error (if (equal (cadr err) "Terminal is currently suspended")
+          (error (if (equal (error-slot-value err 1)
+                            "Terminal is currently suspended")
                      nil ; The sequence will be sent upon resume.
-                   (signal (car err) (cdr err)))))
+                   (signal err))))
         (push enable (terminal-parameter nil 'tty-mode-set-strings))
         (push disable (terminal-parameter nil 'tty-mode-reset-strings))
         (set-terminal-parameter terminal 'xterm-mouse-mode t)
@@ -503,9 +552,10 @@ enable, ?l to disable)."
         (send-string-to-terminal xterm-mouse-tracking-disable-sequence
                                  terminal)
       ;; FIXME: This should use a dedicated error signal.
-      (error (if (equal (cadr err) "Terminal is currently suspended")
+      (error (if (equal (error-slot-value err 1)
+                        "Terminal is currently suspended")
                  nil
-               (signal (car err) (cdr err)))))
+               (signal err))))
     (setf (terminal-parameter nil 'tty-mode-set-strings)
           (remq xterm-mouse-tracking-enable-sequence
                 (terminal-parameter nil 'tty-mode-set-strings)))

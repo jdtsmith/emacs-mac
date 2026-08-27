@@ -1,6 +1,6 @@
 ;;; quail.el --- provides simple input method for multilingual text  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-1998, 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997-1998, 2000-2026 Free Software Foundation, Inc.
 ;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
 ;;   2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -53,7 +53,6 @@
 ;;; Code:
 
 (require 'help-mode)
-(eval-when-compile (require 'cl-lib))
 
 (defgroup quail nil
   "Quail: multilingual input method."
@@ -772,8 +771,7 @@ you type is correctly handled."
 
 (defun quail-keyseq-translate (keyseq)
   (apply 'string
-         (mapcar (lambda (x) (quail-keyboard-translate x))
-		 keyseq)))
+         (mapcar #'quail-keyboard-translate keyseq)))
 
 (defun quail-insert-kbd-layout (kbd-layout)
   "Insert the visual keyboard layout table according to KBD-LAYOUT.
@@ -1336,9 +1334,13 @@ If STR has `advice' text property, append the following special event:
     (quail-setup-overlays (quail-conversion-keymap))
     (with-silent-modifications
       (unwind-protect
-	  (let ((input-string (if (quail-conversion-keymap)
+	  (let* (;; `with-silent-modifications' inhibits the modification
+                 ;; hooks, but that's a part of `with-silent-modifications'
+                 ;; we don't actually want here (bug#70541).
+		 (inhibit-modification-hooks nil)
+		 (input-string (if (quail-conversion-keymap)
 				  (quail-start-conversion key)
-				(quail-start-translation key))))
+				  (quail-start-translation key))))
 	    (setq quail-guidance-str "")
 	    (when (and (stringp input-string)
 		       (> (length input-string) 0))
@@ -1873,10 +1875,9 @@ sequence counting from the head."
 
 (defsubst quail-point-in-conversion-region ()
   "Return non-nil value if the point is in conversion region of Quail mode."
-  (let (start pos)
-    (and (setq start (overlay-start quail-conv-overlay))
-	 (>= (setq pos (point)) start)
-	 (<= pos (overlay-end quail-conv-overlay)))))
+  (let ((start (overlay-start quail-conv-overlay)))
+    (and start
+	 (<= start (point) (overlay-end quail-conv-overlay)))))
 
 (defun quail-conversion-backward-char ()
   (interactive)
@@ -2133,19 +2134,21 @@ minibuffer and the selected frame has no other windows)."
     (let ((guidance (quail-guidance)))
       (if (listp guidance)
 	  ;; We must replace the typed key with the specified PROMPT-KEY.
-	  (dotimes (i (length str))
-	    (let ((prompt-key (cdr (assoc (aref str i) guidance))))
-	      (if prompt-key
-		  (aset str i (aref prompt-key 0)))))))
+          (setq str (apply #'string
+                           (mapcar
+                            (lambda (c)
+	                      (let ((prompt-key (assq c guidance)))
+	                        (if prompt-key
+		                    (aref (cdr prompt-key) 0)
+                                  c)))
+                            str)))))
 
       ;; Show followable keys.
       (if (and (> (length quail-current-key) 0) (cdr map))
 	  (setq str
 		(format "%s[%s]"
 			str
-                        (concat (sort (mapcar (lambda (x) (car x))
-					      (cdr map))
-				      '<)))))
+                        (concat (sort (mapcar #'car (cdr map)) #'<)))))
       ;; Show list of translations.
       (if (and quail-current-translations
 	       (not (quail-deterministic)))
@@ -2421,10 +2424,10 @@ should be made by `quail-build-decode-map' (which see)."
                    (let ((last-col-elt (or (nth (1- (* (1+ col) newrows))
                                                 single-list)
                                            (car (last single-list)))))
-                     (cl-incf width (+ (max 3 (length (car last-col-elt)))
+                     (incf width (+ (max 3 (length (car last-col-elt)))
                                        1 single-trans-width 1))))
                  (< width window-width))
-          (cl-incf cols))
+          (incf cols))
         (setq rows (/ (+ len cols -1) cols)) ;Round up.
         (let ((key-width (max 3 (length (car (nth (1- rows) single-list))))))
           (insert "key")
@@ -2493,11 +2496,11 @@ should be made by `quail-build-decode-map' (which see)."
                    (help-setup-xref `(quail-keyboard-layout-button ,layout)
                                     nil)
                    (quail-show-keyboard-layout layout))
-  'help-echo (purecopy "mouse-2, RET: show keyboard layout"))
+  'help-echo "mouse-2, RET: show keyboard layout")
 
 (define-button-type 'quail-keyboard-customize-button
   :supertype 'help-customize-variable
-  'help-echo (purecopy "mouse-2, RET: customize keyboard layout"))
+  'help-echo "mouse-2, RET: customize keyboard layout")
 
 (defun quail-help (&optional package)
   "Show brief description of the current Quail package.
@@ -2616,6 +2619,7 @@ KEY BINDINGS FOR TRANSLATION
 KEY BINDINGS FOR CONVERSION
 ---------------------------\n"))
       (setq quail-current-package nil)
+      (set-buffer-modified-p nil)
       ;; Resize the help window again, now that it has all its contents.
       (save-selected-window
  	(select-window (get-buffer-window (current-buffer) t))

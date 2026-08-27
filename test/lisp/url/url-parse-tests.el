@@ -1,6 +1,6 @@
 ;;; url-parse-tests.el --- Test suite for URI/URL parsing.  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2012-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
 ;; Author: Alain Schneble <a.s@realize.ch>
 
@@ -165,6 +165,41 @@
   (should (equal (url-generic-parse-url "http://банки.рф/фыва/")
                  (url-parse-make-urlobj "http" nil nil "банки.рф" nil
                                         "/фыва/" nil nil t))))
+
+(ert-deftest url-generic-parse-url/ms-windows-file-uri-handling ()
+  "Make an exception if a file:// URI  \"looks like\" a Windows file."
+  (should (equal (url-generic-parse-url "file:///c:/windows-path")
+                 (url-parse-make-urlobj "file" nil nil "" nil
+                                        "c:/windows-path" nil nil t)))
+  (should (equal (url-filename (url-generic-parse-url
+                                "file:///c:/directory/file.txt"))
+                 "c:/directory/file.txt"))
+  (should (equal (url-recreate-url
+                  (url-parse-make-urlobj "file" nil nil "" nil
+                                         "c:/directory/file.txt" nil nil t))
+                 "file:///c:/directory/file.txt"))
+  ;; https://www.rfc-editor.org/rfc/rfc8089.html#appendix-E.2
+  (should (equal (url-generic-parse-url "file:c:/path/to/file")
+                 (url-parse-make-urlobj "file" nil nil nil nil
+                                        "c:/path/to/file" nil nil nil)))
+  (should (equal (url-recreate-url
+                  (url-parse-make-urlobj "file" nil nil nil nil
+                                         "c:/path/to/file" nil nil nil))
+                 "file:/c:/path/to/file"))
+  ;; accept backslashes too
+  (should (equal (url-filename
+                  (url-generic-parse-url "file:///c:\\directory\\file.txt"))
+                 "c:\\directory\\file.txt"))
+  ;; paths with hostname = "localhost" should work too
+  (should (equal (url-filename
+                  (url-generic-parse-url "file://localhost/c:/path/to/file"))
+                 "c:/path/to/file"))
+  ;; empty "file" url structs have to behave proper
+  (should (equal (url-recreate-url
+                  (url-parse-make-urlobj "file" nil nil "myhost" nil
+                                         nil nil nil t))
+                 "file://myhost/")))
+
 
 (provide 'url-parse-tests)
 

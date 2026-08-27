@@ -1,13 +1,14 @@
 \input texinfo    @c -*-texinfo-*-
 @setfilename ../../info/cl.info
 @settitle Common Lisp Extensions
+@documentlanguage en
 @include docstyle.texi
 @include emacsver.texi
 
 @copying
 This file documents the GNU Emacs Common Lisp emulation package.
 
-Copyright @copyright{} 1993, 2001--2025 Free Software Foundation, Inc.
+Copyright @copyright{} 1993, 2001--2026 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -60,7 +61,7 @@ modify this GNU manual.''
 * Predicates::           Type predicates and equality predicates.
 * Control Structure::    Assignment, conditionals, blocks, looping.
 * Macros::               Destructuring, compiler macros.
-* Declarations::         @code{cl-proclaim}, @code{cl-declare}, etc.
+* Declarations::         @code{cl-proclaim}, @code{cl-declaim}, etc.
 * Symbols::              Property lists, creating symbols.
 * Numbers::              Predicates, functions, random numbers.
 * Sequences::            Mapping, functions, searching, sorting.
@@ -168,9 +169,6 @@ and information about the package.  This file is relatively compact.
 
 @item cl-extra.el
 This file contains the larger, more complex or unusual functions.
-It is kept separate so that packages which only want to use Common
-Lisp fundamentals like the @code{cl-incf} function won't need to pay
-the overhead of loading the more advanced functions.
 
 @item cl-seq.el
 This file contains most of the advanced functions for operating
@@ -197,8 +195,8 @@ this package prior to Emacs 24.3.  Nowadays, it is replaced by
 but use different function names (in fact, @file{cl.el} mainly just
 defines aliases to the @file{cl-lib.el} definitions).  Where
 @file{cl-lib.el} defines a function called, for example,
-@code{cl-incf}, @file{cl.el} uses the same name but without the
-@samp{cl-} prefix, e.g., @code{incf} in this example.  There are a few
+@code{cl-first}, @file{cl.el} uses the same name but without the
+@samp{cl-} prefix, e.g., @code{first} in this example.  There are a few
 exceptions to this.  First, functions such as @code{cl-defun} where
 the unprefixed version was already used for a standard Emacs Lisp
 function.  In such cases, the @file{cl.el} version adds a @samp{*}
@@ -232,32 +230,6 @@ by @code{cl--}.  Here is a complete list of functions prefixed by
 cl-callf           cl-callf2          cl-defsubst
 cl-letf            cl-letf*
 @end example
-
-@c This is not uninteresting I suppose, but is of zero practical relevance
-@c to the user, and seems like a hostage to changing implementation details.
-The following simple functions and macros are defined in @file{cl-lib.el};
-they do not cause other components like @file{cl-extra} to be loaded.
-
-@example
-cl-evenp           cl-oddp            cl-minusp
-cl-plusp           cl-endp            cl-subst
-cl-copy-list       cl-list*           cl-ldiff
-cl-rest            cl-decf [1]        cl-incf [1]
-cl-acons           cl-adjoin [2]      cl-pairlis
-cl-pushnew [1,2]   cl-declaim         cl-proclaim
-cl-caaar@dots{}cl-cddddr                  cl-first@dots{}cl-tenth
-cl-mapcar [3]
-@end example
-
-@noindent
-[1] Only when @var{place} is a plain variable name.
-
-@noindent
-[2] Only if @code{:test} is @code{eq}, @code{equal}, or unspecified,
-and @code{:key} is not used.
-
-@noindent
-[3] Only for one sequence argument or two list arguments.
 
 @node Printing
 @chapter Printing
@@ -825,6 +797,7 @@ facts are true or false.
 
 @menu
 * Type Predicates::      @code{cl-typep}, @code{cl-deftype}, and @code{cl-coerce}.
+* Derived Types::        @code{cl-deftype}.
 * Equality Predicates::  @code{cl-equalp}.
 @end menu
 
@@ -917,8 +890,12 @@ floats.  In all other circumstances, @code{cl-coerce} signals an
 error.
 @end defun
 
-@defmac cl-deftype name arglist forms@dots{}
-This macro defines a new type called @var{name}.  It is similar
+@node Derived Types
+@section Derived Types
+
+@defmac cl-deftype name arglist [docstring] [decls] forms@dots{}
+This macro defines a new type called @var{name}.
+Types defined this way are called @dfn{derived types}.  It is similar
 to @code{defmacro} in many ways; when @var{name} is encountered
 as a type name, the body @var{forms} are evaluated and should
 return a type specifier that is equivalent to the type.  The
@@ -951,6 +928,26 @@ The @code{cl-typecase} (@pxref{Conditionals}) and @code{cl-check-type}
 (@pxref{Assertions}) macros also use type names.  The @code{cl-map},
 @code{cl-concatenate}, and @code{cl-merge} functions take type-name
 arguments to specify the type of sequence to return.  @xref{Sequences}.
+
+Contrary to Common Lisp, CL-Lib supports the use of derived types
+as method specializers.  This comes with a significant caveat: derived
+types are much too flexible for Emacs to be able to automatically find
+out which type is a subtype of another, so the ordering of
+methods is not well-defined when several methods are applicable for
+a given argument value and the specializer of one or more of those
+methods is a derived type.  To make the order more well-defined, a derived type
+definition can explicitly state that it is a subtype of others using the
+@var{decls} argument:
+
+@example
+(cl-deftype unsigned-byte (&optional bits)
+  (list 'integer 0 (if (eq bits '*) bits (1- (ash 1 bits)))))
+
+(cl-deftype unsigned-8bits ()
+  "Unsigned 8-bits integer."
+  (declare (parents unsigned-byte))
+  '(unsigned-byte 8))
+@end example
 
 @node Equality Predicates
 @section Equality Predicates
@@ -1054,7 +1051,7 @@ generalized variables.
 
 @menu
 * Setf Extensions::    Additional @code{setf} places.
-* Modify Macros::      @code{cl-incf}, @code{cl-rotatef}, @code{cl-letf}, @code{cl-callf}, etc.
+* Modify Macros::      @code{cl-rotatef}, @code{cl-letf}, @code{cl-callf}, etc.
 @end menu
 
 @node Setf Extensions
@@ -1095,38 +1092,6 @@ A macro call, in which case the macro is expanded and @code{setf}
 is applied to the resulting form.
 @end itemize
 
-@c FIXME should this be in lispref?  It seems self-evident.
-@c Contrast with the cl-incf example later on.
-@c Here it really only serves as a contrast to wrong-order.
-The @code{setf} macro takes care to evaluate all subforms in
-the proper left-to-right order; for example,
-
-@example
-(setf (aref vec (cl-incf i)) i)
-@end example
-
-@noindent
-looks like it will evaluate @code{(cl-incf i)} exactly once, before the
-following access to @code{i}; the @code{setf} expander will insert
-temporary variables as necessary to ensure that it does in fact work
-this way no matter what setf-method is defined for @code{aref}.
-(In this case, @code{aset} would be used and no such steps would
-be necessary since @code{aset} takes its arguments in a convenient
-order.)
-
-However, if the @var{place} form is a macro which explicitly
-evaluates its arguments in an unusual order, this unusual order
-will be preserved.  Adapting an example from Steele, given
-
-@example
-(defmacro wrong-order (x y) (list 'aref y x))
-@end example
-
-@noindent
-the form @code{(setf (wrong-order @var{a} @var{b}) 17)} will
-evaluate @var{b} first, then @var{a}, just as in an actual call
-to @code{wrong-order}.
-
 @node Modify Macros
 @subsection Modify Macros
 
@@ -1141,52 +1106,6 @@ When several @var{place}s and @var{form}s are involved, the
 assignments take place in parallel rather than sequentially.
 Specifically, all subforms are evaluated from left to right, then
 all the assignments are done (in an undefined order).
-@end defmac
-
-@defmac cl-incf place &optional x
-This macro increments the number stored in @var{place} by one, or
-by @var{x} if specified.  The incremented value is returned.  For
-example, @code{(cl-incf i)} is equivalent to @code{(setq i (1+ i))}, and
-@code{(cl-incf (car x) 2)} is equivalent to @code{(setcar x (+ (car x) 2))}.
-
-As with @code{setf}, care is taken to preserve the ``apparent'' order
-of evaluation.  For example,
-
-@example
-(cl-incf (aref vec (cl-incf i)))
-@end example
-
-@noindent
-appears to increment @code{i} once, then increment the element of
-@code{vec} addressed by @code{i}; this is indeed exactly what it
-does, which means the above form is @emph{not} equivalent to the
-``obvious'' expansion,
-
-@example
-(setf (aref vec (cl-incf i))
-      (1+ (aref vec (cl-incf i))))   ; wrong!
-@end example
-
-@noindent
-but rather to something more like
-
-@example
-(let ((temp (cl-incf i)))
-  (setf (aref vec temp) (1+ (aref vec temp))))
-@end example
-
-@noindent
-Again, all of this is taken care of automatically by @code{cl-incf} and
-the other generalized-variable macros.
-
-As a more Emacs-specific example of @code{cl-incf}, the expression
-@code{(cl-incf (point) @var{n})} is essentially equivalent to
-@code{(forward-char @var{n})}.
-@end defmac
-
-@defmac cl-decf place &optional x
-This macro decrements the number stored in @var{place} by one, or
-by @var{x} if specified.
 @end defmac
 
 @defmac cl-pushnew x place @t{&key :test :test-not :key}
@@ -1283,26 +1202,13 @@ However, a @var{binding} specifier may be a one-element list
 @var{place})}.  In other words, the @var{place} is not disturbed
 on entry to the body, and the only effect of the @code{cl-letf} is
 to restore the original value of @var{place} afterwards.
-@c I suspect this may no longer be true; either way it's
-@c implementation detail and so not essential to document.
-@ignore
-(The redundant access-and-store suggested by the @code{(@var{place}
-@var{place})} example does not actually occur.)
-@end ignore
 
 Note that in this case, and in fact almost every case, @var{place}
 must have a well-defined value outside the @code{cl-letf} body.
 There is essentially only one exception to this, which is @var{place}
 a plain variable with a specified @var{value} (such as @code{(a 17)}
 in the above example).
-@c See https://debbugs.gnu.org/12758
-@c Some or all of this was true for cl.el, but not for cl-lib.el.
-@ignore
-The only exceptions are plain variables and calls to
-@code{symbol-value} and @code{symbol-function}.  If the symbol is not
-bound on entry, it is simply made unbound by @code{makunbound} or
-@code{fmakunbound} on exit.
-@end ignore
+
 @end defmac
 
 @defmac cl-letf* (bindings@dots{}) forms@dots{}
@@ -1314,8 +1220,8 @@ It does the bindings in sequential rather than parallel order.
 This is the ``generic'' modify macro.  It calls @var{function},
 which should be an unquoted function name, macro name, or lambda.
 It passes @var{place} and @var{args} as arguments, and assigns the
-result back to @var{place}.  For example, @code{(cl-incf @var{place}
-@var{n})} is the same as @code{(cl-callf + @var{place} @var{n})}.
+result back to @var{place}.  For example, @code{(incf @var{place}
+@var{n})} could be implemented as @code{(cl-callf + @var{place} @var{n})}.
 Some more examples:
 
 @example
@@ -1335,15 +1241,9 @@ equivalent to @code{(cl-callf2 cons @var{x} @var{place})}.
 @end defmac
 
 The @code{cl-callf} and @code{cl-callf2} macros serve as building
-blocks for other macros like @code{cl-incf}, and @code{cl-pushnew}.
+blocks for other macros like @code{cl-pushnew}.
 The @code{cl-letf} and @code{cl-letf*} macros are used in the processing
 of symbol macros; @pxref{Macro Bindings}.
-
-@defmac with-memoization @var{place} @var{code}@dots{}
-This macro provides a simple way to do memoization.  @var{code} is
-evaluated and then stashed in @var{place}.  If @var{place}'s value is
-non-@code{nil}, return that value instead of evaluating @var{code}.
-@end defmac
 
 
 @node Variable Bindings
@@ -1472,7 +1372,7 @@ replaced by @var{expansion}.
 @example
 (setq bar '(5 . 9))
 (cl-symbol-macrolet ((foo (car bar)))
-  (cl-incf foo))
+  (incf foo))
 bar
      @result{} (6 . 9)
 @end example
@@ -1490,14 +1390,14 @@ expansion of another macro:
 
 @example
 (cl-defmacro my-dolist ((x list) &rest body)
-  (let ((var (cl-gensym)))
+  (cl-with-gensyms (var)
     (list 'cl-loop 'for var 'on list 'do
           (cl-list* 'cl-symbol-macrolet
                     (list (list x (list 'car var)))
                     body))))
 
 (setq mylist '(1 2 3 4))
-(my-dolist (x mylist) (cl-incf x))
+(my-dolist (x mylist) (incf x))
 mylist
      @result{} (2 3 4 5)
 @end example
@@ -1511,14 +1411,14 @@ shown here expands to
 @example
 (cl-loop for G1234 on mylist do
       (cl-symbol-macrolet ((x (car G1234)))
-        (cl-incf x)))
+        (incf x)))
 @end example
 
 @noindent
 which in turn expands to
 
 @example
-(cl-loop for G1234 on mylist do (cl-incf (car G1234)))
+(cl-loop for G1234 on mylist do (incf (car G1234)))
 @end example
 
 @xref{Loop Facility}, for a description of the @code{cl-loop} macro.
@@ -2070,7 +1970,7 @@ a @code{setf}-able ``reference'' onto the elements of the list
 rather than just a temporary variable.  For example,
 
 @example
-(cl-loop for x in-ref my-list do (cl-incf x))
+(cl-loop for x in-ref my-list do (incf x))
 @end example
 
 @noindent
@@ -2476,7 +2376,7 @@ by the name @code{it} in the ``then'' part.  For example:
 (setq funny-numbers '(6 13 -1))
      @result{} (6 13 -1)
 (cl-loop for x below 10
-         if (cl-oddp x)
+         if (oddp x)
            collect x into odds
            and if (memq x funny-numbers) return (cdr it) end
          else
@@ -2772,8 +2672,7 @@ mechanism that allows you to give the compiler special hints
 about the types of data that will be stored in particular variables,
 and about the ways those variables and functions will be used.  This
 package defines versions of all the Common Lisp declaration forms:
-@code{declare}, @code{locally}, @code{proclaim}, @code{declaim},
-and @code{the}.
+@code{proclaim}, @code{declaim}, and @code{the}.
 
 Most of the Common Lisp declarations are not currently useful in Emacs
 Lisp.  For example, the byte-code system provides little
@@ -2803,19 +2702,6 @@ compiler treats the rest of the file that contains the @code{cl-declaim}
 form.)
 @end defmac
 
-@defmac cl-declare decl-specs@dots{}
-This macro is used to make declarations within functions and other
-code.  Common Lisp allows declarations in various locations, generally
-at the beginning of any of the many ``implicit @code{progn}s''
-throughout Lisp syntax, such as function bodies, @code{let} bodies,
-etc.  Currently the only declaration understood by @code{cl-declare}
-is @code{special}.
-@end defmac
-
-@defmac cl-locally declarations@dots{} forms@dots{}
-In this package, @code{cl-locally} is no different from @code{progn}.
-@end defmac
-
 @defmac cl-the type form
 @code{cl-the} returns the value of @code{form}, first checking (if
 optimization settings permit) that it is of type @code{type}.  Future
@@ -2831,8 +2717,8 @@ For now, Emacs Lisp will treat the above code as exactly equivalent
 to @code{(mapcar 'car foo)}.
 @end defmac
 
-Each @var{decl-spec} in a @code{cl-proclaim}, @code{cl-declaim}, or
-@code{cl-declare} should be a list beginning with a symbol that says
+Each @var{decl-spec} in a @code{cl-proclaim} or @code{cl-declaim}
+should be a list beginning with a symbol that says
 what kind of declaration it is.  This package currently understands
 @code{special}, @code{inline}, @code{notinline}, @code{optimize},
 and @code{warn} declarations.  (The @code{warn} declaration is an
@@ -2849,9 +2735,6 @@ variables are intentionally being referred to without being
 bound in the body of the function.  The compiler normally emits
 warnings for such references, since they could be typographical
 errors for references to local variables.
-
-The declaration @code{(cl-declare (special @var{var1} @var{var2}))} is
-equivalent to @code{(defvar @var{var1}) (defvar @var{var2})}.
 
 In top-level contexts, it is generally better to write
 @code{(defvar @var{var})} than @code{(cl-declaim (special @var{var}))},
@@ -2883,12 +2766,6 @@ containing source file is done.  It is correct to use it to
 request that a function you have defined should be inlined,
 but it is impolite to use it to request inlining of an external
 function.
-
-In Common Lisp, it is possible to use @code{(declare (inline @dots{}))}
-before a particular call to a function to cause just that call to
-be inlined; the current byte compilers provide no way to implement
-this, so @code{(cl-declare (inline @dots{}))} is currently ignored by
-this package.
 
 @item notinline
 The @code{notinline} declaration lists functions which should
@@ -2924,12 +2801,7 @@ Emacs itself, Emacs will not crash with a segmentation fault
 just because of an error in a fully-optimized Lisp program.
 
 The @code{optimize} declaration is normally used in a top-level
-@code{cl-proclaim} or @code{cl-declaim} in a file; Common Lisp allows
-it to be used with @code{declare} to set the level of optimization
-locally for a given form, but this will not work correctly with the
-current byte-compiler.  (The @code{cl-declare}
-will set the new optimization level, but that level will not
-automatically be unset after the enclosing form is done.)
+@code{cl-proclaim} or @code{cl-declaim} in a file.
 
 @item warn
 This declaration controls what sorts of warnings are generated
@@ -2952,7 +2824,7 @@ missing from Emacs Lisp.
 
 @menu
 * Property Lists::       @code{cl-get}, @code{cl-remprop}, @code{cl-getf}, @code{cl-remf}.
-* Creating Symbols::     @code{cl-gensym}, @code{cl-gentemp}.
+* Creating Symbols::     @code{cl-gentemp}.
 @end menu
 
 @node Property Lists
@@ -3015,7 +2887,7 @@ The @code{get} and @code{cl-get} functions are also @code{setf}-able.
 The fact that @code{default} is ignored can sometimes be useful:
 
 @example
-(cl-incf (cl-get 'foo 'usage-count 0))
+(incf (cl-get 'foo 'usage-count 0))
 @end example
 
 Here, symbol @code{foo}'s @code{usage-count} property is incremented
@@ -3040,30 +2912,10 @@ out the property and value cells.
 @section Creating Symbols
 @cindex gensym
 
-@noindent
-These functions create unique symbols, typically for use as
-temporary variables.
-
-@defun cl-gensym &optional x
-This function creates a new, uninterned symbol (using @code{make-symbol})
-with a unique name.  (The name of an uninterned symbol is relevant
-only if the symbol is printed.)  By default, the name is generated
-from an increasing sequence of numbers, @samp{G1000}, @samp{G1001},
-@samp{G1002}, etc.  If the optional argument @var{x} is a string, that
-string is used as a prefix instead of @samp{G}.  Uninterned symbols
-are used in macro expansions for temporary variables, to ensure that
-their names will not conflict with ``real'' variables in the user's
-code.
-
-(Internally, the variable @code{cl--gensym-counter} holds the counter
-used to generate names.  It is initialized with zero and incremented
-after each use.)
-@end defun
-
 @defun cl-gentemp &optional x
-This function is like @code{cl-gensym}, except that it produces a new
-@emph{interned} symbol.  If the symbol that is generated already
-exists, the function keeps incrementing the counter and trying
+This function is like the built-in @code{gensym}, except that it
+produces a new @emph{interned} symbol.  If the symbol that is generated
+already exists, the function keeps incrementing the counter and trying
 again until a new symbol is generated.
 @end defun
 
@@ -3081,7 +2933,7 @@ This section defines a few simple Common Lisp operations on numbers
 that were left out of Emacs Lisp.
 
 @menu
-* Predicates on Numbers::       @code{cl-plusp}, @code{cl-oddp}, etc.
+* Predicates on Numbers::       @code{cl-digit-char-p}, etc.
 * Numerical Functions::         @code{cl-floor}, @code{cl-ceiling}, etc.
 * Random Numbers::              @code{cl-random}, @code{cl-make-random-state}.
 * Implementation Parameters::   @code{cl-most-positive-float}, etc.
@@ -3093,26 +2945,6 @@ that were left out of Emacs Lisp.
 @noindent
 These functions return @code{t} if the specified condition is
 true of the numerical argument, or @code{nil} otherwise.
-
-@defun cl-plusp number
-This predicate tests whether @var{number} is positive.  It is an
-error if the argument is not a number.
-@end defun
-
-@defun cl-minusp number
-This predicate tests whether @var{number} is negative.  It is an
-error if the argument is not a number.
-@end defun
-
-@defun cl-oddp integer
-This predicate tests whether @var{integer} is odd.  It is an
-error if the argument is not an integer.
-@end defun
-
-@defun cl-evenp integer
-This predicate tests whether @var{integer} is even.  It is an
-error if the argument is not an integer.
-@end defun
 
 @defun cl-digit-char-p char radix
 Test if @var{char} is a digit in the specified @var{radix} (default is
@@ -3987,10 +3819,11 @@ comparisons; it is equivalent to @code{(cl-member @var{item} @var{list}
 :test 'equal)}.
 @end defun
 
-@findex cl-member-if
 @findex cl-member-if-not
-The @code{cl-member-if} and @code{cl-member-if-not} functions
-analogously search for elements that satisfy a given predicate.
+The @code{cl-member-if-not} function analogously searches for elements
+that don't satisfy a given predicate.  This is deprecated in the Common
+Lisp standard; prefer the core function @code{member-if} with a negated
+predicate function.
 
 @defun cl-tailp sublist list
 This function returns @code{t} if @var{sublist} is a sublist of
@@ -4116,45 +3949,74 @@ This is equivalent to @code{(nconc (cl-mapcar 'cons @var{keys} @var{values})
 The Common Lisp @dfn{structure} mechanism provides a general way
 to define data types similar to C's @code{struct} types.  A
 structure is a Lisp object containing some number of @dfn{slots},
-each of which can hold any Lisp data object.  Functions are
-provided for accessing and setting the slots, creating or copying
-structure objects, and recognizing objects of a particular structure
-type.
+each of which can hold any Lisp data object.
 
-In true Common Lisp, each structure type is a new type distinct
-from all existing Lisp types.  Since the underlying Emacs Lisp
-system provides no way to create new distinct types, this package
-implements structures as vectors (or lists upon request) with a
-special ``tag'' symbol to identify them.
+You can create a new structure with the @code{cl-defstruct} macro.  This
+macro automatically generates functions to access and modify its slots,
+create or copy structure objects, and to test whether an object belongs
+to the defined structure type.
+
+In standard Common Lisp, each structure type is a new type distinct from
+all existing Lisp types.  However, because Emacs Lisp lacks native
+support for defining new distinct types, this package implements
+structures using vectors (or lists upon request) with a special ``tag''
+symbol that to identify them.
 
 @defmac cl-defstruct name slots@dots{}
 The @code{cl-defstruct} form defines a new structure type called
 @var{name}, with the specified @var{slots}.  (The @var{slots}
 may begin with a string which documents the structure type.)
 In the simplest case, @var{name} and each of the @var{slots}
-are symbols.  For example,
+are symbols.  For example, this is how you define a struct type called
+@code{person} that contains three slots:
 
-@example
+@lisp
 (cl-defstruct person first-name age sex)
-@end example
+@end lisp
 
-@noindent
-defines a struct type called @code{person} that contains three slots.
+The @code{cl-defstruct} macro creates a new constructor function, such
+as @code{make-person} in this example, which returns a new struct
+instance.  This constructor accepts keyword arguments that correspond to
+the specified slots, such as @code{:first-name}, @code{:age}, and
+@code{:sex}.  These keyword arguments specify the initial values for the
+respective slots in the new object.  If a keyword argument is not
+provided, the slot is initialized to @code{nil}.@footnote{This behavior
+differs from Common Lisp, where an uninitialized slot would be left as
+``undefined''.}
+
+In the example below, we create a new instance of the @code{person}
+struct, and store it in the variable @code{birthday-boy} for later use:
+
+@lisp
+(setq birthday-boy
+      (make-person :first-name "Peter" :age 23 :sex "male"))
+     @result{} #s(person "Peter" 23 "male")
+@end lisp
+
 Given a @code{person} object @var{p}, you can access those slots by
-calling @code{(person-first-name @var{p})}, @code{(person-age
-@var{p})}, and @code{(person-sex @var{p})}.  You can also change these
-slots by using @code{setf} on any of these place forms, for example:
+calling @code{(person-first-name @var{p})}, @code{(person-age @var{p})},
+and @code{(person-sex @var{p})}.
 
-@example
-(cl-incf (person-age birthday-boy))
-@end example
+You can also update the values of these slots using @code{setf} on any
+of these place forms, for example:
 
-You can create a new @code{person} by calling @code{make-person},
-which takes keyword arguments @code{:first-name}, @code{:age}, and
-@code{:sex} to specify the initial values of these slots in the
-new object.  (Omitting any of these arguments leaves the corresponding
-slot ``undefined'', according to the Common Lisp standard; in Emacs
-Lisp, such uninitialized slots are filled with @code{nil}.)
+@lisp
+(setf (person-first-name birthday-boy) "Old Peter")
+     @result{} "Old Peter"
+birthday-boy
+     @result{} #s(person "Old Peter" 23 "male")
+@end lisp
+
+Any macro that accepts a generalized variable can be used to modify
+struct fields (@pxref{Generalized Variables,,,elisp,GNU Emacs Lisp
+Reference Manual}).  Here is an example using @code{incf}:
+
+@lisp
+(incf (person-age birthday-boy))
+     @result{} 24
+birthday-boy
+     @result{} #s(person "Old Peter" 24 "male")
+@end lisp
 
 Given a @code{person}, @code{(copy-person @var{p})} makes a new
 object of the same type whose slots are @code{eq} to those of @var{p}.
@@ -4224,6 +4086,55 @@ A documentation string describing the slot.
 @end table
 
 Other slot options are currently ignored.
+
+@defmac cl-with-accessors name bindings body@dots{}
+You can use @code{cl-with-accessors} to lexically define symbols as
+expressions calling the given accessor functions on a single instance of
+a structure or class defined by @code{cl-defstruct} or @code{defclass}
+(@pxref{Building Classes,,,eieio,EIEIO}).  This can simplify code that
+repeatedly accesses slots.  With it, you can use @code{setf} and
+@code{setq} on the symbols like normal variables, modifying the values
+in the structure.  Unlike the macro @code{with-slots} (@pxref{Accessing
+Slots,,,eieio,EIEIO}), because the symbol expands to a function call,
+@code{cl-with-accessors} can be used with any generalized variable that
+can take a single argument, such as @code{cl-first} and @code{cl-rest}.
+@end defmac
+
+@example
+;; Using accessors with long, clear names without the macro:
+(defun internal-normalization (person)
+  "Correct the values of the slots in PERSON to be as expected."
+  ;; Check the values of the structure:
+  (when (equal (person-optional-secondary-data person) "")
+    (setf (person-optional-secondary-data person) nil))
+  (when (null (person-access-settings person))
+    (setf (person-access-settings person) 'default))
+  (when (< (long-accessor-name-that-can-become-unreadable-when-repeated
+            person)
+           9)
+    (cl-incf (long-accessor-name-that-can-become-unreadable-when-repeated
+              person)
+             100))
+  ;; And so on before returning the structure:
+  person)
+
+;; Using accessors with long, clear names with the macro:
+(defun internal-normalization (person)
+  "Correct the values of the slots in PERSON to be as expected."
+  (cl-with-accessors ((secondary-data person-optional-secondary-data)
+                      (access-settings person-access-settings)
+                      (short-name person-much-longer-accessor-name))
+      person
+    ;; Check the values of the structure:
+    (when (equal secondary-data "")
+      (setf secondary-data nil))
+    (when (null access-settings)
+      (setf access-settings 'default))
+    (when (< short-name 9)
+      (cl-incf short-name 100))
+    ;; And so on before returning the structure:
+    person))
+@end example
 
 For obscure historical reasons, structure options take a different
 form than slot options.  A structure option is either a keyword
@@ -4554,29 +4465,14 @@ user to modify @var{place}.
 Many of the advanced features of this package, such as @code{cl-defun},
 @code{cl-loop}, etc., are implemented as Lisp macros.  In
 byte-compiled code, these complex notations will be expanded into
-equivalent Lisp code which is simple and efficient.  For example,
-the form
-
-@example
-(cl-incf i n)
-@end example
-
-@noindent
-is expanded at compile-time to the Lisp form
-
-@example
-(setq i (+ i n))
-@end example
-
-@noindent
-which is the most efficient way of doing this operation
-in Lisp.  Thus, there is no performance penalty for using the more
-readable @code{cl-incf} form in your compiled code.
+equivalent Lisp code which is simple and efficient.  Thus, there is no
+performance penalty for using the more readable form in your compiled
+code.
 
 @emph{Interpreted} code, on the other hand, must expand these macros
 every time they are executed.  For this reason it is strongly
 recommended that code making heavy use of macros be compiled.
-A loop using @code{cl-incf} a hundred times will execute considerably
+A loop using @code{cl-first} a hundred times will execute considerably
 faster if compiled, and will also garbage-collect less because the
 macro expansion will not have to be generated, used, and thrown away a
 hundred times.
@@ -4602,18 +4498,18 @@ an expansion similar to:
 @example
 (cl-block nil
      (let* ((x 0)
-            (G1004 nil))
+            (g1004 nil))
        (while (< x 10)
-         (setq G1004 (cons x G1004))
+         (setq g1004 (cons x g1004))
          (setq x (+ x 1)))
-       (nreverse G1004)))
+       (nreverse g1004)))
 @end example
 
 @noindent
 will be inserted into the buffer.  (The @code{cl-block} macro is
 expanded differently in the interpreter and compiler, so
 @code{cl-prettyexpand} just leaves it alone.  The temporary
-variable @code{G1004} was created by @code{cl-gensym}.)
+variable @code{g1004} was created by @code{gensym}.)
 
 If the optional argument @var{full} is true, then @emph{all}
 macros are expanded, including @code{cl-block}, @code{cl-eval-when},
@@ -5002,7 +4898,7 @@ call to @code{make-adder} itself.
 @example
 (defun make-counter ()
   (lexical-let ((n 0))
-    (cl-function (lambda (&optional (m 1)) (cl-incf n m)))))
+    (cl-function (lambda (&optional (m 1)) (incf n m)))))
 (setq count-1 (make-counter))
 (funcall count-1 3)
      @result{} 3
@@ -5147,7 +5043,7 @@ In Emacs, these are obsolete, replaced by various features of
 
 @defmac define-modify-macro name arglist function [doc-string]
 This macro defines a ``read-modify-write'' macro similar to
-@code{cl-incf} and @code{cl-decf}.  You can replace this macro
+@code{incf} and @code{decf}.  You can replace this macro
 with @code{gv-letplace}.
 
 The macro @var{name} is defined to take a @var{place} argument
@@ -5275,8 +5171,8 @@ For example, the simple form of @code{defsetf} is shorthand for
 
 The Lisp form that is returned can access the arguments from
 @var{arglist} and @var{store-var} in an unrestricted fashion;
-macros like @code{cl-incf} that invoke this
-setf-method will insert temporary variables as needed to make
+macros that invoke this
+setf-method should insert temporary variables as needed to make
 sure the apparent order of evaluation is preserved.
 
 Another standard example:
@@ -5340,30 +5236,8 @@ temporary variables.  In the setf-methods generated by
 @code{defsetf}, the second return value is simply the list of
 arguments in the place form, and the first return value is a
 list of a corresponding number of temporary variables generated
-@c FIXME I don't think this is true anymore.
-by @code{cl-gensym}.  Macros like @code{cl-incf} that
-use this setf-method will optimize away most temporaries that
-turn out to be unnecessary, so there is little reason for the
-setf-method itself to optimize.
+by @code{gensym}.
 @end defmac
-
-@c Removed in Emacs 24.3, not possible to make a compatible replacement.
-@ignore
-@defun get-setf-method place &optional env
-This function returns the setf-method for @var{place}, by
-invoking the definition previously recorded by @code{defsetf}
-or @code{define-setf-method}.  The result is a list of five
-values as described above.  You can use this function to build
-your own @code{cl-incf}-like modify macros.
-
-The argument @var{env} specifies the ``environment'' to be
-passed on to @code{macroexpand} if @code{get-setf-method} should
-need to expand a macro in @var{place}.  It should come from
-an @code{&environment} argument to the macro or setf-method
-that called @code{get-setf-method}.
-@end defun
-@end ignore
-
 
 @node GNU Free Documentation License
 @appendix GNU Free Documentation License

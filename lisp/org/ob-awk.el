@@ -1,6 +1,6 @@
 ;;; ob-awk.el --- Babel Functions for Awk            -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2011-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric Schulte
 ;; Maintainer: Tyler Smith <tyler@plantarum.ca>
@@ -61,7 +61,6 @@
   "Execute a block of Awk code BODY with org-babel.
 PARAMS is a plist of src block parameters .
 This function is called by `org-babel-execute-src-block'."
-  (unless noninteractive (message "Executing Awk source code block"))
   (let* ((result-params (cdr (assq :result-params params)))
          (cmd-line (cdr (assq :cmd-line params)))
          (in-file (cdr (assq :in-file params)))
@@ -112,7 +111,11 @@ table."
   (let ((echo-var (lambda (v) (if (stringp v) v (format "%S" v)))))
     (cond
      ((and (listp var) (listp (car var)))
-      (orgtbl-to-generic var  (list :sep (or sep "\t") :fmt echo-var)))
+      (orgtbl-to-generic
+       var
+       (list :sep (or sep "\t")
+             :fmt echo-var
+             :with-special-rows nil)))
      ((listp var)
       (mapconcat echo-var var "\n"))
      (t (funcall echo-var var)))))

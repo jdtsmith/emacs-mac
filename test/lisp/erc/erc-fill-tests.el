@@ -1,6 +1,6 @@
 ;;; erc-fill-tests.el --- Tests for erc-fill  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2023-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 ;;
@@ -52,7 +52,6 @@
 
 (defun erc-fill-tests--wrap-populate (test)
   (let ((original-window-buffer (window-buffer (selected-window)))
-        (erc--fill-wrap-scrolltobottom-exempt-p t)
         (erc-stamp--tz t)
         (erc-fill-function 'erc-fill-wrap)
         (pre-command-hook pre-command-hook)
@@ -341,7 +340,7 @@
        (should (search-forward "done to her." nil t)))
 
      (ert-info ("Value: nil")
-       (execute-kbd-macro "\C-ca")
+       (call-interactively #'erc-fill-wrap-cycle-visual-movement)
        (should-not erc-fill--wrap-visual-keys)
        (goto-char (point-min))
        (should (search-forward "in debug mode" nil t))
@@ -351,7 +350,7 @@
        (should (eql ?\] (char-before (point)))))
 
      (ert-info ("Value: t")
-       (execute-kbd-macro "\C-ca")
+       (call-interactively #'erc-fill-wrap-cycle-visual-movement)
        (should (eq erc-fill--wrap-visual-keys t))
        (goto-char (point-min))
        (should (search-forward "that he hath" nil t))
@@ -387,7 +386,7 @@
        (should (eobp)))
 
      (ert-info ("Value: nil") ; same
-       (execute-kbd-macro "\C-ca")
+       (call-interactively #'erc-fill-wrap-cycle-visual-movement)
        (should-not erc-fill--wrap-visual-keys)
        (execute-kbd-macro "\C-y")
        (should (looking-back "its buffer\\."))
@@ -397,7 +396,7 @@
        (should (eobp)))
 
      (ert-info ("Value: non-input")
-       (execute-kbd-macro "\C-ca")
+       (call-interactively #'erc-fill-wrap-cycle-visual-movement)
        (should (eq erc-fill--wrap-visual-keys t))
        (execute-kbd-macro "\C-y")
        (execute-kbd-macro "\C-a")
@@ -422,13 +421,14 @@
        (pcase-let ((`((margin left-margin) ,displayed)
                     (get-text-property erc-insert-marker 'display)))
          (should (equal-including-properties
-                  displayed #("    ERC>" 4 8
-                              ( read-only t
-                                front-sticky t
-                                field erc-prompt
-                                erc-prompt t
-                                rear-nonsticky t
-                                font-lock-face erc-prompt-face)))))
+                  displayed #("    ERC>"
+                              0 4 (font-lock-face erc-prompt-face)
+                              4 8 ( read-only t
+                                    front-sticky t
+                                    field erc-prompt
+                                    erc-prompt t
+                                    rear-nonsticky t
+                                    font-lock-face erc-prompt-face)))))
        (erc-fill-tests--compare "stamps-left-01")
 
        (ert-info ("Shrink left margin by 1 col")
@@ -438,13 +438,14 @@
          (pcase-let ((`((margin left-margin) ,displayed)
                       (get-text-property erc-insert-marker 'display)))
            (should (equal-including-properties
-                    displayed #("   ERC>" 3 7
-                                ( read-only t
-                                  front-sticky t
-                                  field erc-prompt
-                                  erc-prompt t
-                                  rear-nonsticky t
-                                  font-lock-face erc-prompt-face))))))))))
+                    displayed #("   ERC>"
+                                0 3 (font-lock-face erc-prompt-face)
+                                3 7 ( read-only t
+                                      front-sticky t
+                                      field erc-prompt
+                                      erc-prompt t
+                                      rear-nonsticky t
+                                      font-lock-face erc-prompt-face))))))))))
 
 (ert-deftest erc-fill--wrap-massage-legacy-indicator-type ()
   (let (calls

@@ -1,6 +1,6 @@
 ;;; auth-source.el --- authentication sources for Gnus and Emacs -*- lexical-binding: t -*-
 
-;; Copyright (C) 2008-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 ;; Author: Ted Zlatanov <tzz@lifelogs.com>
 ;; Keywords: news
@@ -234,10 +234,14 @@ EPA/EPG set up, the file will be encrypted and decrypted
 automatically.  See Info node `(epa)Encrypting/decrypting gpg files'
 for details.
 
+If this option is nil, no authentication source is used but the local
+password cache.
+
 It's best to customize this with \\[customize-variable] because
 the choices can get pretty complex."
   :version "26.1" ; neither new nor changed default
-  :type `(repeat :tag "Authentication Sources"
+  :type `(choice (const :tag "Password cache" nil)
+         (repeat :tag "Authentication Sources"
                  (choice
                   (string :tag "Just a file")
                   (const :tag "Default Secrets API Collection" default)
@@ -301,7 +305,7 @@ the choices can get pretty complex."
                                                (const :tag "Any" t)
                                                (string
                                                 :tag "Name"))))))
-                  (sexp :tag "A data structure (external provider)")))
+                  (sexp :tag "A data structure (external provider)"))))
   :link '(custom-manual "(auth) Help for users"))
 
 (defcustom auth-source-gpg-encrypt-to t
@@ -357,18 +361,76 @@ soon as a function returns non-nil.")
 (defun auth-source-backend-parse (entry)
   "Create an `auth-source-backend' from an ENTRY in `auth-sources'."
 
-  (let ((backend
-         (run-hook-with-args-until-success 'auth-source-backend-parser-functions
-                                           entry)))
+  (let* ((backend
+          (run-hook-wrapped
+           'auth-source-backend-parser-functions
+           (lambda (fun entry)
+             (when-let* ((result (funcall fun entry))
+                         (_ (not (eq (slot-value result 'type) 'ignore))))
+               result))
+           entry)))
 
     (unless backend
       ;; none of the parsers worked
-      (auth-source-do-warn
+      (auth-source-do-debug
        "auth-source-backend-parse: invalid backend spec: %S" entry)
       (setq backend (make-instance 'auth-source-backend
                                    :source ""
                                    :type 'ignore)))
     (auth-source-backend-parse-parameters entry backend)))
+
+(defmacro auth-source-backends ()
+  "List of usable backends from `auth-sources'.
+Filter out backends with type `ignore'.
+A fallback backend is added to ensure, that at least `read-passwd' is called."
+  `(or (seq-uniq (seq-keep
+        (lambda (entry)
+          (and-let* ((backend (auth-source-backend-parse entry))
+                     ((not (eq (slot-value backend 'type) 'ignore)))
+                     backend)))
+        auth-sources))
+       ;; Fallback.
+       (list (auth-source-backend
+              :source ""
+              :type 'read-passwd
+              :search-function #'auth-source-read-passwd-search
+              :create-function #'auth-source-read-passwd-create))))
+
+(defmacro auth-source-keys (spec)
+  "Return keys from SPEC."
+  `(cl-loop for i below (length ,spec) by 2
+            collect (nth i ,spec)))
+
+(defconst auth-source-ignored-keys
+  '(:create :delete :max :backend :label :require :type)
+  "List of meta keys to be ignored in data stores.")
+
+(defmacro auth-source-search-keys (spec)
+  "Filter out ignored keys from SPEC."
+  `(seq-difference (auth-source-keys ,spec) auth-source-ignored-keys))
+
+(defmacro auth-source-returned-keys (spec)
+  "Needed keys (always including host, login, port, and secret)."
+  `(seq-union '(:host :login :port :secret) (auth-source-search-keys ,spec)))
+
+(defmacro auth-source-search-spec (spec)
+  "Build a search spec without the ignored keys.
+If a search key is nil or t (match anything), skip it."
+  `(apply #'append (mapcar
+    (lambda (k)
+      (when-let* ((v (plist-get ,spec k))
+                 (_ (not (eq t v))))
+        (list k (auth-source-ensure-strings v))))
+    (auth-source-search-keys ,spec))))
+
+(defcustom auth-source-ignore-non-existing-file t
+  "If set non-nil, file-based backends are ignored if the file does not exist.
+Consequently, no newly created entry is saved in such a backend when
+this user option is non-nil.
+
+Supported backend types are `netrc', `plstore' and `json'."
+  :version "31.1"
+  :type 'boolean)
 
 (defun auth-source-backends-parser-file (entry)
   ;; take just a file name use it as a netrc/plist file
@@ -384,29 +446,39 @@ soon as a function returns non-nil.")
          (extension (or (and (stringp source-without-gpg)
                              (file-name-extension source-without-gpg))
                         "")))
-    (when (stringp source)
-      (cond
-       ((equal extension "plist")
-        (auth-source-backend
-         :source source
-         :type 'plstore
-         :search-function #'auth-source-plstore-search
-         :create-function #'auth-source-plstore-create
-         :data (plstore-open source)))
-       ((member-ignore-case extension '("json"))
-        (auth-source-backend
-         :source source
-         :type 'json
-         :search-function #'auth-source-json-search))
-       (t
-        (auth-source-backend
-         :source source
-         :type 'netrc
-         :search-function #'auth-source-netrc-search
-         :create-function #'auth-source-netrc-create))))))
+    (cond
+     ((or (not (stringp source))
+          (and auth-source-ignore-non-existing-file
+               (not (file-exists-p source))))
+      (when auth-source-debug
+        (auth-source-do-warn
+         "auth-source-backend-parse: not existing file, ignoring spec: %S"
+         entry))
+      (auth-source-backend
+       :source ""
+       :type 'ignore))
+     ((equal extension "plist")
+      (auth-source-backend
+       :source source
+       :type 'plstore
+       :search-function #'auth-source-plstore-search
+       :create-function #'auth-source-plstore-create
+       :data (plstore-open source)))
+     ((member-ignore-case extension '("json"))
+      (auth-source-backend
+       :source source
+       :type 'json
+       :search-function #'auth-source-json-search))
+     (t
+      (auth-source-backend
+       :source source
+       :type 'netrc
+       :search-function #'auth-source-netrc-search
+       :create-function #'auth-source-netrc-create)))))
 
 ;; Note this function should be last in the parser functions, so we add it first
-(add-hook 'auth-source-backend-parser-functions #'auth-source-backends-parser-file)
+(add-hook 'auth-source-backend-parser-functions
+          #'auth-source-backends-parser-file)
 
 (defun auth-source-backends-parser-macos-keychain (entry)
   ;; take macos-keychain-{internet,generic}:XYZ and use it as macOS
@@ -452,7 +524,8 @@ soon as a function returns non-nil.")
        :search-function #'auth-source-macos-keychain-search
        :create-function #'auth-source-macos-keychain-create)))))
 
-(add-hook 'auth-source-backend-parser-functions #'auth-source-backends-parser-macos-keychain)
+(add-hook 'auth-source-backend-parser-functions
+          #'auth-source-backends-parser-macos-keychain)
 
 (defun auth-source-backends-parser-secrets (entry)
   ;; take secrets:XYZ and use it as Secrets API collection "XYZ"
@@ -497,7 +570,8 @@ soon as a function returns non-nil.")
          :source ""
          :type 'ignore))))))
 
-(add-hook 'auth-source-backend-parser-functions #'auth-source-backends-parser-secrets)
+(add-hook 'auth-source-backend-parser-functions
+          #'auth-source-backends-parser-secrets)
 
 (defun auth-source-backend-parse-parameters (entry backend)
   "Fill in the extra `auth-source-backend' parameters of ENTRY.
@@ -519,7 +593,7 @@ parameters."
 
 (defun auth-source-file-name-p (file)
   "Say whether FILE is used by `auth-sources'."
-  (let* ((backends (mapcar #'auth-source-backend-parse auth-sources))
+  (let* ((backends (auth-source-backends))
          (files
           (mapcar (lambda (x)
                     (when (member (slot-value x 'type) '(json netrc plstore))
@@ -639,7 +713,7 @@ will ensure that any results will actually have a :secret
 property.
 
 :delete t means to delete any found entries.  nil by default.
-Use `auth-source-delete' in ELisp code instead of calling
+Use `auth-source-delete' in Lisp code instead of calling
 `auth-source-search' directly with this parameter.
 
 :type (X Y Z) will check only those backend types.  `netrc' and
@@ -677,12 +751,8 @@ actually useful.  So the caller must arrange to call this function.
 
 The token's :secret key can hold a function.  In that case you
 must call it to obtain the actual value."
-  (let* ((backends (mapcar #'auth-source-backend-parse auth-sources))
+  (let* ((backends (auth-source-backends))
          (max (or max 1))
-         (ignored-keys '(:require :create :delete :max))
-         (keys (cl-loop for i below (length spec) by 2
-                        unless (memq (nth i spec) ignored-keys)
-                        collect (nth i spec)))
          (cached (auth-source-remembered-p spec))
          ;; note that we may have cached results but found is still nil
          ;; (there were no results from the search)
@@ -704,12 +774,16 @@ must call it to obtain the actual value."
 
       (setq filtered-backends (copy-sequence backends))
       (dolist (backend backends)
-        (cl-dolist (key keys)
+        (cl-dolist (key (auth-source-search-keys spec))
           ;; ignore invalid slots
           (condition-case nil
               (unless (auth-source-search-collection
                        (plist-get spec key)
-                       (slot-value backend key))
+                       (slot-value
+                        backend
+                        (if (keywordp key)
+                            (intern-soft (substring (symbol-name key) 1))
+                          key)))
                 (setq filtered-backends (delq backend filtered-backends))
                 (cl-return))
             (invalid-slot-name nil))))
@@ -815,6 +889,7 @@ Returns the deleted entries."
 (defun auth-source-format-cache-entry (spec)
   "Format SPEC entry to put it in the password cache."
   `(auth-source . ,spec))
+  ;; `(auth-source . ,(auth-source-search-spec spec)))
 
 (defun auth-source-remember (spec found)
   "Remember FOUND search results for SPEC."
@@ -853,13 +928,12 @@ while \(:host t) would find all host entries."
                   (auth-source-specmatchp spec (cdr key)))
          ;; remove that key
          (password-cache-remove key)
-         (cl-incf count)))
+         (incf count)))
      password-data)
     count))
 
 (defun auth-source-specmatchp (spec stored)
-  (let ((keys (cl-loop for i below (length spec) by 2
-                       collect (nth i spec))))
+  (let ((keys (auth-source-keys spec)))
     (not (eq
           (cl-dolist (key keys)
             (unless (auth-source-search-collection (plist-get stored key)
@@ -876,7 +950,8 @@ while \(:host t) would find all host entries."
 
 (defun auth-source-pick-first-password (&rest spec)
   "Pick the first secret found by applying `auth-source-search' to SPEC."
-  (auth-info-password (car (apply #'auth-source-search (plist-put spec :max 1)))))
+  (auth-info-password
+   (car (apply #'auth-source-search (plist-put spec :max 1)))))
 
 (defun auth-source-format-prompt (prompt alist)
   "Format PROMPT using %x (for any character x) specifiers in ALIST.
@@ -901,8 +976,6 @@ Remove trailing \": \"."
 		value))
 	    values)))
 
-;;; Backend specific parsing: netrc/authinfo backend
-
 (defun auth-source--aput-1 (alist key val)
   (let ((seen ())
         (rest alist))
@@ -917,6 +990,123 @@ Remove trailing \": \"."
 
 (defun auth-source--aget (alist key)
   (cdr (assoc key alist)))
+
+;;; Backend specific parsing: just read the password
+
+(cl-defun auth-source-read-passwd-search (&rest spec
+                                      &key backend create delete
+                                      &allow-other-keys)
+  "Search in password cache; spec is like `auth-source'."
+
+  ;; TODO
+  (cl-assert
+   (not delete) nil
+   "The `read-passwd' auth-source backend doesn't support deletion yet")
+
+  (let ((found (auth-source-recall (auth-source-search-spec spec))))
+    (cond
+     (found (list found))
+     (create (apply (slot-value backend 'create-function) spec)))))
+
+(cl-defun auth-source-read-passwd-create (&rest spec
+                                          &key host port user
+                                          &allow-other-keys)
+  (let* ((base-required '(host user port secret))
+         ;; we know (because of an assertion in auth-source-search) that the
+         ;; :create parameter is either t or a list (which includes nil)
+         (current-data (car (auth-source-search :max 1
+                                                :host host
+                                                :user user
+                                                :port port)))
+         ;; `valist' is an alist
+         valist
+         ;; `artificial' will be returned if no creation is needed
+         artificial)
+
+    ;; only for base required elements (defined as function parameters):
+    ;; fill in the valist with whatever data we may have from the search
+    ;; we complete the first value if it's a list and use the value otherwise
+    (dolist (br base-required)
+      (let ((val (plist-get spec (auth-source--symbol-keyword br))))
+        (when val
+          (let ((br-choice (cond
+                            ;; all-accepting choice (predicate is t)
+                            ((eq t val) nil)
+                            ;; just the value otherwise
+                            (t val))))
+            (when br-choice
+              (auth-source--aput valist br br-choice))))))
+
+    ;; for each required element
+    (dolist (r base-required)
+      (let* ((data (auth-source--aget valist r))
+             ;; take the first element if the data is a list
+             (data (or (auth-source-netrc-element-or-first data)
+                       (plist-get current-data
+                                  (auth-source--symbol-keyword r))))
+             ;; this is the default to be offered
+             (given-default (auth-source--aget
+                             auth-source-creation-defaults r))
+             ;; the default supplementals are simple:
+             ;; for the user, try `given-default' and then (user-login-name);
+             ;; otherwise take `given-default'
+             (default (cond
+                       ((and (not given-default) (eq r 'user))
+                        (user-login-name))
+                       (t given-default)))
+             (printable-defaults (list
+                                  (cons 'user
+                                        (or
+                                         (auth-source-netrc-element-or-first
+                                          (auth-source--aget valist 'user))
+                                         (plist-get artificial :user)
+                                         "[any user]"))
+                                  (cons 'host
+                                        (or
+                                         (auth-source-netrc-element-or-first
+                                          (auth-source--aget valist 'host))
+                                         (plist-get artificial :host)
+                                         "[any host]"))
+                                  (cons 'port
+                                        (or
+                                         (auth-source-netrc-element-or-first
+                                          (auth-source--aget valist 'port))
+                                         (plist-get artificial :port)
+                                         "[any port]"))))
+             (prompt (or (auth-source--aget auth-source-creation-prompts r)
+                         (cl-case r
+                           (secret "%p password for %u@%h")
+                           (user "%p user name for %h")
+                           (host "%p host name for user %u")
+                           (port "%p port for %u@%h"))
+                         (format "Enter %s (%%u@%%h:%%p)" r)))
+             (prompt (auth-source-format-prompt
+                      prompt
+                      `((?u ,(auth-source--aget printable-defaults 'user))
+                        (?h ,(auth-source--aget printable-defaults 'host))
+                        (?p ,(auth-source--aget printable-defaults 'port))))))
+
+        ;; Store the data, prompting for the password if needed.
+        (setq data (or data
+                       (if (eq r 'secret)
+                           (or (eval default)
+                               (read-passwd  (format-prompt prompt nil)))
+                         (if (and (stringp default) auth-source-save-behavior)
+                             (read-string
+                              (format-prompt prompt default) nil nil default)
+                           (eval default)))))
+
+        (when data
+          (setq artificial (plist-put artificial
+                                      (auth-source--symbol-keyword r)
+                                      (if (eq r 'secret)
+                                          (let ((data data))
+                                            (lambda () data))
+                                        data))))))
+
+    (list artificial)))
+
+;;; Backend specific parsing: netrc/authinfo backend
 
 ;;;###autoload
 (defun auth-source-netrc-parse-all (file)
@@ -1338,8 +1528,7 @@ See `auth-source-search' for details on SPEC."
     ;; for extra required elements, see if the spec includes a value for them
     (dolist (er create-extra)
       (let ((k (auth-source--symbol-keyword er))
-            (keys (cl-loop for i below (length spec) by 2
-                           collect (nth i spec))))
+            (keys (auth-source-keys spec)))
         (when (memq k keys)
           (auth-source--aput valist er (plist-get spec k)))))
 
@@ -1446,7 +1635,9 @@ See `auth-source-search' for details on SPEC."
         (when (and (stringp data)
                    (< 0 (length data)))
           (when (eq r 'secret)
-            (setq save-function t))
+            (setq save-function
+                  (not (and (string-match-p "\"" data)
+                            (string-match-p "'" data)))))
           ;; this function is not strictly necessary but I think it
           ;; makes the code clearer -tzz
           (let ((printer (lambda ()
@@ -1462,9 +1653,12 @@ See `auth-source-search' for details on SPEC."
                                      (secret "password")
                                      (port   "port") ; redundant but clearer
                                      (t (symbol-name r)))
-                                   (if (string-match "[\"# ]" data)
-                                       (format "%S" data)
-                                     data)))))
+                                   (cond
+                                    ((string-match-p "\"" data)
+                                     (format "'%s'" data))
+                                    ((string-match-p "['# ]" data)
+                                     (format "%S" data))
+                                    (t data))))))
             (setq add (concat add (funcall printer)))))))
 
     (when save-function
@@ -1618,30 +1812,10 @@ authentication tokens:
 
   (let* ((coll (oref backend source))
          (max (or max 5000))     ; sanity check: default to stop at 5K
-         (ignored-keys '(:create :delete :max :backend :label :require :type))
-         (search-keys (cl-loop for i below (length spec) by 2
-                               unless (memq (nth i spec) ignored-keys)
-                               collect (nth i spec)))
-         ;; build a search spec without the ignored keys
-         ;; if a search key is nil or t (match anything), we skip it
-         (search-specs (auth-source-secrets-listify-pattern
-                        (apply #'append (mapcar
-                                      (lambda (k)
-                                        (let ((v (plist-get spec k)))
-                                          (if (or (null v)
-                                                  (eq t v))
-                                              nil
-                                            (list
-                                             k
-                                             (auth-source-ensure-strings v)))))
-                                      search-keys))))
-         ;; needed keys (always including host, login, port, and secret)
-         (returned-keys (delete-dups (append
-				      '(:host :login :port :secret)
-				      search-keys)))
          (items
           (cl-loop
-           for search-spec in search-specs
+           for search-spec in
+           (auth-source-secrets-listify-pattern (auth-source-search-spec spec))
            nconc
            (cl-loop for item in (apply #'secrets-search-items coll search-spec)
                     unless (and (stringp label)
@@ -1663,7 +1837,7 @@ authentication tokens:
                                             (list (car entry) (cdr entry)))
                                           (secrets-get-attributes coll item)))))
                         items))
-         ;; ensure each item has each key in `returned-keys'
+         ;; Ensure each item has each key in `auth-source-returned-keys'.
          (items (mapcar (lambda (plist)
                           (append
                            (apply #'append
@@ -1671,7 +1845,7 @@ authentication tokens:
                                             (if (plist-get plist req)
                                                 nil
                                               (list req nil)))
-                                          returned-keys))
+                                          (auth-source-returned-keys spec)))
                            plist))
                         items)))
     (cond
@@ -1731,8 +1905,7 @@ authentication tokens:
     ;; for extra required elements, see if the spec includes a value for them
     (dolist (er create-extra)
       (let ((k (auth-source--symbol-keyword er))
-            (keys (cl-loop for i below (length spec) by 2
-                           collect (nth i spec))))
+            (keys (auth-source-keys spec)))
         (when (memq k keys)
           (auth-source--aput valist er (plist-get spec k)))))
 
@@ -1827,7 +2000,8 @@ authentication tokens:
             (if (not (eq r 'label))
                 ;; append the key (the symbol name of r)
                 ;; and the value in r
-                (setq args (append args (list (auth-source--symbol-keyword r) data))))))))
+                (setq args (append args (list (auth-source--symbol-keyword r)
+                                              data))))))))
 
     (when save-function
       (plist-put
@@ -1929,25 +2103,8 @@ entries for git.gnus.org:
 
   (let* ((coll (oref backend source))
          (max (or max 5000))     ; sanity check: default to stop at 5K
-         ;; Filter out ignored keys from the spec
-         (ignored-keys '(:create :delete :max :backend :label :host :port))
-         ;; Build a search spec without the ignored keys
-         ;; FIXME make this loop a function? it's used in at least 3 places
-         (search-keys (cl-loop for i below (length spec) by 2
-                               unless (memq (nth i spec) ignored-keys)
-                               collect (nth i spec)))
-         ;; If a search key value is nil or t (match anything), we skip it
-         (search-spec (apply #'append (mapcar
-                                      (lambda (k)
-                                        (if (or (null (plist-get spec k))
-                                                (eq t (plist-get spec k)))
-                                            nil
-                                          (list k (plist-get spec k))))
-                                      search-keys)))
-         ;; needed keys (always including host, login, port, and secret)
-         (returned-keys (delete-dups (append
-				      '(:host :login :port :secret)
-				      search-keys)))
+         (auth-source-ignored-keys
+          (seq-union auth-source-ignored-keys '(:host :port)))
          ;; Extract host, port and user from spec
          (hosts (plist-get spec :host))
          (hosts (if (consp hosts) hosts `(,hosts)))
@@ -1969,11 +2126,11 @@ entries for git.gnus.org:
                                       type
                                       max
                                       host port user
-                                      search-spec)))
+                                      (auth-source-search-spec spec))))
                           (when items
                             (throw 'match items))))))))
 
-         ;; ensure each item has each key in `returned-keys'
+         ;; ensure each item has each key in `auth-source-returned-keys'.
          (items (mapcar (lambda (plist)
                           (append
                            (apply #'append
@@ -1981,7 +2138,7 @@ entries for git.gnus.org:
                                             (if (plist-get plist req)
                                                 nil
                                               (list req nil)))
-                                          returned-keys))
+                                          (auth-source-returned-keys spec)))
                            plist))
                         items)))
     items))
@@ -2093,27 +2250,7 @@ entries for git.gnus.org:
   "Search the PLSTORE; SPEC is like `auth-source'."
   (let* ((store (oref backend data))
          (max (or max 5000))     ; sanity check: default to stop at 5K
-         (ignored-keys '(:create :delete :max :backend :label :require :type))
-         (search-keys (cl-loop for i below (length spec) by 2
-                               unless (memq (nth i spec) ignored-keys)
-                               collect (nth i spec)))
-         ;; build a search spec without the ignored keys
-         ;; if a search key is nil or t (match anything), we skip it
-         (search-spec (apply #'append (mapcar
-                                      (lambda (k)
-                                        (let ((v (plist-get spec k)))
-                                          (if (or (null v)
-                                                  (eq t v))
-                                              nil
-                                            (list
-                                             k
-                                             (auth-source-ensure-strings v)))))
-                                      search-keys)))
-         ;; needed keys (always including host, login, port, and secret)
-         (returned-keys (delete-dups (append
-				      '(:host :login :port :secret)
-				      search-keys)))
-         (items (plstore-find store search-spec))
+         (items (plstore-find store (auth-source-search-spec spec)))
          (item-names (mapcar #'car items))
          (items (take max items))
          ;; convert the item to a full plist
@@ -2129,7 +2266,7 @@ entries for git.gnus.org:
                                    (lambda () v)))))
                             plist))
                         items))
-         ;; ensure each item has each key in `returned-keys'
+         ;; ensure each item has each key in `auth-source-returned-keys'.
          (items (mapcar (lambda (plist)
                           (append
                            (apply #'append
@@ -2137,7 +2274,7 @@ entries for git.gnus.org:
                                             (if (plist-get plist req)
                                                 nil
                                               (list req nil)))
-                                          returned-keys))
+                                          (auth-source-returned-keys spec)))
                            plist))
                         items)))
     (cond
@@ -2203,8 +2340,7 @@ entries for git.gnus.org:
               (auth-source--aput valist br br-choice))))))
 
     ;; for extra required elements, see if the spec includes a value for them
-    (let ((keys (cl-loop for i below (length spec) by 2
-                         collect (nth i spec)))
+    (let ((keys (auth-source-keys spec))
           k)
       (dolist (er create-extra)
         (setq k (auth-source--symbol-keyword er))
@@ -2392,21 +2528,21 @@ See `auth-source-search' for details on SPEC."
   :version "28.1")
 
 (defvar authinfo--keywords
-  '(("^#.*" . font-lock-comment-face)
+  '(("^#.*" (0 'font-lock-comment-face))
     ("^\\(machine\\)[ \t]+\\([^ \t\n]+\\)"
-     (1 font-lock-variable-name-face)
-     (2 font-lock-builtin-face))
+     (1 'font-lock-variable-name-face)
+     (2 'font-lock-builtin-face))
     ("\\(login\\)[ \t]+\\([^ \t\n]+\\)"
-     (1 font-lock-comment-delimiter-face)
-     (2 font-lock-keyword-face))
+     (1 'font-lock-comment-delimiter-face)
+     (2 'font-lock-keyword-face))
     ("\\(password\\)[ \t]+\\([^ \t\n]+\\)"
-     (1 font-lock-comment-delimiter-face)
-     (2 font-lock-doc-face))
+     (1 'font-lock-comment-delimiter-face)
+     (2 'font-lock-doc-face))
     ("\\(port\\)[ \t]+\\([^ \t\n]+\\)"
-     (1 font-lock-comment-delimiter-face)
-     (2 font-lock-type-face))
+     (1 'font-lock-comment-delimiter-face)
+     (2 'font-lock-type-face))
     ("\\([^ \t\n]+\\)[, \t]+\\([^ \t\n]+\\)"
-     (1 font-lock-constant-face)
+     (1 'font-lock-constant-face)
      (2 nil))))
 
 ;;;###autoload
@@ -2471,14 +2607,14 @@ point is moved into the passwords (see `authinfo-hide-elements').
 (defvar read-passwd--mode-line-icon nil
   "Propertized mode line icon for showing/hiding passwords.")
 
-(defvar read-passwd--hide-password t
-  "Toggle whether password should be hidden in minibuffer.")
+(defvar read-passwd--password-hidden nil
+  "Flag indicating whether password in minibuffer is hidden.")
 
 (defun read-passwd--hide-password ()
   "Make password in minibuffer hidden or visible."
   (let ((beg (minibuffer-prompt-end)))
     (dotimes (i (1+ (- (buffer-size) beg)))
-      (if read-passwd--hide-password
+      (if read-passwd--password-hidden
           (put-text-property
            (+ i beg) (+ 1 i beg) 'display (string (or read-hide-char ?*)))
         (remove-list-of-text-properties (+ i beg) (+ 1 i beg) '(display)))
@@ -2486,9 +2622,10 @@ point is moved into the passwords (see `authinfo-hide-elements').
        (+ i beg) (+ 1 i beg)
        'help-echo "C-u: Clear password\nTAB: Toggle password visibility"))))
 
-(defun read-passwd-toggle-visibility ()
+(defun read-passwd-toggle-visibility (&optional force)
   "Toggle minibuffer contents visibility.
-Adapt also mode line."
+Adapt also mode line.  If optional FORCE is non-nil, hide the minibuffer
+contents."
   (interactive)
   (let ((win (active-minibuffer-window)))
     (unless win (error "No active minibuffer"))
@@ -2496,12 +2633,13 @@ Adapt also mode line."
     ;; mini-buffer.
     (with-current-buffer (window-buffer win)
       (when (memq 'read-passwd-mode local-minor-modes)
-        (setq read-passwd--hide-password (not read-passwd--hide-password))
+        (setq read-passwd--password-hidden
+              (or force (not read-passwd--password-hidden)))
         (setq read-passwd--mode-line-icon
               `(:propertize
                 ,(if icon-preference
                      (icon-string
-                      (if read-passwd--hide-password
+                      (if read-passwd--password-hidden
                           'read-passwd--show-password-icon
                         'read-passwd--hide-password-icon))
                    "")
@@ -2515,15 +2653,14 @@ Adapt also mode line."
         (force-mode-line-update 'all)
         (read-passwd--hide-password)))))
 
-(defvar read-passwd-map
-  ;; BEWARE: `defconst' would purecopy it, breaking the sharing with
-  ;; minibuffer-local-map along the way!
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map minibuffer-local-map)
-    (define-key map "\C-u" #'delete-minibuffer-contents) ;bug#12570
-    (define-key map "\t" #'read-passwd-toggle-visibility)
-    map)
-  "Keymap used while reading passwords.")
+(defvar-keymap read-passwd-map
+  :doc "Keymap used while reading passwords."
+  :parent minibuffer-local-map
+  "C-u" #'delete-minibuffer-contents ;bug#12570
+  "TAB" #'read-passwd-toggle-visibility)
+
+(defvar read-passwd--mini-buffers nil
+  "List of minibuffers where `read-passwd' is active.")
 
 (define-minor-mode read-passwd-mode
   "Toggle visibility of password in minibuffer."
@@ -2532,21 +2669,25 @@ Adapt also mode line."
   :keymap read-passwd-map
   :version "30.1"
 
-  (setq read-passwd--hide-password nil)
-  (or global-mode-string (setq global-mode-string '("")))
-
-  (let ((mode-string '(:eval read-passwd--mode-line-icon)))
-    (if read-passwd-mode
-        ;; Add `read-passwd--mode-line-icon'.
-        (or (member mode-string global-mode-string)
-            (setq global-mode-string
-	          (append global-mode-string (list mode-string))))
-      ;; Remove `read-passwd--mode-line-icon'.
-      (setq global-mode-string
-	    (delete mode-string global-mode-string))))
-
+  (unless read-passwd-mode
+    (setq read-passwd--mini-buffers
+          (delq (current-buffer) read-passwd--mini-buffers)))
+  (unless read-passwd--mini-buffers
+    (let ((mode-string '(:eval read-passwd--mode-line-icon)))
+      (if read-passwd-mode
+          ;; Add `read-passwd--mode-line-icon'.
+          (or (member mode-string global-mode-string)
+              (setq global-mode-string
+	            (append global-mode-string (list mode-string))))
+        ;; Remove `read-passwd--mode-line-icon'.
+        (setq global-mode-string
+	      (delete mode-string global-mode-string)))))
   (when read-passwd-mode
-    (read-passwd-toggle-visibility)))
+    (push (current-buffer) read-passwd--mini-buffers))
+  ;; Always hide the current password.
+  (when read-passwd--mini-buffers
+    (with-current-buffer (car read-passwd--mini-buffers)
+      (read-passwd-toggle-visibility t))))
 
 (defvar overriding-text-conversion-style)
 
@@ -2568,7 +2709,8 @@ by doing (clear-string STRING)."
                 (second (read-passwd "Confirm password: " nil default)))
             (if (equal first second)
                 (progn
-                  (and (arrayp second) (not (eq first second)) (clear-string second))
+                  (and (arrayp second) (not (eq first second))
+                       (clear-string second))
                   (setq success first))
               (and (arrayp first) (clear-string first))
               (and (arrayp second) (clear-string second))

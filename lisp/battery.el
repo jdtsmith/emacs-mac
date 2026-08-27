@@ -1,6 +1,6 @@
 ;;; battery.el --- display battery status information  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997-1998, 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1997-1998, 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: Ralph Schleicher <rs@ralph-schleicher.de>
 ;; Maintainer: emacs-devel@gnu.org
@@ -207,8 +207,14 @@ The full `format-spec' formatting syntax is supported."
   :type '(choice string (const nil)))
 
 (defcustom battery-update-interval 60
-  "Seconds after which the battery status will be updated."
-  :type 'integer)
+  "Seconds after which the battery status will be updated.
+A value of nil means do not poll for battery status changes.
+This can be useful when `battery-status-function' is set to
+`battery-upower' and `battery-upower-subscribe' is non-nil, in
+which case D-Bus automatically signals battery status changes."
+  :version "31.1"
+  :type '(choice (const :tag "Never" nil)
+                 (integer :tag "Number of seconds")))
 
 (defcustom battery-load-low 25
   "Upper bound of low battery load percentage.
@@ -305,8 +311,9 @@ trigger actions based on battery-related events."
         (and (eq battery-status-function #'battery-upower)
              battery-upower-subscribe
              (battery--upower-subscribe))
-	(setq battery-update-timer (run-at-time nil battery-update-interval
-                                                #'battery-update-handler))
+        (when battery-update-interval
+          (setq battery-update-timer (run-at-time nil battery-update-interval
+                                                  #'battery-update-handler)))
 	(battery-update))
     (message "Battery status not available")
     (setq display-battery-mode nil)))
@@ -491,19 +498,19 @@ The following %-sequences are provided:
           (when (re-search-forward (rx "design capacity:" (+ space)
                                        battery--acpi-capacity eol)
 				   nil t)
-	    (cl-incf design-capacity (string-to-number (match-string 1))))
+            (incf design-capacity (string-to-number (match-string 1))))
           (when (re-search-forward (rx "last full capacity:" (+ space)
                                        battery--acpi-capacity eol)
 				   nil t)
-	    (cl-incf last-full-capacity (string-to-number (match-string 1))))
+            (incf last-full-capacity (string-to-number (match-string 1))))
           (when (re-search-forward (rx "design capacity warning:" (+ space)
                                        battery--acpi-capacity eol)
                                    nil t)
-	    (cl-incf warn (string-to-number (match-string 1))))
+            (incf warn (string-to-number (match-string 1))))
           (when (re-search-forward (rx "design capacity low:" (+ space)
                                        battery--acpi-capacity eol)
 				   nil t)
-	    (cl-incf low (string-to-number (match-string 1)))))))
+            (incf low (string-to-number (match-string 1)))))))
     (setq full-capacity (if (> last-full-capacity 0)
 			    last-full-capacity design-capacity))
     (and capacity rate
@@ -593,10 +600,10 @@ The following %-sequences are provided:
 	  (when (re-search-forward
                  "POWER_SUPPLY_\\(CURRENT\\|POWER\\)_NOW=\\([0-9]*\\)$"
                  nil t)
-	    (cl-incf power-now
-		     (* (string-to-number (match-string 2))
-			(if (eq (char-after (match-beginning 1)) ?C)
-			    voltage-now 1))))
+            (incf power-now
+                  (* (string-to-number (match-string 2))
+                     (if (eq (char-after (match-beginning 1)) ?C)
+                         voltage-now 1))))
 	  (goto-char (point-min))
 	  (when (re-search-forward "POWER_SUPPLY_TEMP=\\([0-9]*\\)$" nil t)
 	    (setq temperature (match-string 1)))
@@ -610,10 +617,10 @@ The following %-sequences are provided:
 			(re-search-forward
 			 "POWER_SUPPLY_CHARGE_NOW=\\([0-9]*\\)$" nil t)
 			(setq now-string (match-string 1)))
-		   (cl-incf energy-full (* (string-to-number full-string)
-                                           voltage-now))
-		   (cl-incf energy-now  (* (string-to-number now-string)
-                                           voltage-now)))
+                   (incf energy-full (* (string-to-number full-string)
+                                        voltage-now))
+                   (incf energy-now  (* (string-to-number now-string)
+                                        voltage-now)))
                   ((and (goto-char (point-min))
 			(re-search-forward
 			 "POWER_SUPPLY_ENERGY_FULL=\\([0-9]*\\)$" nil t)
@@ -621,8 +628,8 @@ The following %-sequences are provided:
 			(re-search-forward
 			 "POWER_SUPPLY_ENERGY_NOW=\\([0-9]*\\)$" nil t)
 			(setq now-string (match-string 1)))
-		   (cl-incf energy-full (string-to-number full-string))
-		   (cl-incf energy-now  (string-to-number now-string)))))
+                   (incf energy-full (string-to-number full-string))
+                   (incf energy-now  (string-to-number now-string)))))
 	  (unless (zerop power-now)
 	    (let ((remaining (if (string= charging-state "Discharging")
 				 energy-now
@@ -772,17 +779,37 @@ See URL `https://upower.freedesktop.org/docs/Device.html'.")
 (defconst battery-upower-device-path "/org/freedesktop/UPower/devices"
   "D-Bus object providing `battery-upower-device-interface'.")
 
+(defconst battery-upower-display-device-path
+  "/org/freedesktop/UPower/devices/DisplayDevice"
+  "D-Bus object providing a subset of `battery-upower-device-interface'.
+This is a composite device for displaying a digest of overall state.
+In particular, it is not listed by the EnumerateDevices method.")
+
+(defvar battery-upower-subscribe-properties
+  '(;; `battery-upower-path' properties.
+    "OnBattery"
+    ;; `battery-upower-display-device-path' properties.
+    "State" "Percentage" "IsPresent")
+  "List of UPower device properties to listen for.
+Each value is a string property of `battery-upower-path'
+or `battery-upower-display-device-path'.
+A D-Bus signal that any of them changed results in a `battery-update'.")
+
 (defvar battery--upower-signals nil
   "Handles for UPower signal subscriptions.")
 
 (defun battery--upower-signal-handler (&rest _)
   "Update battery status on receiving a UPower D-Bus signal."
-  (timer-event-handler battery-update-timer))
+  (if battery-update-timer
+      (timer-event-handler battery-update-timer)
+    (battery-update-handler)))
 
 (defun battery--upower-props-changed (_interface changed _invalidated)
-  "Update status when system starts/stops running on battery.
+  "Update status when UPower device properties change.
+Respond only to those in `battery-upower-subscribe-properties'.
 Intended as a UPower PropertiesChanged signal handler."
-  (when (assoc "OnBattery" changed)
+  (when (any (lambda (prop) (assoc prop changed))
+             battery-upower-subscribe-properties)
     (battery--upower-signal-handler)))
 
 (defun battery--upower-unsubscribe ()
@@ -792,8 +819,16 @@ Intended as a UPower PropertiesChanged signal handler."
 
 (defun battery--upower-subscribe ()
   "Subscribe to UPower device change signals."
+  ;; Listen for OnBattery changes.
   (push (dbus-register-signal :system battery-upower-service
                               battery-upower-path
+                              dbus-interface-properties
+                              "PropertiesChanged"
+                              #'battery--upower-props-changed)
+        battery--upower-signals)
+  ;; Listen for DisplayDevice property changes.
+  (push (dbus-register-signal :system battery-upower-service
+                              battery-upower-display-device-path
                               dbus-interface-properties
                               "PropertiesChanged"
                               #'battery--upower-props-changed)
@@ -879,8 +914,10 @@ The following %-sequences are provided:
        ((and (eq type 1) (not (eq line-status 'online)))
         ;; It's a line power device: `online' if currently providing
         ;; power, any other non-nil value if simply present.
-        (setq line-status (if (cdr (assoc "Online" props)) 'online t)))
-       ((and (eq type 2) (cdr (assoc "IsPresent" props)))
+        (setq line-status (or (not (cdr (assoc "Online" props))) 'online)))
+       ((and (eq type 2)
+             (cdr (assoc "PowerSupply" props))
+             (cdr (assoc "IsPresent" props)))
         ;; It's a battery.
         (setq count (1+ count))
         (setq state (battery--upower-state props state))
@@ -952,7 +989,7 @@ The following %-sequences are provided:
 %t Remaining time (to charge or discharge) in the form `h:min'"
   (let* ((os-name (car (split-string
                         ;; We cannot use `system-type' because some BSD
-                        ;; systems fall under the 'berkley-unix umbrella
+                        ;; systems fall under the 'berkeley-unix umbrella
                         ;; and we're trying to make the distinction
                         ;; among them here.
                         (battery--call-process-to-string "uname"))))

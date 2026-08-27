@@ -1,6 +1,6 @@
 /* Synchronous subprocess invocation for GNU Emacs.
 
-Copyright (C) 1985-1988, 1993-1995, 1999-2025 Free Software Foundation,
+Copyright (C) 1985-1988, 1993-1995, 1999-2026 Free Software Foundation,
 Inc.
 
 This file is part of GNU Emacs.
@@ -533,7 +533,7 @@ call_process (ptrdiff_t nargs, Lisp_Object *args, int filefd,
   {
     int ok;
 
-    ok = openp (Vexec_path, args[0], Vexec_suffixes, &path,
+    ok = openp (Vexec_path, args[0], Fdefault_value (Qexec_suffixes), &path,
 		make_fixnum (X_OK), false, false, NULL);
     if (ok < 0)
       report_file_error ("Searching for program", args[0]);
@@ -927,7 +927,7 @@ call_process (ptrdiff_t nargs, Lisp_Object *args, int filefd,
       /* If the caller required, let the buffer inherit the
 	 coding-system used to decode the process output.  */
       if (inherit_process_coding_system)
-	call1 (Qafter_insert_file_set_buffer_file_coding_system,
+	calln (Qafter_insert_file_set_buffer_file_coding_system,
 	       make_fixnum (total_read));
     }
 
@@ -1989,7 +1989,7 @@ init_callproc_1 (void)
   Vexec_path = decode_env_path ("EMACSPATH", PATH_EXEC, 0);
   Vexec_directory = Ffile_name_as_directory (Fcar (Vexec_path));
   /* FIXME?  For ns, path_exec should go at the front?  */
-  Vexec_path = nconc2 (decode_env_path ("PATH", "", 0), Vexec_path);
+  Vexec_path = nconc2 (decode_env_path ("PATH", NULL, 0), Vexec_path);
 }
 
 /* This is run after init_cmdargs, when Vinstallation_directory is valid.  */
@@ -2014,7 +2014,7 @@ init_callproc (void)
 	{
 	  /* Running uninstalled, so default to tem rather than PATH_EXEC.  */
 	  Vexec_path = decode_env_path ("EMACSPATH", SSDATA (tem), 0);
-	  Vexec_path = nconc2 (decode_env_path ("PATH", "", 0), Vexec_path);
+	  Vexec_path = nconc2 (decode_env_path ("PATH", NULL, 0), Vexec_path);
 	}
 
       Vexec_directory = Ffile_name_as_directory (tem);
@@ -2038,19 +2038,17 @@ init_callproc (void)
      source directory.  */
   if (data_dir == 0)
     {
-      Lisp_Object tem, srcdir;
       Lisp_Object lispdir = Fcar (decode_env_path (0, PATH_DUMPLOADSEARCH, 0));
-
-      srcdir = Fexpand_file_name (build_string ("../src/"), lispdir);
-
-      tem = Fexpand_file_name (build_string ("NEWS"), Vdata_directory);
-      if (!NILP (Fequal (srcdir, Vinvocation_directory))
-	  || NILP (Ffile_exists_p (tem)) || !NILP (Vinstallation_directory))
+      if (!NILP (Vinstallation_directory)
+	  || !NILP (Fequal (Fexpand_file_name (AUTO_STR ("../src/"), lispdir),
+			    Vinvocation_directory))
+	  || NILP (Ffile_exists_p (Fexpand_file_name (AUTO_STR ("NEWS"),
+						      Vdata_directory))))
 	{
 	  Lisp_Object newdir;
-	  newdir = Fexpand_file_name (build_string ("../etc/"), lispdir);
-	  tem = Fexpand_file_name (build_string ("NEWS"), newdir);
-	  if (!NILP (Ffile_exists_p (tem)))
+	  newdir = Fexpand_file_name (AUTO_STR ("../etc/"), lispdir);
+	  if (!NILP (Ffile_exists_p (Fexpand_file_name (AUTO_STR ("NEWS"),
+							newdir))))
 	    Vdata_directory = newdir;
 	}
     }
@@ -2207,23 +2205,19 @@ See `setenv' and `getenv'.  */);
   Vprocess_environment = Qnil;
 
   DEFVAR_LISP ("ctags-program-name", Vctags_program_name,
-    doc: /* Name of the `ctags' program distributed with Emacs.
+    doc: /* Name of the `ctags' program.
 Use this instead of calling `ctags' directly, as `ctags' may have been
 renamed to comply with executable naming restrictions on the system.  */);
-#if !defined HAVE_ANDROID || defined ANDROID_STUBIFY
-  Vctags_program_name = build_pure_c_string ("ctags");
-#else
-  Vctags_program_name = build_pure_c_string ("libctags.so");
-#endif
+  Vctags_program_name = build_string ("ctags");
 
   DEFVAR_LISP ("etags-program-name", Vetags_program_name,
     doc: /* Name of the `etags' program distributed with Emacs.
 Use this instead of calling `etags' directly, as `etags' may have been
 renamed to comply with executable naming restrictions on the system.  */);
 #if !defined HAVE_ANDROID || defined ANDROID_STUBIFY
-  Vetags_program_name = build_pure_c_string ("etags");
+  Vetags_program_name = build_string ("etags");
 #else
-  Vetags_program_name = build_pure_c_string ("libetags.so");
+  Vetags_program_name = build_string ("libetags.so");
 #endif
 
   DEFVAR_LISP ("hexl-program-name", Vhexl_program_name,
@@ -2231,9 +2225,9 @@ renamed to comply with executable naming restrictions on the system.  */);
 Use this instead of calling `hexl' directly, as `hexl' may have been
 renamed to comply with executable naming restrictions on the system.  */);
 #if !defined HAVE_ANDROID || defined ANDROID_STUBIFY
-  Vhexl_program_name = build_pure_c_string ("hexl");
+  Vhexl_program_name = build_string ("hexl");
 #else
-  Vhexl_program_name = build_pure_c_string ("libhexl.so");
+  Vhexl_program_name = build_string ("libhexl.so");
 #endif
 
   DEFVAR_LISP ("emacsclient-program-name", Vemacsclient_program_name,
@@ -2242,9 +2236,9 @@ Use this instead of calling `emacsclient' directly, as `emacsclient'
 may have been renamed to comply with executable naming restrictions on
 the system.  */);
 #if !defined HAVE_ANDROID || defined ANDROID_STUBIFY
-  Vemacsclient_program_name = build_pure_c_string ("emacsclient");
+  Vemacsclient_program_name = build_string ("emacsclient");
 #else
-  Vemacsclient_program_name = build_pure_c_string ("libemacsclient.so");
+  Vemacsclient_program_name = build_string ("libemacsclient.so");
 #endif
 
   DEFVAR_LISP ("movemail-program-name", Vmovemail_program_name,
@@ -2256,9 +2250,9 @@ the system.  */);
      use movemail from another source.  */
 #if !defined HAVE_ANDROID || defined ANDROID_STUBIFY	\
   || defined HAVE_MAILUTILS
-  Vmovemail_program_name = build_pure_c_string ("movemail");
+  Vmovemail_program_name = build_string ("movemail");
 #else
-  Vmovemail_program_name = build_pure_c_string ("libmovemail.so");
+  Vmovemail_program_name = build_string ("libmovemail.so");
 #endif
 
   DEFVAR_LISP ("ebrowse-program-name", Vebrowse_program_name,
@@ -2267,9 +2261,9 @@ Use this instead of calling `ebrowse' directly, as `ebrowse'
 may have been renamed to comply with executable naming restrictions on
 the system.  */);
 #if !defined HAVE_ANDROID || defined ANDROID_STUBIFY
-  Vebrowse_program_name = build_pure_c_string ("ebrowse");
+  Vebrowse_program_name = build_string ("ebrowse");
 #else
-  Vebrowse_program_name = build_pure_c_string ("libebrowse.so");
+  Vebrowse_program_name = build_string ("libebrowse.so");
 #endif
 
   DEFVAR_LISP ("rcs2log-program-name", Vrcs2log_program_name,
@@ -2278,10 +2272,24 @@ Use this instead of calling `rcs2log' directly, as `rcs2log'
 may have been renamed to comply with executable naming restrictions on
 the system.  */);
 #if !defined HAVE_ANDROID || defined ANDROID_STUBIFY
-  Vrcs2log_program_name = build_pure_c_string ("rcs2log");
+  Vrcs2log_program_name = build_string ("rcs2log");
 #else /* HAVE_ANDROID && !ANDROID_STUBIFY */
-  Vrcs2log_program_name = build_pure_c_string ("librcs2log.so");
+  Vrcs2log_program_name = build_string ("librcs2log.so");
 #endif /* !HAVE_ANDROID || ANDROID_STUBIFY */
+
+  DEFVAR_INT ("command-line-max-length", command_line_max_length,
+    doc: /* Maximum length of a command and its arguments on this system.
+This is measured in characters.
+Used by `multiple-command-partition-arguments'.  Other code calls that
+function for cases in which it's known to be safe to run the command
+multiple times on subsequent partitions of the list of arguments.
+(In a shell script, you might use the `xargs' utility.)  */);
+#if defined _SC_ARG_MAX
+  /* Divide it by 4 as a crude way to go bytes->characters.  */
+  command_line_max_length = sysconf (_SC_ARG_MAX) / 4;
+#else  /* defined _SC_ARG_MAX */
+  command_line_max_length = 4096;
+#endif	/* defined _SC_ARG_MAX */
 
   defsubr (&Scall_process);
   defsubr (&Sgetenv_internal);
@@ -2290,4 +2298,5 @@ the system.  */);
   DEFSYM (Qafter_insert_file_set_buffer_file_coding_system,
 	  "after-insert-file-set-buffer-file-coding-system");
   DEFSYM (Qcoding_system_for_write, "coding-system-for-write");
+  DEFSYM (Qexec_suffixes, "exec-suffixes");
 }

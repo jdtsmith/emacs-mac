@@ -1,6 +1,6 @@
 ;;; fileio-tests.el --- unit tests for src/fileio.c      -*- lexical-binding: t; -*-
 
-;; Copyright 2017-2025 Free Software Foundation, Inc.
+;; Copyright 2017-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -20,6 +20,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'ert-x)
 
 (defun try-link (target link)
   (make-symbolic-link target link)
@@ -30,19 +31,17 @@
     failure))
 
 (defun fileio-tests--symlink-failure ()
-  (let* ((dir (make-temp-file "fileio" t))
-         (link (expand-file-name "link" dir)))
-    (unwind-protect
-        (let (failure
-              (char 0))
-          (while (and (not failure) (< char 127))
-            (setq char (1+ char))
-            (when (and (eq system-type 'cygwin) (eq char 92))
-              (setq char (1+ char)))
-            (setq failure (try-link (string char) link)))
-          (or failure
-              (try-link "/:" link)))
-      (delete-directory dir t))))
+  (ert-with-temp-directory dir
+    (let* ((link (expand-file-name "link" dir)))
+      (let (failure
+            (char 0))
+        (while (and (not failure) (< char 127))
+          (setq char (1+ char))
+          (when (and (eq system-type 'cygwin) (eq char 92))
+            (setq char (1+ char)))
+          (setq failure (try-link (string char) link)))
+        (or failure
+            (try-link "/:" link))))))
 
 (ert-deftest fileio-tests--odd-symlink-chars ()
   "Check that any non-NULL ASCII character can appear in a symlink.
@@ -100,8 +99,7 @@ Also check that an encoding error can appear in a symlink."
 
 (ert-deftest fileio-tests--relative-HOME ()
   "Test that `expand-file-name' works even when HOME is relative."
-  (let ((process-environment (copy-sequence process-environment)))
-    (setenv "HOME" "a/b/c")
+  (with-environment-variables (("HOME" "a/b/c"))
     (should (equal (expand-file-name "~/foo")
                    (expand-file-name "a/b/c/foo")))
     (when (memq system-type '(ms-dos windows-nt))
@@ -110,24 +108,20 @@ Also check that an encoding error can appear in a symlink."
       (should (equal (expand-file-name "~/bar") "x:/foo/bar")))))
 
 (ert-deftest fileio-tests--insert-file-interrupt ()
-  (let ((text "-*- coding: binary -*-\n\xc3\xc3help")
-        f)
-    (unwind-protect
-        (progn
-          (setq f (make-temp-file "ftifi"))
-          (write-region text nil f nil 'silent)
-          (with-temp-buffer
-            (catch 'toto
-              (let ((set-auto-coding-function (lambda (&rest _) (throw 'toto nil))))
-                (insert-file-contents f)))
-            (goto-char (point-min))
-            (unless (eobp)
-              (forward-line 1)
-              (let ((c1 (char-after)))
-                (forward-char 1)
-                (should (equal c1 (char-before)))
-                (should (equal c1 (char-after)))))))
-      (if f (delete-file f)))))
+  (ert-with-temp-file f
+    (let ((text "-*- coding: binary -*-\n\xc3\xc3help"))
+      (write-region text nil f nil 'silent)
+      (with-temp-buffer
+        (catch 'toto
+          (let ((set-auto-coding-function (lambda (&rest _) (throw 'toto nil))))
+            (insert-file-contents f)))
+        (goto-char (point-min))
+        (unless (eobp)
+          (forward-line 1)
+          (let ((c1 (char-after)))
+            (forward-char 1)
+            (should (equal c1 (char-before)))
+            (should (equal c1 (char-after)))))))))
 
 (ert-deftest fileio-tests--relative-default-directory ()
   "Test `expand-file-name' when `default-directory' is relative."
@@ -160,12 +154,12 @@ Also check that an encoding error can appear in a symlink."
 
 (ert-deftest fileio-tests--circular-after-insert-file-functions ()
   "Test `after-insert-file-functions' as a circular list."
-  (let ((f (make-temp-file "fileio"))
-        (after-insert-file-functions (list 'identity)))
-    (setcdr after-insert-file-functions after-insert-file-functions)
-    (write-region "hello\n" nil f nil 'silent)
-    (should-error (insert-file-contents f) :type 'circular-list)
-    (delete-file f)))
+  (ert-with-temp-file f
+    :suffix "fileio"
+    (let ((after-insert-file-functions (list 'identity)))
+      (setcdr after-insert-file-functions after-insert-file-functions)
+      (write-region "hello\n" nil f nil 'silent)
+      (should-error (insert-file-contents f) :type 'circular-list))))
 
 (ert-deftest fileio-tests/null-character ()
   (should-error (file-exists-p "/foo\0bar")
@@ -201,12 +195,28 @@ Also check that an encoding error can appear in a symlink."
     (insert-file-contents "/dev/urandom" nil nil 10)
     (should (= (buffer-size) 10))))
 
+(ert-deftest fileio-tests--read-directory ()
+  "Make sure insertring a directory fails with a platform-independent error."
+  (ert-with-temp-directory dir
+    (let* ((dir-name (directory-file-name dir))
+           (err (should-error (insert-file-contents dir-name)))
+           (desc-string
+            ;; On MS-Windows we fail trying to 'open' a directory.
+            (if (eq system-type 'windows-nt)
+                "Opening input file"
+              "Read error")))
+      (should (equal err
+                     (list 'file-error
+                           desc-string
+                           "Is a directory"
+                           dir-name))))))
+
 (defun fileio-tests--identity-expand-handler (_ file &rest _)
   file)
 (put 'fileio-tests--identity-expand-handler 'operations '(expand-file-name))
 
 (ert-deftest fileio--file-name-case-insensitive-p ()
-  ;; Check that we at least don't crash if given nonexisting files
+  ;; Check that we at least don't crash if given nonexistent files
   ;; without a directory (bug#56443).
 
   ;; Use an identity file-name handler, as if called by `ffap'.
@@ -222,5 +232,50 @@ Also check that an encoding error can appear in a symlink."
   ;; These should not crash, see bug#70914.
   (should-not (file-exists-p "//"))
   (should (file-attributes "//")))
+
+(ert-deftest fileio-tests-w32-time-stamp-granularity ()
+  "Test 100-nsec granularity of file time stamps on MS-Windows."
+  (skip-unless (eq system-type 'windows-nt))
+  ;; FIXME: This only works on NTFS volumes, so should skip the test if
+  ;; not NTFS.  But we don't expose the filesystem type to Lisp.
+  (let ((tfile (make-temp-file "tstamp")))
+    (unwind-protect
+        (progn
+          (set-file-times tfile (encode-time '(59.123456789 15 23 01 02 2025)))
+          (should
+           (equal (format-time-string "%Y/%m/%d %H:%M:%S.%N"
+		                      (file-attribute-modification-time
+                                       (file-attributes tfile)))
+                  ;; Last 2 digits of seconds must be zero due to
+                  ;; 100-nsec resolution of Windows file time stamps.
+                  "2025/02/01 23:15:59.123456700")))
+      (delete-file tfile))))
+
+(defconst ert--tests-dir
+  (file-name-directory (macroexp-file-name)))
+
+(ert-deftest fileio-tests--insert-file-contents-supersession ()
+  (ert-with-temp-file file
+    (write-region "foo" nil file)
+    (let* ((asked nil)
+           (buf (find-file-noselect file))
+           (auast (lambda (&rest _) (setq asked t))))
+      (unwind-protect
+          (with-current-buffer buf
+            ;; Pretend someone else edited the file.
+            (write-region "bar" nil file 'append)
+            ;; Use `advice-add' rather than `cl-letf' because the function
+            ;; may not be defined yet.
+            (advice-add 'ask-user-about-supersession-threat :override auast)
+            ;; Modify the local buffer via `insert-file-contents'.
+            (insert-file-contents
+             (expand-file-name "lread-resources/somelib.el"
+                               ert--tests-dir)
+             nil nil nil 'replace))
+        (advice-remove 'ask-user-about-supersession-threat auast)
+        (kill-buffer buf))
+      ;; We should have prompted about the supersession threat.
+      (should asked))))
+
 
 ;;; fileio-tests.el ends here

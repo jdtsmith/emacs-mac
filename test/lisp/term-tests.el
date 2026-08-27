@@ -1,6 +1,6 @@
 ;;; term-tests.el --- tests for term.el  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2017, 2019-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2017, 2019-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -28,25 +28,18 @@
 (defvar term-height)                    ; Number of lines in window.
 (defvar term-width)                     ; Number of columns in window.
 
-(defvar yellow-fg-props
-  `( :foreground ,(face-foreground 'term-color-yellow nil 'default)
-     :background "unspecified-bg" :inverse-video nil))
-(defvar yellow-bg-props
-  `( :foreground "unspecified-fg"
-     :background ,(face-background 'term-color-yellow nil 'default)
-     :inverse-video nil))
-(defvar bright-yellow-fg-props
-  `( :foreground ,(face-foreground 'term-color-bright-yellow nil 'default)
-     :background "unspecified-bg" :inverse-video nil))
-(defvar bright-yellow-bg-props
-  `( :foreground "unspecified-fg"
-     :background ,(face-background 'term-color-bright-yellow nil 'default)
-     :inverse-video nil))
-(defvar custom-color-fg-props
-  `( :foreground "#87FFFF"
-     :background "unspecified-bg" :inverse-video nil))
+(defconst yellow-fg-props
+  `(:foreground ,(face-foreground 'term-color-yellow nil 'default)))
+(defconst yellow-bg-props
+  `(:background ,(face-background 'term-color-yellow nil 'default)))
+(defconst bright-yellow-fg-props
+  `(:foreground ,(face-foreground 'term-color-bright-yellow nil 'default)))
+(defconst bright-yellow-bg-props
+  `(:background ,(face-background 'term-color-bright-yellow nil 'default)))
+(defconst custom-color-fg-props
+  `(:foreground "#87FFFF"))
 
-(defvar ansi-test-strings
+(defconst ansi-test-strings
   `(("\e[33mHello World\e[0m"
      ,(propertize "Hello World" 'font-lock-face `(,yellow-fg-props)))
     ("\e[43mHello World\e[0m"
@@ -135,6 +128,30 @@ first line\r_next line\r\n"))
            "\\`a\\{40\\}\na\\{20\\} *\\'"
            (term-test-screen-from-input 40 12 (let ((str (make-string 30 ?a)))
                                                 (list str str))))))
+
+(ert-deftest term-line-wrap-no-auto-margins ()
+  (skip-when (memq system-type '(windows-nt ms-dos)))
+  (let* ((width 40)
+         (line (cl-loop for i upfrom 0 to 60
+                     collect (+ ?a (% i 26)) into chars
+                     finally return (apply #'string chars)))
+         (expected (concat (substring line 0 (1- width))
+                           (substring line (1- (length line)))))
+         (rmam "\e[?7l"))
+    (should
+     (equal (term-test-screen-from-input width 12 (concat rmam line))
+            expected))
+    ;; Again, but split input into chunks.
+    (should (equal
+             (term-test-screen-from-input
+              width 12
+              (cl-loop
+                    with step = 3
+                    with n = (length line)
+                    for i upfrom 0 below n by step
+                    collect (substring line i (min n (+ i step))) into parts
+                    finally return (cons rmam parts)))
+             expected))))
 
 (ert-deftest term-colors ()
   (skip-when (memq system-type '(windows-nt ms-dos)))
@@ -385,21 +402,139 @@ This is a reduced example from GNU nano's initial screen."
 (ert-deftest term-decode-partial () ;; Bug#25288.
   "Test multibyte characters sent into multiple chunks."
   ;; Set `locale-coding-system' so test will be deterministic.
-  (let* ((locale-coding-system 'utf-8-unix)
-         (string (make-string 7 ?ш))
-         (bytes (encode-coding-string string locale-coding-system)))
-    (should (equal string
-                   (term-test-screen-from-input
-                    40 1 `(,(substring bytes 0 (/ (length bytes) 2))
-                           ,(substring bytes (/ (length bytes) 2))))))))
+  (let ((locale-coding-system 'utf-8-unix))
+    (should (equal "шшш" (term-test-screen-from-input
+                          40 1 '("\321" "\210\321\210\321\210"))))
+    (should (equal "шшш" (term-test-screen-from-input
+                          40 1 '("\321\210\321" "\210\321\210"))))
+    (should (equal "шшш" (term-test-screen-from-input
+                          40 1 '("\321\210\321\210\321" "\210"))))))
+
 (ert-deftest term-undecodable-input () ;; Bug#29918.
   "Undecodable bytes should be passed through without error."
   (let* ((locale-coding-system 'utf-8-unix) ; As above.
-         (bytes "\376\340\360\370")
+         (bytes "\376\340\360\370.")
          (string (decode-coding-string bytes locale-coding-system)))
     (should (equal string
                    (term-test-screen-from-input
                     40 1 bytes)))))
+
+(ert-deftest term-ignore-osc ()
+  ;; BEL-terminated OSC sequence
+  (should (equal "test"
+                 (term-test-screen-from-input
+                  40 1 "te\e]0;window title\ast")))
+  ;; ESC \-terminated OSC sequence
+  (should (equal "test"
+                 (term-test-screen-from-input
+                  40 1 "te\e]0;window title\e\\st")))
+  ;; Long OSC sequence split into multiple chunks
+  (should (equal "test"
+                 (term-test-screen-from-input
+                  40 1 '("te\e]0;win" "dow " " title\ast"))))
+  ;; OSC sequence that start and ends with the chunk
+  (should (equal "test"
+                 (term-test-screen-from-input
+                  40 1 '("te" "\e]0;window " "title\a" "st"))))
+
+  ;; Invalid control characters break out of the OSC sequence, for
+  ;; safety.
+  (should (equal "tetitlest"
+                 (term-test-screen-from-input
+                  40 1 '("te\e]0;window\x05title\ast"))))
+
+  (let ((locale-coding-system 'utf-8-unix))
+    ;; An OSC sequence with multibyte UTF-8 characters.  This is not
+    ;; exactly standard-compliant, but too common not to support.
+    (should (equal "test"
+                   (term-test-screen-from-input
+                    40 1 "te\e]0;\xce\xb1\xce\xb2\e\\st")))))
+
+(ert-deftest term-handle-osc ()
+  (let* ((captured nil)
+         (handler (lambda (code text)
+                    (push (cons code text)
+                          captured)))
+         (term-osc-handlers `(("2" . ,handler)
+                              ("1994" . ,handler))))
+
+    ;; Send OSC sequences to handler
+    (should (equal "test"
+                   (term-test-screen-from-input
+                    40 1 "te\e]2;foo\as\e]1994;bar\at")))
+    (should (equal '(("2" . "foo")
+                     ("1994" . "bar"))
+                   (nreverse captured)))
+
+    ;; OSC sequences and code can be chunked
+    (setq captured nil)
+    (should (equal "test"
+                   (term-test-screen-from-input
+                    40 1 `("te\e]2;chunked fo"
+                           "o\as\e]19"
+                           "94;chunked ba"
+                           "r\at"))))
+    (should (equal '(("2" . "chunked foo")
+                     ("1994" . "chunked bar"))
+                   (nreverse captured)))
+
+    ;; OSC sequences can contain multibyte characters
+    (let ((locale-coding-system 'utf-8-unix))
+      (setq captured nil)
+      (should (equal "test"
+                     (term-test-screen-from-input
+                      40 1 "te\e]2;\xce\xb1\xce\xb2\e\\st")))
+      (should (equal '(("2" . "\u03b1\u03b2")) captured)))
+
+    ;; Ignore unhandled and invalid OSC sequences
+    (setq captured nil)
+    (should (equal
+             "test"
+             (term-test-screen-from-input
+              40 1 "t\e]3;unhandled\aest")))
+    (should-not captured)
+    (should (equal
+             "test"
+             (term-test-screen-from-input
+              40 1 "t\e]2missing semicolon\aest")))
+    (should-not captured)
+
+    (should (equal
+             "test"
+             (term-test-screen-from-input
+              40 1 "t\e]2;not ended\003est")))
+    (should-not captured)))
+
+(ert-deftest term-call-ansi-osc-handlers ()
+  (let* ((captured nil)
+         (osc-handler (lambda (code text)
+                        (push (list 'osc code text)
+                              captured)))
+         (term-handler (lambda (code text)
+                         (push (list 'term code text)
+                               captured)))
+         (ansi-osc-handlers `(("1" . ,osc-handler)
+                              ("2" . ,osc-handler)
+                              ("3" . ,osc-handler)))
+         (term-osc-handlers `(("2" . ,term-handler)
+                              ("3" . nil))))
+
+    (should
+     (equal
+      "test"
+      (term-test-screen-from-input
+       40 1 (concat
+             "te"
+             "\e]1;a\a" ;; sent to osc-handler
+             "\e]2;b\a" ;; sent to term-handler
+             "\e]3;c\a" ;; ignored; disabled in term
+             "\e]4;d\a" ;; ignored; not registered
+             "st"))))
+    (should
+     (equal
+      '((osc "1" "a")
+        (term "2" "b"))
+      (nreverse captured)))))
 
 (provide 'term-tests)
 

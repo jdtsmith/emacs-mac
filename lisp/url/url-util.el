@@ -1,6 +1,6 @@
 ;;; url-util.el --- Miscellaneous helper routines for URL library -*- lexical-binding: t -*-
 
-;; Copyright (C) 1996-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2026 Free Software Foundation, Inc.
 
 ;; Author: Bill Perry <wmperry@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -230,10 +230,12 @@ Will not do anything if `url-show-status' is nil."
         (setq cur (concat cur "=")))
 
       (when (string-match "=" cur)
-        (setq key (url-unhex-string (substring cur 0 (match-beginning 0))
-                                    allow-newlines))
-        (setq val (url-unhex-string (substring cur (match-end 0) nil)
-                                    allow-newlines))
+        (let ((beg (match-beginning 0))
+              (end (match-end 0)))
+          (setq key (url-unhex-string (substring cur 0 beg)
+                                      allow-newlines))
+          (setq val (url-unhex-string (substring cur end nil)
+                                      allow-newlines)))
         (if downcase
             (setq key (downcase key)))
         (setq cur (assoc key retval))
@@ -409,6 +411,13 @@ should return it unchanged."
 	      (url-hexify-string frag url-query-allowed-chars)))
     (url-recreate-url obj)))
 
+(defconst url--query-key-value-preserved-chars
+  (let ((vec (copy-sequence url-query-key-value-allowed-chars)))
+    (aset vec ?% nil)
+    vec)
+  "Byte mask used for %-encoding keys and values in the query segment of a URI.
+`url-query-key-value-allowed-chars' minus '%'.")
+
 ;;;###autoload
 (defun url-build-query-string (query &optional semicolons keep-empty)
   "Build a query-string.
@@ -436,7 +445,7 @@ instead of just \"key\" as in the example above."
      (let ((escaped
             (mapcar (lambda (sym)
                       (url-hexify-string (format "%s" sym)
-                                         url-query-key-value-allowed-chars))
+                                         url--query-key-value-preserved-chars))
                     key-vals)))
        (mapconcat (lambda (val)
                     (let ((vprint (format "%s" val))

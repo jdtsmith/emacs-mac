@@ -1,6 +1,6 @@
 /* Support for accessing SQLite databases.
 
-Copyright (C) 2021-2025 Free Software Foundation, Inc.
+Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -277,18 +277,28 @@ check_sqlite (Lisp_Object db, bool is_statement)
 
 static int db_count = 0;
 
-DEFUN ("sqlite-open", Fsqlite_open, Ssqlite_open, 0, 1, 0,
+DEFUN ("sqlite-open", Fsqlite_open, Ssqlite_open, 0, 3, 0,
        doc: /* Open FILE as an sqlite database.
-If FILE is nil, an in-memory database will be opened instead.  */)
-  (Lisp_Object file)
+If FILE is nil or omitted, an in-memory database will be opened instead.
+If READONLY is non-nil or omitted, open the database in read-only mode,
+otherwise open it in read-write mode.
+By default, file:// URIs are automatically recognized, unless
+DISABLE-URI is non-nil.  */)
+  (Lisp_Object file, Lisp_Object readonly, Lisp_Object disable_uri)
 {
   Lisp_Object name;
-  int flags = (SQLITE_OPEN_CREATE  | SQLITE_OPEN_READWRITE);
+  int flags;
+
+  if (!NILP (readonly))
+    flags = SQLITE_OPEN_READONLY;
+  else
+    flags = (SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE);
 #ifdef SQLITE_OPEN_FULLMUTEX
   flags |= SQLITE_OPEN_FULLMUTEX;
 #endif
 #ifdef SQLITE_OPEN_URI
-  flags |= SQLITE_OPEN_URI;
+  if (NILP (disable_uri))
+    flags |= SQLITE_OPEN_URI;
 #endif
 
   if (!init_sqlite_functions ())
@@ -320,6 +330,11 @@ DEFUN ("sqlite-close", Fsqlite_close, Ssqlite_close, 1, 1, 0,
        doc: /* Close the sqlite database DB.  */)
   (Lisp_Object db)
 {
+  /* Do nothing when the connection is already closed.
+     This aligns with the behavior of 'sqlite3_close' itself.  */
+  if (SQLITE (db) && !XSQLITE (db)->db)
+    return Qt;
+
   check_sqlite (db, false);
   sqlite3_close (XSQLITE (db)->db);
   XSQLITE (db)->db = NULL;
@@ -899,15 +914,15 @@ syms_of_sqlite (void)
 
   DEFSYM (Qsqlite_error, "sqlite-error");
   Fput (Qsqlite_error, Qerror_conditions,
-	Fpurecopy (list2 (Qsqlite_error, Qerror)));
+	list2 (Qsqlite_error, Qerror));
   Fput (Qsqlite_error, Qerror_message,
-	build_pure_c_string ("Database error"));
+	build_string ("Database error"));
 
   DEFSYM (Qsqlite_locked_error, "sqlite-locked-error");
   Fput (Qsqlite_locked_error, Qerror_conditions,
-	Fpurecopy (list3 (Qsqlite_locked_error, Qsqlite_error, Qerror)));
+	list3 (Qsqlite_locked_error, Qsqlite_error, Qerror));
   Fput (Qsqlite_locked_error, Qerror_message,
-	build_pure_c_string ("Database locked"));
+	build_string ("Database locked"));
 
   DEFSYM (Qsqlitep, "sqlitep");
   DEFSYM (Qfalse, "false");

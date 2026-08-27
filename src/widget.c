@@ -1,5 +1,5 @@
 /* The emacs frame widget.
-   Copyright (C) 1992-1993, 2000-2025 Free Software Foundation, Inc.
+   Copyright (C) 1992-1993, 2000-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -392,7 +392,9 @@ EmacsFrameRealize (Widget widget, XtValueMask *mask,
   attrs->event_mask = (STANDARD_EVENT_SET
 		       | PropertyChangeMask
 		       | SubstructureNotifyMask);
+  attrs->bit_gravity = NorthWestGravity;
   *mask |= CWEventMask;
+  *mask |= CWBitGravity;
   XtCreateWindow (widget, InputOutput, (Visual *) CopyFromParent, *mask,
 		  attrs);
   /* Some ConfigureNotify events does not end up in EmacsFrameResize so
@@ -425,6 +427,9 @@ EmacsFrameResize (Widget widget)
        FRAME_PIXEL_WIDTH (f), FRAME_PIXEL_HEIGHT (f),
        ew->core.width, ew->core.height,
        f->new_width, f->new_height);
+
+  if (FRAME_PARENT_FRAME (f)) 	/* Size always up to date.  */
+    return;
 
   change_frame_size (f, ew->core.width, ew->core.height,
 		     false, true, false);
@@ -493,6 +498,8 @@ EmacsFrameExpose (Widget widget, XEvent *event, Region region)
 
   expose_frame (f, event->xexpose.x, event->xexpose.y,
 		event->xexpose.width, event->xexpose.height);
+  if (event->xexpose.count == 0)
+    x_clear_under_internal_border (f);
   flush_frame (f);
 }
 

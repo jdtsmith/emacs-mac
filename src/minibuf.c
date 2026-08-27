@@ -1,6 +1,6 @@
 /* Minibuffer input and completion.
 
-Copyright (C) 1985-1986, 1993-2025 Free Software Foundation, Inc.
+Copyright (C) 1985-1986, 1993-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -160,16 +160,15 @@ zip_minibuffer_stacks (Lisp_Object dest_window, Lisp_Object source_window)
       set_window_buffer (dest_window, sw->contents, 0, 0);
       Fset_window_start (dest_window, Fwindow_start (source_window), Qnil);
       Fset_window_point (dest_window, Fwindow_point (source_window));
-      dw->prev_buffers = sw->prev_buffers;
+      wset_prev_buffers (dw, sw->prev_buffers);
       set_window_buffer (source_window, nth_minibuffer (0), 0, 0);
-      sw->prev_buffers = Qnil;
+      wset_prev_buffers (sw, Qnil);
       return;
     }
 
-  if (live_minibuffer_p (dw->contents))
-    call1 (Qpush_window_buffer_onto_prev, dest_window);
-  if (live_minibuffer_p (sw->contents))
-    call1 (Qpush_window_buffer_onto_prev, source_window);
+  calln (Qrecord_window_buffer, dest_window);
+  calln (Qrecord_window_buffer, source_window);
+
   acc = merge_c (dw->prev_buffers, sw->prev_buffers, minibuffer_ent_greater);
 
   if (!NILP (acc))
@@ -180,8 +179,9 @@ zip_minibuffer_stacks (Lisp_Object dest_window, Lisp_Object source_window)
       Fset_window_start (dest_window, Fcar (Fcdr (d_ent)), Qnil);
       Fset_window_point (dest_window, Fcar (Fcdr (Fcdr (d_ent))));
     }
-  dw->prev_buffers = acc;
-  sw->prev_buffers = Qnil;
+
+  wset_prev_buffers (dw, acc);
+  wset_prev_buffers (sw, Qnil);
   set_window_buffer (source_window, nth_minibuffer (0), 0, 0);
 }
 
@@ -494,7 +494,7 @@ confirm the aborting of the current minibuffer and all contained ones.  */)
 	     to abort any extra non-minibuffer recursive edits.  Thus,
 	     the number of recursive edits we have to abort equals the
 	     number of minibuffers we have to abort.  */
-	  call1 (Qminibuffer_quit_recursive_edit, array[1]);
+	  calln (Qminibuffer_quit_recursive_edit, array[1]);
 	}
     }
   else
@@ -688,8 +688,8 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
 				    Fframe_first_window (MB_frame), Qnil);
     }
   MB_frame = XWINDOW (XFRAME (selected_frame)->minibuffer_window)->frame;
-  if (live_minibuffer_p (XWINDOW (minibuf_window)->contents))
-    call1 (Qpush_window_buffer_onto_prev, minibuf_window);
+
+  calln (Qrecord_window_buffer, minibuf_window);
 
   record_unwind_protect_void (minibuffer_unwind);
   if (read_minibuffer_restore_windows)
@@ -712,7 +712,8 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
   if (minibuffer_auto_raise)
     Fraise_frame (mini_frame);
 
-  temporarily_switch_to_single_kboard (XFRAME (mini_frame));
+  if (!multiple_terminals_merge_keyboards)
+    temporarily_switch_to_single_kboard (XFRAME (mini_frame));
 
   /* We have to do this after saving the window configuration
      since that is what restores the current buffer.  */
@@ -895,7 +896,7 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
 
   /* Turn on an input method stored in INPUT_METHOD if any.  */
   if (STRINGP (input_method) && !NILP (Ffboundp (Qactivate_input_method)))
-    call1 (Qactivate_input_method, input_method);
+    calln (Qactivate_input_method, input_method);
 
   run_hook (Qminibuffer_setup_hook);
 
@@ -913,7 +914,11 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
       XWINDOW (minibuf_window)->cursor.hpos = 0;
       XWINDOW (minibuf_window)->cursor.x = 0;
       XWINDOW (minibuf_window)->must_be_updated_p = true;
-      update_frame (XFRAME (selected_frame), true, true);
+      struct frame *sf = XFRAME (selected_frame);
+      update_frame (sf, true);
+      if (is_tty_frame (sf))
+	combine_updates_for_frame (sf, true);
+
 #ifndef HAVE_NTGUI
       flush_frame (XFRAME (XWINDOW (minibuf_window)->frame));
 #else
@@ -960,13 +965,13 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
 	      && !EQ (XWINDOW (XFRAME (calling_frame)->minibuffer_window)
 		      ->frame,
 		      calling_frame))))
-    call2 (Qselect_frame_set_input_focus, calling_frame, Qnil);
+    calln (Qselect_frame_set_input_focus, calling_frame, Qnil);
 
   /* Add the value to the appropriate history list, if any.  This is
      done after the previous buffer has been made current again, in
      case the history variable is buffer-local.  */
   if (! (NILP (Vhistory_add_new_input) || NILP (histstring)))
-    call2 (Qadd_to_history, histvar, histstring);
+    calln (Qadd_to_history, histvar, histstring);
 
   /* If Lisp form desired instead of string, parse it.  */
   if (expflag)
@@ -1557,8 +1562,7 @@ function, instead of the usual behavior.  */)
 					      STRING_MULTIBYTE (prompt));
 	    }
 
-	  prompt = CALLN (Ffuncall, Qformat_prompt,
-			  prompt,
+	  prompt = calln (Qformat_prompt, prompt,
 			  CONSP (def) ? XCAR (def) : def);
 	}
 
@@ -1570,8 +1574,8 @@ function, instead of the usual behavior.  */)
     result = (NILP (predicate)
 	      /* Partial backward compatibility for older read_buffer_functions
 		 which don't expect a `predicate' argument.  */
-	      ? call3 (Vread_buffer_function, prompt, def, require_match)
-	      : call4 (Vread_buffer_function, prompt, def, require_match,
+	      ? calln (Vread_buffer_function, prompt, def, require_match)
+	      : calln (Vread_buffer_function, prompt, def, require_match,
 		       predicate));
   return unbind_to (count, result);
 }
@@ -1661,7 +1665,7 @@ or from one of the possible completions.  */)
 
   CHECK_STRING (string);
   if (type == function_table)
-    return call3 (collection, string, predicate, Qnil);
+    return calln (collection, string, predicate, Qnil);
 
   bestmatch = bucket = Qnil;
   zero = make_fixnum (0);
@@ -1734,11 +1738,11 @@ or from one of the possible completions.  */)
 	      else
 		{
 		  if (type == hash_table)
-		    tem = call2 (predicate, elt,
+		    tem = calln (predicate, elt,
 				 HASH_VALUE (XHASH_TABLE (collection),
 					     idx - 1));
 		  else
-		    tem = call1 (predicate, elt);
+		    tem = calln (predicate, elt);
 		}
 	      if (NILP (tem)) continue;
 	    }
@@ -1817,12 +1821,6 @@ or from one of the possible completions.  */)
 
   if (NILP (bestmatch))
     return Qnil;		/* No completions found.  */
-  /* If we are ignoring case, and there is no exact match,
-     and no additional text was supplied,
-     don't change the case of what the user typed.  */
-  if (completion_ignore_case && bestmatchsize == SCHARS (string)
-      && SCHARS (bestmatch) > bestmatchsize)
-    return string;
 
   /* Return t if the supplied string is an exact match (counting case);
      it does not require any change to be made.  */
@@ -1834,7 +1832,7 @@ or from one of the possible completions.  */)
   return Fsubstring (bestmatch, zero, end);
 }
 
-DEFUN ("all-completions", Fall_completions, Sall_completions, 2, 4, 0,
+DEFUN ("all-completions", Fall_completions, Sall_completions, 2, 3, 0,
        doc: /* Search for partial matches of STRING in COLLECTION.
 
 Test each possible completion specified by COLLECTION
@@ -1867,12 +1865,8 @@ the string key and the associated value.
 
 To be acceptable, a possible completion must also match all the regexps
 in `completion-regexp-list' (unless COLLECTION is a function, in
-which case that function should itself handle `completion-regexp-list').
-
-An obsolete optional fourth argument HIDE-SPACES is still accepted for
-backward compatibility.  If non-nil, strings in COLLECTION that start
-with a space are ignored unless STRING itself starts with a space.  */)
-  (Lisp_Object string, Lisp_Object collection, Lisp_Object predicate, Lisp_Object hide_spaces)
+which case that function should itself handle `completion-regexp-list').  */)
+  (Lisp_Object string, Lisp_Object collection, Lisp_Object predicate)
 {
   Lisp_Object tail, elt, eltstring;
   Lisp_Object allmatches;
@@ -1889,7 +1883,7 @@ with a space are ignored unless STRING itself starts with a space.  */)
 
   CHECK_STRING (string);
   if (type == 0)
-    return call3 (collection, string, predicate, Qt);
+    return calln (collection, string, predicate, Qt);
   allmatches = bucket = Qnil;
   zero = make_fixnum (0);
 
@@ -1940,12 +1934,6 @@ with a space are ignored unless STRING itself starts with a space.  */)
 
       if (STRINGP (eltstring)
 	  && SCHARS (string) <= SCHARS (eltstring)
-	  /* If HIDE_SPACES, reject alternatives that start with space
-	     unless the input starts with space.  */
-	  && (NILP (hide_spaces)
-	      || (SBYTES (string) > 0
-		  && SREF (string, 0) == ' ')
-	      || SREF (eltstring, 0) != ' ')
 	  && (tem = Fcompare_strings (eltstring, zero,
 				      make_fixnum (SCHARS (string)),
 				      string, zero,
@@ -1968,11 +1956,11 @@ with a space are ignored unless STRING itself starts with a space.  */)
 	      else
 		{
 		  if (type == 3)
-		    tem = call2 (predicate, elt,
+		    tem = calln (predicate, elt,
 				 HASH_VALUE (XHASH_TABLE (collection),
 					     idx - 1));
 		  else
-		    tem = call1 (predicate, elt);
+		    tem = calln (predicate, elt);
 		}
 	      if (NILP (tem)) continue;
 	    }
@@ -2054,8 +2042,7 @@ Completion ignores case if the ambient value of
 See also `completing-read-function'.  */)
   (Lisp_Object prompt, Lisp_Object collection, Lisp_Object predicate, Lisp_Object require_match, Lisp_Object initial_input, Lisp_Object hist, Lisp_Object def, Lisp_Object inherit_input_method)
 {
-  return CALLN (Ffuncall,
-		Fsymbol_value (Qcompleting_read_function),
+  return calln (Fsymbol_value (Qcompleting_read_function),
 		prompt, collection, predicate, require_match, initial_input,
 		hist, def, inherit_input_method);
 }
@@ -2111,7 +2098,7 @@ the values STRING, PREDICATE and `lambda'.  */)
   else if (HASH_TABLE_P (collection))
     {
       struct Lisp_Hash_Table *h = XHASH_TABLE (collection);
-      ptrdiff_t i = hash_lookup (h, string);
+      ptrdiff_t i = hash_find (h, string);
       if (i >= 0)
         {
           tem = HASH_KEY (h, i);
@@ -2137,7 +2124,7 @@ the values STRING, PREDICATE and `lambda'.  */)
     found_matching_key: ;
     }
   else
-    return call3 (collection, string, predicate, Qlambda);
+    return calln (collection, string, predicate, Qlambda);
 
   /* Reject this element if it fails to match all the regexps.  */
   if (!match_regexps (string, Vcompletion_regexp_list,
@@ -2148,8 +2135,8 @@ the values STRING, PREDICATE and `lambda'.  */)
   if (!NILP (predicate))
     {
       return HASH_TABLE_P (collection)
-	? call2 (predicate, tem, arg)
-	: call1 (predicate, tem);
+	? calln (predicate, tem, arg)
+	: calln (predicate, tem);
     }
   else
     return Qt;
@@ -2168,7 +2155,7 @@ If FLAG is nil, invoke `try-completion'; if it is t, invoke
     return Ftry_completion (string, Vbuffer_alist, predicate);
   else if (EQ (flag, Qt))
     {
-      Lisp_Object res = Fall_completions (string, Vbuffer_alist, predicate, Qnil);
+      Lisp_Object res = Fall_completions (string, Vbuffer_alist, predicate);
       if (SCHARS (string) > 0)
 	return res;
       else
@@ -2292,6 +2279,204 @@ init_minibuf_once_for_pdumper (void)
   minibuf_save_list = Qnil;
   last_minibuf_string = Qnil;
 }
+
+/* FLEX/GOTOH algorithm for the 'flex' completion-style.  Adapted from
+   GOTOH, Osamu.  An improved algorithm for matching biological
+   sequences. Journal of molecular biology, 1982, 162.3: 705-708.
+
+   This algorithm matches patterns to candidate strings, or needles to
+   haystacks.  It works with cost matrices: imagine rows of these
+   matrices as pattern characters, and columns as the candidate string
+   characters.  There is a -1 row, and a -1 column.  The values there
+   hold real costs used for situations "before the first ever" match of
+   a pattern character to a string character.
+
+   M and D are cost matrices.  At the end of the algorithm, M will have
+   non-infinite values only for the spots where a pattern character
+   matches a string character.  So a non-infinite M[i,j] means the i-th
+   character of the pattern matches the j-th character of the string.
+   The value stored is the lowest possible cost the algorithm had to
+   "pay" to be able to make that match there, given everything that may
+   have happened before/to the left.  An infinite value simply means no
+   match at this pattern/string position.  Note that both rows and
+   columns of M may have more than one match at multiple indices.  If
+   some row or column of M has no match at all, the final cost will be
+   infinite, and the funtion will return nil.
+
+   D (originally stands for 'Distance' in the Gotoh paper) has "running
+   costs".  Each value D[i,j] represents what the algorithm has to pay
+   to make or extend a gap when a match is found at i+1, j+1.  By that
+   time, that cost may or may not be lower than continuing from a match
+   that had also been found at i,j.  We always pick the lowest cost, and
+   by the time we reach the final column, we know we have picked the
+   cheapest possible path choosing when to gap, and when to follow up.
+
+   Here's an illustration of the final state of M and D when matching
+   "goto" to "eglot--goto".  Notice how the algorithm detects but
+   ultimately discards the scattered match at indexes 1,3,4,8, which
+   would have total cost 27, and ultimately settles on the match at
+   positions 7,8,9,10 which has cost 5:
+
+             -1  0  1  2  3  4  5  6  7  8  9 10
+              -  e  g  l  o  t  -  -  g  o  t  o
+   M:  -1  -  ∞  ∞  ∞  ∞  ∞  ∞  ∞  ∞  ∞  ∞  ∞  ∞
+        0  g  ∞  ∞  5  ∞  ∞  ∞  ∞  ∞  5  ∞  ∞  ∞
+        1  o  ∞  ∞  ∞  ∞ 15  ∞  ∞  ∞  ∞  5  ∞ 16
+        2  t  ∞  ∞  ∞  ∞  ∞ 15  ∞  ∞  ∞  ∞  5  ∞
+        3  o  ∞  ∞  ∞  ∞  ∞  ∞  ∞  ∞  ∞ 27  ∞  5
+
+   D:  -1  -  0  5  5  5  5  5  5  5  5  5  5  5
+        0  g  ∞  ∞  ∞ 15 16 17 18 19 20 15 16 17
+        1  o  ∞  ∞  ∞  ∞  ∞ 25 26 27 28 29 15 16
+        2  t  ∞  ∞  ∞  ∞  ∞  ∞ 25 26 27 28 29 15
+        3  o  ∞  ∞  ∞  ∞  ∞  ∞  ∞  ∞  ∞  ∞ 37 38
+ **/
+DEFUN ("completion--flex-cost-gotoh", Fcompletion__flex_cost_gotoh,
+       Scompletion__flex_cost_gotoh, 2, 2, 0,
+       doc: /* Compute cost of PAT matching STR using modified Gotoh
+algorithm.  Return nil if no match found, else return (COST . MATCHES)
+where COST is a fixnum (lower is better) and MATCHES is a list of the
+same length as PAT.  Each i-th element is a FIXNUM indicating where in
+STR the i-th character of PAT matched.  */)
+  (Lisp_Object pat, Lisp_Object str)
+  {
+    /* Pre-allocated matrices for flex completion scoring.  */
+#define FLEX_MAX_STR_SIZE 512
+#define FLEX_MAX_PAT_SIZE 128
+#define FLEX_MAX_MATRIX_SIZE FLEX_MAX_PAT_SIZE * FLEX_MAX_STR_SIZE
+    /* Macro for 2D indexing into "flat" arrays.  */
+#define MAT(matrix, i, j) ((matrix)[((i) + 1) * width + ((j) + 1)])
+
+    CHECK_STRING (pat);
+    CHECK_STRING (str);
+
+    ptrdiff_t patlen = SCHARS (pat);
+    ptrdiff_t strlen = SCHARS (str);
+    ptrdiff_t width = strlen + 1;
+    ptrdiff_t size = (patlen + 1) * width;
+    const int gap_open_cost = 10;
+    const int gap_extend_cost = 1;
+    const int pos_inf = INT_MAX / 2;
+    static int M[FLEX_MAX_MATRIX_SIZE];
+    static int D[FLEX_MAX_MATRIX_SIZE];
+
+    /* Bail if strings are empty or matrix too large.  */
+    if (patlen == 0 || strlen == 0 || size > FLEX_MAX_MATRIX_SIZE)
+      return Qnil;
+
+    /* Also bail if PAT is not a subsequence of STR so bail "cheaply"
+       before the O(N*M) DP algorithm.  Walking both strings
+       byte-by-byte for this purpose (and only for case-sensitive common
+       case) should be valid even for multibyte strings. */
+    if (!completion_ignore_case)
+      {
+	const unsigned char *p = SDATA (pat);
+	const unsigned char *s = SDATA (str);
+	int pi = 0;
+	for (int si = 0; si < strlen && pi < patlen; si++)
+	  if (s[si] == p[pi])
+	    pi++;
+	if (pi < patlen)
+	  return Qnil;
+      }
+
+    /* Initialize M and D with positive infinity...  */
+    for (int j = 0; j < size; j++)
+      M[j] = D[j] = pos_inf;
+    /* ...except for D[-1,-1], which is 0 to promote matches at the
+       beginning.  Rest of first row has gap_open_cost/2 for cheaper
+       leading gaps.  */
+    for (int j = 0; j < width; j++)
+      D[j] = gap_open_cost / 2;
+    D[0] = 0;
+
+    /* Poor man's iterator type: cur char idx, next char idx, next byte idx.  */
+    typedef struct iter { int x; ptrdiff_t n; ptrdiff_t b; } iter_t;
+
+    /* Position of first match found in the previous row, to save
+       iterations.  */
+    iter_t prev_match = { 0, 0, 0 };
+
+    /* Forward pass.  */
+    for (iter_t i = { 0, 0, 0 }; i.x < patlen; i.x++)
+      {
+	int pat_char = fetch_string_char_advance (pat, &i.n, &i.b);
+	bool match_seen = false;
+
+	for (iter_t j = prev_match; j.x < strlen; j.x++)
+	  {
+	    iter_t jcopy = j; /* else advance function destroys it...  */
+	    int str_char = fetch_string_char_advance (str, &j.n, &j.b);
+
+	    /* Check if characters match (case-insensitive if needed).  */
+	    bool cmatch;
+	    if (completion_ignore_case)
+	      cmatch = (downcase (pat_char) == downcase (str_char));
+	    else
+	      cmatch = (pat_char == str_char);
+
+	    if (cmatch)
+	      {
+		/* There is a match here, so compute match cost
+		   M[i][j], i.e. replace its infinite value with
+		   something finite.  */
+		if (!match_seen)
+		  {
+		    match_seen = true;
+		    prev_match = jcopy;
+		  }
+		/* Compute M[i,j]. If we pick M[i-1,j-1] it means that
+		   not only did the previous char also match (else
+		   M[i-1,j-1] would have been infinite) but following
+		   it up with this match is best overall.  If we pick
+		   D[i-1, j-1] it means that gapping is best,
+		   regardless of whether the previous char also
+		   matched.  That is, it's better to arrive at this
+		   match from a gap.  */
+		MAT (M, i.x, j.x) = min (MAT (M, i.x - 1, j.x - 1),
+					 MAT (D, i.x - 1, j.x - 1));
+	      }
+	    /* Regardless of a match here, compute D[i,j], the best
+	       accumulated gapping cost at this point, considering
+	       whether it's more advantageous to open from a previous
+	       match on this row (a cost which may well be infinite if
+	       no such match ever existed) or extend a gap started
+	       sometime before.  The next iteration will take this
+	       into account, and so will the next row when analyzing a
+	       possible match for the j+1-th string character.  */
+	    MAT (D, i.x, j.x)
+	      = min (MAT (M, i.x, j.x - 1) + gap_open_cost,
+		     MAT (D, i.x, j.x - 1) + gap_extend_cost);
+	  }
+      }
+    /* Find lowest cost in last row.  */
+    int best_cost = pos_inf;
+    int lastcol = -1;
+    for (int j = 0; j < strlen; j++)
+      {
+	int cost = MAT (M, patlen - 1, j);
+	if (cost < best_cost)
+	  {
+	    best_cost = cost;
+	    lastcol = j;
+	  }
+      }
+
+    /* Return early if no match.  */
+    if (lastcol < 0 || best_cost >= pos_inf)
+      return Qnil;
+
+    /* Go backwards to build match positions list.  */
+    Lisp_Object matches = Fcons (make_fixnum (lastcol), Qnil);
+    for (int i = patlen - 2, l = lastcol; i >= 0; --i)
+      {
+	do --l; while (l >= 0 && MAT (M, i, l) >= MAT (D, i, l));
+	matches = Fcons (make_fixnum (l), matches);
+      }
+
+    return Fcons (make_fixnum (best_cost), matches);
+#undef MAT
+  }
 
 void
 syms_of_minibuf (void)
@@ -2488,7 +2673,7 @@ basic completion functions like `try-completion' and `all-completions'.  */);
   DEFVAR_BOOL ("minibuffer-allow-text-properties",
 	       minibuffer_allow_text_properties,
 	       doc: /* Non-nil means `read-from-minibuffer' should not discard text properties.
-The value could be let-bound or buffer-local in the minibuffer.
+Lisp code can let-bind this, or make it buffer-local in the minibuffer.
 This also affects `read-string', or any of the functions that do
 minibuffer input with completion, but it does not affect `read-minibuffer'
 that always discards text properties.  */);
@@ -2555,6 +2740,7 @@ showing the *Completions* buffer, if any.  */);
   defsubr (&Stest_completion);
   defsubr (&Sassoc_string);
   defsubr (&Scompleting_read);
+  defsubr (&Scompletion__flex_cost_gotoh);
   DEFSYM (Qminibuffer_quit_recursive_edit, "minibuffer-quit-recursive-edit");
   DEFSYM (Qinternal_complete_buffer, "internal-complete-buffer");
   DEFSYM (Qcompleting_read_function, "completing-read-function");

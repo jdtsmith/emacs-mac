@@ -37,7 +37,7 @@ SRCS=${ADASRC} ${ASRC} ${CSRC} ${CPSRC} ${ELSRC} ${ERLSRC} ${FSRC}\
 NONSRCS=./f-src/entry.strange ./erl-src/lists.erl ./cp-src/clheir.hpp.gz
 
 ETAGS_PROG=../../../lib-src/etags
-CTAGS_PROG=../../../lib-src/ctags
+CTAGS_PROG=../../../lib-src/etags --ctags
 
 REGEX=/[ \t]*DEFVAR_[A-Z_ \t\n(]+"\([^"]+\)"/
 xx="this line is here because of a fontlock bug
@@ -59,6 +59,7 @@ check:
 	@$(MAKE) OPTIONS='--regex=@regexfile --no-members' ediff_4
 	@$(MAKE) OPTIONS='nonexistent --members --declarations --regex=@regexfile' ediff_5
 	@$(MAKE) OPTIONS='--class-qualify --members --declarations --regex=@regexfile' ediff_6
+	@$(MAKE) OPTIONS='--no-members --no-fallback --no-empty' ediff_7
 	@$(MAKE) cdiff
 	@$(MAKE) ctags_update
 

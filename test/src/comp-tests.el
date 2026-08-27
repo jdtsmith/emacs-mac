@@ -1,6 +1,6 @@
 ;;; comp-tests.el --- unit tests for src/comp.c      -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2019-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
 ;; Author: Andrea Corallo <acorallo@gnu.org>
 
@@ -146,7 +146,7 @@ Check that the resulting binaries do not differ."
   (should (= (comp-tests-aref-aset-f) 100)))
 
 (comp-deftest symbol-value ()
-  "Testing aref and aset."
+  "Testing `symbol-value'."
   (should (= (comp-tests-symbol-value-f) 3)))
 
 (comp-deftest concat ()
@@ -260,8 +260,8 @@ Check that the resulting binaries do not differ."
 
 (comp-deftest setcarcdr ()
   "Testing setcar setcdr."
-  (should (equal (comp-tests-setcar-f '(10 . 10) 3) '(3 . 10)))
-  (should (equal (comp-tests-setcdr-f '(10 . 10) 3) '(10 . 3)))
+  (should (equal (comp-tests-setcar-f (cons 10 10) 3) '(3 . 10)))
+  (should (equal (comp-tests-setcdr-f (cons 10 10) 3) '(10 . 3)))
   (should-error (comp-tests-setcar-f 3 10)
                 :type 'wrong-type-argument)
   (should-error (comp-tests-setcdr-f 3 10)
@@ -329,7 +329,7 @@ Check that the resulting binaries do not differ."
     (should (= (funcall f 3) 4))))
 
 (comp-deftest lambda-return2 ()
-  "Check a nested lambda function gets native compiled."
+  "Check a nested lambda function gets natively compiled."
   (let ((f (comp-tests-lambda-return-f2)))
     (should (native-comp-function-p f))
     (let ((f2 (funcall f)))
@@ -468,6 +468,10 @@ https://lists.gnu.org/archive/html/bug-gnu-emacs/2020-03/msg00914.html."
   "<https://lists.gnu.org/archive/html/bug-gnu-emacs/2020-12/msg01883.html>"
   (should (equal (comp-test-45376-2-f) '(0 2 1 0 1 0 1 0 0 0 0 0))))
 
+(comp-deftest bug-80327 ()
+  "Equal on a negated branch must not over-constrain operands."
+  (should (= (comp-test-80327-f) 7)))
+
 (defvar comp-test-primitive-advice)
 (comp-deftest primitive-advice ()
   "Test effectiveness of primitive advising."
@@ -495,12 +499,17 @@ https://lists.gnu.org/archive/html/bug-gnu-emacs/2020-03/msg00914.html."
 (comp-deftest compile-forms ()
   "Verify lambda form native compilation."
   (should-error (native-compile '(+ 1 foo)))
-  (let ((lexical-binding t)
-        (f (native-compile '(lambda (x) (1+ x)))))
+  (let ((f (native-compile '(lambda (x) (1+ x)))))
     (should (native-comp-function-p f))
     (should (= (funcall f 2) 3)))
   (let* ((lexical-binding nil)
          (f (native-compile '(lambda (x) (1+ x)))))
+    (should (native-comp-function-p f))
+    (should (= (funcall f 2) 3))))
+
+(comp-deftest compile-interpreted-functions ()
+  "Verify native compilation of interpreted functions."
+  (let ((f (native-compile (eval '(lambda (x) (1+ x))))))
     (should (native-comp-function-p f))
     (should (= (funcall f 2) 3))))
 
@@ -586,6 +595,15 @@ dedicated byte-op code."
 (comp-deftest 67239-1 ()
   "<https://lists.gnu.org/archive/html/bug-gnu-emacs/2023-11/msg00925.html>"
   (should-not (comp-test-67239-1-f)))
+
+(comp-deftest comp-test-73270-1 ()
+  "<https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-09/msg00794.html>"
+  (should (eq (comp-test-73270-1-f (make-comp-test-73270-child4)) 'child4)))
+
+(comp-deftest comp-test-78606-1 ()
+  "<https://lists.gnu.org/archive/html/bug-gnu-emacs/2025-05/msg01270.html>"
+  (should (let ((x 1.0))
+            (eq (comp-test-78606-1-f x) x))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;
@@ -1503,7 +1521,12 @@ Return a list of results."
          (if (functionp x)
              (error "")
            x))
-       '(not function))))
+       '(not function))
+      ;; 81
+      ((defun comp-tests-ret-type-spec-f (x)
+         (print (comp-foo-p x))
+         (comp-foo-p x))
+       'boolean)))
 
   (defun comp-tests-define-type-spec-test (number x)
     `(comp-deftest ,(intern (format "ret-type-spec-%d" number)) ()
@@ -1562,37 +1585,77 @@ folded."
     (should (native-comp-function-p (symbol-function 'comp-tests-pure-fibn-entry-f)))
     (should (= (comp-tests-pure-fibn-entry-f) 6765))))
 
-(defvar comp-tests-cond-rw-checked-function nil
-  "Function to be checked.")
-(defun comp-tests-cond-rw-checker-val (_)
-  "Check we manage to propagate the correct return value."
-  (should
-   (cl-some
-    #'identity
-    (comp-tests-map-checker
-     comp-tests-cond-rw-checked-function
-     (lambda (insn)
-       (pcase insn
-         (`(return ,mvar)
-          (and (comp-cstr-imm-vld-p mvar)
-               (eql (comp-cstr-imm mvar) 123)))))))))
-
-(defvar comp-tests-cond-rw-expected-type nil
-  "Type to expect in `comp-tests-cond-rw-checker-type'.")
-(defun comp-tests-cond-rw-checker-type (_)
-  "Check we manage to propagate the correct return type."
-  (should
-   (cl-some
-    #'identity
-    (comp-tests-map-checker
-     comp-tests-cond-rw-checked-function
-     (lambda (insn)
-       (pcase insn
-         (`(return ,mvar)
-          (equal (comp-mvar-typeset mvar)
-                 comp-tests-cond-rw-expected-type))))))))
-
 (comp-deftest comp-tests-result-lambda ()
   (native-compile 'comp-tests-result-lambda)
   (should (eq (funcall (comp-tests-result-lambda) '(a . b)) 'a)))
+
+(defun comp-tests-type-branch-optim-checker (_)
+  "Check there's only a single call to `type-of'."
+  (should (= (cl-count t (comp-tests-map-checker
+                          #'comp-tests-type-branch-optim-1-f
+                          (lambda (insn)
+                            (pcase insn
+                              (`(set ,_mvar-1 (call type-of ,_mvar-2))
+                               t)))))
+             1)))
+
+(declare-function comp-tests-type-branch-optim-1-f nil)
+
+(comp-deftest comp-tests-type-branch-optim ()
+  (let ((native-comp-speed 2)
+        (comp-post-pass-hooks '((comp--final comp-tests-type-branch-optim-checker))))
+    (eval '(progn
+             (cl-defstruct type-branch-optim-struct a b c)
+             (defun comp-tests-type-branch-optim-1-f (x)
+               (setf (type-branch-optim-struct-a x) 3)
+               (+ (type-branch-optim-struct-b x) (type-branch-optim-struct-c x))))
+          t)
+    (native-compile #'comp-tests-type-branch-optim-1-f)))
+
+(defun comp-tests-has-direct-call-p (func-name)
+  "Return non-nil if FUNC-NAME contains a direct call instruction."
+  (cl-some
+   #'identity
+   (comp-tests-map-checker
+    func-name
+    (lambda (insn)
+      (or (comp-tests-mentioned-p 'direct-call insn)
+          (comp-tests-mentioned-p 'direct-callref insn))))))
+
+(comp-deftest direct-call-with-lambdas ()
+  "Check that anonymous lambdas don't prevent direct calls at speed 3.
+See `comp--func-unique-in-cu-p'."
+  (let ((native-comp-speed 3)
+        (comp-post-pass-hooks
+         '((comp--final
+            (lambda (_)
+              (should (comp-tests-has-direct-call-p
+                       'comp-tests-direct-call-caller-f)))))))
+    (load (native-compile
+           (ert-resource-file "comp-test-direct-call.el")))
+    (declare-function comp-tests-direct-call-caller-f nil)
+    (should (native-comp-function-p
+             (symbol-function 'comp-tests-direct-call-caller-f)))
+    (should (= (comp-tests-direct-call-caller-f 3) 4))))
+
+(comp-deftest direct-call-with-duplicate-names ()
+  "Check that duplicate names only block their own direct calls.
+See `comp--func-unique-in-cu-p'."
+  (let ((native-comp-speed 3)
+        (comp-post-pass-hooks
+         '((comp--final
+            (lambda (_)
+              ;; Call to unique callee: SHOULD use direct call.
+              (should (comp-tests-has-direct-call-p
+                       'comp-tests-calls-unique-f))
+              ;; Call to ambiguous callee: should NOT.
+              (should-not (comp-tests-has-direct-call-p
+                           'comp-tests-calls-dup-f)))))))
+    (load (native-compile
+           (ert-resource-file "comp-test-direct-call-dup.el")))
+    (declare-function comp-tests-calls-unique-f nil)
+    (should (native-comp-function-p
+             (symbol-function 'comp-tests-calls-unique-f)))
+    (should (= (comp-tests-calls-unique-f 3) 6))))
+
 ;;; comp-tests.el ends here

@@ -1,6 +1,6 @@
 ;;; icomplete.el --- minibuffer completion incremental feedback -*- lexical-binding: t -*-
 
-;; Copyright (C) 1992-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
 ;; Author: Ken Manheimer <ken dot manheimer at gmail...>
 ;; Created: Mar 1993 Ken Manheimer, klm@nist.gov - first release to usenet
@@ -79,11 +79,12 @@ selection process starts again from the user's $HOME."
 (defcustom icomplete-show-matches-on-no-input nil
   "When non-nil, show completions when first prompting for input.
 This means to show completions even when the current minibuffer contents
-is the same as was the initial input after minibuffer activation.
-This also means that if you traverse the list of completions with
-commands like \\`C-.' and just hit \\`RET' without typing any
-characters, the match under point will be chosen instead of the
-default."
+is the same as the initial input after minibuffer activation.
+This also means that if you just hit \\`C-j' without typing any
+characters, this chooses the first completion candidate instead of the
+minibuffer's default value.
+
+See also `icomplete-ret'."
   :type 'boolean
   :version "24.4")
 
@@ -114,6 +115,18 @@ Otherwise this should be a list of the completion tables (e.g.,
 (defface icomplete-section '((t :inherit shadow :slant italic))
   "Face used by `icomplete-vertical-mode' for the section title."
   :version "28.1")
+
+(defface icomplete-vertical-selected-prefix-indicator-face
+  '((t :inherit font-lock-keyword-face :weight bold :foreground "slate blue"))
+  "Face used by `icomplete-vertical-selected-prefix-indicator'."
+  :group 'icomplete
+  :version "31.1")
+
+(defface icomplete-vertical-unselected-prefix-indicator-face
+  '((t :inherit font-lock-keyword-face :weight normal :foreground "gray"))
+  "Face used by `icomplete-vertical-unselected-prefix-indicator'."
+  :group 'icomplete
+  :version "31.1")
 
 ;;;_* User Customization variables
 (defcustom icomplete-prospects-height 2
@@ -166,6 +179,50 @@ will constrain Emacs to a maximum minibuffer height of 3 lines when
 icompletion is occurring."
   :type 'hook)
 
+(defcustom icomplete-vertical-in-buffer-adjust-list nil
+  "Control whether in-buffer completion should align the cursor position.
+If this is t and `icomplete-in-buffer' is t, and `icomplete-vertical-mode'
+is activated, the in-buffer vertical completions are shown aligned to the
+cursor position when the completion started, not on the first column, as
+the default behavior."
+  :type 'boolean
+  :group 'icomplete
+  :version "31.1")
+
+(defcustom icomplete-vertical-render-prefix-indicator nil
+  "Control whether an indicator is added as a prefix to each candidate.
+If this is t and `icomplete-vertical-mode' is activated, an indicator,
+controlled by `icomplete-vertical-selected-prefix-indicator' is shown
+as a prefix to the current under selection candidate, while the
+remaining of the candidates will receive the indicator controlled
+by `icomplete-vertical-unselected-prefix-indicator'."
+  :type 'boolean
+  :group 'icomplete
+  :version "31.1")
+
+(defcustom icomplete-vertical-selected-prefix-indicator
+  (if (char-displayable-p ?») "» " "> ")
+  "Prefix string used to mark the selected completion candidate.
+If `icomplete-vertical-render-prefix-indicator' is t, this string
+is used as a prefix of the currently selected entry in the list.
+It can be further customized by the face
+`icomplete-vertical-selected-prefix-indicator-face'.
+
+By default, this is set to \"» \" if the character is displayable,
+otherwise, it falls back to \"> \"."
+  :type 'string
+  :group 'icomplete
+  :version "31.1")
+
+(defcustom icomplete-vertical-unselected-prefix-indicator "  "
+  "Prefix string used on the unselected completion candidates.
+If `icomplete-vertical-render-prefix-indicator' is t, the string
+defined here is used as a prefix for all unselected entries in the list.
+list.  It can be further customized by the face
+`icomplete-vertical-unselected-prefix-indicator-face'."
+  :type 'string
+  :group 'icomplete
+  :version "31.1")
 
 ;;;_* Initialization
 
@@ -187,14 +244,24 @@ Used to implement the option `icomplete-show-matches-on-no-input'.")
   "C-M-i" #'icomplete-force-complete
   "C-j"   #'icomplete-force-complete-and-exit
   "C-."   #'icomplete-forward-completions
-  "C-,"   #'icomplete-backward-completions
-  "<remap> <minibuffer-complete-and-exit>" #'icomplete-ret)
+  "C-,"   #'icomplete-backward-completions)
 
 (defun icomplete-ret ()
-  "Exit minibuffer for icomplete."
+  "Alternative minibuffer exit for Icomplete.
+If there is a completion candidate and the minibuffer contents is the
+same as it was right after minibuffer activation, exit selecting that
+candidate.  Otherwise do as `minibuffer-complete-and-exit'.
+
+You may wish to consider binding this command to \\`RET' (or to
+`<remap> <minibuffer-complete-and-exit>') in `icomplete-minibuffer-map'.
+If you do that, then when Emacs first prompts for input such that the
+current minibuffer contents is equal to the initial input right after
+minibuffer activation, \\`RET' chooses the first completion candidate
+instead of the minibuffer's default value.
+This rebinding is especially useful if you have customized
+`icomplete-show-matches-on-no-input' to a non-nil value."
   (interactive)
-  (if (and icomplete-show-matches-on-no-input
-           (car completion-all-sorted-completions)
+  (if (and (car completion-all-sorted-completions)
            (equal (icomplete--field-string) icomplete--initial-input))
       (icomplete-force-complete-and-exit)
     (minibuffer-complete-and-exit)))
@@ -422,8 +489,10 @@ if that doesn't produce a completion match."
   "C-m"     #'icomplete-fido-ret
   "DEL"     #'icomplete-fido-backward-updir
   "M-j"     #'icomplete-fido-exit
-  "C-s"     #'icomplete-forward-completions
-  "C-r"     #'icomplete-backward-completions
+  "C-s"     `(menu-item "" icomplete-forward-completions
+                        :filter ,(lambda (x) (unless fido-vertical-mode x)))
+  "C-r"     `(menu-item "" icomplete-backward-completions
+                        :filter ,(lambda (x) (unless fido-vertical-mode x)))
   "<right>" #'icomplete-forward-completions
   "<left>"  #'icomplete-backward-completions
   "C-."     #'icomplete-forward-completions
@@ -828,6 +897,57 @@ by `group-function''s second \"transformation\" protocol."
                  else collect (list tr prefix suffix ))
       annotated)))
 
+(defun icomplete--adjust-lines-for-column (lines buffer data)
+  "Adjust the LINES to align with the column in BUFFER based on DATA."
+  (if icomplete-vertical-in-buffer-adjust-list
+      (let* ((column (current-column))
+             (prefix-indicator-width
+              (if icomplete-vertical-render-prefix-indicator
+                  (max (length icomplete-vertical-selected-prefix-indicator)
+                       (length icomplete-vertical-unselected-prefix-indicator))
+                0))
+             (wrapped-line (with-current-buffer buffer
+                             (save-excursion
+                               (goto-char (car data))
+                               (beginning-of-line)
+                               (count-screen-lines (point) (car data)))))
+             (window-width (+ (window-hscroll) (window-body-width)))
+             (longest-line-width (apply #'max (mapcar #'length lines)))
+             (spaces-to-add
+              (if (> wrapped-line 1)
+                  (- column (* (- wrapped-line 1) (- window-width 5)))
+                column))
+             (spaces-to-add-avoiding-scrolling
+              (if (>= (+ spaces-to-add longest-line-width prefix-indicator-width) window-width)
+                  (- spaces-to-add longest-line-width)
+                spaces-to-add)))
+
+        (mapcar (lambda (line)
+                  (concat (make-string spaces-to-add-avoiding-scrolling ?\s) line))
+                lines))
+    lines))
+
+(defun icomplete--ensure-visible-lines-inside-buffer ()
+  "Ensure the completion list is visible in regular buffers only.
+Scrolls the screen to be at least `icomplete-prospects-height' real lines
+away from the bottom.  Counts wrapped lines as real lines."
+  (unless (minibufferp)
+    (let* ((window-height (window-body-height))
+           (current-line (count-screen-lines (window-start) (point)))
+           (lines-to-bottom (- window-height current-line)))
+      (when (< lines-to-bottom icomplete-prospects-height)
+        (scroll-up (- icomplete-prospects-height lines-to-bottom))))))
+
+(defun icomplete--add-indicator-to-selected (comp)
+  "Add indicator to completion COMP according to its selection state."
+  (if (get-text-property 0 'icomplete-selected comp)
+      (concat (propertize icomplete-vertical-selected-prefix-indicator
+                          'face 'icomplete-vertical-selected-prefix-indicator-face)
+              comp)
+    (concat (propertize icomplete-vertical-unselected-prefix-indicator
+                        'face 'icomplete-vertical-unselected-prefix-indicator-face)
+            comp)))
+
 (cl-defun icomplete--render-vertical
     (comps md &aux scroll-above scroll-below
            (total-space ; number of mini-window lines available
@@ -843,12 +963,17 @@ by `group-function''s second \"transformation\" protocol."
   ;; - both nil, there is no manual scroll;
   ;; - both non-nil, there is a healthy manual scroll that doesn't need
   ;;   to be readjusted (user just moved around the minibuffer, for
-  ;;   example)l
+  ;;   example);
   ;; - non-nil and nil, respectively, a refiltering took place and we
   ;;   may need to readjust them to the new filtered `comps'.
   (when (and icomplete-scroll
+             (not icomplete--scrolled-completions)
+             (not icomplete--scrolled-past))
+    (icomplete--ensure-visible-lines-inside-buffer))
+  (when (and icomplete-scroll
              icomplete--scrolled-completions
              (null icomplete--scrolled-past))
+    (icomplete--ensure-visible-lines-inside-buffer)
     (cl-loop with preds
              for (comp . rest) on comps
              when (equal comp (car icomplete--scrolled-completions))
@@ -877,7 +1002,7 @@ by `group-function''s second \"transformation\" protocol."
            for neighbor = nil
            if (and preds (> space-above 0)) do
            (push (setq neighbor (pop preds)) scroll-above)
-           (cl-decf space-above)
+           (decf space-above)
            else if (consp succs) collect
            (setq neighbor (pop succs)) into scroll-below-aux
            while neighbor
@@ -899,7 +1024,11 @@ by `group-function''s second \"transformation\" protocol."
     ;; Serialize completions and section titles into a list
     ;; of lines to render
     (cl-loop
-     for (comp prefix suffix section) in tuples
+     for (comp-no-indicator prefix suffix section) in tuples
+     for comp =
+     (if icomplete-vertical-render-prefix-indicator
+         (icomplete--add-indicator-to-selected comp-no-indicator)
+       comp-no-indicator)
      when section
      collect (propertize section 'face 'icomplete-section) into lines-aux
      and count 1 into nsections-aux
@@ -907,9 +1036,11 @@ by `group-function''s second \"transformation\" protocol."
      do (add-face-text-property 0 (length comp)
                                 'icomplete-selected-match 'append comp)
      collect (concat prefix
-                     (make-string (- max-prefix-len (length prefix)) ? )
+                     (make-string (max 0 (- max-prefix-len (length prefix))) ? )
                      (completion-lazy-hilit comp)
-                     (make-string (- max-comp-len (length comp)) ? )
+                     (and suffix
+                          (make-string (max 0 (- max-comp-len (length comp)))
+                                       ? ))
                      suffix)
      into lines-aux
      finally (setq lines lines-aux
@@ -924,6 +1055,9 @@ by `group-function''s second \"transformation\" protocol."
                  ((> (length scroll-above) (length scroll-below)) nsections)
                  (t (min (ceiling nsections 2) (length scroll-above))))
            lines))
+    (when icomplete--in-region-buffer
+      (setq lines (icomplete--adjust-lines-for-column
+                   lines icomplete--in-region-buffer completion-in-region--data)))
     ;; At long last, render final string return value.  This may still
     ;; kick out lines at the end.
     (concat " \n"
@@ -1015,7 +1149,11 @@ matches exist."
                                   (or determ (concat open-bracket close-bracket)))
                                  (string-width icomplete-separator)
                                  (+ 2 (string-width ellipsis)) ;; take {…} into account
-                                 (string-width (buffer-string))))
+                                 (string-width
+                                  (buffer-substring (save-excursion
+                                                      (goto-char (icomplete--field-beg))
+                                                      (pos-bol))
+                                                    (icomplete--field-end)))))
                (prospects-max
                 ;; Max total length to use, including the minibuffer content.
                 (* (+ icomplete-prospects-height

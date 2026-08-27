@@ -1,6 +1,6 @@
 ;;; peg-tests.el --- Tests of PEG parsers            -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2008-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -395,6 +395,13 @@ resp. succeeded instead of signaling an error."
 ;; (peg-ex-last-digit2 (concat (make-string 500000 ?-) "8a9b"))
 ;; (peg-ex-last-digit2 (make-string 500000 ?-))
 ;; (peg-ex-last-digit2 (make-string 500000 ?5))
+
+(ert-deftest peg-tests--peg-parse ()
+  (with-temp-buffer
+    (insert "abc")
+    (goto-char (point-min))
+    (peg-parse (bob) "ab")
+    (should (looking-at "c"))))
 
 (provide 'peg-tests)
 ;;; peg-tests.el ends here

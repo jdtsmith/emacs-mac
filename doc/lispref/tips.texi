@@ -1,6 +1,6 @@
 @c -*- mode: texinfo; coding: utf-8 -*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1993, 1995, 1998--1999, 2001--2025 Free Software
+@c Copyright (C) 1990--1993, 1995, 1998--1999, 2001--2026 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Tips
@@ -35,6 +35,7 @@ in batch mode, e.g., with a command run by @kbd{@w{M-x compile
 * Compilation Tips::          Making compiled code run fast.
 * Warning Tips::              Turning off compiler warnings.
 * Documentation Tips::        Writing readable documentation strings.
+* Documentation Group Tips::  Writing useful documentation groups.
 * Comment Tips::              Conventions for writing comments.
 * Library Headers::           Standard headers for library packages.
 @end menu
@@ -221,6 +222,10 @@ The macro should receive the name to be
 defined as the first argument.  That will help various tools find the
 definition automatically.  Avoid constructing the names in the macro
 itself, since that would confuse these tools.
+If your macro cannot be written in this style, the macro can still
+help these tools find the defining call by putting the property
+@code{definition-name} or @code{find-function-type-alist} on the name.
+@xref{Finding Definitions}.
 
 @item
 In some other systems there is a convention of choosing variable names
@@ -930,6 +935,89 @@ If you do not anticipate anyone editing your code with older Emacs
 versions, there is no need for this work-around.
 @end itemize
 
+@node Documentation Group Tips
+@section Tips for Documentation Groups
+@cindex documentation groups, tips
+@cindex tips for documentation groups
+
+@cindex documentation groups, compatibility
+  Documentation groups, available since Emacs 28, are useful to document
+functions of Lisp packages based on various groupings
+(@pxref{Documentation Groups}).  This section gives some tips on how you
+can define documentation groups in your Lisp package in a way such that
+users of different Emacs versions can equally well use these groups.
+
+@itemize @bullet
+@item
+To define documentation groups for your own Lisp package across
+different Emacs versions, you can use a boilerplate template along the
+lines of the following to make your package compile and load without
+errors:
+
+@smallexample
+@group
+;;; well-doc.el --- a well-documented package -*- lexical-binding: t; -*-
+
+@dots{} package header and contents @dots{}
+@end group
+
+@group
+;; Explicitly require shortdoc for Emacs 28, which does not have an
+;; autoload for macro `define-short-documentation-group'.  And for
+;; Emacs 30, so that we can redefine `shortdoc--check' later.
+(require 'shortdoc nil t)
+
+(eval-when-compile
+
+  ;; Default macro `define-short-documentation-group' for Emacs 27
+  ;; and older, which do not have the shortdoc feature at all.
+  (unless (fboundp 'define-short-documentation-group)
+    (defmacro define-short-documentation-group (&rest _)))
+
+  ;; Disable too rigid shortdoc checks for Emacs 30, which let it
+  ;; error out on newer shortdoc keywords.
+  (when (eq emacs-major-version 30)
+    (fset 'shortdoc--check #'ignore)))
+@end group
+
+@group
+(define-short-documentation-group well-doc
+  @dots{})
+
+;;; well-doc.el ends here
+@end group
+@end smallexample
+
+@findex define-short-documentation-group
+If you do not intend to support some of the Emacs versions mentioned
+above, you can safely omit the corresponding forms from the template.
+If you intend to support only Emacs 31 and newer, you do not need any
+of the above and can just use @code{define-short-documentation-group}.
+
+@item
+@cindex documentation group keywords, compatibility
+Newer Emacs versions might introduce newer documentation group features
+and keywords.  However, these features or keywords will never break the
+display of a documentation group in older Emacs versions.  Suppose you
+use a hypothetical group keyword @code{:super-pretty-print}, available
+in some future Emacs version, like this in your Lisp package
+@file{well-doc.el}:
+
+@smallexample
+@group
+(define-short-documentation-group well-doc
+  (well-doc-foo
+   :eval (well-doc-foo)
+   :super-pretty-print t))
+@end group
+@end smallexample
+
+That future Emacs version will then supposedly super-pretty-print the
+example for function @code{well-doc-foo}.  Older Emacs versions will
+silently ignore keyword @code{:super-pretty-print} and show the example
+according to their regular display rules.
+@end itemize
+
 @node Comment Tips
 @section Tips on Writing Comments
 @cindex comments, Lisp convention for
@@ -1061,7 +1149,7 @@ explains these conventions, starting with an example:
 @group
 ;;; foo.el --- Support for the Foo programming language  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2010-2025 Your Name
+;; Copyright (C) 2010-2026 Your Name
 @end group
 
 ;; Author: Your Name <yourname@@example.com>
@@ -1162,8 +1250,8 @@ the place to write arbitrary keywords that describe their package,
 rather than just the relevant Finder keywords.
 
 @item URL
-@itemx Homepage
-These lines state the website of the library.
+This line states the website of the library.  @samp{Homepage} is a
+deprecated alternative to @samp{URL}.
 
 @item Package-Version
 If @samp{Version} is not suitable for use by the package manager, then

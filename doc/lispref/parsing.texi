@@ -1,6 +1,6 @@
-@c -*- mode: texinfo; coding: utf-8 -*-
+@c -*- mode: texinfo -*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 2021--2025 Free Software Foundation, Inc.
+@c Copyright (C) 2021--2026 Free Software Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Parsing Program Source
 @chapter Parsing Program Source
@@ -48,7 +48,7 @@ source files that mix multiple programming languages.
 * User-defined Things::      User-defined ``Things'' and Navigation.
 * Multiple Languages::       Parse text written in multiple languages.
 * Tree-sitter Major Modes::  Develop major modes using tree-sitter.
-* Tree-sitter C API::        Compare the C API and the ELisp API.
+* Tree-sitter C API::        Compare the C API and the Lisp API.
 @end menu
 
 @node Language Grammar
@@ -160,6 +160,22 @@ grammar library loaded by Emacs for @var{language}.  If @var{language}
 is unavailable, this function returns @code{nil}.
 @end defun
 
+@vindex treesit-language-display-name-alist
+@defun treesit-language-display-name language
+This function translates @var{language} to an appropriate display name.
+For example, it translates @code{ruby} to ``Ruby'', @code{cpp} to
+``C++''.
+
+Most languages has ``regular'' names, and their display name is simply
+the symbol name with first letter capitalized.  For languages that has
+``irregular'' names, @var{treesit-language-display-name-alist} maps
+language symbols to their display names.
+
+If a major mode package uses a language with ``irregular'' name, they
+should add a mapping into @var{treesit-language-display-name-alist} on
+load.
+@end defun
+
 @heading Concrete syntax tree
 @cindex syntax tree, concrete
 
@@ -240,12 +256,15 @@ which displays the syntax tree of the source in the current buffer in
 real time.  Emacs also comes with an ``inspect mode'', which displays
 information of the nodes at point in the mode-line.
 
-@deffn Command treesit-explore-mode
-This mode pops up a window displaying the syntax tree of the source in
+@findex treesit-explorer-switch-parser
+@deffn Command treesit-explore
+This command pops up a window displaying the syntax tree of the source in
 the current buffer.  Selecting text in the source buffer highlights
 the corresponding nodes in the syntax tree display.  Clicking
 on nodes in the syntax tree highlights the corresponding text in the
 source buffer.
+
+To switch to another parser, use @code{treesit-explorer-switch-parser}.
 @end deffn
 
 @deffn Command treesit-inspect-mode
@@ -400,6 +419,27 @@ tree-sitter can be activated.  Major modes should check this value
 when deciding whether to enable tree-sitter features.
 @end defvar
 
+@defvar treesit-languages-require-line-column-tracking
+Emacs by default doesn't keep track of line and column numbers for
+positions in a buffer.  However, some language grammars utilize the line
+and column information for parsing.  If parsers of these languages are
+created in a buffer, Emacs will turn on line and column tracking and
+report these information to these parsers.  Once the buffer starts
+tracking line and column, it never stops doing so.  And once a parser is
+created as tracking/not-tracking line and column, it stays that way
+regardless of changes to this variable.
+
+This variable is a list of languages that require line and column
+tracking.  The vast majority of languages don't need line and column
+information.  So far, only Haskell is known to need it.
+
+@findex treesit-tracking-line-column-p
+@findex treesit-parser-tracking-line-column-p
+User can use @code{treesit-tracking-line-column-p} and
+@code{treesit-parser-tracking-line-column-p} to check if a buffer or
+parser is tracking line and column, respectively.
+@end defvar
+
 @cindex creating tree-sitter parsers
 @cindex tree-sitter parser, creating
 @defun treesit-parser-create language &optional buffer no-reuse tag
@@ -413,29 +453,22 @@ is non-@code{nil}, this function always creates a new parser.
 
 @var{tag} can be any symbol except @code{t}, and defaults to
 @code{nil}.  Different parsers can have the same tag.
-
-If that buffer is an indirect buffer, its base buffer is used instead.
-That is, indirect buffers use their base buffer's parsers.  If the
-base buffer is narrowed, an indirect buffer might not be able to
-retrieve information of the portion of the buffer text that is
-invisible in the base buffer.  Lisp programs should widen as necessary
-should they want to use a parser in an indirect buffer.
 @end defun
 
-Given a parser, we can query information about it.
-
-@defun treesit-parser-buffer parser
-This function returns the buffer associated with @var{parser}.
-@end defun
-
-@defun treesit-parser-language parser
-This function returns the language used by @var{parser}.
-@end defun
-
-@defun treesit-parser-p object
-This function checks if @var{object} is a tree-sitter parser, and
-returns non-@code{nil} if it is, and @code{nil} otherwise.
-@end defun
+@findex treesit-parser-buffer
+@findex treesit-parser-language
+@findex treesit-parser-embed-level
+@findex treesit-parser-p
+Given a parser, we can query information about it:
+@code{treesit-parser-buffer} returns the buffer associated with a
+parser, and @code{treesit-parser-language} returns the language used by
+the parser.  A parser's tag can be retrieved by
+@code{treesit-parser-tag}.  Each parser also optionally carries an embed
+level that can be set by @code{treesit-parser-set-embed-level} and
+retrieved by @code{treesit-parser-embed-level} (see
+@ref{parser-embed-level}, for more about embed level).  Finally,
+@code{treesit-parser-p} tells you whether an object is a tree-sitter
+parser.
 
 There is no need to explicitly parse a buffer, because parsing is done
 automatically and lazily.  A parser only parses when a Lisp program
@@ -458,9 +491,7 @@ tree incrementally.
 @defun treesit-parser-list &optional buffer language tag
 This function returns the parser list of @var{buffer}, filtered by
 @var{language} and @var{tag}.  If @var{buffer} is @code{nil} or
-omitted, it defaults to the current buffer.  If that buffer is an
-indirect buffer, its base buffer is used instead.  That is, indirect
-buffers use their base buffer's parsers.
+omitted, it defaults to the current buffer.
 
 If @var{language} is non-@var{nil}, only include parsers for that
 language, and only include parsers with @var{tag}.  @var{tag} defaults
@@ -495,8 +526,10 @@ string.  Unlike a buffer, parsing a string is a one-off operation, and
 there is no way to update the result.
 
 @defun treesit-parse-string string language
-This function parses @var{string} using @var{language}, and returns
-the root node of the generated syntax tree.
+This function parses @var{string} using @var{language}, and returns the
+root node of the generated syntax tree.  @emph{Do not} use this function
+in a loop: this is a convenience function intended for one-off use, and
+it isn't optimized; for heavy workload, use a temporary buffer instead.
 @end defun
 
 @heading Be notified by changes to the parse tree
@@ -540,6 +573,58 @@ symbol, rather than a lambda function.
 This function returns the list of @var{parser}'s notifier functions.
 @end defun
 
+A lisp program can also choose to force a parser to reparse and get the
+changed regions immediately with @code{treesit-parser-changed-regions}.
+
+@defun treesit-parser-changed-regions parser
+This function forces @var{parser} to reparse, and returns the affected
+regions: a list of @w{@code{(@var{start} . @var{end})}}.  If the parser
+has nothing new to reparse, or the affected regions are empty, this
+function returns @code{nil}.
+@end defun
+
+
+@heading Substitute parser for another language
+@cindex remap language grammar, tree-sitter
+@cindex replace language grammar, tree-sitter
+@cindex replace parser language, tree-sitter
+@cindex extended grammar, tree-sitter
+
+Sometimes, a grammar for language B is a strict superset of the grammar
+of another language A.  Then it makes sense to reuse configurations
+(font-lock rules, indentation rules, etc.) of language A for language B.
+For that purpose, @var{treesit-language-remap-alist} allows users to
+remap language A into language B.
+
+@defvar treesit-language-remap-alist
+The value of this variable should be an alist of
+@w{@code{(@var{language-a} . @var{language-b})}}.  When such pair exists
+in the alist, creating a parser for @var{language-a} actually creates a
+parser for @var{language-b}.  By extension, anything that creates a node
+or makes a query of @var{language-a} will be redirected to use
+@var{language-b} instead.  This mapping is completely transparent, the
+created parser will reported to use @var{language-b}, and the same goes for
+nodes created by this parser.
+
+Specifically, the parser created by @code{treesit-parser-create} will
+report to use whatever @var{language} was given to it.  For example,
+if language @code{cpp} is mapped to @code{cuda}:
+
+@example
+@group
+(setq treesit-language-remap-alist '((cpp . cuda)))
+
+(treesit-parser-language (treesit-parser-create 'cpp))
+  @result{} 'cpp
+
+(treesit-parser-language (treesit-parser-create 'cuda))
+  @result{} 'cuda
+@end group
+@end example
+
+Even though both parser are actually @code{cuda} parser.
+@end defvar
+
 @node Retrieving Nodes
 @section Retrieving Nodes
 @cindex retrieve node, tree-sitter
@@ -569,6 +654,14 @@ just return @code{nil}.
 Nodes are not automatically updated when the associated buffer is
 modified, and there is no way to update a node once it is retrieved.
 Using an outdated node signals the @code{treesit-node-outdated} error.
+
+@cindex printed representation, of treesit nodes
+The printed representation of a tree-sitter node uses the hash notation
+described in @ref{Printed Representation}.  It looks like
+@w{@samp{#<treesit-node @var{type} in @var{pos1}-@var{pos2}>}}, where
+@var{type} is the type of the node (which comes from the tree-sitter
+grammar used by the buffer), and @var{pos1} and @var{pos2} are buffer
+positions of the node's span.  Tree-sitter nodes have no read syntax.
 
 @heading Retrieving nodes from syntax tree
 @cindex retrieving tree-sitter nodes
@@ -610,7 +703,7 @@ Example:
 @group
 ;; Find the node at point in a C parser's syntax tree.
 (treesit-node-at (point) 'c)
-  @result{} #<treesit-node (primitive_type) in 23-27>
+  @result{} #<treesit-node primitive_type in 23-27>
 @end group
 @end example
 @end defun
@@ -717,7 +810,7 @@ This function finds the child of @var{node} whose field name is
 @group
 ;; Get the child that has "body" as its field name.
 (treesit-node-child-by-field-name node "body")
-  @result{} #<treesit-node (compound_statement) in 45-89>
+  @result{} #<treesit-node compound_statement in 45-89>
 @end group
 @end example
 @end defun
@@ -1172,7 +1265,7 @@ example, the capture name @code{biexp}:
 @cindex query functions, tree-sitter
 Now we can introduce the @dfn{query functions}.
 
-@defun treesit-query-capture node query &optional beg end node-only
+@defun treesit-query-capture node query &optional beg end node-only grouped
 This function matches patterns in @var{query} within @var{node}.  The
 argument @var{query} can be either an s-expression, a string, or a
 compiled query object.  For now, we focus on the s-expression syntax;
@@ -1193,6 +1286,11 @@ region of buffer text where this function should match nodes.  Any
 matching node whose span overlaps with the region between @var{beg}
 and @var{end} is captured; it doesn't have to be completely contained
 in the region.
+
+If @var{grouped} is non-@code{nil}, this function returns a grouped list
+of lists of captured nodes.  The grouping is determined by @var{query}.
+Captures in the same match of a pattern in @var{query} are grouped
+together.
 
 @vindex treesit-query-error
 @findex treesit-query-validate
@@ -1231,7 +1329,7 @@ For example, it could have two top-level patterns:
 @group
 (setq query
       '((binary_expression) @@biexp
-        (number_literal) @@number @@biexp)
+        (number_literal) @@number)
 @end group
 @end example
 
@@ -1375,7 +1473,7 @@ example, with the following pattern:
 @group
 (
  (array :anchor (_) @@first (_) @@last :anchor)
- (:equal @@first @@last)
+ (:eq? @@first @@last)
 )
 @end group
 @end example
@@ -1384,24 +1482,32 @@ example, with the following pattern:
 tree-sitter only matches arrays where the first element is equal to
 the last element.  To attach a predicate to a pattern, we need to
 group them together.  Currently there are three predicates:
-@code{:equal}, @code{:match}, and @code{:pred}.
+@code{:eq?}, @code{:match?}, and @code{:pred?}.
 
-@deffn Predicate :equal arg1 arg2
+@deffn Predicate :eq? arg1 arg2
 Matches if @var{arg1} is equal to @var{arg2}.  Arguments can be either
 strings or capture names.  Capture names represent the text that the
-captured node spans in the buffer.
+captured node spans in the buffer.  Note that this is more like
+@code{equal} in Elisp, but @code{eq?} is the convention used by
+tree-sitter.  Previously we supported the @code{:equal} predicate but
+it's now considered deprecated.
 @end deffn
 
-@deffn Predicate :match regexp capture-name
+@deffn Predicate :match? capture-name regexp
 Matches if the text that @var{capture-name}'s node spans in the buffer
 matches regular expression @var{regexp}, given as a string literal.
-Matching is case-sensitive.
+Matching is case-sensitive.  The ordering of the arguments doesn't
+matter.  Previously we supported the @code{:match} predicate but it's
+now considered deprecated.
 @end deffn
 
-@deffn Predicate :pred fn &rest nodes
+@deffn Predicate :pred? fn &rest nodes
 Matches if function @var{fn} returns non-@code{nil} when passed each
 node in @var{nodes} as arguments.  The function runs with the current
-buffer set to the buffer of node being queried.
+buffer set to the buffer of node being queried.  Be very careful when
+using this predicate, since it can be expensive when used in a tight
+loop.  Previously we supported the @code{:pred} predicate but it's now
+considered deprecated.
 @end deffn
 
 Note that a predicate can only refer to capture names that appear in
@@ -1456,9 +1562,9 @@ Anchor @code{:anchor} is written as @samp{.}.
 @item
 @samp{:+} is written as @samp{+}.
 @item
-@code{:equal}, @code{:match} and @code{:pred} are written as
-@code{#equal}, @code{#match} and @code{#pred}, respectively.
-In general, predicates change their @samp{:} to @samp{#}.
+@code{:eq?}, @code{:match?} and @code{:pred?} are written as
+@code{#eq?}, @code{#match?} and @code{#pred?}, respectively.  In
+general, predicates change the @samp{:} to @samp{#}.
 @end itemize
 
 For example,
@@ -1467,7 +1573,7 @@ For example,
 @group
 '((
    (compound_expression :anchor (_) @@first (_) :* @@rest)
-   (:match "love" @@first)
+   (:match? "love" @@first)
    ))
 @end group
 @end example
@@ -1479,7 +1585,7 @@ is written in string form as
 @group
 "(
   (compound_expression . (_) @@first (_)* @@rest)
-  (#match \"love\" @@first)
+  (#match? \"love\" @@first)
   )"
 @end group
 @end example
@@ -1493,7 +1599,7 @@ loops, it is important to compile that query, because a compiled query
 is much faster than an uncompiled one.  A compiled query can be used
 anywhere a query is accepted.
 
-@defun treesit-query-compile language query
+@defun treesit-query-compile language query &optional eager
 This function compiles @var{query} for @var{language} into a compiled
 query object and returns it.
 
@@ -1501,24 +1607,53 @@ This function raises the @code{treesit-query-error} error if
 @var{query} is malformed.  The signal data contains a description of
 the specific error.  You can use @code{treesit-query-validate} to
 validate and debug the query.
+
+By default, Emacs lazily compiles @var{query}, meaning @var{query} isn't
+actually compiled until it's used.  To compile @var{query} immediately,
+pass non-@code{nil} for @var{eager}.
+
+@findex treesit-query-eagerly-compiled-p
+To tell an actually compiled query apart from one that hasn't been
+compiled, use @code{treesit-query-eagerly-compiled-p}.
+
+If @var{query} is malformed or language can't be loaded, this function
+signals @code{treesit-query-error}.  Obviously this will only happen
+when @var{eager} is non-@code{nil}, since otherwise Emacs doesn't
+actually compile @var{query}.
 @end defun
 
-@defun treesit-query-language query
-This function returns the language of @var{query}.
-@end defun
+@findex treesit-query-language
+@findex treesit-query-source
+@findex treesit-query-expand
+@findex treesit-pattern-expand
+@findex treesit-query-valid-p
+There are some additional functions for queries:
+@code{treesit-query-language} returns the language of a query;
+@code{treesit-query-source} returns the original string or sexp source
+query of a compiled query; @code{treesit-query-valid-p} checks whether a
+query is valid; @code{treesit-query-expand} converts a s-expression
+query into the string format; and @code{treesit-pattern-expand} converts
+a pattern.
 
-@defun treesit-query-expand query
-This function converts the s-expression @var{query} into the string
-format.
-@end defun
+@findex treesit-query-first-valid
+Tree-sitter grammars change overtime.  To support multiple possible
+versions of a grammar, a Lisp program can use
+@code{treesit-query-first-valid} to pick the right query to use.  For
+example, if a grammar has a @code{(defun)} node in one version, and
+later renamed it to @code{(function_definition)}, a Lisp program can use
 
-@defun treesit-pattern-expand pattern
-This function converts the s-expression @var{pattern} into the string
-format.
-@end defun
+@example
+@group
+(treesit-query-first-valid 'lang
+  '((defun) @@defun)
+  '((function_definition) @@defun))
+@end group
+@end example
 
-For more details, read the tree-sitter project's documentation about
-pattern-matching, which can be found at
+to support both versions of the grammar.
+
+For more details, consider reading the tree-sitter project's
+documentation about pattern-matching.  The documentation can be found at
 @uref{https://tree-sitter.github.io/tree-sitter/using-parsers#pattern-matching-with-queries}.
 
 @node User-defined Things
@@ -1527,14 +1662,16 @@ pattern-matching, which can be found at
 
 It's often useful to be able to identify and find certain @dfn{things} in
 a buffer, like function and class definitions, statements, code blocks,
-strings, comments, etc.  Emacs allows users to define what kind of
-tree-sitter node corresponds to a ``thing''.  This enables handy
-features like jumping to the next function, marking the code block at
-point, or transposing two function arguments.
+strings, comments, etc., in terms of node types defined by the
+tree-sitter grammar used in the buffer.  Emacs allows Lisp programs to
+define what kinds of tree-sitter nodes corresponds to each ``thing''.
+This enables handy features like jumping to the next function, marking
+the code block at point, transposing two function arguments, etc.
 
 The ``things'' feature in Emacs is independent of the pattern matching
-feature of tree-sitter, and comparatively less powerful, but more
-suitable for navigation and traversing the parse tree.
+feature of tree-sitter (@pxref{Pattern Matching}), and comparatively
+less powerful, but more suitable for navigation and traversing the
+buffer text in terms of the tree-sitter parse tree.
 
 @findex treesit-thing-definition
 @findex treesit-thing-defined-p
@@ -1543,12 +1680,22 @@ predicate of a defined thing with @code{treesit-thing-definition}, and
 test if a thing is defined with @code{treesit-thing-defined-p}.
 
 @defvar treesit-thing-settings
-This is an alist of thing definitions for each language.  The key of
-each entry is a language symbol, and the value is a list of thing
-definitions of the form @w{@code{(@var{thing} @var{pred})}}, where
-@var{thing} is a symbol representing the thing, like @code{defun},
-@code{sexp}, or @code{sentence}; and @var{pred} specifies what kind of
-tree-sitter node is this @var{thing}.
+This is an alist of thing definitions for each language supported by the
+grammar used in a buffer; it should be defined by the buffer's major
+mode (the default value is @code{nil}).  The key of each entry is a
+language symbol (e.g., @code{c} for C, @code{cpp} for C@t{++}, etc.),
+and the value is a list of thing definitions of the form
+@w{@code{(@var{thing} @var{pred})}}, where @var{thing} is a symbol
+representing the thing, and @var{pred} specifies what kinds of
+tree-sitter nodes are considered as this @var{thing}.
+
+@cindex @code{sexp}, treesit-defined thing
+@cindex @code{list}, treesit-defined thing
+The symbol used to define the @var{thing} can be anything meaningful for
+the major mode: @code{defun}, @code{defclass}, @code{sentence},
+@code{comment}, @code{string}, etc.  To support tree-sitter based
+navigation commands (@pxref{List Motion}), the mode should define two
+things: @code{list} and @code{sexp}.
 
 @var{pred} can be a regexp string that matches the type of the node; it
 can be a function that takes a node as the argument and returns a
@@ -1560,15 +1707,24 @@ the thing.
 
 @var{pred} can also be recursively defined.  It can be @w{@code{(or
 @var{pred}@dots{})}}, meaning that satisfying any one of the @var{pred}s
+qualifies the node as the thing.  It can be @w{@code{(and
+@var{pred}@dots{})}}, meaning that satisfying all of the @var{pred}s
 qualifies the node as the thing.  It can be @w{@code{(not @var{pred})}},
 meaning that not satisfying @var{pred} qualifies the node.
 
 Finally, @var{pred} can refer to other @var{thing}s defined in this
 list.  For example, @w{@code{(or sexp sentence)}} defines something
 that's either a @code{sexp} thing or a @code{sentence} thing, as defined
-by some other rule in the alist.
+by some other rules in the alist.
 
-Here's an example @code{treesit-thing-settings} for C and C++:
+@cindex @code{named}, treesit-defined thing
+@cindex @code{anonymous}, treesit-defined thing
+There are two pre-defined predicates: @code{named} and @code{anonymous},
+which qualify, respectively, named and anonymous nodes of the
+tree-sitter grammar.  They can be combined with @code{and} to narrow
+down the match.
+
+Here's an example @code{treesit-thing-settings} for C and C@t{++}:
 
 @example
 @group
@@ -1578,6 +1734,8 @@ Here's an example @code{treesit-thing-settings} for C and C++:
   (comment "comment")
   (string "raw_string_literal")
   (text (or comment string)))
+@end group
+@group
  (cpp
   (defun ("function_definition" . cpp-ts-mode-defun-valid-p))
   (defclass "class_specifier")
@@ -1587,18 +1745,22 @@ Here's an example @code{treesit-thing-settings} for C and C++:
 
 @noindent
 Note that this example is modified for didactic purposes, and isn't
-exactly how C and C@t{++} modes define things.
+exactly how tree-sitter based C and C@t{++} modes define things.
 @end defvar
 
-Emacs builtin functions already make use some thing definitions.
+Emacs builtin functions already make use of some thing definitions.
 Command @code{treesit-forward-sexp} uses the @code{sexp} definition if
-major mode defines it; @code{treesit-forward-sentence} uses the
-@code{sentence} definition.  Defun movement functions like
-@code{treesit-end-of-defun} uses the @code{defun} definition
-(@code{defun} definition is overridden by
+major mode defines it (@pxref{List Motion}); @code{treesit-forward-list},
+@code{treesit-down-list}, @code{treesit-up-list},
+@code{treesit-show-paren-data} use the @code{list} definition (its
+symbol @code{list} has the symbol property @code{treesit-thing-symbol}
+to avoid ambiguity with the function that has the same name);
+@code{treesit-forward-sentence} uses the @code{sentence} definition.
+Defun movement functions like @code{treesit-end-of-defun} uses the
+@code{defun} definition (@code{defun} definition is overridden by
 @var{treesit-defun-type-regexp} for backward compatibility).  Major
-modes can also define @code{comment}, @code{string}, @code{text}
-(generally comments and strings).
+modes can also define @code{comment}, @code{string}, and @code{text}
+things (to match comments and strings).
 
 The rest of this section lists a few functions that take advantage of
 the thing definitions.  Besides the functions below, some other
@@ -1607,10 +1769,10 @@ tree-traversing functions like @code{treesit-search-forward},
 @code{treesit-induce-sparse-tree}, etc.  @xref{Retrieving Nodes}.
 
 @defun treesit-node-match-p node thing &optional ignore-missing
-This function checks whether @var{node} is a @var{thing}.
+This function checks whether @var{node} represents a @var{thing}.
 
-If @var{node} is a @var{thing}, return non-@code{nil}, otherwise return
-@code{nil}.  For convenience, if @code{node} is @code{nil}, this
+If @var{node} represents @var{thing}, return non-@code{nil}, otherwise
+return @code{nil}.  For convenience, if @code{node} is @code{nil}, this
 function just returns @code{nil}.
 
 The @var{thing} can be either a thing symbol like @code{defun}, or
@@ -1622,24 +1784,43 @@ signals @code{treesit-invalid-predicate} error.  If @var{ignore-missing}
 is @code{t}, this function doesn't signal the error when @var{thing} is
 undefined and just returns @code{nil}; but it still signals the error if
 @var{thing} is a malformed predicate.
-
 @end defun
 
-@defun treesit-thing-prev position thing
-This function returns the first node before @var{position} that is the
-specified @var{thing}.  If no such node exists, it returns @code{nil}.
+Functions below are responsible for finding things and moving across
+them, and they have to deal with the fact that a buffer sometimes
+contains multiple adjacent or nested parsers.  By default, these
+functions try to be helpful and search in every relevant parser at
+point, from most specific (deepest embedded) to the least.  Lisp
+programs should be cautious and assess whether this behavior is desired
+when using these functions as building blocks of other functions; if
+not, explicitly pass a parser or language.
+
+@defun treesit-thing-prev position thing &optional parser
+This function returns the first node before @var{position} in the
+current buffer that is the specified @var{thing}.  If no such node
+exists, it returns @code{nil}.
+
 It's guaranteed that, if a node is returned, the node's end position is
 less or equal to @var{position}.  In other words, this function never
 returns a node that encloses @var{position}.
 
 Again, @var{thing} can be either a symbol or a predicate.
+
+If @var{parser} is non-@code{nil}, only use that parser's parse tree.
+Otherwise try each parser covering point, from the most specific
+(deepest-embedded) to the least specific.  If there are multiple parsers
+with the same embed level (@pxref{parser-embed-level}) at
+@var{position}, which parser is tried first is undefined.  If
+@var{parser} is a language symbol, the function limits the parsers it
+tries to the ones for that language.
 @end defun
 
-@defun treesit-thing-next position thing
+@defun treesit-thing-next position thing &optional parser
 This function is similar to @code{treesit-thing-prev}, only it returns
 the first node @emph{after} @var{position} that's the @var{thing}.  It
 also guarantees that if a node is returned, the node's start position is
-greater or equal to @var{position}.
+greater or equal to @var{position}.  The @var{parser} parameter is the
+same as in @code{treesit-thing-prev}.
 @end defun
 
 @defun treesit-navigate-thing position arg side thing &optional tactic
@@ -1652,25 +1833,32 @@ function doesn't move point.
 
 A positive @var{arg} means moving forward that many instances of
 @var{thing}; negative @var{arg} means moving backward.  If @var{side} is
-@code{beg}, this function stops at the beginning of @var{thing}; if
-@code{end}, stop at the end of @var{thing}.
+@code{beg}, this function returns the position of the beginning of
+@var{thing}; if it's @code{end}, it returns the position at the end of
+@var{thing}.
 
 Like in @code{treesit-thing-prev}, @var{thing} can be a thing symbol
-defined in @code{treesit-thing-settings}, or a predicate.
+defined in @code{treesit-thing-settings}, or a predicate, and
+@var{parser} can be either @code{nil}, a parser, or a language symbol.
+Like in that function, @var{parser} decides which parsers or languages
+are searched.  When there are multiple parsers available, this function
+tries each until it succeeds.
 
 @var{tactic} determines how this function moves between things.  It can
-be @code{nested}, @code{top-level}, @code{restricted}, or @code{nil}.
-@code{nested} or @code{nil} means normal nested navigation: first try to
-move across siblings; if there aren't any siblings left in the current
-level, move to the parent, then its siblings, and so on.
-@code{top-level} means only navigate across top-level things and ignore
-nested things.  @code{restricted} means movement is restricted within
-the thing that encloses @var{position}, if there is such a thing.  This
-tactic is useful for commands that want to stop at the current nesting
-level and not move up.
+be @code{nested}, @code{top-level}, @code{restricted},
+@code{parent-first}, or @code{nil}.  @code{nested} or @code{nil} means
+normal nested navigation: first try to move across siblings; if there
+aren't any siblings left in the current level, move to the parent, then
+its siblings, and so on.  @code{top-level} means only navigate across
+top-level things and ignore nested things.  @code{restricted} means
+movement is restricted within the thing that encloses @var{position}, if
+there is such a thing.  This tactic is useful for commands that want to
+stop at the current nesting level and not move up.  @var{parent-first}
+means move to the parent if there is one; and move to siblings if
+there's no parent.
 @end defun
 
-@defun treesit-thing-at position thing &optional strict
+@defun treesit-thing-at position thing &optional strict parser
 This function returns the smallest node that's the @var{thing} and
 encloses @var{position}; if there's no such node, it returns @code{nil}.
 
@@ -1679,11 +1867,18 @@ less or equal to @var{position}, and it's end position is greater or equal to
 @var{position}.
 
 If @var{strict} is non-@code{nil}, this function uses strict comparison,
-i.e., start position must be strictly greater than @var{position}, and end
-position must be strictly less than @var{position}.
+i.e., start position must be strictly smaller than @var{position}, and end
+position must be strictly greater than @var{position}.
 
 @var{thing} can be either a thing symbol defined in
 @code{treesit-thing-settings}, or a predicate.
+
+If @var{parser} is non-nil, only use that parser's parse tree.
+Otherwise try each parser covering point, from the most specific
+(deepest-embedded) to the least specific.  If there are multiple parsers
+with the same embed level (@pxref{parser-embed-level}) at
+@var{position}, which parser is tried first is undefined.  @var{parser}
+can also be a language symbol.
 @end defun
 
 @findex treesit-beginning-of-thing
@@ -1734,12 +1929,12 @@ ranges for each parser are correct before using parsers in a buffer, and
 call @code{treesit-language-at} to figure out the language responsible
 for the text at some position.  These two functions don't work by
 themselves; they need major modes to set @code{treesit-range-settings}
-and @code{treesit-language-at-point-function}, which do the actual work.
+and optionally @code{treesit-language-at-point-function}, which do the actual work.
 These functions and variables are explained in more detail towards the
 end of the section.
 
 In short, multi-language major modes should set
-@code{treesit-primary-parser}, @code{treesit-range-settings}, and
+@code{treesit-primary-parser}, @code{treesit-range-settings}, and optionally
 @code{treesit-language-at-point-function} before calling
 @code{treesit-major-mode-setup}.
 
@@ -1839,11 +2034,12 @@ for nodes in a region.
 @defun treesit-language-at pos
 This function returns the language of the text at buffer position
 @var{pos}.  Under the hood it calls
-@code{treesit-language-at-point-function} and returns its return
-value.  If @code{treesit-language-at-point-function} is @code{nil},
-this function returns the language of the first parser in the returned
-value of @code{treesit-parser-list}.  If there is no parser in the
-buffer, it returns @code{nil}.
+@code{treesit-language-at-point-function} and returns its return value.
+If @code{treesit-language-at-point-function} is @code{nil}, this
+function returns the language of the deepest parser by embed level
+(@pxref{parser-embed-level}) among parsers returned by
+@code{treesit-parsers-at}.  If there is no parser at that buffer
+position, it returns @code{nil}.
 @end defun
 
 @heading Supporting multiple languages in major modes
@@ -1931,7 +2127,7 @@ directly translate into operations shown above.
 @end group
 
 @group
-;; Major modes with multiple languages should always set
+;; Major modes with multiple languages can optionally set
 ;; `treesit-language-at-point-function' (which see).
 (setq treesit-language-at-point-function
       (lambda (pos)
@@ -1960,10 +2156,38 @@ a @var{query} preceded by zero or more @var{keyword}/@var{value}
 pairs.  Each @var{query} is a tree-sitter query in either the string,
 s-expression, or compiled form, or a function.
 
+@code{treesit-update-ranges} uses @var{query} to figure out how to set
+the ranges for parsers for the embedded language.  It queries
+@var{query} in a host language parser, computes the ranges which the
+captured nodes span, and applies these ranges to embedded language
+parsers.
+
 If @var{query} is a tree-sitter query, it should be preceded by two
 @var{keyword}/@var{value} pairs, where the @code{:embed} keyword
-specifies the embedded language, and the @code{:host} keyword
-specifies the host language.
+specifies the embedded language, and the @code{:host} keyword specifies
+the host language.  The captured nodes determine the range of embedded
+parsers.  The capture names don't matter, but names that starts with an
+underscore are ignored, and the @code{@@language} capture name is
+reserved.
+
+If the embedded language is dynamic, then @code{:embed} can specify a
+function rathar than a static language.  The function takes the node
+captured with @code{@@language} capture name.  Care have to be taken that
+the @code{@@language} capture and the range capture are in the same
+match group.  The function should return either a language symbol, or nil
+if no valid language can be found.
+
+If the query is given a @code{:offset} keyword whose value is a pair
+of numbers, each captured range is offset by those numbers.  For
+example, an offset of @code{(1 . -1)} will update a captured range of
+@code{(2 . 8)} to be @code{(3 . 7)}.  This can be used to exclude things
+like surrounding delimiters from being included in the range covered by
+an embedded parser.
+
+By default, a parser sees its ranges as a continuum, rather than
+treating them as separate independent segments.  Therefore, if the
+embedded ranges are semantically independent segments, they should be
+processed by local parsers, described below.
 
 @cindex local parser
 If the query is given the @code{:local} keyword whose value is
@@ -1971,19 +2195,44 @@ If the query is given the @code{:local} keyword whose value is
 otherwise the range shares a parser with other ranges for the same
 language.
 
-By default, a parser sees its ranges as a continuum, rather than
-treating them as separate independent segments.  Therefore, if the
-embedded ranges are semantically independent segments, they should be
-processed by local parsers, described below.
-
-Local parser set to a range can be retrieved by
+Local parsers set to a range can be retrieved by
 @code{treesit-local-parsers-at} and @code{treesit-local-parsers-on}.
 
-@code{treesit-update-ranges} uses @var{query} to figure out how to set
-the ranges for parsers for the embedded language.  It queries
-@var{query} in a host language parser, computes the ranges which the
-captured nodes span, and applies these ranges to embedded language
-parsers.
+Emacs treats local embedded parsers and non-local embedded parsers quite
+differently:
+
+@itemize @bullet
+@item
+Local parsers are managed by Emacs.  Emacs creates new local parsers when
+they are needed and deletes them when they are not.  Non-local parsers
+must be created by major modes, and Emacs only make use of them if one
+exists.
+
+@item
+Because local parsers can be freely created by Emacs, they are suitable
+for recursively nested embedded parsers, where the embed level can be
+arbitrarily deep.  On the other hand, since non-local parsers created by
+major modes, they can only handle a fix number of embed levels.
+@end itemize
+
+@anchor{parser-embed-level}
+@cindex embed level, tree-sitter
+The embed level of the top-level parsers is 0 or omitted, the first
+level of embedded parsers get embed level 1, and so on.  For local
+parsers, each embed level creates a new parser; for non-local parsers,
+since Emacs cannot create non-local parsers freely, it tries to find a
+usable parser at the right embed level; if none exists, Emacs just gives
+up.
+
+If the query is given a @code{:range-fn} keyword whose value is a
+function, Emacs uses that function to compute the ranges to use for the
+embedded parser.  The function takes as arguments the captured node and
+the offset given by the @code{:offset} keyword, and returns a list of
+ranges, where each range is a cons of the start and end position.  For
+local parsers, each @var{query} creates one local parser, and the ranges
+set by the @code{:range-fn} are applied to that parser; for non-local
+parsers, all the ranges (including ranges created by @code{:range-fn})
+in that embed level are joined together and applied to the same parser.
 
 If @var{query} is a function, it doesn't need any @var{keyword} and
 @var{value} pair.  It should be a function that takes 2 arguments,
@@ -2014,17 +2263,45 @@ language of the buffer text at @var{pos}.  This variable is used by
 @code{treesit-language-at}.
 @end defvar
 
-@defun treesit-local-parsers-at &optional pos language
+@defun treesit-parsers-at &optional pos language with-host only
+This function returns all parsers at @var{pos} in the current buffer.
+@var{pos} defaults to point.  The returned parsers are sorted by the
+decreasing embed level.
+
+If @var{language} is non-@code{nil}, return parsers only for that
+language.
+
+If @var{with-host} is non-@code{nil}, return a list of
+@w{@code{(@var{parser} . @var{host-parser})}} where @var{host-parser}
+is the host parser which created the @var{parser}.
+
+If @var{only} is non-@code{nil}, return all parsers including the
+primary parser.
+
+The argument @var{only} can be a list of symbols that specify what
+parsers to include in the return value.
+
+If @var{only} contains the symbol @code{local}, include local parsers.
+Local parsers are those which only parse a limited region marked by an
+overlay with a non-@code{nil} @code{treesit-parser-local-p} property.
+
+If @var{only} contains the symbol @code{global}, include non-local parsers
+excluding the primary parser.
+
+If @var{only} contains the symbol `primary', include the primary parser.
+@end defun
+
+@defun treesit-local-parsers-at &optional pos language with-host
 This function returns all the local parsers at @var{pos} in the
 current buffer.  @var{pos} defaults to point.
 
 Local parsers are those which only parse a limited region marked by an
-overlay with a non-@code{nil} @code{treesit-parser} property.  If
-@var{language} is non-@code{nil}, only return parsers for that
+overlay with a non-@code{nil} @code{treesit-parser-local-p} property.
+If @var{language} is non-@code{nil}, only return parsers for that
 language.
 @end defun
 
-@defun treesit-local-parsers-on &optional beg end language
+@defun treesit-local-parsers-on &optional beg end language with-host
 This function is the same as @code{treesit-local-parsers-at}, but it
 returns the local parsers in the range between @var{beg} and @var{end}
 instead of at point.
@@ -2118,7 +2395,7 @@ non-@code{nil}, it sets up indentation.
 @item
 If @code{treesit-defun-type-regexp} is non-@code{nil}, it sets up
 navigation functions for @code{beginning-of-defun} and
-@code{end-of-defun}.
+@code{end-of-defun}.  @xref{List Motion}.
 
 @item
 If @code{treesit-defun-name-function} is non-@code{nil}, it sets up
@@ -2139,8 +2416,6 @@ navigation commands that move, respectively, by sexps and sentences by
 defining variables such as @code{forward-sexp-function} and
 @code{forward-sentence-function}.
 @end itemize
-
-@c TODO: Add treesit-thing-settings stuff once we finalize it.
 @end defun
 
 For more information on these built-in tree-sitter features,
@@ -2227,8 +2502,8 @@ Null nodes are converted to @code{nil}.
 @end itemize
 
 Below is the correspondence between all C API functions and their
-ELisp counterparts.  Sometimes one ELisp function corresponds to
-multiple C functions, and many C functions don't have an ELisp
+Lisp counterparts.  Sometimes one Lisp function corresponds to
+multiple C functions, and many C functions don't have a Lisp
 counterpart.
 
 @example

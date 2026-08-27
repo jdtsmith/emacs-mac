@@ -1,6 +1,6 @@
 /* String conversion support for graphics terminals.
 
-Copyright (C) 2023-2025 Free Software Foundation, Inc.
+Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -1308,7 +1308,7 @@ really_set_point_and_mark (struct frame *f, ptrdiff_t point,
       && !NILP (BVAR (current_buffer, mark_active)))
     call0 (Qdeactivate_mark);
   else
-    call1 (Qpush_mark, make_fixnum (mark));
+    calln (Qpush_mark, make_fixnum (mark));
 
   /* Update the ephemeral last point.  */
   w = XWINDOW (selected_window);
@@ -1739,9 +1739,11 @@ handle_pending_conversion_events (void)
   unbind_to (count, Qnil);
 }
 
+#ifdef HAVE_ANDROID
+
 /* Return the confines of the field to which editing operations on frame
    F should be constrained in *BEG and *END.  Should no field be active,
-   set *END to MOST_POSITIVE_FIXNUM.  */
+   set *END to PTRDIFF_MAX.  */
 
 void
 get_conversion_field (struct frame *f, ptrdiff_t *beg, ptrdiff_t *end)
@@ -1769,7 +1771,7 @@ get_conversion_field (struct frame *f, ptrdiff_t *beg, ptrdiff_t *end)
     }
 
   *beg = 1;
-  *end = MOST_POSITIVE_FIXNUM;
+  *end = PTRDIFF_MAX;
 }
 
 /* Start a ``batch edit'' in frame F.  During a batch edit,
@@ -2307,6 +2309,7 @@ get_surrounding_text (struct frame *f, ptrdiff_t left,
   unbind_to (count, Qnil);
   return buffer;
 }
+#endif /* HAVE_ANDROID */
 
 /* Return whether or not text conversion is temporarily disabled.
    `reset' should always call this to determine whether or not to

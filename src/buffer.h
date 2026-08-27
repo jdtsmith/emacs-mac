@@ -1,6 +1,6 @@
 /* Header file for the buffer manipulation primitives.
 
-Copyright (C) 1985-2025 Free Software Foundation, Inc.
+Copyright (C) 1985-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -219,6 +219,20 @@ extern ptrdiff_t advance_to_char_boundary (ptrdiff_t byte_pos);
 #define FETCH_BYTE(n) (*BYTE_POS_ADDR (n))
 
 /* Define the actual buffer data structures.  */
+
+/* This data structure stores the cache of a position and its line and
+   column number.  The column number is counted in bytes.  The line
+   number and column number don't respect narrowing.  */
+struct ts_linecol
+{
+  /* The byte position.  */
+  ptrdiff_t bytepos;
+  /* The line number of this position.  */
+  ptrdiff_t line;
+  /* The column number (in bytes) of this position (0-based).  Basically
+     the byte offset from BOL (or BOB).  */
+  ptrdiff_t col;
+};
 
 /* This data structure describes the actual text contents of a buffer.
    It is shared between indirect buffers and their base buffer.  */
@@ -561,7 +575,10 @@ struct buffer
   Lisp_Object cursor_type_;
 
   /* An integer > 0 means put that number of pixels below text lines
-     in the display of this buffer.  */
+     in the display of this buffer.
+     A float ~ 1.0 means add extra number of pixels below text lines
+     relative to the line height.
+     A cons means put car spacing above and cdr spacing below the line.  */
   Lisp_Object extra_line_spacing_;
 
 #ifdef HAVE_TREE_SITTER
@@ -635,11 +652,12 @@ struct buffer
      in no case complain about any mismatch on next save attempt.  */
   struct timespec modtime;
 
-  /* Size of the file when modtime was set.  This is used to detect the
-     case where the file grew while we were reading it, so the modtime
-     is still the same (since it's rounded up to seconds) but we're actually
-     not up-to-date.  -1 means the size is unknown.  Only meaningful if
-     modtime is actually set.  */
+  /* Size of the file when modtime was set.  This is used to detect when
+     the file size changed while we were reading the file, but the
+     modtime is still the same (since it's truncated to clock resolution)
+     so we're actually not up-to-date.  Meaningful only if it is
+     nonnegative and the modtime is actually set.  Useful only on
+     platforms with coarse clock resolution.  */
   off_t modtime_size;
 
   /* The value of text->modiff at the last auto-save.  */
@@ -699,6 +717,25 @@ struct buffer
 
   /* The interval tree containing this buffer's overlays. */
   struct itree_tree *overlays;
+
+  /* Right now only tree-sitter makes use of this, so I don't want
+     non-tree-sitter build to pay for it.  If something else can make
+     use of this, we can remove the gate.  */
+#ifdef HAVE_TREE_SITTER
+  /* Cache of line and column number of a position.  Tree-sitter uses
+     this cache to calculate line and column of the beginning and end of
+     buffer edits.  Stores three caches for BEGV, point, ZV,
+     respectively.  All three are refreshed in buffer edit functions, so
+     they're always up-to-date (in the sense that the bytepos and
+     line/column number are in sync, not in the sense that the bytepos
+     is at the actual position of point/BEGV/ZV, indeed, most of the
+     time the bytepos is only near the actual position).  All caches are
+     initialized to empty, meaning no linecol tracking for this
+     buffer.  */
+  struct ts_linecol ts_linecol_begv;
+  struct ts_linecol ts_linecol_point;
+  struct ts_linecol ts_linecol_zv;
+#endif
 
   /* Changes in the buffer are recorded here for undo, and t means
      don't record anything.  This information belongs to the base
@@ -1134,6 +1171,45 @@ BUFFER_CHECK_INDIRECTION (struct buffer *b)
     }
 }
 
+#ifdef HAVE_TREE_SITTER
+
+INLINE struct ts_linecol
+BUF_TS_LINECOL_BEGV (struct buffer *buf)
+{
+  return buf->ts_linecol_begv;
+}
+INLINE struct ts_linecol
+BUF_TS_LINECOL_POINT (struct buffer *buf)
+{
+  return buf->ts_linecol_point;
+}
+
+INLINE struct ts_linecol
+BUF_TS_LINECOL_ZV (struct buffer *buf)
+{
+  return buf->ts_linecol_zv;
+}
+
+INLINE void
+SET_BUF_TS_LINECOL_BEGV (struct buffer *buf, struct ts_linecol linecol)
+{
+  buf->ts_linecol_begv = linecol;
+}
+
+INLINE void
+SET_BUF_TS_LINECOL_POINT (struct buffer *buf, struct ts_linecol linecol)
+{
+  buf->ts_linecol_point = linecol;
+}
+
+INLINE void
+SET_BUF_TS_LINECOL_ZV (struct buffer *buf, struct ts_linecol linecol)
+{
+  buf->ts_linecol_zv = linecol;
+}
+
+#endif
+
 /* This structure holds the default values of the buffer-local variables
    that have special slots in each buffer.
    The default value occupies the same slot in this structure
@@ -1177,7 +1253,6 @@ extern void delete_all_overlays (struct buffer *);
 extern void reset_buffer (struct buffer *);
 extern void compact_buffer (struct buffer *);
 extern ptrdiff_t overlays_at (ptrdiff_t, bool, Lisp_Object **, ptrdiff_t *, ptrdiff_t *);
-extern ptrdiff_t previous_overlay_change (ptrdiff_t);
 extern ptrdiff_t next_overlay_change (ptrdiff_t);
 extern ptrdiff_t sort_overlays (Lisp_Object *, ptrdiff_t, struct window *);
 extern void recenter_overlay_lists (struct buffer *, ptrdiff_t);
@@ -1351,8 +1426,8 @@ BUF_CHAR_ADDRESS (struct buffer *buf, ptrdiff_t pos)
 	  + (pos < buf->text->gpt ? 0 : buf->text->gap_size));
 }
 
-/* Convert PTR, the address of a char in buffer BUF,
-   into a character position.  */
+/* Convert PTR, the address of a char in buffer BUF, into a byte
+   position.  */
 
 INLINE ptrdiff_t
 BUF_PTR_BYTE_POS (struct buffer *buf, unsigned char *ptr)
@@ -1382,7 +1457,9 @@ BUF_FETCH_CHAR_AS_MULTIBYTE (struct buffer *buf, ptrdiff_t pos)
 	  : UNIBYTE_TO_CHAR (BUF_FETCH_BYTE (buf, pos)));
 }
 
-/* Return number of windows showing B.  */
+/* Return number of windows showing B or a buffer that has B as its base
+   buffer.  If B is an indirect buffer, this returns buffer_window_count
+   of its base buffer.  */
 
 INLINE int
 buffer_window_count (struct buffer *b)

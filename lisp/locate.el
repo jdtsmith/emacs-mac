@@ -1,6 +1,6 @@
 ;;; locate.el --- interface to the locate command  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996, 1998, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996, 1998, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Peter Breton <pbreton@cs.umb.edu>
 ;; Keywords: unix files
@@ -182,7 +182,7 @@ or `locate-make-command-line', determines the database."
   :type '(choice (const :tag "None" nil) face))
 
 ;;;###autoload
-(defcustom locate-ls-subdir-switches (purecopy "-al")
+(defcustom locate-ls-subdir-switches "-al"
   "`ls' switches for inserting subdirectories in `*Locate*' buffers.
 This should contain the \"-l\" switch, but not the \"-F\" or \"-b\" switches."
   :type 'string

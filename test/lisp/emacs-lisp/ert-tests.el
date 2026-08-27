@@ -1,6 +1,6 @@
 ;;; ert-tests.el --- ERT's self-tests  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: Christian Ohler <ohler@gnu.org>
 
@@ -28,6 +28,7 @@
 
 (require 'cl-lib)
 (require 'ert)
+(require 'ert-x)
 
 ;;; Self-test that doesn't rely on ERT, for bootstrapping.
 
@@ -587,7 +588,7 @@ This macro is used to test if macroexpansion in `should' works."
 	(should found-complex)))))
 
 (ert-deftest ert-test-run-tests-batch-expensive ()
-  :tags (if (getenv "EMACS_EMBA_CI") '(:unstable))
+  :tags '(:unstable)
   (let* ((complex-list '((:1 (:2 (:3 (:4 (:5 (:6 "abc"))))))))
 	 (failing-test-1
           (make-ert-test :name 'failing-test-1
@@ -617,7 +618,7 @@ This macro is used to test if macroexpansion in `should' works."
   (should (ert--special-operator-p 'if))
   (should-not (ert--special-operator-p 'car))
   (should-not (ert--special-operator-p 'ert--special-operator-p))
-  (let ((b (cl-gensym)))
+  (cl-with-gensyms (b)
     (should-not (ert--special-operator-p b))
     (fset b 'if)
     (should (ert--special-operator-p b))))
@@ -792,6 +793,14 @@ This macro is used to test if macroexpansion in `should' works."
                  '(char 1 "o" (different-properties-for-key a (different-atoms b foo))
                         context-before "f" context-after "o"))))
 
+(ert-deftest ert-test-explain-time-equal-p ()
+  (should-not (ert--explain-time-equal-p 123 '(0 123 0 0)))
+  (should (equal (ert--explain-time-equal-p 123 '(0 120 0 0))
+                 '(different-time-values
+                   "1970-01-01 00:02:03.000000000+0000"
+                   "1970-01-01 00:02:00.000000000+0000"
+                   difference "3.000000000"))))
+
 (ert-deftest ert-test-stats-set-test-and-result ()
   (let* ((test-1 (make-ert-test :name 'test-1
                                 :body (lambda () nil)))
@@ -929,6 +938,138 @@ F failing-test
                              want-body)))
           (when noninteractive
             (kill-buffer buffer-name)))))))
+
+(defun ert--hash-table-to-alist (table)
+  (let ((accu nil))
+    (maphash (lambda (key value)
+               (push (cons key value) accu))
+             table)
+    (nreverse accu)))
+
+(ert-deftest ert-test-test-buffers ()
+  (let (buffer-1
+        buffer-2)
+    (let ((test-1
+           (make-ert-test
+            :name 'test-1
+            :body (lambda ()
+                    (ert-with-test-buffer (:name "foo")
+                      (should (string-match
+                               "[*]Test buffer (ert-test-test-buffers): foo[*]"
+                               (buffer-name)))
+                      (setq buffer-1 (current-buffer))))))
+          (test-2
+           (make-ert-test
+            :name 'test-2
+            :body (lambda ()
+                    (ert-with-test-buffer (:name "bar")
+                      (should (string-match
+                               "[*]Test buffer (ert-test-test-buffers): bar[*]"
+                               (buffer-name)))
+                      (setq buffer-2 (current-buffer))
+                      (ert-fail "fail for test"))))))
+      (let ((ert--test-buffers (make-hash-table :weakness t)))
+        (ert-run-tests `(member ,test-1 ,test-2) #'ignore)
+        (should (equal (ert--hash-table-to-alist ert--test-buffers)
+                       `((,buffer-2 . t))))
+        (should-not (buffer-live-p buffer-1))
+        (should (buffer-live-p buffer-2))))))
+
+(ert-deftest ert-test-with-buffer-selected/current ()
+  (let ((origbuf (current-buffer)))
+    (ert-with-test-buffer ()
+      (let ((buf (current-buffer)))
+        (should (not (eq buf origbuf)))
+        (with-current-buffer origbuf
+          (ert-with-buffer-selected buf
+            (should (eq (current-buffer) buf))))))))
+
+(ert-deftest ert-test-with-buffer-selected/selected ()
+  (ert-with-test-buffer ()
+    (ert-with-buffer-selected (current-buffer)
+      (should (eq (window-buffer) (current-buffer))))))
+
+(ert-deftest ert-test-with-buffer-selected/nil-buffer ()
+  (ert-with-test-buffer ()
+    (let ((buf (current-buffer)))
+      (ert-with-buffer-selected nil
+        (should (eq (window-buffer) buf))))))
+
+(ert-deftest ert-test-with-buffer-selected/modification-hooks ()
+  (ert-with-test-buffer ()
+    (ert-with-buffer-selected (current-buffer)
+      (should (null inhibit-modification-hooks)))))
+
+(ert-deftest ert-test-with-buffer-selected/read-only ()
+  (ert-with-test-buffer ()
+    (ert-with-buffer-selected (current-buffer)
+      (should (null inhibit-read-only))
+      (should (null buffer-read-only)))))
+
+(ert-deftest ert-test-with-buffer-selected/return-value ()
+  (should (equal (ert-with-buffer-selected nil "foo") "foo")))
+
+(ert-deftest ert-test-with-test-buffer-selected/selected ()
+  (ert-with-test-buffer (:selected t)
+    (should (eq (window-buffer) (current-buffer)))))
+
+(ert-deftest ert-test-with-test-buffer-selected/modification-hooks ()
+  (ert-with-test-buffer (:selected t)
+    (should (null inhibit-modification-hooks))))
+
+(ert-deftest ert-test-with-test-buffer-selected/read-only ()
+  (ert-with-test-buffer (:selected t)
+    (should (null inhibit-read-only))
+    (should (null buffer-read-only))))
+
+(ert-deftest ert-test-with-test-buffer-selected/return-value ()
+  (should (equal (ert-with-test-buffer (:selected t) "foo") "foo")))
+
+(ert-deftest ert-test-with-test-buffer-selected/buffer-name ()
+  (should (equal (ert-with-test-buffer (:name "foo") (buffer-name))
+                 (ert-with-test-buffer (:name "foo" :selected t)
+                   (buffer-name)))))
+
+(ert-deftest ert-test-erts-pass ()
+  "Test that `ert-test-erts-file' reports test case passed."
+  (ert-test-erts-file (ert-resource-file "erts-pass.erts")
+                      (lambda () ())))
+
+(ert-deftest ert-test-erts-fail ()
+  "Test that `ert-test-erts-file' reports test case failed."
+  (should-error (ert-test-erts-file (ert-resource-file "erts-fail.erts")
+                                    (lambda () ()))
+                :type 'ert-test-failed))
+
+(ert-deftest ert-test-erts-skip-one ()
+  "Test that Skip does not affect subsequent test cases (Bug#76839)."
+  (should-error (ert-test-erts-file (ert-resource-file "erts-skip-one.erts")
+                                    (lambda () ()))
+                :type 'ert-test-failed))
+
+(ert-deftest ert-test-erts-skip-last ()
+  "Test that Skip does not fail on last test case (Bug#76839)."
+  (ert-test-erts-file (ert-resource-file "erts-skip-last.erts")
+                      (lambda () ())))
+
+(ert-deftest ert-test-list-of-erts-file-tests ()
+  "Test that the list of tests from erts files is created correctly."
+  (let ((run-erts-file-tests
+         (lambda (erts-file)
+           (let* ((ert-test (make-ert-test
+                             :body (lambda ()
+                                     (ert-test-erts-file
+                                      (ert-resource-file erts-file)
+                                      (lambda () ())))))
+                  (result (ert-run-test ert-test))
+                  (erts-file-tests (ert-test-result-erts-file-tests result)))
+             (mapcar (lambda (desc)
+                       (cdr (assq 'name desc)))
+                     erts-file-tests)))))
+    (should (equal (funcall run-erts-file-tests "erts-file-test-list.erts")
+                   '("foo" "bar" "quux")))
+    (should (equal (funcall run-erts-file-tests "erts-file-test-list-fail.erts")
+                   '("foo" "bar")))))
 
 (provide 'ert-tests)
 

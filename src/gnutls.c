@@ -1,5 +1,5 @@
 /* GnuTLS glue for GNU Emacs.
-   Copyright (C) 2010-2025 Free Software Foundation, Inc.
+   Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -1002,8 +1002,7 @@ See also `gnutls-boot'.  */)
 DEFUN ("gnutls-errorp", Fgnutls_errorp, Sgnutls_errorp, 1, 1, 0,
        doc: /* Return t if ERROR indicates a GnuTLS problem.
 ERROR is an integer or a symbol with an integer `gnutls-code' property.
-usage: (gnutls-errorp ERROR)  */
-       attributes: const)
+usage: (gnutls-errorp ERROR)  */)
   (Lisp_Object err)
 {
   if (EQ (err, Qt)
@@ -1384,18 +1383,43 @@ DEFUN ("gnutls-peer-status-warning-describe", Fgnutls_peer_status_warning_descri
 }
 
 DEFUN ("gnutls-peer-status", Fgnutls_peer_status, Sgnutls_peer_status, 1, 1, 0,
-       doc: /* Describe a GnuTLS PROC peer certificate and any warnings about it.
+       doc: /* Describe GnuTLS peer certificate of PROC and any warnings about it.
 
 The return value is a property list with top-level keys :warnings and
 :certificates.
 
-The :warnings entry is a list of symbols you can get a description of
-with `gnutls-peer-status-warning-describe', and :certificates is the
-certificate chain for the connection, with the host certificate
-first, and intermediary certificates (if any) following it.
+The :warnings entry is a list of symbols whose descriptions can be
+obtained with `gnutls-peer-status-warning-describe'.
 
-In addition, for backwards compatibility, the host certificate is also
-returned as the :certificate entry.  */)
+The :certificates entry is the certificate chain for the connection,
+with the host certificate first and intermediary certificates (if any)
+following it.  In addition, for backwards compatibility, the host
+certificate is also returned as the :certificate entry.
+
+The list in :certificates entry can also include one or more of the
+properties of the TLS connection, when applicable, using the following
+keys:
+
+  :cipher              a string naming the cipher algorithm, or "NULL"
+
+  :compression         a string naming the compression algorithm, or "NULL"
+
+  :diffie-hellman-prime-bits
+		       the number if bits used in Diffie-Hellman key exchange,
+			 an integer
+
+  :encrypt-then-mac    t if encrypt-then-mac negotiation was successful,
+                         nil otherwise
+
+  :key-exchange        key exchange algorithm, a string
+
+  :mac                 a string naming the MAC algorithm, or "NULL"
+
+  :protocol            TLS protocol version as a string
+
+  :safe-renegotiation  t if safe renegotiation is used, otherwise nil
+
+*/)
   (Lisp_Object proc)
 {
   Lisp_Object warnings = Qnil, result = Qnil;
@@ -1646,8 +1670,7 @@ string representation.  */)
 	     emacs_gnutls_strerror (err));
     }
 
-  Lisp_Object result = make_string_from_bytes ((char *) out.data, out.size,
-					       out.size);
+  Lisp_Object result = make_unibyte_string ((char *) out.data, out.size);
   gnutls_free (out.data);
   gnutls_x509_crt_deinit (crt);
 

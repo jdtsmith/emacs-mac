@@ -1,6 +1,6 @@
 ;;; ede/generic.el --- Base Support for generic build systems  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2010-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -153,7 +153,7 @@ The class allocated value is replace by different sub classes.")
   "Make sure the targets slot is bound."
   (cl-call-next-method)
   (unless (slot-boundp this 'targets)
-    (oset this :targets nil))
+    (oset this targets nil))
   )
 
 (cl-defmethod ede-project-root ((this ede-generic-project))

@@ -1,6 +1,6 @@
 ;;; help-mode.el --- `help-mode' used by *Help* buffers  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1986, 1993-1994, 1998-2025 Free Software
+;; Copyright (C) 1985-1986, 1993-1994, 1998-2026 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -89,9 +89,9 @@
 
   (when (mouse-posn-property (event-start click) 'mouse-face)
     (define-key menu [help-mode-push-button]
-      '(menu-item "Follow Link" (lambda (event)
-                                  (interactive "e")
-                                  (push-button event))
+      `(menu-item "Follow Link" ,(lambda (event)
+                                   (interactive "e")
+                                   (push-button event))
                   :help "Follow the link at click")))
 
   menu)
@@ -143,6 +143,8 @@ The format is (FUNCTION ARGS...).")
     ;; break when a quoted string contains punctuation.
     (modify-syntax-entry ?‘ "(’  " table)
     (modify-syntax-entry ?’ ")‘  " table)
+    ;; `;' doesn't start a comment.
+    (modify-syntax-entry ?\; "." table)
     table)
   "Syntax table used in `help-mode'.")
 
@@ -170,92 +172,92 @@ The format is (FUNCTION ARGS...).")
 (define-button-type 'help-function
   :supertype 'help-xref
   'help-function 'describe-function
-  'help-echo (purecopy "mouse-2, RET: describe this function"))
+  'help-echo "mouse-2, RET: describe this function")
 
 (define-button-type 'help-variable
   :supertype 'help-xref
   'help-function 'describe-variable
-  'help-echo (purecopy "mouse-2, RET: describe this variable"))
+  'help-echo "mouse-2, RET: describe this variable")
 
 (define-button-type 'help-type
   :supertype 'help-xref
   'help-function #'cl-describe-type
-  'help-echo (purecopy "mouse-2, RET: describe this type"))
+  'help-echo "mouse-2, RET: describe this type")
 
 (define-button-type 'help-face
   :supertype 'help-xref
   'help-function 'describe-face
-  'help-echo (purecopy "mouse-2, RET: describe this face"))
+  'help-echo "mouse-2, RET: describe this face")
 
 (define-button-type 'help-coding-system
   :supertype 'help-xref
   'help-function 'describe-coding-system
-  'help-echo (purecopy "mouse-2, RET: describe this coding system"))
+  'help-echo "mouse-2, RET: describe this coding system")
 
 (define-button-type 'help-input-method
   :supertype 'help-xref
   'help-function 'describe-input-method
-  'help-echo (purecopy "mouse-2, RET: describe this input method"))
+  'help-echo "mouse-2, RET: describe this input method")
 
 (define-button-type 'help-character-set
   :supertype 'help-xref
   'help-function 'describe-character-set
-  'help-echo (purecopy "mouse-2, RET: describe this character set"))
+  'help-echo "mouse-2, RET: describe this character set")
 
 ;; Make some more idiosyncratic button types.
 
 (define-button-type 'help-symbol
   :supertype 'help-xref
   'help-function #'describe-symbol
-  'help-echo (purecopy "mouse-2, RET: describe this symbol"))
+  'help-echo "mouse-2, RET: describe this symbol")
 
 (define-button-type 'help-back
   :supertype 'help-xref
   'help-function #'help-xref-go-back
-  'help-echo (purecopy "mouse-2, RET: go back to previous help buffer"))
+  'help-echo "mouse-2, RET: go back to previous help buffer")
 
 (define-button-type 'help-forward
   :supertype 'help-xref
   'help-function #'help-xref-go-forward
-  'help-echo (purecopy "mouse-2, RET: move forward to next help buffer"))
+  'help-echo "mouse-2, RET: move forward to next help buffer")
 
 (define-button-type 'help-info-variable
   :supertype 'help-xref
   ;; the name of the variable is put before the argument to Info
   'help-function (lambda (_a v) (info v))
-  'help-echo (purecopy "mouse-2, RET: read this Info node"))
+  'help-echo "mouse-2, RET: read this Info node")
 
 (define-button-type 'help-info
   :supertype 'help-xref
   'help-function #'info
-  'help-echo (purecopy "mouse-2, RET: read this Info node"))
+  'help-echo "mouse-2, RET: read this Info node")
 
 (define-button-type 'help-man
   :supertype 'help-xref
   'help-function #'man
-  'help-echo (purecopy "mouse-2, RET: read this man page"))
+  'help-echo "mouse-2, RET: read this man page")
 
 (define-button-type 'help-customization-group
   :supertype 'help-xref
   'help-function #'customize-group
-  'help-echo (purecopy "mouse-2, RET: display this customization group"))
+  'help-echo "mouse-2, RET: display this customization group")
 
 (define-button-type 'help-url
   :supertype 'help-xref
   'help-function #'browse-url
-  'help-echo (purecopy "mouse-2, RET: view this URL in a browser"))
+  'help-echo "mouse-2, RET: view this URL in a browser")
 
 (define-button-type 'help-customize-variable
   :supertype 'help-xref
   'help-function (lambda (v)
-		   (customize-variable v))
-  'help-echo (purecopy "mouse-2, RET: customize variable"))
+               (customize-variable v))
+  'help-echo "mouse-2, RET: customize variable")
 
 (define-button-type 'help-customize-face
   :supertype 'help-xref
   'help-function (lambda (v)
-		   (customize-face v))
-  'help-echo (purecopy "mouse-2, RET: customize face"))
+               (customize-face v))
+  'help-echo "mouse-2, RET: customize face")
 
 (defun help-function-def--button-function (fun &optional file type)
   (or file
@@ -293,7 +295,7 @@ The format is (FUNCTION ARGS...).")
 (define-button-type 'help-function-def
   :supertype 'help-xref
   'help-function #'help-function-def--button-function
-  'help-echo (purecopy "mouse-2, RET: find function's definition"))
+  'help-echo "mouse-2, RET: find function's definition")
 
 (define-button-type 'help-function-cmacro ; FIXME: Obsolete since 24.4.
   :supertype 'help-xref
@@ -314,7 +316,7 @@ The format is (FUNCTION ARGS...).")
 			     (forward-line 0)
 			   (message "Unable to find location in file")))
 		     (message "Unable to find file")))
-  'help-echo (purecopy "mouse-2, RET: find function's compiler macro"))
+  'help-echo "mouse-2, RET: find function's compiler macro")
 
 (define-button-type 'help-variable-def
   :supertype 'help-xref
@@ -335,7 +337,7 @@ The format is (FUNCTION ARGS...).")
                                (widen))
                              (goto-char position))
                        (message "Unable to find location in file"))))
-  'help-echo (purecopy "mouse-2, RET: find variable's definition"))
+  'help-echo "mouse-2, RET: find variable's definition")
 
 (define-button-type 'help-face-def
   :supertype 'help-xref
@@ -357,27 +359,27 @@ The format is (FUNCTION ARGS...).")
                                (widen))
                              (goto-char position))
                        (message "Unable to find location in file"))))
-  'help-echo (purecopy "mouse-2, RET: find face's definition"))
+  'help-echo "mouse-2, RET: find face's definition")
 
 (define-button-type 'help-package
   :supertype 'help-xref
   'help-function 'describe-package
-  'help-echo (purecopy "mouse-2, RET: Describe package"))
+  'help-echo "mouse-2, RET: Describe package")
 
 (define-button-type 'help-package-def
   :supertype 'help-xref
-  'help-function (lambda (file) (dired file))
-  'help-echo (purecopy "mouse-2, RET: visit package directory"))
+  'help-function #'dired
+  'help-echo "mouse-2, RET: visit package directory")
 
 (define-button-type 'help-theme-def
   :supertype 'help-xref
   'help-function #'find-file
-  'help-echo (purecopy "mouse-2, RET: visit theme file"))
+  'help-echo "mouse-2, RET: visit theme file")
 
 (define-button-type 'help-theme-edit
   :supertype 'help-xref
   'help-function #'customize-create-theme
-  'help-echo (purecopy "mouse-2, RET: edit this theme file"))
+  'help-echo "mouse-2, RET: edit this theme file")
 
 (define-button-type 'help-dir-local-var-def
   :supertype 'help-xref
@@ -385,7 +387,7 @@ The format is (FUNCTION ARGS...).")
 		   ;; FIXME: this should go to the point where the
 		   ;; local variable was defined.
 		   (find-file file))
-  'help-echo (purecopy "mouse-2, RET: open directory-local variables file"))
+  'help-echo "mouse-2, RET: open directory-local variables file")
 (define-button-type 'help-news
   :supertype 'help-xref
   'help-function
@@ -394,7 +396,7 @@ The format is (FUNCTION ARGS...).")
         (view-file file)
       (view-file-other-window file))
     (goto-char pos))
-  'help-echo (purecopy "mouse-2, RET: show corresponding NEWS announcement"))
+  'help-echo "mouse-2, RET: show corresponding NEWS announcement")
 
 ;;;###autoload
 (defun help-mode--add-function-link (str fun)
@@ -446,21 +448,21 @@ Commands:
 ;; similar should be done for widget doc strings, which currently use
 ;; another mechanism.
 
-(defvar help-back-label (purecopy "[back]")
+(defvar help-back-label "[back]"
   "Label to use by `help-make-xrefs' for the go-back reference.")
 
-(defvar help-forward-label (purecopy "[forward]")
+(defvar help-forward-label "[forward]"
   "Label to use by `help-make-xrefs' for the go-forward reference.")
 
 (defconst help-xref-symbol-regexp
-  (purecopy (concat "\\(\\<\\(\\(variable\\|option\\)\\|"  ; Link to var
- 		    "\\(function\\|command\\|call\\)\\|"   ; Link to function
- 		    "\\(face\\)\\|"			   ; Link to face
- 		    "\\(symbol\\|program\\|property\\)\\|" ; Don't link
-		    "\\(source \\(?:code \\)?\\(?:of\\|for\\)\\)\\)"
-		    "[ \t\n]+\\)?"
-                    "\\(\\\\\\+\\)?"
-                    "['`‘]\\(\\(?:\\sw\\|\\s_\\)+\\|`\\)['’]"))
+  (concat "\\(\\<\\(\\(variable\\|option\\)\\|"  ; Link to var
+          "\\(function\\|command\\|call\\)\\|"   ; Link to function
+          "\\(face\\)\\|"                        ; Link to face
+          "\\(symbol\\|program\\|property\\)\\|" ; Don't link
+          "\\(source \\(?:code \\)?\\(?:of\\|for\\)\\)\\)"
+          "[ \t\n]+\\)?"
+          "\\(\\\\\\+\\)?"
+          "['`‘]\\(\\(?:\\sw\\|\\s_\\)+\\|`\\)['’]")
   "Regexp matching doc string references to symbols.
 
 The words preceding the quoted symbol can be used in doc strings to
@@ -475,21 +477,19 @@ when help commands related to multilingual environment (e.g.,
 
 
 (defconst help-xref-info-regexp
-  (purecopy
-   "\\<[Ii]nfo[ \t\n]+\\(node\\|anchor\\)[ \t\n]+['`‘]\\([^'’]+\\)['’]")
+  "\\<[Ii]nfo[ \t\n]+\\(node\\|anchor\\)[ \t\n]+['`‘]\\([^'’]+\\)['’]"
   "Regexp matching doc string references to an Info node.")
 
 (defconst help-xref-man-regexp
-  (purecopy
-   "\\<[Mm]an[ \t\n]+page[ \t\n]+\\(?:for[ \t\n]+\\)?['`‘\"]\\([^'’\"]+\\)['’\"]")
+  "\\<[Mm]an[ \t\n]+page[ \t\n]+\\(?:for[ \t\n]+\\)?['`‘\"]\\([^'’\"]+\\)['’\"]"
   "Regexp matching doc string references to a man page.")
 
 (defconst help-xref-customization-group-regexp
-  (purecopy "\\<[Cc]ustomization[ \t\n]+[Gg]roup[ \t\n]+['`‘]\\([^'’]+\\)['’]")
+  "\\<[Cc]ustomization[ \t\n]+[Gg]roup[ \t\n]+['`‘]\\([^'’]+\\)['’]"
   "Regexp matching doc string references to a customization group.")
 
 (defconst help-xref-url-regexp
-  (purecopy "\\<[Uu][Rr][Ll][ \t\n]+['`‘]\\([^'’]+\\)['’]")
+  "\\<[Uu][Rr][Ll][ \t\n]+['`‘]\\([^'’]+\\)['’]"
   "Regexp matching doc string references to a URL.")
 
 ;;;###autoload
@@ -501,31 +501,23 @@ buffer after following a reference.  INTERACTIVE-P is non-nil if the
 calling command was invoked interactively.  In this case the stack of
 items for help buffer \"back\" buttons is cleared.
 
-This should be called very early, before the output buffer is cleared,
-because we want to record the \"previous\" position of point so we can
-restore it properly when going back."
+This function also re-enables the major mode of the buffer, thus
+resetting local variables to the values set by the mode and running the
+mode hooks.
+
+So this should be called very early, before the output buffer is
+cleared, also because we want to record the \"previous\" position of
+point so we can restore it properly when going back."
   (with-current-buffer (help-buffer)
-    ;; Disable `outline-minor-mode' in a reused Help buffer
-    ;; created by `describe-bindings' that enables this mode.
-    (when (bound-and-true-p outline-minor-mode)
-      (outline-minor-mode -1)
-      (mapc #'kill-local-variable
-            '(outline-search-function
-              outline-regexp
-              outline-heading-end-regexp
-              outline-level
-              outline-minor-mode-cycle
-              outline-minor-mode-highlight
-              outline-minor-mode-use-buttons
-              outline-default-state
-              outline-default-rules)))
+    ;; Re-enable major mode, killing all unrelated local vars.
+    (funcall major-mode)
     (when help-xref-stack-item
       (push (cons (point) help-xref-stack-item) help-xref-stack)
       (setq help-xref-forward-stack nil))
     (when interactive-p
       (let ((tail (nthcdr 10 help-xref-stack)))
-	;; Truncate the stack.
-	(if tail (setcdr tail nil))))
+        ;; Truncate the stack.
+        (if tail (setcdr tail nil))))
     (setq help-xref-stack-item item)))
 
 (defvar help-xref-following nil
@@ -599,99 +591,95 @@ that."
       ;; Skip the first bit, which has already been buttonized.
       (forward-paragraph)
       (let ((old-modified (buffer-modified-p)))
-        (let ((stab (syntax-table))
-              (case-fold-search t)
+        (let ((case-fold-search t)
               (inhibit-read-only t))
-          (set-syntax-table help-mode-syntax-table)
-          ;; The following should probably be abstracted out.
-          (unwind-protect
-              (progn
-                ;; Info references
+          (with-syntax-table help-mode-syntax-table
+            ;; The following should probably be abstracted out.
+            ;; Info references
+            (save-excursion
+              (while (re-search-forward help-xref-info-regexp nil t)
+                (let ((data (match-string 2)))
+                  (save-match-data
+                    (unless (string-match "^([^)]+)" data)
+                      (setq data (concat "(emacs)" data)))
+		    (setq data ;; possible newlines if para filled
+			  (replace-regexp-in-string "[ \t\n]+" " " data t t)))
+                  (help-xref-button 2 'help-info data))))
+            ;; Man references
+            (save-excursion
+              (while (re-search-forward help-xref-man-regexp nil t)
+                (help-xref-button 1 'help-man (match-string 1))))
+            ;; Customization groups.
+            (save-excursion
+              (while (re-search-forward
+                      help-xref-customization-group-regexp nil t)
+                (help-xref-button 1 'help-customization-group
+                                  (intern (match-string 1)))))
+            ;; URLs
+            (save-excursion
+              (while (re-search-forward help-xref-url-regexp nil t)
+                (let ((data (match-string 1)))
+                  (help-xref-button 1 'help-url data))))
+            ;; Mule related keywords.  Do this before trying
+            ;; `help-xref-symbol-regexp' because some of Mule
+            ;; keywords have variable or function definitions.
+            (if help-xref-mule-regexp
                 (save-excursion
-                  (while (re-search-forward help-xref-info-regexp nil t)
-                    (let ((data (match-string 2)))
-                      (save-match-data
-                        (unless (string-match "^([^)]+)" data)
-                          (setq data (concat "(emacs)" data)))
-			(setq data ;; possible newlines if para filled
-			      (replace-regexp-in-string "[ \t\n]+" " " data t t)))
-                      (help-xref-button 2 'help-info data))))
-                ;; Man references
-                (save-excursion
-                  (while (re-search-forward help-xref-man-regexp nil t)
-                    (help-xref-button 1 'help-man (match-string 1))))
-                ;; Customization groups.
-                (save-excursion
-                  (while (re-search-forward
-                          help-xref-customization-group-regexp nil t)
-                    (help-xref-button 1 'help-customization-group
-                                      (intern (match-string 1)))))
-                ;; URLs
-                (save-excursion
-                  (while (re-search-forward help-xref-url-regexp nil t)
-                    (let ((data (match-string 1)))
-                      (help-xref-button 1 'help-url data))))
-                ;; Mule related keywords.  Do this before trying
-                ;; `help-xref-symbol-regexp' because some of Mule
-                ;; keywords have variable or function definitions.
-                (if help-xref-mule-regexp
-                    (save-excursion
-                      (while (re-search-forward help-xref-mule-regexp nil t)
-                        (let* ((data (match-string 7))
-                               (sym (intern-soft data)))
-                          (cond
-                           ((match-string 3) ; coding system
-                            (and sym (coding-system-p sym)
-                                 (help-xref-button 6 'help-coding-system sym)))
-                           ((match-string 4) ; input method
-                            (and (assoc data input-method-alist)
-                                 (help-xref-button 7 'help-input-method data)))
-                           ((or (match-string 5) (match-string 6)) ; charset
-                            (and sym (charsetp sym)
-                                 (help-xref-button 7 'help-character-set sym)))
-                           ((assoc data input-method-alist)
-                            (help-xref-button 7 'help-input-method data))
-                           ((and sym (coding-system-p sym))
-                            (help-xref-button 7 'help-coding-system sym))
-                           ((and sym (charsetp sym))
-                            (help-xref-button 7 'help-character-set sym)))))))
-                ;; Quoted symbols
-                (save-excursion
-                  (while (re-search-forward help-xref-symbol-regexp nil t)
-                    (when-let ((sym (intern-soft (match-string 9))))
-                      (if (match-string 8)
-                          (delete-region (match-beginning 8)
-                                         (match-end 8))
-                        (cond
-                         ((match-string 3)        ; `variable' &c
-                          (and (or (boundp sym) ; `variable' doesn't ensure
-                                        ; it's actually bound
-                                   (get sym 'variable-documentation))
-                               (help-xref-button 9 'help-variable sym)))
-                         ((match-string 4)     ; `function' &c
-                          (and (fboundp sym)   ; similarly
-                               (help-xref-button 9 'help-function sym)))
-                         ((match-string 5) ; `face'
-                          (and (facep sym)
-                               (help-xref-button 9 'help-face sym)))
-                         ((match-string 6)) ; nothing for `symbol'
-                         ((match-string 7)
-                          (help-xref-button 9 'help-function-def sym))
-                         ((cl-some (lambda (x) (funcall (nth 1 x) sym))
-                                   describe-symbol-backends)
-                          (help-xref-button 9 'help-symbol sym)))))))
-                ;; An obvious case of a key substitution:
-                (save-excursion
-                  (while (re-search-forward
-                          ;; Assume command name is only word and symbol
-                          ;; characters to get things like `use M-x foo->bar'.
-                          ;; Command required to end with word constituent
-                          ;; to avoid `.' at end of a sentence.
-                          "\\<M-x\\s-+\\(\\sw\\(\\sw\\|\\s_\\)*\\sw\\)" nil t)
-                    (let ((sym (intern-soft (match-string 1))))
-                      (if (fboundp sym)
-                          (help-xref-button 1 'help-function sym))))))
-            (set-syntax-table stab))
+                  (while (re-search-forward help-xref-mule-regexp nil t)
+                    (let* ((data (match-string 7))
+                           (sym (intern-soft data)))
+                      (cond
+                       ((match-string 3) ; coding system
+                        (and sym (coding-system-p sym)
+                             (help-xref-button 6 'help-coding-system sym)))
+                       ((match-string 4) ; input method
+                        (and (assoc data input-method-alist)
+                             (help-xref-button 7 'help-input-method data)))
+                       ((or (match-string 5) (match-string 6)) ; charset
+                        (and sym (charsetp sym)
+                             (help-xref-button 7 'help-character-set sym)))
+                       ((assoc data input-method-alist)
+                        (help-xref-button 7 'help-input-method data))
+                       ((and sym (coding-system-p sym))
+                        (help-xref-button 7 'help-coding-system sym))
+                       ((and sym (charsetp sym))
+                        (help-xref-button 7 'help-character-set sym)))))))
+            ;; Quoted symbols
+            (save-excursion
+              (while (re-search-forward help-xref-symbol-regexp nil t)
+                (when-let* ((sym (intern-soft (match-string 9))))
+                  (if (match-string 8)
+                      (delete-region (match-beginning 8)
+                                     (match-end 8))
+                    (cond
+                     ((match-string 3)          ; `variable' &c
+                      (and (or (boundp sym) ; `variable' doesn't ensure
+                                            ; it's actually bound
+                               (get sym 'variable-documentation))
+                           (help-xref-button 9 'help-variable sym)))
+                     ((match-string 4)       ; `function' &c
+                      (and (fboundp sym)     ; similarly
+                           (help-xref-button 9 'help-function sym)))
+                     ((match-string 5)  ; `face'
+                      (and (facep sym)
+                           (help-xref-button 9 'help-face sym)))
+                     ((match-string 6)) ; nothing for `symbol'
+                     ((match-string 7)
+                      (help-xref-button 9 'help-function-def sym))
+                     ((cl-some (lambda (x) (funcall (nth 1 x) sym))
+                               describe-symbol-backends)
+                      (help-xref-button 9 'help-symbol sym)))))))
+            ;; An obvious case of a key substitution:
+            (save-excursion
+              (while (re-search-forward
+                      ;; Assume command name is only word and symbol
+                      ;; characters to get things like `use M-x foo->bar'.
+                      ;; Command required to end with word constituent
+                      ;; to avoid `.' at end of a sentence.
+                      "\\<M-x\\s-+\\(\\sw\\(\\sw\\|\\s_\\)*\\sw\\)" nil t)
+                (let ((sym (intern-soft (match-string 1))))
+                  (if (fboundp sym)
+                      (help-xref-button 1 'help-function sym))))))
           ;; Delete extraneous newlines at the end of the docstring
           (goto-char (point-max))
           (while (and (not (bobp)) (bolp))

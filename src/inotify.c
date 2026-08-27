@@ -1,6 +1,6 @@
 /* Inotify support for Emacs
 
-Copyright (C) 2012-2025 Free Software Foundation, Inc.
+Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -187,7 +187,10 @@ inotifyevent_to_event (Lisp_Object watch, struct inotify_event const *ev)
   uint32_t mask;
   CONS_TO_INTEGER (Fnth (make_fixnum (3), watch), uint32_t, mask);
 
-  if (! (mask & ev->mask))
+  if (! (mask & ev->mask)
+      /* These event types are supposed to be reported whether or not
+	 they appeared in the ASPECT list when monitoring commenced.  */
+      && !(ev->mask & (IN_IGNORED | IN_Q_OVERFLOW | IN_ISDIR | IN_UNMOUNT)))
     return Qnil;
 
   if (ev->len > 0)
@@ -336,6 +339,7 @@ inotify_callback (int fd, void *_)
   struct input_event event;
   EVENT_INIT (event);
   event.kind = FILE_NOTIFY_EVENT;
+  event.frame_or_window = Qnil;
 
   for (ssize_t i = 0; i < n; )
     {

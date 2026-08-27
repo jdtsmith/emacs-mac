@@ -1,6 +1,6 @@
 ;;; erc-desktop-notifications.el --- Send notification on PRIVMSG or mentions -*- lexical-binding:t -*-
 
-;; Copyright (C) 2012-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
 ;; Author: Julien Danjou <julien@danjou.info>
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
@@ -65,8 +65,11 @@ This will replace the last notification sent with this function."
   (dbus-ignore-errors
     (setq erc-notifications-last-notification
           (let* ((channel (if privp (erc-get-buffer nick) (current-buffer)))
-                 (title (format "%s in %s" (xml-escape-string nick t) channel))
-                 (body (xml-escape-string (erc-controls-strip msg) t)))
+                 (title (format "%s in %s"
+                                (erc-compat--xml-escape-string nick t)
+                                channel))
+                 (body (erc-compat--xml-escape-string (erc-controls-strip msg)
+                                                      t)))
             (funcall (cond ((featurep 'android)
                             #'android-notifications-notify)
                            ((featurep 'haiku)

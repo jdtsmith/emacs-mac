@@ -1,6 +1,6 @@
 ;;; backtrace.el --- generic major mode for Elisp backtraces -*- lexical-binding: t -*-
 
-;; Copyright (C) 2018-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2018-2026 Free Software Foundation, Inc.
 
 ;; Author: Gemini Lasswell
 ;; Keywords: lisp, tools, maint
@@ -33,7 +33,6 @@
 
 (eval-when-compile (require 'cl-lib))
 (eval-when-compile (require 'pcase))
-(eval-when-compile (require 'subr-x))        ; if-let
 (require 'find-func)
 (require 'help-mode)     ; Define `help-function-def' button type.
 (require 'lisp-mode)
@@ -49,7 +48,6 @@
 Set to nil to disable fontification, which may be necessary in
 order to debug the code that does fontification."
   :type 'boolean
-  :group 'backtrace
   :version "27.1")
 
 (defcustom backtrace-line-length 5000
@@ -60,7 +58,6 @@ shorter than this, but success is not guaranteed.  If set to nil
 or zero, backtrace mode will not abbreviate the forms it prints."
   :type '(choice natnum
                  (const :value nil :tag "Don't abbreviate"))
-  :group 'backtrace
   :version "27.1")
 
 ;;; Backtrace frame data structure
@@ -202,6 +199,7 @@ frames where the source code location is known.")
   "+"   #'backtrace-multi-line
   "-"   #'backtrace-single-line
   "."   #'backtrace-expand-ellipses
+  "C-]"    #'abort-recursive-edit
   "<follow-link>" 'mouse-face
   "<mouse-2>"     #'mouse-select-window
 
@@ -750,7 +748,7 @@ Format it according to VIEW."
       (let ((fun-and-args (cons fun args)))
         (insert (backtrace--print-to-string fun-and-args)))
       ;; Skip the open-paren.
-      (cl-incf fun-beg)))
+      (incf fun-beg)))
     (when fun-file
       (make-text-button fun-beg
                         (or fun-end
@@ -815,7 +813,11 @@ Fall back to `prin1' if there is an error."
 
 (defun backtrace--filter-visible (beg end &optional _delete)
   "Return the visible text between BEG and END."
-  (let ((result ""))
+  (let ((result "")
+        (b (min beg end))
+        (e (max beg end)))
+    ;; Make sure BEG and END are in the correct order.
+    (setq beg b end e)
     (while (< beg end)
       (let ((next (next-single-char-property-change beg 'invisible)))
         (unless (get-char-property beg 'invisible)
@@ -877,13 +879,11 @@ followed by `backtrace-print-frame', once for each stack frame."
   ;; (set-buffer-multibyte t)
   (setq-local revert-buffer-function #'backtrace-revert)
   (setq-local filter-buffer-substring-function #'backtrace--filter-visible)
-  (setq-local indent-line-function 'lisp-indent-line)
-  (setq-local indent-region-function 'lisp-indent-region)
+  (setq-local indent-line-function #'lisp-indent-line)
+  (setq-local indent-region-function #'lisp-indent-region)
   (add-function :around (local 'cl-print-expand-ellipsis-function)
                 #'backtrace--expand-ellipsis)
   (add-hook 'xref-backend-functions #'backtrace--xref-backend nil t))
-
-(put 'backtrace-mode 'mode-class 'special)
 
 ;;; Backtrace printing
 

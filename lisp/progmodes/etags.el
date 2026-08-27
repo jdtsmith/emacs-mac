@@ -1,6 +1,6 @@
 ;;; etags.el --- etags facility for Emacs  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1985-2026 Free Software Foundation, Inc.
 
 ;; Author: Roland McGrath <roland@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -44,7 +44,7 @@ invoke `visit-tags-table', which is the only reliable way of
 setting the value of this variable, whether buffer-local or global.
 Use the `etags' program to make a tags table file.")
 ;; Make M-x set-variable tags-file-name like M-x visit-tags-table.
-;;;###autoload (put 'tags-file-name 'variable-interactive (purecopy "fVisit tags table: "))
+;;;###autoload (put 'tags-file-name 'variable-interactive "fVisit tags table: ")
 ;;;###autoload (put 'tags-file-name 'safe-local-variable 'stringp)
 
 (defgroup etags nil "Tags tables."
@@ -73,7 +73,7 @@ Use the `etags' program to make a tags table file."
 
 ;;;###autoload
 (defcustom tags-compression-info-list
-  (purecopy '("" ".Z" ".bz2" ".gz" ".xz" ".tgz"))
+  '("" ".Z" ".bz2" ".gz" ".xz" ".tgz")
   "List of extensions tried by etags when `auto-compression-mode' is on.
 An empty string means search the non-compressed file."
   :version "24.1"			; added xz
@@ -445,6 +445,10 @@ Returns non-nil if it is a valid table."
 	(set-buffer (get-file-buffer file))
         (or verify-tags-table-function (tags-table-mode))
 	(unless (or (verify-visited-file-modtime (current-buffer))
+                    ;; 'verify-visited-file-modtime' return non-nil if
+                    ;; the tags table file was meanwhile deleted.  Avoid
+                    ;; asking the question below again if so.
+                    (not (file-exists-p file))
 		    ;; Decide whether to revert the file.
 		    ;; revert-without-query can say to revert
 		    ;; or the user can say to revert.
@@ -1645,7 +1649,10 @@ Point should be just after a string that matches TAG."
   (or (and (eq (char-after (point)) ?\001)
 	   (eq (char-after (- (point) (length tag) 1)) ?\177))
       ;; We are not on the explicit tag name, but perhaps it follows.
-      (looking-at (concat "[^\177\n]*\177" (regexp-quote tag) "\001"))))
+      (looking-at (concat "[^\177\n]*\177"
+                          (regexp-quote tag)
+                          ;; The optional "/x" part is for Ada tags.
+                          "\\(/[fpsbtk]\\)?\001"))))
 
 ;; t if point is at a tag line that has an implicit name.
 ;; point should be just after a string that matches TAG.
@@ -2107,8 +2114,14 @@ file name, add `tag-partial-file-name-match-p' to the list value.")
   :type 'boolean
   :version "28.1")
 
-;;;###autoload
-(defun etags--xref-backend () 'etags)
+;;;###autoload (defun etags--xref-backend ()
+;;;###autoload   (when (or tags-table-list tags-file-name)
+;;;###autoload     (load "etags")
+;;;###autoload     'etags))
+
+(defun etags--xref-backend ()
+  (when (or tags-table-list tags-file-name)
+    'etags))
 
 (cl-defmethod xref-backend-identifier-at-point ((_backend (eql 'etags)))
   (find-tag--default))

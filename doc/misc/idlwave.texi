@@ -2,6 +2,7 @@
 @c %**start of header
 @setfilename ../../info/idlwave.info
 @settitle IDLWAVE User Manual
+@documentlanguage en
 @include docstyle.texi
 @synindex ky cp
 @syncodeindex vr cp
@@ -23,7 +24,7 @@ Emacs, and interacting with an IDL shell run as a subprocess.
 This is edition @value{EDITION} of the IDLWAVE User Manual for IDLWAVE
 @value{VERSION}.
 
-Copyright @copyright{} 1999--2025 Free Software Foundation, Inc.
+Copyright @copyright{} 1999--2026 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -2546,8 +2547,8 @@ commands:
 In addition to these standard @file{comint} commands,
 @code{idlwave-shell-mode} provides many of the same commands which
 simplify writing IDL code available in IDLWAVE buffers.  This includes
-abbreviations, online help, and completion.  See @ref{Routine Info} and
-@ref{Online Help} and @ref{Completion} for more information on these
+abbreviations, online help, and completion.  @xref{Routine Info}, and
+@ref{Online Help}, and @ref{Completion}, for more information on these
 commands.
 
 @cindex Completion, in the shell

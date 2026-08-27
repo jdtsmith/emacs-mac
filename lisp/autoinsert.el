@@ -1,6 +1,6 @@
 ;;; autoinsert.el --- automatic mode-dependent insertion of text into new files  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1985-2026 Free Software Foundation, Inc.
 
 ;; Author: Charlie Martin <crm@cs.duke.edu>
 ;; Adapted-By: Daniel Pfeiffer <occitan@esperanto.org>
@@ -166,24 +166,24 @@ If this contains a %s, that will be replaced by the matching rule."
 	  (replace-match (capitalize (user-login-name)) t t))
      '(end-of-line 1) " <" (progn user-mail-address) ">\n")
 
-    (".dir-locals.el"
+    ((,(rx ".dir-locals" (? "-2") ".el") . "Directory Local Variables")
      nil
      ";;; Directory Local Variables         -*- no-byte-compile: t; -*-\n"
      ";;; For more information see (info \"(emacs) Directory Variables\")\n\n"
      "(("
-     '(setq v1 (let (modes)
+     '(setq v1 (let ((modes '("nil")))
                  (mapatoms (lambda (mode)
                              (let ((name (symbol-name mode)))
                                (when (string-match "-mode\\'" name)
                                  (push name modes)))))
                  (sort modes 'string<)))
-     (completing-read "Local variables for mode: " v1 nil t)
+     (completing-read "Local variables for mode: " v1 nil 'confirm)
      " . (("
      (let ((all-variables
             (apropos-internal ".*"
-                              (lambda (symbol)
-			        (and (boundp symbol)
-				     (get symbol 'variable-documentation))))))
+                              ,(lambda (symbol)
+			         (and (boundp symbol)
+				      (get symbol 'variable-documentation))))))
        (completing-read "Variable to set: " all-variables))
      " . "
      (completing-read "Value to set it to: " nil)
@@ -206,11 +206,11 @@ If this contains a %s, that will be replaced by the matching rule."
 ;; Keywords: "
  '(require 'finder)
  ;;'(setq v1 (apply 'vector (mapcar 'car finder-known-keywords)))
- '(setq v1 (mapcar (lambda (x) (list (symbol-name (car x))))
+ '(setq v1 (mapcar ,(lambda (x) (list (symbol-name (car x))))
 		   finder-known-keywords)
 	v2 (mapconcat (lambda (x) (format "%12s:  %s" (car x) (cdr x)))
-	   finder-known-keywords
-	   "\n"))
+	              finder-known-keywords
+	              "\n"))
  ((let ((minibuffer-help-form v2))
     (completing-read "Keyword, C-h: " v1 nil t))
     str ", ")
@@ -323,8 +323,11 @@ The document was typeset with
 "))
   "A list specifying text to insert by default into a new file.
 Elements look like (CONDITION . ACTION) or ((CONDITION . DESCRIPTION) . ACTION).
-CONDITION may be a regexp that must match the new file's name, or it may be
-a symbol that must match the major mode for this element to apply.
+CONDITION may be a regexp that must match the new file's name, or it
+may be a symbol that must match the major mode for this element to apply.
+CONDITION can also be a custom predicate of no arguments declared
+with (predicate FUNCTION).  Emacs will insert the text if the
+predicate function returns non-nil.
 Only the first matching element is effective.
 Optional DESCRIPTION is a string for filling `auto-insert-prompt'.
 ACTION may be a skeleton to insert (see `skeleton-insert'), an absolute
@@ -368,12 +371,24 @@ Matches the visited file name against the elements of `auto-insert-alist'."
                 (pcase-lambda (`(,cond . ,action))
                   (if (atom cond)
                       (setq desc cond)
-                    (setq desc (cdr cond)
-                          cond (car cond)))
-                  (when (if (symbolp cond)
-                            (derived-mode-p cond)
+                    ;; if `cond' is a predicate, don't split it but set `desc' to a custom string
+                    (if (and (consp cond) (equal (car cond) 'predicate))
+                        (setq desc "predicate")
+                      (setq desc (cdr cond)
+                            cond (car cond))))
+                  (when (cond
+                         ;; `cond' should be a major-mode variable
+                         ((symbolp cond)
+                          (derived-mode-p cond))
+
+                         ;; `cond' should be a predicate that takes no argument
+                         ((and (consp cond) (equal (car cond) 'predicate))
+                          (funcall (cadr cond)))
+
+                         ;; cond should be a regexp
+                         (t
                           (and buffer-file-name
-                               (string-match cond buffer-file-name)))
+                               (string-match cond buffer-file-name))))
                     action))
                 auto-insert-alist)))
          (goto-char 1)

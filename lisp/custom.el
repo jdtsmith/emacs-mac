@@ -1,6 +1,6 @@
 ;;; custom.el --- tools for declaring and initializing options  -*- lexical-binding: t -*-
 ;;
-;; Copyright (C) 1996-1997, 1999, 2001-2025 Free Software Foundation,
+;; Copyright (C) 1996-1997, 1999, 2001-2026 Free Software Foundation,
 ;; Inc.
 ;;
 ;; Author: Per Abrahamsen <abraham@dina.kvl.dk>
@@ -81,6 +81,7 @@ if any, or the value of EXP."
               (eval (let ((sv (get symbol 'saved-value)))
                       (if sv (car sv) exp)))))))
 
+(declare-function widget-apply "wid-edit" (widget property &rest args))
 (defun custom-initialize-reset (symbol exp)
   "Initialize SYMBOL based on EXP.
 Set the symbol, using its `:set' function (or `set-default-toplevel-value'
@@ -139,6 +140,7 @@ For the standard setting, use `set-default-toplevel-value'."
 Once this list has been processed, this var is set to a non-list value.")
 
 (defun custom-initialize-delay (symbol value)
+  ;; FIXME: Rename to `custom-initialize-after-dump'?
   "Delay initialization of SYMBOL to the next Emacs start.
 This is used in files that are preloaded (or for autoloaded
 variables), so that the initialization is done in the run-time
@@ -158,6 +160,27 @@ the :set function."
     ;; delay it, so initialize it "normally" (bug#47072).
     (custom-initialize-reset symbol value)))
 
+(defun custom-initialize-after-file-load (symbol value)
+  "Delay initialization to after the current file is loaded.
+This is handy when the initialization needs functions defined after the
+variable, such as for global minor modes."
+  ;; Defvar it so as to mark it special, etc (bug#25770).
+  (internal--define-uninitialized-variable symbol)
+
+  ;; Until the var is actually initialized, it is kept unbound.
+  ;; This seemed to be at least as good as setting it to an arbitrary
+  ;; value like nil (evaluating `value' is not an option because it
+  ;; may have undesirable side-effects).
+  (if (not load-file-name)
+      ;; There's no "after file" to speak of.
+      (custom-initialize-set symbol value)
+    (let ((thisfile load-file-name))
+      (letrec ((f (lambda (file)
+                    (when (equal file thisfile)
+                      (remove-hook 'after-load-functions f)
+                      (custom-initialize-set symbol value)))))
+        (add-hook 'after-load-functions f)))))
+
 (defun custom-declare-variable (symbol default doc &rest args)
   "Like `defcustom', but SYMBOL and DEFAULT are evaluated as normal arguments.
 DEFAULT should be an expression to evaluate to compute the default value,
@@ -166,7 +189,7 @@ not the default value itself.
 DEFAULT is stored as SYMBOL's standard value, in SYMBOL's property
 `standard-value'.  At the same time, SYMBOL's property `force-value' is
 set to nil, as the value is no longer rogue."
-  (put symbol 'standard-value (purecopy (list default)))
+  (put symbol 'standard-value (list default))
   ;; Maybe this option was rogue in an earlier version.  It no longer is.
   (when (get symbol 'force-value)
     (put symbol 'force-value nil))
@@ -204,10 +227,10 @@ set to nil, as the value is no longer rogue."
                 ((eq keyword :local)
                  (when (memq value '(t permanent))
                    (setq buffer-local t))
-                 (when (eq value 'permanent)
+                 (when (memq value '(permanent permanent-only))
                    (put symbol 'permanent-local t)))
 		((eq keyword :type)
-		 (put symbol 'custom-type (purecopy value)))
+                 (put symbol 'custom-type value))
 		((eq keyword :options)
 		 (if (get symbol 'custom-options)
 		     ;; Slow safe code to avoid duplicates.
@@ -277,11 +300,15 @@ The following keywords are meaningful:
 	given in the `defcustom' call.  The default is
 	`custom-initialize-reset'.
 :set	VALUE should be a function to set the value of the symbol
-	when using the Customize user interface.  It takes two arguments,
-	the symbol to set and the value to give it.  The function should
-	not modify its value argument destructively.  The default choice
-	of function is `set-default-toplevel-value'.  If this keyword is
-	defined, modifying the value of SYMBOL via `setopt' will call the
+	when using the Customize user interface.  It takes two
+        mandatory arguments, the symbol to set and the value to give
+        it, and one optional argument, which, if its value is
+        `buffer-local', means the value should be set
+        buffer-locally, without affecting the global or default
+        value.  The function should not modify its value argument
+        destructively.  The default choice of function is
+        `set-default-toplevel-value'.  If this keyword is defined,
+        modifying the value of SYMBOL via `setopt' will call the
 	function specified by VALUE to install the new value.
 :get	VALUE should be a function to extract the value of symbol.
 	The function takes one argument, a symbol, and should return
@@ -300,11 +327,14 @@ The following keywords are meaningful:
 :local  If VALUE is t, mark SYMBOL as automatically buffer-local.
         If VALUE is `permanent', also set SYMBOL's `permanent-local'
         property to t.
+        If VALUE is `permanent-only', set SYMBOL's `permanent-local'
+        property to t, but do not mark it as automatically buffer-local.
 
 The following common keywords are also meaningful.
 
 :group  VALUE should be a customization group.
-        Add SYMBOL (or FACE with `defface') to that group.
+        Add SYMBOL (or FACE with `defface') to that group instead of
+        the default group.  Can be repeated.
 :link LINK-DATA
         Include an external link after the documentation string for this
         item.  This is a sentence containing an active field which
@@ -386,9 +416,6 @@ See Info node `(elisp) Customization' in the Emacs Lisp manual
 for more information."
   (declare (doc-string 3) (debug (name body))
            (indent defun))
-  ;; It is better not to use backquote in this file,
-  ;; because that makes a bootstrapping problem
-  ;; if you need to recompile all the Lisp files using interpreted code.
   `(custom-declare-variable
     ',symbol
     ,(if lexical-binding
@@ -399,7 +426,7 @@ for more information."
          ;; expression is checked by the byte-compiler, and that
          ;; lexical-binding is obeyed, so quote the expression with
          ;; `lambda' rather than with `quote'.
-         ``(funcall #',(lambda () "" ,standard))
+         ``(funcall #',(lambda () ,standard))
        `',standard)
     ,doc
     ,@args))
@@ -461,10 +488,10 @@ Each DISPLAY can have the following values:
      `display-supports-face-attributes-p' for more information on
      exactly how testing is done.
 
-In the ATTS property list, possible attributes are `:family',
-`:width', `:height', `:weight', `:slant', `:underline',
-`:overline', `:strike-through', `:box', `:foreground',
-`:background', `:stipple', `:inverse-video', and `:inherit'.
+In the ATTS property list, possible attributes are `:family', `:font',
+`:foundry', `:width', `:height', `:weight', `:slant', `:underline',
+`:overline', `:strike-through', `:box', `:foreground', `:distant-foreground',
+`:background', `:stipple', `:inverse-video', `:extend', and `:inherit'.
 
 See Info node `(elisp) Faces' in the Emacs Lisp manual for more
 information."
@@ -486,7 +513,7 @@ information."
     (setq members (cdr members)))
   (when doc
     ;; This text doesn't get into DOC.
-    (put symbol 'group-documentation (purecopy doc)))
+    (put symbol 'group-documentation doc))
   (while args
     (let ((arg (car args)))
       (setq args (cdr args))
@@ -498,7 +525,7 @@ information."
 	  (error "Keyword %s is missing an argument" keyword))
 	(setq args (cdr args))
 	(cond ((eq keyword :prefix)
-	       (put symbol 'custom-prefix (purecopy value)))
+               (put symbol 'custom-prefix value))
 	      (t
 	       (custom-handle-keyword symbol keyword value
 				      'custom-group))))))
@@ -585,8 +612,6 @@ Third argument TYPE is the custom option type."
 (defun custom-handle-keyword (symbol keyword value type)
   "For customization option SYMBOL, handle KEYWORD with VALUE.
 Fourth argument TYPE is the custom option type."
-  (if purify-flag
-      (setq value (purecopy value)))
   (cond ((eq keyword :group)
 	 (custom-add-to-group value symbol type))
 	((eq keyword :version)
@@ -633,28 +658,28 @@ For other custom types, this has no effect."
   (let ((options (get symbol 'custom-options)))
     (unless (member option options)
       (put symbol 'custom-options (cons option options)))))
-(defalias 'custom-add-frequent-value 'custom-add-option)
+(defalias 'custom-add-frequent-value #'custom-add-option)
 
 (defun custom-add-link (symbol widget)
   "To the custom option SYMBOL add the link WIDGET."
   (let ((links (get symbol 'custom-links)))
     (unless (member widget links)
-      (put symbol 'custom-links (cons (purecopy widget) links)))))
+      (put symbol 'custom-links (cons widget links)))))
 
 (defun custom-add-version (symbol version)
   "To the custom option SYMBOL add the version VERSION."
-  (put symbol 'custom-version (purecopy version)))
+  (put symbol 'custom-version version))
 
 (defun custom-add-package-version (symbol version)
   "To the custom option SYMBOL add the package version VERSION."
-  (put symbol 'custom-package-version (purecopy version)))
+  (put symbol 'custom-package-version version))
 
 (defun custom-add-load (symbol load)
   "To the custom option SYMBOL add the dependency LOAD.
 LOAD should be either a library file name, or a feature name."
   (let ((loads (get symbol 'custom-loads)))
     (unless (member load loads)
-      (put symbol 'custom-loads (cons (purecopy load) loads)))))
+      (put symbol 'custom-loads (cons load loads)))))
 
 (defun custom-autoload (symbol load &optional noset)
   "Mark SYMBOL as autoloaded custom variable and add dependency LOAD.
@@ -677,6 +702,11 @@ property, or (ii) an alias for another customizable variable."
 (defun custom--standard-value (variable)
   "Return the standard value of VARIABLE."
   (eval (car (get variable 'standard-value)) t))
+
+(defun custom--standard-value-p (variable value)
+  "Return non-nil if VALUE is `equal' to the standard value of VARIABLE."
+  (let ((sv (get variable 'standard-value)))
+    (and sv (equal value (eval (with-demoted-errors "%S" (car sv)) t)))))
 
 (defun custom-note-var-changed (variable)
   "Inform Custom that VARIABLE has been set (changed).
@@ -745,10 +775,16 @@ Normally, this sets the default value of VARIABLE to nil if VALUE
 is nil and to t otherwise,
 but if `custom-local-buffer' is non-nil,
 this sets the local binding in that buffer instead."
-  (if custom-local-buffer
-      (with-current-buffer custom-local-buffer
-	(funcall variable (if value 1 0)))
-    (funcall variable (if value 1 0))))
+  (if (and (null value)
+           (autoloadp (symbol-function variable))
+           (not (and (boundp variable) (symbol-value variable))))
+      ;; We're disabling a minor mode that's not even loaded yet.
+      ;; Let's avoid autoloading it needlessly.
+      (custom-set-default variable value)
+    (if custom-local-buffer
+	(with-current-buffer custom-local-buffer
+	  (funcall variable (if value 1 0)))
+      (funcall variable (if value 1 0)))))
 
 (defun custom-quote (sexp)
   "Quote SEXP if it is not self quoting."
@@ -775,12 +811,10 @@ Return non-nil if the `saved-value' property actually changed."
   (let* ((get (or (get symbol 'custom-get) #'default-value))
 	 (value (funcall get symbol))
 	 (saved (get symbol 'saved-value))
-	 (standard (get symbol 'standard-value))
 	 (comment (get symbol 'customized-variable-comment)))
     ;; Save default value if different from standard value.
     (put symbol 'saved-value
-         (unless (and standard
-                      (equal value (ignore-errors (eval (car standard)))))
+         (unless (custom--standard-value-p symbol value)
            (list (custom-quote value))))
     ;; Clear customized information (set, but not saved).
     (put symbol 'customized-value nil)
@@ -899,7 +933,15 @@ to the front of this list.")
     (error "Unknown theme `%s'" theme)))
 
 (defun custom--should-apply-setting (theme)
-  (or (null custom--inhibit-theme-enable)
+  "Non-nil if settings for the theme THEME should apply immediately.
+
+Theme settings apply immediately if:
+- THEME is already enabled.
+- THEME is being enabled via `enable-theme' or an interactive call to
+  `load-theme'.
+- THEME is the `user' theme."
+  (or (memq theme custom-enabled-themes)
+      (null custom--inhibit-theme-enable)
       (and (eq custom--inhibit-theme-enable 'apply-only-user)
            (eq theme 'user))))
 
@@ -955,12 +997,11 @@ See `custom-known-themes' for a list of known themes."
 	  ;; recompute when the theme is disabled.
 	  (when (and (eq prop 'theme-value)
 		     (boundp symbol))
-	    (let ((sv  (get symbol 'standard-value))
-		  (val (symbol-value symbol)))
+	    (let ((val (symbol-value symbol)))
 	      (unless (or
                        ;; We only do this trick if the current value
                        ;; is different from the standard value.
-                       (and sv (equal (eval (car sv)) val))
+                       (custom--standard-value-p symbol val)
                        ;; And we don't do it if we would end up recording
                        ;; the same value for the user theme.  This way we avoid
                        ;; having ((user VALUE) (changed VALUE)).  That would be
@@ -977,7 +1018,7 @@ Also change :reverse-video to :inverse-video."
   (when (listp spec)
     (if (or (memq :bold spec)
 	    (memq :italic spec)
-	    (memq :inverse-video spec))
+	    (memq :reverse-video spec))
 	(let (result)
 	  (while spec
 	    (let ((key (car spec))
@@ -1233,6 +1274,10 @@ external packages).  For manual user customizations, use
 
 (defvar custom--inhibit-theme-enable 'apply-only-user
   "Whether the custom-theme-set-* functions act immediately.
+
+If the theme argument for those functions is an already enabled theme,
+the theme settings always apply immediately, ignoring this variable.
+
 If nil, `custom-theme-set-variables' and `custom-theme-set-faces'
 change the current values of the given variable or face.  If
 t, they just make a record of the theme settings.  If the
@@ -1324,6 +1369,8 @@ Return t if THEME was successfully loaded, nil otherwise."
                              (mapcar #'symbol-name
 				     (custom-available-themes))))
     nil nil))
+  (unless (symbolp theme)
+    (signal 'wrong-type-argument (list 'symbolp theme)))
   (unless (custom-theme-name-valid-p theme)
     (error "Invalid theme name `%s'" theme))
   ;; If THEME is already enabled, re-enable it after loading, even if
@@ -1360,7 +1407,7 @@ Return t if THEME was successfully loaded, nil otherwise."
                  t))))
           (t
            (error "Unable to load theme `%s'" theme))))
-  (when-let ((obs (get theme 'byte-obsolete-info)))
+  (when-let* ((obs (get theme 'byte-obsolete-info)))
     (display-warning 'initialization
                      (format "The `%s' theme is obsolete%s"
                              theme
@@ -1544,7 +1591,6 @@ After THEME has been enabled, runs `enable-theme-functions'."
       (let* ((prop (car s))
              (symbol (cadr s))
              (spec-list (get symbol prop))
-             (sv (get symbol 'standard-value))
              (val (and (boundp symbol) (symbol-value symbol))))
         ;; We can't call `custom-push-theme' when enabling the theme: it's not
         ;; that the theme settings have changed, it's just that we want to
@@ -1559,7 +1605,7 @@ After THEME has been enabled, runs `enable-theme-functions'."
                    (not (or spec-list
                             ;; Only if the current value is different from
                             ;; the standard value.
-                            (and sv (equal (eval (car sv)) val))
+                            (custom--standard-value-p symbol val)
                             ;; And only if the changed value is different
                             ;; from the new value under the user theme.
                             (and (eq theme 'user)
@@ -1778,6 +1824,35 @@ If a choice with the same tag already exists, no action is taken."
     (unless (memq load loads)
       (push load loads)))
   (put symbol 'custom-loads loads))
+
+;;;###autoload
+(defun copy-theme-options (theme)
+  "Copy settings from THEME into the user theme."
+  (interactive (list (intern (completing-read "Copy from theme: "
+                                              (custom-available-themes)
+                                              nil t))))
+  (load-theme theme nil t)
+  (when (null (get theme 'theme-settings))
+    (message "Theme `%s' has no user options" theme))
+  (pcase-dolist (`(theme-value ,var ,(pred (eq theme _)) ,val)
+                 (get theme 'theme-settings))
+    ;; If the proposed value is already the current value, then we
+    ;; ignore the value from the theme and don't overwrite any comments.
+    ;; Otherwise we check if the current value is the default value, and
+    ;; if not we prompt the user if they are OK with overwriting their
+    ;; previous configuration.
+    (when (let ((val* (funcall (or (get var 'custom-get) #'default-value) var))
+                (val (eval (with-demoted-errors "%S" val) t)))
+            (and (not (equal val val*))
+                 (or (custom--standard-value-p var val*)
+                     (yes-or-no-p (format "You have customized `%s' to %S, \
+overwrite with %S?"
+                                          var (symbol-value var) val)))))
+      (customize-save-variable
+       var val
+       (format "Copied from %s by `copy-theme-options'" theme))))
+  ;; FIXME: Now offer to disable THEME.
+  )
 
 (provide 'custom)
 

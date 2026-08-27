@@ -1,10 +1,10 @@
 ;;; eieio.el --- Enhanced Implementation of Emacs Interpreted Objects  -*- lexical-binding:t -*-
 ;;;              or maybe Eric's Implementation of Emacs Interpreted Objects
 
-;; Copyright (C) 1995-1996, 1998-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1995-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
-;; Version: 1.4
+;; Old-Version: 1.4
 ;; Keywords: OO, lisp
 
 ;; This file is part of GNU Emacs.
@@ -44,20 +44,13 @@
 
 ;;; Code:
 
-(defvar eieio-version "1.4"
-  "Current version of EIEIO.")
-
-(defun eieio-version ()
-  "Display the current version of EIEIO."
-  (interactive)
-  (message eieio-version))
-
 (require 'eieio-core)
 (eval-when-compile (require 'subr-x))
 
 
 ;;; Defining a new class
 ;;
+;;;###autoload
 (defmacro defclass (name superclasses slots &rest options-and-doc)
   "Define NAME as a new class derived from SUPERCLASS with SLOTS.
 OPTIONS-AND-DOC is used as the class' options and base documentation.
@@ -114,10 +107,10 @@ and reference them using the function `class-option'."
   (cl-check-type superclasses list)
 
   (cond ((and (stringp (car options-and-doc))
-              (/= 1 (% (length options-and-doc) 2)))
+              (evenp (length options-and-doc)))
          (error "Too many arguments to `defclass'"))
         ((and (symbolp (car options-and-doc))
-              (/= 0 (% (length options-and-doc) 2)))
+              (oddp (length options-and-doc)))
          (error "Too many arguments to `defclass'")))
 
   (if (stringp (car options-and-doc))
@@ -223,6 +216,9 @@ and reference them using the function `class-option'."
                         "Retrieve the class slot `%S' from a class `%S'."
                         sname name)
                        "\nThis method is obsolete.")
+                     (when (eq eieio-backward-compatibility 'warn)
+                       (message "Use of obsolete method %S on %S"
+                                ',acces '(subclass ,name)))
                      (if (slot-boundp this ',sname)
                          (eieio-oref-default this ',sname)))
                   accessors)))
@@ -296,20 +292,25 @@ and reference them using the function `class-option'."
           `(defun ,name (&rest slots)
              ,(internal--format-docstring-line
                "Create a new object of class type `%S'." name)
-             (declare (compiler-macro
-                       (lambda (whole)
-                         (if (not (stringp (car slots)))
-                             whole
-                           (macroexp-warn-and-return
-                            (format "Obsolete name arg %S to constructor %S"
-                                    (car slots) (car whole))
-                            ;; Keep the name arg, for backward compatibility,
-                            ;; but hide it so we don't trigger indefinitely.
-                            `(,(car whole) (identity ,(car slots))
-                              ,@(cdr slots))
-                            nil nil (car slots))))))
+             (declare (compiler-macro eieio--constructor-macro))
              (apply #'make-instance ',name slots))))))
 
+(defun eieio--constructor-macro (whole &rest slots)
+  ;; When `eieio-backward-compatibility' is removed, we should
+  ;; remove this compiler-macro, until then, it's best to emit a compile-time
+  ;; warning even if `eieio-backward-compatibility' is nil, I think.
+  (if (or (null slots) (keywordp (car slots))
+          ;; Detect the second pass!
+          (eq 'identity (car-safe (car slots))))
+      whole
+    (macroexp-warn-and-return
+     (format "Obsolete name argument %S to constructor %S"
+             (car slots) (car whole))
+     ;; Keep the name arg, for backward compatibility,
+     ;; but hide it so we don't trigger indefinitely.
+     `(,(car whole) (identity ,(car slots))
+       ,@(cdr slots))
+     '(obsolete eieio-constructor-name-arg) nil (car slots))))
 
 ;;; Get/Set slots in an object.
 ;;
@@ -410,7 +411,7 @@ contents of field NAME is matched against PAT, or they can be of
 (cl-defgeneric eieio-object-name-string (obj)
   "Return a string which is OBJ's name."
   (or (gethash obj eieio--object-names)
-      (format "%s-%x" (eieio-object-class obj) (sxhash-eq obj))))
+      (format "%x" (sxhash-eq obj))))
 
 (define-obsolete-function-alias
   'object-name-string #'eieio-object-name-string "24.4")
@@ -559,6 +560,7 @@ after they are created."
 Setting a slot's value makes it bound.  Calling `slot-makeunbound' will
 make a slot unbound.
 OBJECT can be an instance or a class."
+  (declare (compiler-macro eieio--check-slot-name))
   ;; Skip typechecking while retrieving this value.
   (let ((eieio-skip-typecheck t))
     ;; Return nil if the magic symbol is in there.
@@ -591,7 +593,7 @@ OBJECT can be an instance or a class."
 (defun find-class (symbol &optional errorp)
   "Return the class that SYMBOL represents.
 If there is no class, nil is returned if ERRORP is nil.
-If ERRORP is non-nil, `wrong-argument-type' is signaled."
+If ERRORP is non-nil, `wrong-type-argument' is signaled."
   (let ((class (cl--find-class symbol)))
     (cond
      ((eieio--class-p class) class)
@@ -705,6 +707,23 @@ for each slot.  For example:
 
   (make-instance \\='foo :slot1 value1 :slotN valueN)")
 
+(put 'make-instance 'compiler-macro
+     ;; When `eieio-backward-compatibility' is removed, we should
+     ;; remove this compiler-macro, until then, it's best to emit a compile-time
+     ;; warning even if `eieio-backward-compatibility' is nil, I think.
+     (lambda (whole class &rest slots)
+       (if (or (null slots) (keywordp (car slots))
+               ;; Detect the second pass!
+               (eq 'identity (car-safe (car slots))))
+           whole
+         (macroexp-warn-and-return
+          (format "Obsolete name arg %S to `make-instance'" (car slots))
+          ;; Keep the name arg, for backward compatibility,
+          ;; but hide it so we don't trigger indefinitely.
+          `(,(car whole) ,class (identity ,(car slots))
+            ,@(cdr slots))
+          '(obsolete eieio-constructor-name-arg) nil (car slots)))))
+
 (define-obsolete-function-alias 'constructor #'make-instance "25.1")
 
 (cl-defmethod make-instance
@@ -716,12 +735,13 @@ It allocates the vector used to represent an EIEIO object, and then
 calls `initialize-instance' on that object."
   (let* ((new-object (copy-sequence (eieio--class-default-object-cache
                                      (eieio--class-object class)))))
-    (if (and slots
-             (let ((x (car slots)))
-               (or (stringp x) (null x))))
-        (funcall (if eieio-backward-compatibility #'ignore #'message)
-                 "Obsolete name %S passed to %S constructor"
-                 (pop slots) class))
+    (when (and eieio-backward-compatibility slots
+               (let ((x (car slots)))
+                 (or (stringp x) (null x))))
+      (let ((name (pop slots)))
+        (when (eq eieio-backward-compatibility 'warn)
+          (message "Obsolete name argument %S passed to %S constructor"
+                   name class))))
     ;; Call the initialize method on the new object with the slots
     ;; that were passed down to us.
     (initialize-instance new-object slots)
@@ -769,10 +789,10 @@ dynamically set from ARGS."
       (let* ((slot (aref slots i))
              (slot-name (eieio-slot-descriptor-name slot))
              (initform (cl--slot-descriptor-initform slot)))
-        (unless (or (when-let ((initarg
-                                (car (rassq slot-name
-                                            (eieio--class-initarg-tuples
-                                             this-class)))))
+        (unless (or (when-let* ((initarg
+                                 (car (rassq slot-name
+                                             (eieio--class-initarg-tuples
+                                              this-class)))))
                       (plist-get initargs initarg))
                     ;; Those slots whose initform is constant already have
                     ;; the right value set in the default-object.
@@ -825,9 +845,12 @@ first and modify the returned object.")
 (cl-defmethod clone ((obj eieio-default-superclass) &rest params)
   "Make a copy of OBJ, and then apply PARAMS."
   (let ((nobj (copy-sequence obj)))
-    (if (stringp (car params))
-        (funcall (if eieio-backward-compatibility #'ignore #'message)
-                 "Obsolete name %S passed to clone" (pop params)))
+    (when (and eieio-backward-compatibility params
+               (let ((x (car params)))
+                 (or (stringp x) (null x))))
+     (let ((name (pop params)))
+       (when (eq eieio-backward-compatibility 'warn)
+         (message "Obsolete name argument %S passed to clone" name))))
     (if params (shared-initialize nobj params))
     nobj))
 
@@ -1002,6 +1025,19 @@ This may create or delete slots, but does not affect the return value
 of `eq'."
   (error "EIEIO: `change-class' is unimplemented"))
 (define-obsolete-function-alias 'change-class #'eieio-change-class "26.1")
+
+
+;;; Obsolete
+;;
+(make-obsolete-variable 'eieio-version 'emacs-version "31.1")
+(defvar eieio-version "1.4"
+  "Current version of EIEIO.")
+
+(defun eieio-version ()
+  "Display the current version of EIEIO."
+  (declare (obsolete emacs-version "31.1"))
+  (interactive)
+  (message eieio-version))
 
 (provide 'eieio)
 

@@ -1,6 +1,6 @@
 ;;; macroexp-tests.el --- Tests for macroexp.el      -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords:
@@ -66,7 +66,7 @@
     ;; Test the case where we load a file which byte-compiles another.
     (defvar macroexp--m1-tests-comp-filename)
     (makunbound 'macroexp--m1-tests-comp-filename)
-    (load (expand-file-name "m2.el" rsrc-dir))
+    (load (expand-file-name "m2.el" rsrc-dir) nil t)
     (should (equal "m1.el"
                    (file-name-nondirectory macroexp--m1-tests-comp-filename)))))
 
@@ -124,6 +124,48 @@
                      (dyn dyn dyn dyn)
                      (dyn dyn dyn lex))))))
 
+(ert-deftest macroexp--dynbound-eval-and-compile ()
+  (let ((code1 '(progn
+                  (eval-and-compile
+                    (defun my-foo () (bound-and-true-p my-foo))
+                    (defun my-identity (x)
+                      (defvar my-foo)
+                      (let ((my-foo x))
+                        (my-foo))))
+                  (defmacro my-toto (y)
+                    `(list ',y ',(my-identity y)))
+                  (eval-when-compile (my-toto 7))))
+        (code2 '(progn
+                  (defvar my-foo)
+                  (eval-and-compile
+                    (defun my-foo () (bound-and-true-p my-foo))
+                    (defun my-identity (x)
+                      (let ((my-foo x))
+                        (my-foo))))
+                  (defmacro my-toto (y)
+                    `(list ',y ',(my-identity y)))
+                  (eval-when-compile (my-toto 7))))
+        (code3 '(progn
+                  (eval-and-compile
+                    (defvar my-foo)
+                    (defun my-foo () (bound-and-true-p my-foo))
+                    (defun my-identity (x)
+                      (let ((my-foo x))
+                        (my-foo))))
+                  (defmacro my-toto (y)
+                    `(list ',y ',(my-identity y)))
+                  (eval-when-compile (my-toto 7)))))
+    (should (equal (eval code1 t) '(7 7)))
+    (should (equal (eval code2 t) '(7 7)))
+    (should (equal (eval code3 t) '(7 7)))
+    (should (equal (eval (let ((lexical-binding t)) (byte-compile code1)) t)
+                   '(7 7)))
+    (should (equal (eval (let ((lexical-binding t)) (byte-compile code2)) t)
+                   '(7 7)))
+    (should (equal (eval (let ((lexical-binding t)) (byte-compile code3)) t)
+                   '(7 7)))
+    ))
+
 (defmacro macroexp--test-macro1 ()
   (declare (obsolete "new-replacement" nil))
   1)
@@ -139,5 +181,26 @@
                 (macroexpand-all '(macroexp--test-macro2))
               (user-error (error-message-string err))))))
      (should (and (stringp res) (string-match "new-replacement" res))))))
+
+(defmacro macroexp--test-with-foo (&rest body)
+  "Eagerly macro-expand BODY."
+  (macroexpand-all `(progn . ,body) macroexpand-all-environment))
+
+(ert-deftest macroexp--test-macroexp-enable-preserve-posification ()
+  (let* ((symbols-with-pos-enabled t)
+         (form (read-positioning-symbols
+                "(macroexp--test-with-foo (pop command-history))"))
+         (pop-pos (symbol-with-pos-pos (caadr form)))
+         (exp1 (macroexpand-1 form))
+         (macroexp-enable-preserve-posification nil)
+         (exp2 (macroexpand-1 form)))
+    ;; Position of `pop' preserved in EXP1.  There's no way to tell that
+    ;; the position information in EXP1 is synthetic, which may confuse
+    ;; consumers such as semantic highlighting.
+    (should (symbol-with-pos-p (caadr exp1)))
+    (should (= (symbol-with-pos-pos (caadr exp1)) pop-pos))
+    ;; Position preservation was disabled, so EXP2 is clean of synthetic
+    ;; position information.
+    (should-not (symbol-with-pos-p (caadr exp2)))))
 
 ;;; macroexp-tests.el ends here

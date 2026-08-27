@@ -1,6 +1,6 @@
 ;;; em-extpipe-tests.el --- em-extpipe test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; Author: Sean Whitton <spwhitton@spwhitton.name>
 
@@ -27,11 +27,10 @@
 (require 'cl-lib)
 (require 'ert)
 (require 'ert-x)
+(require 'ert-x)
 (require 'em-extpipe)
 (require 'eshell-tests-helpers
-         (expand-file-name "eshell-tests-helpers"
-                           (file-name-directory (or load-file-name
-                                                    default-directory))))
+         (ert-resource-file "eshell-tests-helpers"))
 
 (defmacro em-extpipe-tests--deftest (name input &rest body)
   (declare (indent 2))
@@ -40,7 +39,7 @@
          ((should-parse (expected)
             `(let ((shell-file-name "sh")
                    (shell-command-switch "-c"))
-               ;; Strip `eshell-trap-errors'.
+               ;; Strip `eshell-do-command'.
                (should (equal ,expected
                               (cadadr (eshell-parse-command input))))))
           (with-substitute-for-temp (&rest body)
@@ -93,7 +92,7 @@
   (skip-unless (executable-find "rev"))
   (should-parse
    '(eshell-execute-pipeline
-     '((eshell-named-command "echo" (list (eshell-escape-arg "bar")))
+     '((eshell-named-command "echo" (list "bar"))
        (eshell-named-command "sh" (list "-c" "rev >temp")))))
   (with-substitute-for-temp
    (eshell-match-command-output input "^$")
@@ -156,8 +155,7 @@
 (em-extpipe-tests--deftest em-extpipe-test-9 "foo \\*| bar"
   (should-parse
    '(eshell-execute-pipeline
-     '((eshell-named-command "foo"
-                             (list (eshell-escape-arg "*")))
+     '((eshell-named-command "foo" (list "*"))
        (eshell-named-command "bar")))))
 
 (em-extpipe-tests--deftest em-extpipe-test-10 "foo \"*|\" *>bar"
@@ -165,8 +163,7 @@
    '(eshell-named-command "sh" (list "-c" "foo \"*|\" >bar"))))
 
 (em-extpipe-tests--deftest em-extpipe-test-11 "foo '*|' bar"
-  (should-parse '(eshell-named-command
-                  "foo" (list (eshell-escape-arg "*|") "bar"))))
+  (should-parse '(eshell-named-command "foo" (list "*|" "bar"))))
 
 (em-extpipe-tests--deftest em-extpipe-test-12 ">foo bar *| baz"
   (should-parse

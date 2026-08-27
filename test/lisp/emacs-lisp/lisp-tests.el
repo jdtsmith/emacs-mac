@@ -1,6 +1,6 @@
 ;;; lisp-tests.el --- Test Lisp editing commands     -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2013-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2026 Free Software Foundation, Inc.
 
 ;; Author: Aaron S. Hawley <aaron.s.hawley@gmail.com>
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
@@ -212,21 +212,7 @@
     (goto-char (point-min))
     (should-error (forward-sexp)))) ;; FIXME: Shouldn't be an error.
 
-;; Test some core Elisp rules.
-(defvar c-e-x)
-(ert-deftest core-elisp-tests-1-defvar-in-let ()
-  "Test some core Elisp rules."
-  (with-temp-buffer
-    ;; Check that when defvar is run within a let-binding, the toplevel default
-    ;; is properly initialized.
-    (should (equal (list (let ((c-e-x 1)) (defvar c-e-x 2) c-e-x) c-e-x)
-                   '(1 2)))
-    (should (equal (list (let ((c-e-x 1))
-                           (defcustom c-e-x 2 "doc" :group 'blah :type 'integer) c-e-x)
-                         c-e-x)
-                   '(1 2)))))
-
-(ert-deftest core-elisp-tests-2-window-configurations ()
+(ert-deftest core-elisp-tests-1-window-configurations ()
   "Test properties of window-configurations."
   (let ((wc (current-window-configuration)))
     (with-current-buffer (window-buffer (frame-selected-window))
@@ -235,7 +221,8 @@
     (set-window-configuration wc)
     (should (or (not mark-active) (mark)))))
 
-(ert-deftest core-elisp-tests-3-backquote ()
+;; For variable binding tests, see src/data-tests.el.
+(ert-deftest core-elisp-tests-2-backquote ()
   (should (eq 3 (eval ``,,'(+ 1 2) t))))
 
 ;; Test up-list and backward-up-list.

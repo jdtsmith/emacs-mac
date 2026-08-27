@@ -1,6 +1,6 @@
 ;;; nxml-mode.el --- a new XML mode  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2003-2004, 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2004, 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: James Clark
 ;; Keywords: text, hypermedia, languages, XML
@@ -152,7 +152,7 @@ This is not used directly, but only via inheritance by other faces."
   :group 'nxml-faces)
 
 (defface nxml-text
-  '((t (:inherit default)))
+  '((t))
   "Face used to highlight text."
   :group 'nxml-faces)
 
@@ -532,6 +532,10 @@ Many aspects this mode can be customized using
   (setq-local comment-line-break-function #'nxml-newline-and-indent)
   (setq-local comment-quote-nested-function #'nxml-comment-quote-nested)
   (setq-local comment-continue "") ; avoid double-hyphens as a padding
+  (setq-local hs-block-start-regexp "<[^/>]*?")
+  (setq-local hs-block-end-regexp "</[^/>]*[^/]>")
+  (setq-local hs-c-start-regexp "<!--")
+  (setq-local hs-forward-sexp-function #'sgml-skip-tag-forward)
   (save-excursion
     (save-restriction
       (widen)
@@ -817,7 +821,8 @@ Called with `font-lock-beg' and `font-lock-end' dynamically bound."
            (skip-syntax-forward " ")
 
            ;; find the beginning of the previous tag
-           (when (not (equal (char-after) ?\<))
+           (when (and (not (equal (char-after) ?\<))
+                      (< nxml-prolog-end (point)))
              (search-backward "<" nxml-prolog-end t))
            (nxml-ensure-scan-up-to-date)
            (nxml-move-outside-backwards)
@@ -1425,6 +1430,8 @@ either nil or one of the symbols `start-tag', `end-tag', `markup',
 	 (if (memq context '(nil end-tag comment))
 	     'end-tag
 	   'mixed))
+        ((eq xmltok-type 'cdata-section)
+         (or context 'markup))
 	((eq xmltok-type 'comment)
 	 (cond ((memq context '(start-tag end-tag comment))
 		context)
@@ -1444,8 +1451,7 @@ This expects the xmltok-* variables to be set up as by `xmltok-forward'."
 	 (nxml-compute-indent-in-start-tag pos))
 	((eq xmltok-type 'comment)
 	 (nxml-compute-indent-in-delimited-token pos "<!--" "-->"))
-	((eq xmltok-type 'cdata-section)
-	 (nxml-compute-indent-in-delimited-token pos "<![CDATA[" "]]>"))
+	((eq xmltok-type 'cdata-section) 'noindent)
 	((eq xmltok-type 'processing-instruction)
 	 (nxml-compute-indent-in-delimited-token pos "<?" "?>"))
 	(t

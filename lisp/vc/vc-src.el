@@ -1,6 +1,6 @@
 ;;; vc-src.el --- support for SRC version-control  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
 ;; Author: FSF (see vc.el for full credits)
 ;; Maintainer: emacs-devel@gnu.org
@@ -82,7 +82,6 @@
 ;;;
 
 (eval-when-compile
-  (require 'cl-lib)
   (require 'vc))
 
 (declare-function vc-setup-buffer "vc-dispatcher" (buf))
@@ -116,7 +115,7 @@ If nil, use the value of `vc-diff-switches'.  If t, use no switches."
 ;; for a registered backend without loading every backend.
 ;;;###autoload
 (defcustom vc-src-master-templates
-  (purecopy '("%s.src/%s,v"))
+  '("%s.src/%s,v")
   "Where to look for SRC master files.
 For a description of possible values, see `vc-check-master-templates'."
   :type '(choice (const :tag "Use standard SRC file names"
@@ -222,8 +221,9 @@ This function differs from `vc-do-command' in that it invokes `vc-src-program'."
 (defun vc-src-working-revision (file)
   "SRC-specific version of `vc-working-revision'."
   (let ((result (ignore-errors
-		  (with-output-to-string
-		    (vc-src-command standard-output file "list" "-f{1}" "@")))))
+                  (string-trim-right
+                   (with-output-to-string
+                     (vc-src-command standard-output file "list" "-f{1}" "@"))))))
     (if (zerop (length result)) "0" result)))
 
 ;;;
@@ -239,7 +239,14 @@ This function differs from `vc-do-command' in that it invokes `vc-src-program'."
 
 (defun vc-src-register (files &optional _comment)
   "Register FILES under src.  COMMENT is ignored."
-  (vc-src-command nil files "add"))
+  (let* ((dirs (seq-filter #'file-directory-p files))
+         (files (seq-remove #'file-directory-p files)))
+    ;; SRC doesn't track directories (because RCS doesn't), but we do
+    ;; need to create the '.src' subdirectory if it doesn't exist.
+    (dolist (dir dirs)
+      (make-directory (expand-file-name ".src" dir) t))
+    (and files
+         (vc-src-command nil files "add"))))
 
 (defun vc-src-responsible-p (file)
   "Return the directory if SRC thinks it would be responsible for FILE."
@@ -329,7 +336,10 @@ If LIMIT is non-nil, show no more than this many entries."
 
 (defun vc-src-rename-file (old new)
   "Rename file from OLD to NEW using `src mv'."
-  (vc-src-command nil 0 new "mv" old))
+  (if (file-directory-p old)
+      ;; SRC doesn't track directories.
+      (rename-file old new)
+    (vc-do-command "*vc*" 0 vc-src-program (list old new) "mv")))
 
 (provide 'vc-src)
 

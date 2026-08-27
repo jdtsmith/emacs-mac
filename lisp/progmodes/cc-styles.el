@@ -1,6 +1,6 @@
 ;;; cc-styles.el --- support for styles in CC Mode -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985, 1987, 1992-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1985, 1987, 1992-2026 Free Software Foundation, Inc.
 
 ;; Authors:    2004- Alan Mackenzie
 ;;             1998- Martin Stjernholm
@@ -65,7 +65,7 @@
 			 (statement-case-open . +)
 			 (statement-cont . +)
 			 (arglist-intro . c-lineup-arglist-intro-after-paren)
-			 (arglist-close . c-lineup-arglist)
+			 (arglist-close . c-lineup-arglist-close-under-paren)
 			 (inline-open . 0)
 			 (brace-list-open . +)
 			 (brace-list-intro . (first
@@ -230,7 +230,7 @@
 			 (statement-case-open   . +)
 			 (statement-cont        . +)
 			 (arglist-intro  . c-lineup-arglist-intro-after-paren)
-			 (arglist-close  . c-lineup-arglist)
+			 (arglist-close  . c-lineup-arglist-close-under-paren)
 			 (brace-list-intro . (first
 					      c-lineup-2nd-brace-entry-in-arglist
 					      c-lineup-class-decl-init-+ +))
@@ -441,7 +441,7 @@ STYLE using `c-set-style' if the optional SET-P flag is non-nil."
 	 (symname (symbol-name langelem))
 	 (defstr  (format "(default %s): " oldoff))
 	 (errmsg  (concat "Offset must be int, func, var, vector, list, "
-			  "or [+,-,++,--,*,/] "
+			  "a syntactic symbol, or [+,-,++,--,*,/] "
 			  defstr))
 	 (prompt (concat symname " offset " defstr))
 	 (keymap (make-sparse-keymap))

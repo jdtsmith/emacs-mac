@@ -1,6 +1,6 @@
 ;;; ede/locate.el --- Locate support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2008-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -89,7 +89,7 @@ based on `ede-locate-setup-options'."
       (when (called-interactively-p 'interactive)
 	(message "Setting locator to ede-locate-base"))
       (setq ans 'ede-locate-base))
-    (oset proj locate-obj (make-instance ans "Loc" :root root))
+    (oset proj locate-obj (make-instance ans :root root))
     (when (called-interactively-p 'interactive)
       (message "Setting locator to %s" ans))
     ))

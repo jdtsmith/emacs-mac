@@ -1,6 +1,6 @@
 ;;; em-alias.el --- creation and management of command aliases  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -173,7 +173,9 @@ file named by `eshell-aliases-file'.")
 	    (setq eshell-command-aliases-list
 		  (delq def eshell-command-aliases-list)))
 	(setq eshell-command-aliases-list
-	      (cons alias-def eshell-command-aliases-list))))
+	      (sort (cons alias-def eshell-command-aliases-list)
+                    (lambda (a b)
+                    (string< (car a) (car b)))))))
     (eshell-write-aliases-list))
   nil)
 
@@ -202,16 +204,15 @@ This is useful after manually editing the contents of the file."
                                       (match-string 2))
                                 eshell-command-aliases-list)))
                 (forward-line 1))
-              eshell-command-aliases-list)))))
+              (nreverse eshell-command-aliases-list))))))
 
 (defun eshell-write-aliases-list ()
   "Write out the current aliases into `eshell-aliases-file'."
   (when (and eshell-aliases-file
              (file-writable-p (file-name-directory eshell-aliases-file)))
-    (let ((eshell-current-handles
-           (eshell-create-handles eshell-aliases-file 'overwrite)))
+    (eshell-with-handles (eshell-aliases-file 'overwrite)
       (eshell/alias)
-      (eshell-close-handles 0 'nil))))
+      (eshell-set-exit-info 0 nil))))
 
 (defsubst eshell-lookup-alias (name)
   "Check whether NAME is aliased.  Return the alias if there is one."
@@ -222,14 +223,14 @@ This is useful after manually editing the contents of the file."
 (defun eshell-maybe-replace-by-alias--which (command)
   (unless (and eshell-prevent-alias-expansion
                (member command eshell-prevent-alias-expansion))
-    (when-let ((alias (eshell-lookup-alias command)))
+    (when-let* ((alias (eshell-lookup-alias command)))
       (concat command " is an alias, defined as \"" (cadr alias) "\""))))
 
 (defun eshell-maybe-replace-by-alias (command _args)
   "Call COMMAND's alias definition, if it exists."
   (unless (and eshell-prevent-alias-expansion
 	       (member command eshell-prevent-alias-expansion))
-    (when-let ((alias (eshell-lookup-alias command)))
+    (when-let* ((alias (eshell-lookup-alias command)))
       (throw 'eshell-replace-command
              `(let ((eshell-command-name ',eshell-last-command-name)
                     (eshell-command-arguments ',eshell-last-arguments)

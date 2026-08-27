@@ -1,6 +1,6 @@
 ;;; syntax.el --- helper functions to find syntactic context  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: internal
@@ -276,7 +276,7 @@ all RULES in total."
                  ;; If there's more than 1 rule, and the rule want to apply
                  ;; highlight to match 0, create an extra group to be able to
                  ;; tell when *this* match 0 has succeeded.
-                 (cl-incf offset)
+                 (incf offset)
                  (setq re (concat "\\(" re "\\)")))
                (setq re (syntax-propertize--shift-groups-and-backrefs re offset))
                (let ((code '())
@@ -356,7 +356,7 @@ all RULES in total."
                              code))))
                  (push (cons condition (nreverse code))
                        branches))
-               (cl-incf offset (regexp-opt-depth orig-re))
+               (incf offset (regexp-opt-depth orig-re))
                re))
            rules
            "\\|")))
@@ -401,6 +401,9 @@ It's also used so that `syntax-ppss-flush-cache' can be used from within
       ;;          syntax-propertize--done pos)
       (setq-local parse-sexp-lookup-properties t)
       (when (< syntax-propertize--done (point-min))
+        (when (> syntax-propertize--done 0)
+          (message "Cannot syntax-propertize %d..%d because of narrowing!"
+                   syntax-propertize--done (point-min)))
         ;; *Usually* syntax-propertize is called via syntax-ppss which
         ;; takes care of adding syntax-ppss-flush-cache to b-c-f, but this
         ;; is not *always* the case, so since we share a single "flush" function
@@ -586,8 +589,8 @@ The rest is only useful if you're interested in tweaking the algorithm.")
 	  syntax-ppss-stats))
 (defun syntax-ppss--update-stats (i old new)
   (let ((pair (aref syntax-ppss-stats i)))
-    (cl-incf (car pair))
-    (cl-incf (cdr pair) (- new old))))
+    (incf (car pair))
+    (incf (cdr pair) (- new old))))
 
 (defun syntax-ppss--data ()
   (if (eq (point-min) 1)

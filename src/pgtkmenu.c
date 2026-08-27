@@ -1,5 +1,5 @@
 /* Pure GTK3 menu and toolbar module.
-   Copyright (C) 2019-2025 Free Software Foundation, Inc.
+   Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -16,12 +16,6 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
-/*
- */
-
-
-/* This should be the first include, as it may set up #defines affecting
-   interpretation of even the system includes.  */
 #include <config.h>
 
 #include "lisp.h"
@@ -596,13 +590,9 @@ pgtk_menu_show (struct frame *f, int x, int y, int menuflags,
 {
   int i;
   widget_value *wv, *save_wv = 0, *first_wv = 0, *prev_wv = 0;
-  widget_value **submenu_stack
-    = alloca (menu_items_used * sizeof *submenu_stack);
-  Lisp_Object *subprefix_stack
-    = alloca (menu_items_used * sizeof *subprefix_stack);
+  widget_value **submenu_stack;
+  Lisp_Object *subprefix_stack;
   int submenu_depth = 0;
-
-  specpdl_ref specpdl_count = SPECPDL_INDEX ();
 
   eassert (FRAME_PGTK_P (f));
 
@@ -613,6 +603,11 @@ pgtk_menu_show (struct frame *f, int x, int y, int menuflags,
       *error_name = "Empty menu";
       return Qnil;
     }
+
+  USE_SAFE_ALLOCA;
+  SAFE_NALLOCA (submenu_stack, 1, menu_items_used);
+  SAFE_NALLOCA (subprefix_stack, 1, menu_items_used);
+  specpdl_ref specpdl_count = SPECPDL_INDEX ();
 
   block_input ();
 
@@ -724,7 +719,7 @@ pgtk_menu_show (struct frame *f, int x, int y, int menuflags,
 				  STRINGP (help) ? help : Qnil);
 	  if (prev_wv)
 	    prev_wv->next = wv;
-	  else
+	  else if (save_wv)
 	    save_wv->contents = wv;
 	  if (!NILP (descrip))
 	    wv->key = SSDATA (descrip);
@@ -830,6 +825,7 @@ pgtk_menu_show (struct frame *f, int x, int y, int menuflags,
 			  entry = Fcons (subprefix_stack[j], entry);
 		    }
 		  unblock_input ();
+		  SAFE_FREE ();
 		  return entry;
 		}
 	      i += MENU_ITEMS_ITEM_LENGTH;
@@ -844,6 +840,7 @@ pgtk_menu_show (struct frame *f, int x, int y, int menuflags,
     }
 
   unblock_input ();
+  SAFE_FREE ();
   return Qnil;
 }
 

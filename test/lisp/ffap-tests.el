@@ -1,6 +1,6 @@
 ;;; ffap-tests.el --- Test suite for ffap.el -*- lexical-binding: t -*-
 
-;; Copyright (C) 2016-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2026 Free Software Foundation, Inc.
 
 ;; Author: Tino Calancha <tino.calancha@gmail.com>
 
@@ -25,6 +25,7 @@
 
 (require 'cl-lib)
 (require 'ert)
+(require 'tramp)
 (require 'ert-x)
 (require 'ffap)
 
@@ -105,7 +106,7 @@ left alone when opening a URL in an external browser."
     (with-temp-buffer
       (insert string)
       (goto-char (point-min))
-      (forward-char 10)
+      (forward-char 3)
       (ffap-string-at-point))))
 
 (ert-deftest ffap-test-with-spaces ()
@@ -113,7 +114,7 @@ left alone when opening a URL in an external browser."
    (equal
     (ffap-test-string
      t "c:/Program Files/Open Text Evaluation Media/Open Text Exceed 14 x86/Program here.txt")
-    "/Program Files/Open Text Evaluation Media/Open Text Exceed 14 x86/Program here.txt"))
+    "c:/Program Files/Open Text Evaluation Media/Open Text Exceed 14 x86/Program here.txt"))
   (should
    (equal
     (ffap-test-string
@@ -122,23 +123,39 @@ left alone when opening a URL in an external browser."
   (should
    (equal
     (ffap-test-string
-     t "c:/Program Files/Open Text Evaluation Media/Open Text Exceed 14 x86/Program Files/Hummingbird/")
-    "/Program Files/Open Text Evaluation Media/Open Text Exceed 14 x86/Program Files/Hummingbird/"))
+     t "z:/Program Files/Open Text Evaluation Media/Open Text Exceed 14 x86/Program Files/Hummingbird/")
+    "z:/Program Files/Open Text Evaluation Media/Open Text Exceed 14 x86/Program Files/Hummingbird/"))
   (should
    (equal
     (ffap-test-string
      t "c:\\Program Files\\Open Text Evaluation Media\\Open Text Exceed 14 x86\\Program Files\\Hummingbird\\")
-    "\\Program Files\\Open Text Evaluation Media\\Open Text Exceed 14 x86\\Program Files\\Hummingbird\\"))
+    "c:\\Program Files\\Open Text Evaluation Media\\Open Text Exceed 14 x86\\Program Files\\Hummingbird\\"))
   (should
    (equal
     (ffap-test-string
-     t "c:\\Program Files\\Freescale\\CW for MPC55xx and MPC56xx 2.10\\PowerPC_EABI_Tools\\Command_Line_Tools\\CLT_Usage_Notes.txt")
-    "\\Program Files\\Freescale\\CW for MPC55xx and MPC56xx 2.10\\PowerPC_EABI_Tools\\Command_Line_Tools\\CLT_Usage_Notes.txt"))
+     t "d:\\Program Files\\Freescale\\CW for MPC55xx and MPC56xx 2.10\\PowerPC_EABI_Tools\\Command_Line_Tools\\CLT_Usage_Notes.txt")
+    "d:\\Program Files\\Freescale\\CW for MPC55xx and MPC56xx 2.10\\PowerPC_EABI_Tools\\Command_Line_Tools\\CLT_Usage_Notes.txt"))
   (should
    (equal
     (ffap-test-string
      t "C:\\temp\\program.log on Windows or /var/log/program.log on Unix.")
-    "\\temp\\program.log")))
+    "C:\\temp\\program.log"))
+  (should
+   (equal
+    (ffap-test-string t "~/tmp/")
+    "~/tmp/"))
+  (should
+   (equal
+    (ffap-test-string nil "~/tmp/")
+    "~/tmp/"))
+  (should
+   (equal
+    (ffap-test-string t "~abc123_áè/foo")
+    "~abc123_áè/foo"))
+  (should
+   (equal
+    (ffap-test-string t "c:/Program Files/my program.exe and here's more text")
+    "c:/Program Files/my program.exe")))
 
 (ert-deftest ffap-test-no-newlines ()
   (should-not
@@ -165,7 +182,7 @@ left alone when opening a URL in an external browser."
         (let (kill-buffer-query-functions)
           (kill-buffer (call-interactively #'find-file-at-point)))))))
 
-(ert-deftest ffap-test-path ()
+(ert-deftest ffap-test-path-unix ()
   (skip-unless (file-exists-p "/bin"))
   (skip-unless (file-exists-p "/usr/bin"))
   (with-temp-buffer
@@ -181,6 +198,118 @@ left alone when opening a URL in an external browser."
     (insert ":/bin")
     (goto-char (point-min))
     (should (equal (ffap-file-at-point) nil))))
+
+(ert-deftest ffap-test-path-portable ()
+  ;; Why 'load-path' and not 'exec-path'?  Because there are various
+  ;; complications when the test is run on Windows from MSYS Bash: the
+  ;; few first directories MSYS adds to the system PATH may not exist,
+  ;; and the very first one is ".", which ffap-file-at-point doesn't
+  ;; recognize as a file.
+  (skip-unless (> (length load-path) 2))
+  (let ((dir1 (expand-file-name (car load-path)))
+        (dir2 (expand-file-name (nth 1 load-path))))
+    (skip-unless (and (file-exists-p dir1) (file-exists-p dir2)))
+    (with-temp-buffer
+      (insert (format "%s%s%s" dir1 path-separator dir2))
+      (goto-char (point-min))
+      ;; Use 'file-equal-p' because PATH could have backslashes, "~",
+      ;; and other constructs that will make 'equal' fail.
+      (should (file-equal-p (ffap-file-at-point) dir1)))
+    (with-temp-buffer
+      (insert (format "%s%s%s" dir1 path-separator dir2))
+      (goto-char (point-min))
+      (search-forward path-separator)
+      (should (file-equal-p (ffap-file-at-point) dir2)))
+    (with-temp-buffer
+      (insert "%s%s" path-separator dir2)
+      (goto-char (point-min))
+      (should (equal (ffap-file-at-point) nil)))))
+
+(ert-deftest ffap-tests--c-path ()
+  (should (seq-every-p #'stringp (ffap--c-path)))
+  (should (locate-file "stdio.h" (ffap--c-path)))
+  (or (memq system-type '(windows-nt ms-dos))
+      (should (member "/usr/include" (ffap--c-path))))
+  (should (equal (ffap--c-path)
+                 (delete-dups (ffap--c-path))))
+  ;; Return a meaningful result even if calling some compiler fails.
+  (cl-letf (((symbol-function 'call-process)
+             (lambda (_program &optional _infile _destination _display &rest _args) 1)))
+    (should (seq-every-p #'stringp (ffap--c-path)))
+    (should (member (expand-file-name "/usr/include")
+                    (ffap--c-path)))
+    (should (equal (ffap--c-path)
+                   (delete-dups (ffap--c-path))))))
+
+(ert-deftest ffap-tests--c-path/gcc-mocked ()
+  ;; Handle empty values of "gcc -print-multiarch".
+  (cl-letf (((symbol-function 'call-process)
+             (lambda (_program &optional _infile _destination _display &rest args)
+               (when (equal (car args) "-print-multiarch")
+                 (insert "\n") 0))))
+    (should (member (expand-file-name "/usr/include")
+                    (ffap--c-path))))
+  ;; Handle single values of "gcc -print-multiarch".
+  (cl-letf ((system-type 'foo)
+            ((symbol-function 'call-process)
+             (lambda (_program &optional _infile _destination _display &rest args)
+               (when (equal (car args) "-print-multiarch")
+                 (insert "x86_64-linux-gnu\n") 0))))
+    (should (member (expand-file-name "/usr/include/x86_64-linux-gnu")
+                    (ffap--c-path)))))
+
+(ert-deftest ffap-tests--c-path/clang-mocked ()
+  ;; Handle clang 15.0.0 output on macOS 15.2.
+  (cl-letf (((symbol-function 'ffap--gcc-is-clang-p) (lambda () t))
+            ((symbol-function 'call-process)
+             (lambda (_program &optional _infile _destination _display &rest _args)
+               (insert "\
+Apple clang version 15.0.0 (clang-1500.3.9.4)
+Target: arm64-apple-darwin24.2.0
+Thread model: posix
+InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
+ \"/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang\"
+[[[...Emacs test omits some verbose junk from the output here...]]]
+clang -cc1 version 15.0.0 (clang-1500.3.9.4) default target arm64-apple-darwin24.2.0
+ignoring nonexistent directory \"/usr/local/include\"
+#include \"...\" search starts here:
+#include <...> search starts here:
+ /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include
+ /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include
+ /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include
+ /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks (framework directory)
+End of search list.
+# 1 \"<stdin>\"
+# 1 \"<built-in>\" 1
+# 1 \"<built-in>\" 3
+# 418 \"<built-in>\" 3
+# 1 \"<command line>\" 1
+# 1 \"<built-in>\" 2
+# 1 \"<stdin>\" 2")
+               0)))
+    (should (member (expand-file-name "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include")
+                    (ffap--c-path)))))
+
+(ert-deftest ffap-test-remote ()
+  (skip-unless
+   (ignore-errors
+     (and
+      (file-remote-p ert-remote-temporary-file-directory)
+      (file-directory-p ert-remote-temporary-file-directory)
+      (file-writable-p ert-remote-temporary-file-directory))))
+  (let* ((ffap-prefer-remote-file t)
+         (default-directory
+          (expand-file-name ert-remote-temporary-file-directory))
+         (temporary-file-directory default-directory)
+         (test-file (make-temp-file "ffap-test")))
+    (with-temp-buffer
+      (insert (file-local-name test-file))
+      (should (equal (ffap-file-at-point) test-file))
+      (erase-buffer)
+      (insert (concat "/usr/bin:" (file-local-name test-file)))
+      (should (equal (ffap-file-at-point) test-file))
+      (delete-file test-file)
+      (should (equal (ffap-file-at-point) default-directory)))))
 
 (provide 'ffap-tests)
 

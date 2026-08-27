@@ -1,6 +1,6 @@
 ;;; eval-tests.el --- unit tests for src/eval.c      -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2016-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2026 Free Software Foundation, Inc.
 
 ;; Author: Philipp Stephani <phst@google.com>
 
@@ -281,6 +281,18 @@ expressions works for identifiers starting with period."
   (defvaralias 'eval-tests--my-d 'eval-tests--my-a)
   (should-error (defvaralias 'eval-tests--my-c 'eval-tests--my-d)
                 :type 'cyclic-variable-indirection))
+
+(ert-deftest eval-tests--internal-delete-indirect-variable ()
+  (defvar eval-tests--i-d-i-v-var 'foo)
+  (defvaralias 'eval-tests--i-d-i-v-var1 'eval-tests--i-d-i-v-var "Doc string.")
+  (internal-delete-indirect-variable 'eval-tests--i-d-i-v-var1)
+
+  (should (eq (indirect-variable 'eval-tests--i-d-i-v-var1)
+              'eval-tests--i-d-i-v-var1))
+  (should-not (boundp 'eval-tests--i-d-i-v-var1))
+  (should-not (get 'eval-tests--i-d-i-v-var1 'variable-documentation))
+
+  (should-error (internal-delete-indirect-variable 'eval-tests--i-d-i-v-var)))
 
 (defvar eval-tests/global-var 'global-value)
 (defvar-local eval-tests/buffer-local-var 'default-value)

@@ -1,6 +1,6 @@
 ;;; cus-theme.el --- custom theme creation user interface  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Alex Schroeder <alex@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -654,12 +654,13 @@ Theme files are named *-theme.el in `"))
 				    :help-echo help-echo
                                     :action #'custom-theme-checkbox-toggle))
         (push (cons theme widget) custom--listed-themes)
-        (widget-create-child-and-convert widget 'push-button
-				         :button-face-get 'ignore
-				         :mouse-face-get 'ignore
-				         :value (format " %s" theme)
-                                         :action #'widget-parent-action
-				         :help-echo help-echo)
+        (widget-create 'push-button
+                       :button-face-get 'ignore
+                       :mouse-face-get 'ignore
+                       :value (format " %s" theme)
+                       :action (lambda (_w &optional event)
+                                 (custom-theme-checkbox-toggle widget event))
+                       :help-echo help-echo)
         (widget-insert " -- "
 		       (propertize (custom-theme-summary theme)
 				   'face 'shadow)

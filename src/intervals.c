@@ -1,5 +1,5 @@
 /* Code for doing intervals.
-   Copyright (C) 1993-1995, 1997-1998, 2001-2025 Free Software
+   Copyright (C) 1993-1995, 1997-1998, 2001-2026 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -44,7 +44,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "lisp.h"
 #include "intervals.h"
 #include "buffer.h"
-#include "puresize.h"
 #include "keymap.h"
 
 /* Test for membership, allowing for t (actually any non-cons) to mean the
@@ -101,7 +100,6 @@ create_root_interval (Lisp_Object parent)
     }
   else
     {
-      CHECK_IMPURE (parent, XSTRING (parent));
       new->total_length = SCHARS (parent);
       eassert (TOTAL_LENGTH (new) >= 0);
       set_string_intervals (parent, new);
@@ -2052,18 +2050,18 @@ set_point_both (ptrdiff_t charpos, ptrdiff_t bytepos)
 	enter_after = Qnil;
 
       if (! EQ (leave_before, enter_before) && !NILP (leave_before))
-      	call2 (leave_before, make_fixnum (old_position),
-      	       make_fixnum (charpos));
+	calln (leave_before, make_fixnum (old_position),
+	       make_fixnum (charpos));
       if (! EQ (leave_after, enter_after) && !NILP (leave_after))
-      	call2 (leave_after, make_fixnum (old_position),
-      	       make_fixnum (charpos));
+	calln (leave_after, make_fixnum (old_position),
+	       make_fixnum (charpos));
 
       if (! EQ (enter_before, leave_before) && !NILP (enter_before))
-      	call2 (enter_before, make_fixnum (old_position),
-      	       make_fixnum (charpos));
+	calln (enter_before, make_fixnum (old_position),
+	       make_fixnum (charpos));
       if (! EQ (enter_after, leave_after) && !NILP (enter_after))
-      	call2 (enter_after, make_fixnum (old_position),
-      	       make_fixnum (charpos));
+	calln (enter_after, make_fixnum (old_position),
+	       make_fixnum (charpos));
     }
 }
 

@@ -1,6 +1,6 @@
 ;;; gnus-start.el --- startup functions for Gnus -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news
@@ -31,7 +31,6 @@
 (require 'gnus-range)
 (require 'gnus-util)
 (require 'gnus-cloud)
-(require 'gnus-dbus)
 (autoload 'message-make-date "message")
 (autoload 'gnus-agent-read-servers-validate "gnus-agent")
 (autoload 'gnus-agent-save-local "gnus-agent")
@@ -733,6 +732,21 @@ the first newsgroup."
   ;; Remove Gnus frames.
   (gnus-kill-gnus-frames))
 
+(defcustom gnus-close-on-sleep nil
+  "When non-nil, close Gnus servers on system sleep."
+  :version "31.1"
+  :type 'boolean
+  :group 'gnus-start)
+
+(defun gnus-sleep-handler (sleep-event)
+  "Close connection to servers before system sleep.
+See `gnus-close-on-sleep' to enable this functionality.
+
+SLEEP-EVENT is checked to ensure this is only run before sleep."
+  (when (and (eq 'pre-sleep (sleep-event-state sleep-event))
+             (gnus-alive-p))
+    (ignore-errors (gnus-close-all-servers))))
+
 (defun gnus-no-server-1 (&optional arg child)
   "Read network news.
 If ARG is a positive number, Gnus will use that as the startup
@@ -800,8 +814,9 @@ prompt the user for the name of an NNTP server to use."
 	  (gnus-run-hooks 'gnus-setup-news-hook)
 	  (when gnus-agent
 	    (gnus-request-create-group "queue" '(nndraft "")))
-	  (when gnus-dbus-close-on-sleep
-	    (gnus-dbus-register-sleep-signal))
+	  (when gnus-close-on-sleep
+            (add-hook 'system-sleep-event-functions
+                      #'gnus-sleep-handler))
 	  (gnus-start-draft-setup)
 	  ;; Generate the group buffer.
 	  (gnus-group-list-groups level)
@@ -892,9 +907,9 @@ If REGEXP is given, lines that match it will be deleted."
 	(when (or (file-exists-p auto) (file-exists-p dribble-file))
 	  ;; Load whichever file is newest -- the auto save file
 	  ;; or the "real" file.
-	  (if (file-newer-than-file-p auto dribble-file)
-	      (nnheader-insert-file-contents auto)
-	    (nnheader-insert-file-contents dribble-file))
+	  (nnheader-insert-file-contents
+	   (if (file-newer-than-file-p auto dribble-file)
+	       auto dribble-file))
 	  (unless (zerop (buffer-size))
 	    (set-buffer-modified-p t))
 	  ;; Set the file modes to reflect the .newsrc file modes.
@@ -916,9 +931,10 @@ If REGEXP is given, lines that match it will be deleted."
 (defun gnus-dribble-eval-file ()
   (when gnus-dribble-eval-file
     (setq gnus-dribble-eval-file nil)
-    (let ((gnus-dribble-ignore t))
-      (with-current-buffer gnus-dribble-buffer
-	(eval-buffer (current-buffer))))))
+    (with-current-buffer gnus-dribble-buffer
+    (let ((gnus-dribble-ignore t)
+          (warning-inhibit-types '((files missing-lexbind-cookie))))
+      (eval-buffer (current-buffer))))))
 
 (defun gnus-dribble-delete-file ()
   (when (file-exists-p (gnus-dribble-file-name))
@@ -1205,14 +1221,14 @@ for new groups, and subscribe the new groups as zombies."
 	     (let ((do-sub (gnus-matches-options-n g-name)))
 	       (cond
 		((eq do-sub 'subscribe)
-		 (cl-incf groups)
+                 (incf groups)
 		 (puthash g-name nil gnus-killed-hashtb) ;; group
 		 (gnus-call-subscribe-functions
 		  gnus-subscribe-options-newsgroup-method g-name))
 		((eq do-sub 'ignore)
 		 nil)
 		(t
-		 (cl-incf groups)
+                 (incf groups)
 		 (puthash g-name nil gnus-killed-hashtb) ;; group
 		 (if gnus-subscribe-hierarchical-interactive
 		     (push g-name new-newsgroups)
@@ -1765,7 +1781,7 @@ backend check whether the group actually exists."
 	(cl-dolist (smethod gnus-secondary-select-methods)
 	  (when (equal method smethod)
 	    (cl-return i))
-	  (cl-incf i))
+          (incf i))
 	i)))
    ;; Just say that all foreign groups have the same rank.
    (t

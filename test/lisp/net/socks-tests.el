@@ -1,6 +1,6 @@
 ;;; socks-tests.el --- tests for SOCKS -*- coding: utf-8; lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -181,7 +181,7 @@ Vectors must match verbatim.  Strings are considered regex patterns.")
          (buf (url-http url cb '(nil)))
          (proc (get-buffer-process buf))
          (attempts 10))
-    (while (and (not done) (< 0 (cl-decf attempts)))
+    (while (and (not done) (< 0 (decf attempts)))
       (sleep-for 0.1))
     (should done)
     (delete-process server)

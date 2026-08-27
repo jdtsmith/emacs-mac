@@ -1,6 +1,6 @@
 ;;; view.el --- peruse file or buffer without editing  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1985-2026 Free Software Foundation, Inc.
 
 ;; Author: K. Shane Hartman
 ;; Maintainer: emacs-devel@gnu.org
@@ -464,6 +464,10 @@ Entry to view-mode runs the normal hook `view-mode-hook'."
   ;; so that View mode stays off if read-only-mode is called.
   (if (local-variable-p 'view-read-only)
       (kill-local-variable 'view-read-only))
+  ;; Reset the read-only state memory as well, so that 'revert-buffer'
+  ;; won't make the buffer read-only again.
+  (if (local-variable-p 'read-only-mode--state)
+      (setq-local read-only-mode--state nil))
   (if buffer-read-only
       (setq buffer-read-only view-old-buffer-read-only)))
 
@@ -519,7 +523,10 @@ with the current buffer as argument and is called after disabling
 current buffer."
   (when view-mode
     (let ((buffer (window-buffer)))
-      (unless view-no-disable-on-exit
+      (unless (or view-no-disable-on-exit
+                  ;; When `view-read-only' is non-nil, we don't want to
+                  ;; leave a buffer read-only but not in `view-mode'.
+                  (and view-read-only view-old-buffer-read-only))
 	(view-mode -1))
 
       (unless exit-only
@@ -536,7 +543,9 @@ current buffer."
 (defun View-exit ()
   "Exit View mode but stay in current buffer."
   (interactive)
-  (view-mode-exit t))
+  (let ((view-read-only nil)
+        (view-no-disable-on-exit nil))
+   (view-mode-exit t)))
 
 ;;;###autoload
 (defun View-exit-and-edit ()
@@ -893,7 +902,9 @@ for highlighting the match that is found."
      (t (error "No previous View-mode search")))
     (save-excursion
       (if end (goto-char (if (< times 0) (point-max) (point-min)))
-	(forward-line (if (< times 0) -1 1)))
+        (if (< times 0)
+            (beginning-of-line)
+          (end-of-line)))
       (if (if no (view-search-no-match-lines times regexp)
 	    (re-search-forward regexp nil t times))
 	  (setq where (point))))

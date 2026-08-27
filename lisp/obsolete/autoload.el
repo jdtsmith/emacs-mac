@@ -1,6 +1,6 @@
 ;;; autoload.el --- maintain autoloads in loaddefs.el  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1991-1997, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1991-1997, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Roland McGrath <roland@gnu.org>
 ;; Keywords: maint
@@ -415,8 +415,7 @@ FILE's modification time."
                                                    load-name outfile))
                                (let ((standard-output (marker-buffer output-start))
                                      (print-quoted t))
-                                 (princ `(push (purecopy
-                                                ',(cons (intern package) version))
+                                 (princ `(push ',(cons (intern package) version)
                                                package--builtin-versions))
                                  (princ "\n")))))
 

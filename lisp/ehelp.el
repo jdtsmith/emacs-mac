@@ -1,6 +1,6 @@
 ;;; ehelp.el --- bindings for electric-help mode -*- lexical-binding: t -*-
 
-;; Copyright (C) 1986, 1995, 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1986, 1995, 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: Richard Mlynarik
 ;; (according to ack.texi and authors.el)
@@ -31,9 +31,9 @@
 ;; buffer.
 
 ;; To make this the default, you must do
-;; (define-key global-map "\C-h" 'ehelp-command)
-;; (define-key global-map [help] 'ehelp-command)
-;; (define-key global-map [f1] 'ehelp-command)
+;; (keymap-global-set "C-h" 'ehelp-command)
+;; (keymap-global-set "<help>" 'ehelp-command)
+;; (keymap-global-set "<f1>" 'ehelp-command)
 
 ;;; Code:
 
@@ -433,7 +433,7 @@ will select it.)"
     (substitute-key-definition 'describe-syntax 'electric-describe-syntax map)
     map))
 
-;;;###(autoload 'ehelp-command "ehelp" "Prefix command for ehelp." t 'keymap)
+;;;###autoload (autoload 'ehelp-command "ehelp" "Prefix command for ehelp." t 'keymap)
 (defalias 'ehelp-command ehelp-map)
 (put 'ehelp-command 'documentation "Prefix command for ehelp.")
 

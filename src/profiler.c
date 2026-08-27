@@ -1,6 +1,6 @@
 /* Profiler implementation.
 
-Copyright (C) 2012-2025 Free Software Foundation, Inc.
+Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -238,8 +238,8 @@ approximate_median (log_t *log, int start, int size)
       EMACS_INT i3 = approximate_median (log, start2 + newsize,
 					 size - 2 * newsize);
       return (i1 < i2
-	      ? (i2 < i3 ? i2 : (i1 < i3 ? i3 : i1))
-	      : (i1 < i3 ? i1 : (i2 < i3 ? i3 : i2)));
+	      ? (i2 < i3 ? i2 : max (i1, i3))
+	      : (i1 < i3 ? i1 : max (i2, i3)));
     }
 }
 
@@ -325,7 +325,7 @@ record_backtrace (struct profiler_log *plog, EMACS_INT count)
 static void
 add_sample (struct profiler_log *plog, EMACS_INT count)
 {
-  if (EQ (backtrace_top_function (), QAutomatic_GC)) /* bug#60237 */
+  if (BASE_EQ (backtrace_top_function (), QAutomatic_GC)) /* bug#60237 */
     /* Special case the time-count inside GC because the hash-table
        code is not prepared to be used while the GC is running.
        More specifically it uses ASIZE at many places where it does
@@ -534,7 +534,11 @@ DEFUN ("profiler-cpu-log", Fprofiler_cpu_log, Sprofiler_cpu_log,
 The log is a hash-table mapping backtraces to counters which represent
 the amount of time spent at those points.  Every backtrace is a vector
 of functions, where the last few elements may be nil.
-Before returning, a new log is allocated for future samples.  */)
+
+If the profiler has not run since the last invocation of
+`profiler-cpu-log' (or was never run at all), return nil.  If the
+profiler is currently running, allocate a new log for future samples
+before returning.  */)
   (void)
 {
   /* Temporarily stop profiling to avoid it interfering with our data
@@ -556,13 +560,16 @@ Before returning, a new log is allocated for future samples.  */)
 static Lisp_Object
 export_log (struct profiler_log *plog)
 {
+  if (!plog->log)
+    return Qnil;
+
   log_t *log = plog->log;
   /* The returned hash table uses `equal' as key equivalence predicate
      which is more discriminating than the `function-equal' used by
      the log but close enough, and will never confuse two distinct
      keys in the log.  */
   Lisp_Object h = make_hash_table (&hashtest_equal, DEFAULT_HASH_SIZE,
-				   Weak_None, false);
+				   Weak_None);
   for (int i = 0; i < log->size; i++)
     {
       int count = get_log_count (log, i);
@@ -639,7 +646,11 @@ DEFUN ("profiler-memory-log",
 The log is a hash-table mapping backtraces to counters which represent
 the amount of memory allocated at those points.  Every backtrace is a vector
 of functions, where the last few elements may be nil.
-Before returning, a new log is allocated for future samples.  */)
+
+If the profiler has not run since the last invocation of
+`profiler-memory-log' (or was never run at all), return nil.  If the
+profiler is currently running, allocate a new log for future samples
+before returning.  */)
   (void)
 {
   bool prof_mem = profiler_memory_running;

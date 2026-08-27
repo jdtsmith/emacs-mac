@@ -1,5 +1,5 @@
 /* Buffer insertion/deletion and gap motion for GNU Emacs. -*- coding: utf-8 -*-
-   Copyright (C) 1985-1986, 1993-1995, 1997-2025 Free Software
+   Copyright (C) 1985-1986, 1993-1995, 1997-2026 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -284,7 +284,7 @@ adjust_markers_for_delete (ptrdiff_t from, ptrdiff_t from_byte,
    we advance it if either its insertion-type is t
    or BEFORE_MARKERS is true.  */
 
-void
+static void
 adjust_markers_for_insert (ptrdiff_t from, ptrdiff_t from_byte,
 			   ptrdiff_t to, ptrdiff_t to_byte, bool before_markers)
 {
@@ -348,12 +348,20 @@ adjust_markers_for_replace (ptrdiff_t from, ptrdiff_t from_byte,
   ptrdiff_t diff_chars = new_chars - old_chars;
   ptrdiff_t diff_bytes = new_bytes - old_bytes;
 
+  if (old_chars == 0)
+    {
+      /* Just an insertion: markers at FROM may need to move or not depending
+	 on their marker type.  Delegate this special case to
+	 'adjust_markers_for_insert' so the loop below can remain oblivious
+	 to marker types.  */
+      adjust_markers_for_insert (from, from_byte,
+				 from + new_chars, from_byte + new_bytes,
+				 false);
+      return;
+    }
+
   adjust_suspend_auto_hscroll (from, from + old_chars);
 
-  /* FIXME: When OLD_CHARS is 0, this "replacement" is really just an
-     insertion, but the behavior we provide here in that case is that of
-     `insert-before-markers` rather than that of `insert`.
-     Maybe not a bug, but not a feature either.  */
   for (m = BUF_MARKERS (current_buffer); m; m = m->next)
     {
       if (m->bytepos >= prev_to_byte)
@@ -371,8 +379,7 @@ adjust_markers_for_replace (ptrdiff_t from, ptrdiff_t from_byte,
   check_markers ();
 
   adjust_overlays_for_insert (from + old_chars, new_chars, true);
-  if (old_chars)
-    adjust_overlays_for_delete (from, old_chars);
+  adjust_overlays_for_delete (from, old_chars);
 }
 
 /* Starting at POS (BYTEPOS), find the byte position corresponding to
@@ -891,6 +898,12 @@ insert_1_both (const char *string,
   if (NILP (BVAR (current_buffer, enable_multibyte_characters)))
     nchars = nbytes;
 
+#ifdef HAVE_TREE_SITTER
+  struct ts_linecol start_linecol
+    = treesit_linecol_maybe (PT, PT_BYTE,
+			     BUF_TS_LINECOL_POINT (current_buffer));
+#endif
+
   if (prepare)
     /* Do this before moving and increasing the gap,
        because the before-change hooks might move the gap
@@ -945,7 +958,9 @@ insert_1_both (const char *string,
 #ifdef HAVE_TREE_SITTER
   eassert (nbytes >= 0);
   eassert (PT_BYTE >= 0);
-  treesit_record_change (PT_BYTE, PT_BYTE, PT_BYTE + nbytes);
+
+  treesit_record_change (PT_BYTE, PT_BYTE, PT_BYTE + nbytes,
+			 start_linecol, start_linecol, PT + nchars);
 #endif
 
   adjust_point (nchars, nbytes);
@@ -1017,6 +1032,12 @@ insert_from_string_1 (Lisp_Object string, ptrdiff_t pos, ptrdiff_t pos_byte,
       = count_size_as_multibyte (SDATA (string) + pos_byte,
 				 nbytes);
 
+#ifdef HAVE_TREE_SITTER
+  struct ts_linecol start_linecol
+    = treesit_linecol_maybe (PT, PT_BYTE,
+			     BUF_TS_LINECOL_POINT (current_buffer));
+#endif
+
   /* Do this before moving and increasing the gap,
      because the before-change hooks might move the gap
      or make it smaller.  */
@@ -1081,7 +1102,9 @@ insert_from_string_1 (Lisp_Object string, ptrdiff_t pos, ptrdiff_t pos_byte,
 #ifdef HAVE_TREE_SITTER
   eassert (nbytes >= 0);
   eassert (PT_BYTE >= 0);
-  treesit_record_change (PT_BYTE, PT_BYTE, PT_BYTE + nbytes);
+
+  treesit_record_change (PT_BYTE, PT_BYTE, PT_BYTE + nbytes,
+			 start_linecol, start_linecol, PT + nchars);
 #endif
 
   adjust_point (nchars, outgoing_nbytes);
@@ -1094,7 +1117,8 @@ insert_from_string_1 (Lisp_Object string, ptrdiff_t pos, ptrdiff_t pos_byte,
    GPT_ADDR (if not text_at_gap_tail).
    Contrary to insert_from_gap, this does not invalidate any cache,
    nor update any markers, nor record any buffer modification information
-   of any sort, with the single exception of notifying tree-sitter.  */
+   of any sort, with the single exception of notifying tree-sitter and
+   updating tree-sitter linecol cache.  */
 void
 insert_from_gap_1 (ptrdiff_t nchars, ptrdiff_t nbytes, bool text_at_gap_tail)
 {
@@ -1103,6 +1127,9 @@ insert_from_gap_1 (ptrdiff_t nchars, ptrdiff_t nbytes, bool text_at_gap_tail)
 
 #ifdef HAVE_TREE_SITTER
   ptrdiff_t ins_bytepos = GPT_BYTE;
+  struct ts_linecol start_linecol
+    = treesit_linecol_maybe (GPT, GPT_BYTE,
+			     BUF_TS_LINECOL_POINT (current_buffer));
 #endif
 
   GAP_SIZE -= nbytes;
@@ -1123,7 +1150,9 @@ insert_from_gap_1 (ptrdiff_t nchars, ptrdiff_t nbytes, bool text_at_gap_tail)
 #ifdef HAVE_TREE_SITTER
   eassert (nbytes >= 0);
   eassert (ins_bytepos >= 0);
-  treesit_record_change (ins_bytepos, ins_bytepos, ins_bytepos + nbytes);
+
+  treesit_record_change (ins_bytepos, ins_bytepos, ins_bytepos + nbytes,
+			 start_linecol, start_linecol, ins_bytepos + nbytes);
 #endif
 }
 
@@ -1186,6 +1215,9 @@ insert_from_buffer (struct buffer *buf,
 
 #ifdef HAVE_TREE_SITTER
   ptrdiff_t obyte = PT_BYTE;
+  struct ts_linecol start_linecol
+    = treesit_linecol_maybe (opoint, obyte,
+			     BUF_TS_LINECOL_POINT (current_buffer));
 #endif
 
   insert_from_buffer_1 (buf, charpos, nchars, inherit);
@@ -1196,7 +1228,9 @@ insert_from_buffer (struct buffer *buf,
   eassert (PT_BYTE >= BEG_BYTE);
   eassert (obyte >= BEG_BYTE);
   eassert (PT_BYTE >= obyte);
-  treesit_record_change (obyte, obyte, PT_BYTE);
+
+  treesit_record_change (obyte, obyte, PT_BYTE,
+			 start_linecol, start_linecol, PT);
 #endif
 }
 
@@ -1409,7 +1443,11 @@ adjust_after_insert (ptrdiff_t from, ptrdiff_t from_byte,
   adjust_after_replace (from, from_byte, Qnil, newlen, len_byte);
 }
 
-/* Replace the text from character positions FROM to TO with NEW,
+/* Replace the text from character positions FROM to TO with the
+   replacement text NEW.  NEW could either be a string, a buffer, or
+   a vector [BUFFER BEG END], where BUFFER is the buffer with the replacement
+   text and BEG and END are buffer positions in BUFFER that give the
+   replacement text beginning and end.
    If PREPARE, call prepare_to_modify_buffer.
    If INHERIT, the newly inserted text should inherit text properties
    from the surrounding non-deleted text.
@@ -1419,28 +1457,49 @@ adjust_after_insert (ptrdiff_t from, ptrdiff_t from_byte,
 /* Note that this does not yet handle markers quite right.
    Also it needs to record a single undo-entry that does a replacement
    rather than a separate delete and insert.
-   That way, undo will also handle markers properly.
-
-   But if MARKERS is 0, don't relocate markers.  */
+   That way, undo will also handle markers properly.  */
 
 void
 replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
-               bool prepare, bool inherit, bool markers,
-               bool adjust_match_data, bool inhibit_mod_hooks)
+               bool run_mod_hooks, bool inherit,
+               bool adjust_match_data)
 {
-  ptrdiff_t inschars = SCHARS (new);
-  ptrdiff_t insbytes = SBYTES (new);
+  ptrdiff_t inschars;
+  ptrdiff_t insbeg;
+  struct buffer *insbuf;
+  if (STRINGP (new))
+    {
+      insbuf = NULL;
+      insbeg = 0;
+      inschars = SCHARS (new);
+    }
+  else if (BUFFERP (new))
+    {
+      insbuf = XBUFFER (new);
+      insbeg = BUF_BEGV (insbuf);
+      inschars = BUF_ZV (insbuf) - insbeg;
+    }
+  else
+    {
+      CHECK_VECTOR (new);
+      /* Let `Faref' signal an error if it's too small.  */
+      Lisp_Object insend = Faref (new, make_fixnum (2));
+      CHECK_BUFFER (AREF (new, 0));
+      CHECK_FIXNUM (AREF (new, 1));
+      CHECK_FIXNUM (insend);
+      insbuf = XBUFFER (AREF (new, 0));
+      insbeg = XFIXNUM (AREF (new, 1));
+      inschars = XFIXNUM (insend) - insbeg;
+    }
   ptrdiff_t from_byte, to_byte;
   ptrdiff_t nbytes_del, nchars_del;
-  INTERVAL intervals;
-  ptrdiff_t outgoing_insbytes = insbytes;
   Lisp_Object deletion;
 
   check_markers ();
 
   deletion = Qnil;
 
-  if (prepare)
+  if (run_mod_hooks)
     {
       ptrdiff_t range_length = to - from;
       prepare_to_modify_buffer (from, to, &from);
@@ -1459,17 +1518,71 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
   nchars_del = to - from;
   nbytes_del = to_byte - from_byte;
 
-  if (nbytes_del <= 0 && insbytes == 0)
+  if (nbytes_del <= 0 && inschars == 0)
     return;
+
+#ifdef HAVE_TREE_SITTER
+  struct ts_linecol start_linecol
+    = treesit_linecol_maybe (from, from_byte,
+			     BUF_TS_LINECOL_POINT (current_buffer));
+  struct ts_linecol old_end_linecol
+    = treesit_linecol_maybe (to, to_byte,
+			     BUF_TS_LINECOL_POINT (current_buffer));
+#endif
+
+
+  ptrdiff_t insbeg_bytes, insend_bytes;
+  ptrdiff_t insbytes;
+  unsigned char *insbeg_ptr;
+  bool new_is_multibyte;
+  if (!insbuf)
+    {
+      new_is_multibyte = STRING_MULTIBYTE (new);
+      insbytes = SBYTES (new);
+      insbeg_ptr = SDATA (new);
+    }
+  else
+    {
+      new_is_multibyte = !NILP (BVAR (insbuf, enable_multibyte_characters));
+      ptrdiff_t insend = insbeg + inschars;
+      if (new_is_multibyte)
+	{
+	  insbeg_bytes = buf_charpos_to_bytepos (insbuf, insbeg);
+	  insend_bytes = buf_charpos_to_bytepos (insbuf, insend);
+	}
+      else
+	{
+	  insbeg_bytes = insbeg;
+	  insend_bytes = insend;
+	}
+      insbytes = insend_bytes - insbeg_bytes;
+      /* Move gap out of the replacement text, to arrange for
+         replacement text to be contiguous in the source buffer, so that
+         we could copy it in one go.  */
+      if (insbuf->text->gpt_byte > insbeg_bytes
+	  && insbuf->text->gpt_byte < insend_bytes)
+	{
+	  struct buffer *old = current_buffer;
+	  if (insbuf != old)
+	    set_buffer_internal (insbuf);
+	  move_gap_both (insbeg, insbeg_bytes);
+	  if (insbuf != old)
+	    set_buffer_internal (old);
+	}
+      insbeg_ptr = BUF_BYTE_ADDRESS (insbuf, insbeg_bytes);
+      eassert (insbuf->text->gpt_byte <= insbeg_bytes
+	       || insbuf->text->gpt_byte >= insend_bytes);
+    }
+  ptrdiff_t outgoing_insbytes = insbytes;
 
   /* Make OUTGOING_INSBYTES describe the text
      as it will be inserted in this buffer.  */
 
   if (NILP (BVAR (current_buffer, enable_multibyte_characters)))
     outgoing_insbytes = inschars;
-  else if (! STRING_MULTIBYTE (new))
+  else if (! new_is_multibyte)
     outgoing_insbytes
-      = count_size_as_multibyte (SDATA (new), insbytes);
+      = count_size_as_multibyte (insbeg_ptr, insbytes);
 
   /* Make sure the gap is somewhere in or next to what we are deleting.  */
   if (from > GPT)
@@ -1477,9 +1590,6 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
   if (to < GPT)
     gap_left (to, to_byte, 0);
 
-  /* Even if we don't record for undo, we must keep the original text
-     because we may have to recover it because of inappropriate byte
-     combining.  */
   if (! EQ (BVAR (current_buffer, undo_list), Qt))
     deletion = make_buffer_string_both (from, from_byte, to, to_byte, 1);
 
@@ -1504,8 +1614,8 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
 
   /* Copy the string text into the buffer, perhaps converting
      between single-byte and multibyte.  */
-  copy_text (SDATA (new), GPT_ADDR, insbytes,
-	     STRING_MULTIBYTE (new),
+  copy_text (insbeg_ptr, GPT_ADDR, insbytes,
+	     new_is_multibyte,
 	     ! NILP (BVAR (current_buffer, enable_multibyte_characters)));
 
 #ifdef BYTE_COMBINING_DEBUG
@@ -1541,25 +1651,17 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
   eassert (GPT <= GPT_BYTE);
 
   /* Adjust markers for the deletion and the insertion.  */
-  if (markers)
-    adjust_markers_for_replace (from, from_byte, nchars_del, nbytes_del,
-				inschars, outgoing_insbytes);
-  else
-    {
-      /* The character positions of the markers remain intact, but we
-	 still need to update their byte positions, because the
-	 deleted and the inserted text might have multibyte sequences
-	 which make the original byte positions of the markers
-	 invalid.  */
-      adjust_markers_bytepos (from, from_byte, from + inschars,
-			      from_byte + outgoing_insbytes, true);
-    }
+  adjust_markers_for_replace (from, from_byte, nchars_del, nbytes_del,
+			      inschars, outgoing_insbytes);
 
   offset_intervals (current_buffer, from, inschars - nchars_del);
 
   /* Get the intervals for the part of the string we are inserting--
      not including the combined-before bytes.  */
-  intervals = string_intervals (new);
+  INTERVAL intervals
+    = (!insbuf ? string_intervals (new)
+       : copy_intervals (buffer_intervals (insbuf), insbeg, inschars));
+
   /* Insert those intervals.  */
   graft_intervals_into_buffer (intervals, from, inschars,
 			       current_buffer, inherit);
@@ -1568,11 +1670,15 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
   eassert (to_byte >= from_byte);
   eassert (outgoing_insbytes >= 0);
   eassert (from_byte >= 0);
-  treesit_record_change (from_byte, to_byte, from_byte + outgoing_insbytes);
+
+  treesit_record_change (from_byte, to_byte, from_byte + outgoing_insbytes,
+			 start_linecol, old_end_linecol, from + inschars);
 #endif
 
   /* Relocate point as if it were a marker.  */
-  if (from < PT)
+  if (from < PT
+      /* Mimic 'insert' when FROM==TO==PT).  */
+      || PT == to)
     adjust_point ((from + inschars - min (PT, to)),
 		  (from_byte + outgoing_insbytes - min (PT_BYTE, to_byte)));
 
@@ -1582,9 +1688,9 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
   CHARS_MODIFF = MODIFF;
 
   if (adjust_match_data)
-    update_search_regs (from, to, from + SCHARS (new));
+    update_search_regs (from, to, from + inschars);
 
-  if (!inhibit_mod_hooks)
+  if (run_mod_hooks)
     {
       signal_after_change (from, nchars_del, GPT - from);
       update_compositions (from, GPT, CHECK_BORDER);
@@ -1893,6 +1999,15 @@ del_range_2 (ptrdiff_t from, ptrdiff_t from_byte,
   nchars_del = to - from;
   nbytes_del = to_byte - from_byte;
 
+#ifdef HAVE_TREE_SITTER
+  struct ts_linecol start_linecol
+    = treesit_linecol_maybe (from, from_byte,
+			     BUF_TS_LINECOL_POINT (current_buffer));
+  struct ts_linecol old_end_linecol
+    = treesit_linecol_maybe (to, to_byte,
+			     BUF_TS_LINECOL_POINT (current_buffer));
+#endif
+
   /* Make sure the gap is somewhere in or next to what we are deleting.  */
   if (from > GPT)
     gap_right (from, from_byte);
@@ -1929,10 +2044,10 @@ del_range_2 (ptrdiff_t from, ptrdiff_t from_byte,
   offset_intervals (current_buffer, from, - nchars_del);
 
   GAP_SIZE += nbytes_del;
-  ZV_BYTE -= nbytes_del;
-  Z_BYTE -= nbytes_del;
   ZV -= nchars_del;
   Z -= nchars_del;
+  ZV_BYTE -= nbytes_del;
+  Z_BYTE -= nbytes_del;
   GPT = from;
   GPT_BYTE = from_byte;
   if (GAP_SIZE > 0 && !current_buffer->text->inhibit_shrinking)
@@ -1952,7 +2067,8 @@ del_range_2 (ptrdiff_t from, ptrdiff_t from_byte,
 #ifdef HAVE_TREE_SITTER
   eassert (from_byte <= to_byte);
   eassert (from_byte >= 0);
-  treesit_record_change (from_byte, to_byte, from_byte);
+  treesit_record_change (from_byte, to_byte, from_byte,
+			 start_linecol, old_end_linecol, from);
 #endif
 
   return deletion;
@@ -2067,7 +2183,7 @@ prepare_to_modify_buffer_1 (ptrdiff_t start, ptrdiff_t end,
 	  : (!NILP (Vselect_active_regions)
 	     && !NILP (Vtransient_mark_mode))))
     Vsaved_region_selection
-      = call1 (Vregion_extract_function, Qnil);
+      = calln (Vregion_extract_function, Qnil);
 
   signal_before_change (start, end, preserve_ptr);
   Fset (Qdeactivate_mark, Qt);

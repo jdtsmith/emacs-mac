@@ -1,6 +1,6 @@
 ;;; gnus-spec.el --- format spec functions for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1996-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2026 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news
@@ -24,7 +24,6 @@
 
 ;;; Code:
 
-(eval-when-compile (require 'cl-lib))
 (defvar gnus-newsrc-file-version)
 
 (require 'gnus)
@@ -283,15 +282,15 @@ Return a list of updated types."
     ;; Find the start position.
     (while (and (< seek length)
 		(< wseek start))
-      (cl-incf wseek (char-width (aref string seek)))
-      (cl-incf seek))
+      (incf wseek (char-width (aref string seek)))
+      (incf seek))
     (setq wstart seek)
     ;; Find the end position.
     (while (and (<= seek length)
 		(or (not end)
 		    (<= wseek end)))
-      (cl-incf wseek (char-width (aref string seek)))
-      (cl-incf seek))
+      (incf wseek (char-width (aref string seek)))
+      (incf seek))
     (setq wend seek)
     (substring string wstart (1- wend))))
 

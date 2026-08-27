@@ -1,6 +1,6 @@
 ;;; disp-table.el --- functions for dealing with char tables  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1987, 1994-1995, 1999, 2001-2025 Free Software
+;; Copyright (C) 1987, 1994-1995, 1999, 2001-2026 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Erik Naggum <erik@naggum.no>
@@ -28,7 +28,7 @@
 
 ;;; Code:
 
-(put 'display-table 'char-table-extra-slots 6)
+(put 'display-table 'char-table-extra-slots 18)
 
 ;;;###autoload
 (defun make-display-table ()
@@ -47,12 +47,30 @@
 (put 'selective-display 'display-table-slot 4)
 (put 'vertical-border 'display-table-slot 5)
 
+(put 'box-vertical 'display-table-slot 6)
+(put 'box-horizontal 'display-table-slot 7)
+(put 'box-down-right 'display-table-slot 8)
+(put 'box-down-left 'display-table-slot 9)
+(put 'box-up-right 'display-table-slot 10)
+(put 'box-up-left 'display-table-slot 11)
+
+(put 'box-double-vertical 'display-table-slot 12)
+(put 'box-double-horizontal 'display-table-slot 13)
+(put 'box-double-down-right 'display-table-slot 14)
+(put 'box-double-down-left 'display-table-slot 15)
+(put 'box-double-up-right 'display-table-slot 16)
+(put 'box-double-up-left 'display-table-slot 17)
+
 ;;;###autoload
 (defun display-table-slot (display-table slot)
   "Return the value of the extra slot in DISPLAY-TABLE named SLOT.
-SLOT may be a number from 0 to 5 inclusive, or a slot name (symbol).
+SLOT may be a number from 0 to 17 inclusive, or a slot name (symbol).
 Valid symbols are `truncation', `wrap', `escape', `control',
-`selective-display', and `vertical-border'."
+`selective-display', `vertical-border', `box-vertical',
+`box-horizontal', `box-down-right', `box-down-left', `box-up-right',
+`box-up-left',`box-double-vertical', `box-double-horizontal',
+`box-double-down-right', `box-double-down-left',
+`box-double-up-right', `box-double-up-left',"
   (let ((slot-number
 	 (if (numberp slot) slot
 	   (or (get slot 'display-table-slot)
@@ -62,9 +80,13 @@ Valid symbols are `truncation', `wrap', `escape', `control',
 ;;;###autoload
 (defun set-display-table-slot (display-table slot value)
   "Set the value of the extra slot in DISPLAY-TABLE named SLOT to VALUE.
-SLOT may be a number from 0 to 5 inclusive, or a name (symbol).
+SLOT may be a number from 0 to 17 inclusive, or a name (symbol).
 Valid symbols are `truncation', `wrap', `escape', `control',
-`selective-display', and `vertical-border'."
+`selective-display', `vertical-border', `box-vertical',
+`box-horizontal', `box-down-right', `box-down-left', `box-up-right',
+`box-up-left',`box-double-vertical', `box-double-horizontal',
+`box-double-down-right', `box-double-down-left',
+`box-double-up-right', `box-double-up-left',"
   (let ((slot-number
 	 (if (numberp slot) slot
 	   (or (get slot 'display-table-slot)
@@ -87,6 +109,33 @@ Valid symbols are `truncation', `wrap', `escape', `control',
     (prin1 (display-table-slot dt 'selective-display))
     (princ "\nVertical window border glyph: ")
     (prin1 (display-table-slot dt 'vertical-border))
+
+    (princ "\nBox vertical line glyph: ")
+    (prin1 (display-table-slot dt 'box-vertical))
+    (princ "\nBox horizontal line glyph: ")
+    (prin1 (display-table-slot dt 'box-horizontal))
+    (princ "\nBox upper left corner glyph: ")
+    (prin1 (display-table-slot dt 'box-down-right))
+    (princ "\nBox upper right corner glyph: ")
+    (prin1 (display-table-slot dt 'box-down-left))
+    (princ "\nBox lower left corner glyph: ")
+    (prin1 (display-table-slot dt 'box-up-right))
+    (princ "\nBox lower right corner glyph: ")
+    (prin1 (display-table-slot dt 'box-up-left))
+
+    (princ "\nBox double vertical line glyph: ")
+    (prin1 (display-table-slot dt 'box-double-vertical))
+    (princ "\nBox double horizontal line glyph: ")
+    (prin1 (display-table-slot dt 'box-double-horizontal))
+    (princ "\nBox double upper left corner glyph: ")
+    (prin1 (display-table-slot dt 'box-double-down-right))
+    (princ "\nBox double upper right corner glyph: ")
+    (prin1 (display-table-slot dt 'box-double-down-left))
+    (princ "\nBox double lower left corner glyph: ")
+    (prin1 (display-table-slot dt 'box-double-up-right))
+    (princ "\nBox double lower right corner glyph: ")
+    (prin1 (display-table-slot dt 'box-double-up-left))
+
     (princ "\nCharacter display glyph sequences:\n")
     (with-current-buffer standard-output
       (let ((vector (make-vector 256 nil))
@@ -125,6 +174,48 @@ Valid symbols are `truncation', `wrap', `escape', `control',
     (if disptab
 	(describe-display-table disptab)
       (message "No display table"))))
+
+;;;###autoload
+(defun standard-display-unicode-special-glyphs ()
+  "Display some glyphs using Unicode characters.
+The glyphs being changed by this function are `vertical-border',
+`box-vertical',`box-horizontal', `box-down-right', `box-down-left',
+`box-up-right', `box-up-left',`box-double-vertical',
+`box-double-horizontal', `box-double-down-right',
+`box-double-down-left', `box-double-up-right', `box-double-up-left'.
+
+To customize the glyphs, use `make-glyph-code' to create a glyph from a
+character code and a face, and then use `set-display-table-slot' to
+assign the glyph to a slot."
+  (interactive)
+  (set-display-table-slot standard-display-table
+			  'vertical-border (make-glyph-code #x2502))
+
+  (set-display-table-slot standard-display-table
+			  'box-vertical (make-glyph-code #x2502))
+  (set-display-table-slot standard-display-table
+			  'box-horizontal (make-glyph-code #x2500))
+  (set-display-table-slot standard-display-table
+			  'box-down-right (make-glyph-code #x250c))
+  (set-display-table-slot standard-display-table
+			  'box-down-left (make-glyph-code #x2510))
+  (set-display-table-slot standard-display-table
+			  'box-up-right (make-glyph-code #x2514))
+  (set-display-table-slot standard-display-table
+			  'box-up-left (make-glyph-code #x2518))
+
+  (set-display-table-slot standard-display-table
+			  'box-double-vertical (make-glyph-code #x2551))
+  (set-display-table-slot standard-display-table
+			  'box-double-horizontal (make-glyph-code #x2550))
+  (set-display-table-slot standard-display-table
+			  'box-double-down-right (make-glyph-code #x2554))
+  (set-display-table-slot standard-display-table
+			  'box-double-down-left (make-glyph-code #x2557))
+  (set-display-table-slot standard-display-table
+			  'box-double-up-right (make-glyph-code #x255a))
+  (set-display-table-slot standard-display-table
+			  'box-double-up-left (make-glyph-code #x255d)))
 
 ;;;###autoload
 (defun standard-display-8bit (l h)
@@ -367,6 +458,50 @@ which characters can be displayed and which cannot."
       (insert ")\n"))
     (pop-to-buffer buf)))
 
+(defface special-glyphs
+  '((t :inherit (shadow default)))
+  "Face for displaying special glyphs."
+  :group 'basic-faces
+  :version "31.1")
+
+(defvar prettify-special-glyphs-saved-truncation)
+(defvar prettify-special-glyphs-saved-continuation)
+
+;;;###autoload
+(define-minor-mode prettify-special-glyphs-mode
+  "Mode to display pretty special character glyphs.
+If you have already customized your special character glyphs, only the
+`special-glyphs' face is applied to them.  This mode only applies to the
+`standard-display-table'.  Window or buffer display table, if defined,
+still take precedence."
+  :global t
+  :group 'display
+  (if prettify-special-glyphs-mode
+      (let ((tbl standard-display-table)
+            truncation wrap)
+	;; Save current glyphs.
+	(setq prettify-special-glyphs-saved-truncation
+              (display-table-slot tbl 'truncation)
+              prettify-special-glyphs-saved-continuation
+              (display-table-slot tbl 'wrap))
+        ;; Prepare new ones with face.
+        (setq truncation
+              (if prettify-special-glyphs-saved-truncation
+                  (make-glyph-code prettify-special-glyphs-saved-truncation
+                                   'special-glyphs)
+                (make-glyph-code ?→ 'special-glyphs))
+              wrap
+              (if prettify-special-glyphs-saved-continuation
+                  (make-glyph-code prettify-special-glyphs-saved-continuation
+                                   'special-glyphs)
+                (make-glyph-code ?↩ 'special-glyphs)))
+	;; Alter display-table.
+	(set-display-table-slot tbl 'truncation truncation)
+	(set-display-table-slot tbl 'wrap wrap))
+    (let ((tbl standard-display-table))
+      ;; Reset saved glyphs.
+      (set-display-table-slot tbl 'truncation prettify-special-glyphs-saved-truncation)
+      (set-display-table-slot tbl 'wrap prettify-special-glyphs-saved-continuation))))
 
 (provide 'disp-table)
 

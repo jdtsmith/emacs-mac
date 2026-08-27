@@ -1,6 +1,6 @@
 ;;; oc-biblatex.el --- biblatex citation processor for Org  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Author: Nicolas Goaziou <mail@nicolasgoaziou.fr>
 
@@ -72,7 +72,7 @@
 
 (declare-function org-element-property "org-element-ast" (property node))
 (declare-function org-element-parent "org-element-ast" (node))
-(declare-function org-export-data "org-export" (data info))
+(declare-function org-export-data "ox" (data info))
 
 
 ;;; Customization
@@ -179,7 +179,7 @@ a style in `org-cite-biblatex-styles'."
           (cons :tag "Shortcut"
                 (string :tag "Name")
                 (string :tag "Full name")))
-  :safe t)
+  :safe #'listp)
 
 
 ;;; Internal functions

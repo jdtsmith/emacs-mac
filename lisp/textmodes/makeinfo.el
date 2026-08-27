@@ -1,6 +1,6 @@
 ;;; makeinfo.el --- run makeinfo conveniently  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1991, 1993, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1991, 1993, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: Robert J. Chassell
 ;; Maintainer: emacs-devel@gnu.org
@@ -34,10 +34,10 @@
 ;;; Keybindings (defined in `texinfo.el')
 
 ;; makeinfo bindings
-; (define-key texinfo-mode-map "\C-c\C-m\C-r" 'makeinfo-region)
-; (define-key texinfo-mode-map "\C-c\C-m\C-b" 'makeinfo-buffer)
-; (define-key texinfo-mode-map "\C-c\C-m\C-k" 'kill-compilation)
-; (define-key texinfo-mode-map "\C-c\C-m\C-l"
+; (keymap-set texinfo-mode-map "C-c C-m C-r" 'makeinfo-region)
+; (keymap-set texinfo-mode-map "C-c C-m C-b" 'makeinfo-buffer)
+; (keymap-set texinfo-mode-map "C-c C-m C-k" 'kill-compilation)
+; (keymap-set texinfo-mode-map "C-c C-m C-l"
 ;   'makeinfo-recenter-compilation-buffer)
 
 ;;; Code:
@@ -56,10 +56,14 @@
   :group 'docs)
 
 
-(defcustom makeinfo-run-command "makeinfo"
+(defcustom makeinfo-run-command
+  (cond ((executable-find "makeinfo") "makeinfo")
+        ((executable-find "texi2any") "texi2any")
+        (t "makeinfo"))
   "Command used to run `makeinfo' subjob.
 The name of the file is appended to this string, separated by a space."
-  :type 'string)
+  :type 'string
+  :version "31.1")
 
 (defcustom makeinfo-options "--fill-column=70"
   "String containing options for running `makeinfo'.

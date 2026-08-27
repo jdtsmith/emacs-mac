@@ -1,6 +1,6 @@
 @c -*- mode: texinfo; coding: utf-8 -*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--2025 Free Software Foundation, Inc.
+@c Copyright (C) 1990--1995, 1998--2026 Free Software Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Display
 @chapter Emacs Display
@@ -404,8 +404,10 @@ elapsed since the time the first message was emitted.
 
 @defvar inhibit-message
 When this variable is non-@code{nil}, @code{message} and related functions
-will not display any messages in the Echo Area.  Echo-area messages
-are still logged in the @file{*Messages*} buffer, though.
+will not display any messages in the Echo Area, and will also not clear
+previous echo-area messages when @code{message} is called with a
+@code{nil} or an empty argument.  Echo-area messages are still logged in
+the @file{*Messages*} buffer, though.
 @end defvar
 
 @defmac with-temp-message message &rest body
@@ -484,7 +486,7 @@ A convenient way to do this is to use a @dfn{progress reporter}.
   (progress-reporter-done progress-reporter))
 @end smallexample
 
-@defun make-progress-reporter message &optional min-value max-value current-value min-change min-time
+@defun make-progress-reporter message &optional min-value max-value current-value min-change min-time context
 This function creates and returns a progress reporter object, which
 you will use as an argument for the other functions listed below.  The
 idea is to precompute as much data as possible to make progress
@@ -511,19 +513,25 @@ If @var{min-value} and @var{max-value} are numbers, you can give the
 argument @var{current-value} a numerical value specifying the initial
 progress; if omitted, this defaults to @var{min-value}.
 
-The remaining arguments control the rate of echo area updates.  The
-progress reporter will wait for at least @var{min-change} more
-percents of the operation to be completed before printing next
-message; the default is one percent.  @var{min-time} specifies the
-minimum time in seconds to pass between successive prints; the default
-is 0.2 seconds.  (On some operating systems, the progress reporter may
-handle fractions of seconds with varying precision).
+The arguments @var{min-change} and @var{min-time} control the rate of
+echo area updates.  The progress reporter will wait for at least
+@var{min-change} more percents of the operation to be completed before
+printing next message; the default is one percent.  @var{min-time}
+specifies the minimum time in seconds to pass between successive prints;
+the default is 0.2 seconds.  (On some operating systems, the progress
+reporter may handle fractions of seconds with varying precision).
+
+If @var{context} is the symbol @code{async}, it announces that the updates
+will occur asynchronously.  Backends can use that info to prevent the
+progress updates from interfering with other data.  For example, the
+backend that displays the progress in the echo area will not display
+those async updates when the echo area is in use.
 
 This function calls @code{progress-reporter-update}, so the first
 message is printed immediately.
 @end defun
 
-@defun progress-reporter-update reporter &optional value suffix
+@defun progress-reporter-update reporter &optional value update-text
 This function does the main work of reporting progress of your
 operation.  It displays the message of @var{reporter}, followed by
 progress percentage determined by @var{value}.  If percentage is zero,
@@ -537,10 +545,11 @@ state of your operation and must be between @var{min-value} and
 @code{make-progress-reporter}.  For instance, if you scan a buffer,
 then @var{value} should be the result of a call to @code{point}.
 
-Optional argument @var{suffix} is a string to be displayed after
-@var{reporter}'s main message and progress text.  If @var{reporter} is
-a non-numerical reporter, then @var{value} should be @code{nil}, or a
-string to use instead of @var{suffix}.
+Optional argument @var{update-text} is a string to be displayed after
+@var{reporter}'s main message and progress text.  One typical use is as
+the ``step'' of a long-running process so the user knows where it is.
+If @var{reporter} is a non-numerical reporter, then @var{value} should
+be @code{nil}, or a string to use instead of @var{update-text}.
 
 This function respects @var{min-change} and @var{min-time} as passed
 to @code{make-progress-reporter} and so does not output new messages
@@ -549,11 +558,11 @@ try to reduce the number of calls to it: resulting overhead will most
 likely negate your effort.
 @end defun
 
-@defun progress-reporter-force-update reporter &optional value new-message suffix
+@defun progress-reporter-force-update reporter &optional value new-message update-text
 This function is similar to @code{progress-reporter-update} except
 that it prints a message in the echo area unconditionally.
 
-@var{reporter}, @var{value}, and @var{suffix} have the same meaning as for
+@var{reporter}, @var{value}, and @var{update-text} have the same meaning as for
 @code{progress-reporter-update}.  Optional @var{new-message} allows
 you to change the message of the @var{reporter}.  Since this function
 always updates the echo area, such a change will be immediately
@@ -1617,6 +1626,7 @@ current buffer.
 
 @cindex empty overlay
 @cindex overlay, empty
+@anchor{empty overlays}
 An overlay whose @var{start} and @var{end} specify the same buffer
 position is known as @dfn{empty}.  A non-empty overlay can become
 empty if the text between its @var{start} and @var{end} is deleted.
@@ -1701,6 +1711,12 @@ be altered so that they start at @var{end}.
 Overlays that start before @var{start} and end after @var{end} will be
 split into two overlays: one that ends at @var{start} and the other that
 begins at @var{end}.
+
+@item
+Empty overlays (@pxref{empty overlays}) will be removed if they are
+either at @var{start}, or strictly between @var{start} and @var{end}
+excluding @var{end}, or at @var{end} when @var{end} denotes the position
+at the end of the buffer.
 @end itemize
 
 If @var{name} is omitted or @code{nil}, it means to delete/modify all
@@ -2048,12 +2064,11 @@ line at display-time.  @xref{Truncation}.
 @kindex evaporate @r{(overlay property)}
 @item evaporate
 If this property is non-@code{nil}, the overlay is deleted automatically
-if it becomes empty (i.e., if its length becomes zero).  If you give
-an empty overlay (@pxref{Managing Overlays, empty overlay}) a
-non-@code{nil} @code{evaporate} property, that deletes it immediately.
-Note that, unless an overlay has this property, it will not be deleted
-when the text between its starting and ending positions is deleted
-from the buffer.
+if it becomes empty (i.e., if its length becomes zero).  If you give an
+empty overlay (@pxref{empty overlays}) a non-@code{nil} @code{evaporate}
+property, that deletes it immediately.  Note that, unless an overlay has
+this property, it will not be deleted when the text between its starting
+and ending positions is deleted from the buffer.
 
 @kindex display-line-numbers-disable @r{(overlay property)}
 @item display-line-numbers-disable
@@ -2095,11 +2110,11 @@ Properties}.
 @cindex overlays, searching for
 
 @defun overlays-at pos &optional sorted
-This function returns a list of all the overlays that cover the character at
+This function returns a list of all the overlays that contain the character at
 position @var{pos} in the current buffer.  If @var{sorted} is non-@code{nil},
-the list is in decreasing order of priority, otherwise it is in no particular
-order.  An overlay contains position @var{pos} if it begins at or before
-@var{pos}, and ends after @var{pos}.
+the returned list is in decreasing order of priority, otherwise it is in no
+particular order.  An overlay contains the character at @var{pos} if it begins
+at or before @var{pos}, and ends after @var{pos}.
 
 To illustrate usage, here is a Lisp function that returns a list of the
 overlays that specify property @var{prop} for the character at point:
@@ -2115,16 +2130,39 @@ overlays that specify property @var{prop} for the character at point:
       (setq overlays (cdr overlays)))
     found))
 @end smallexample
+
+Empty overlays (@pxref{empty overlays}) do not contain any characters,
+so this function does not return them.  Use @code{overlays-in},
+described below, instead if empty overlays are of interest.
+
+Note that this function can return overlays outside of the current
+narrowing of the buffer (@pxref{Narrowing}) if @var{pos} is outside of
+the narrowing.
 @end defun
 
 @defun overlays-in beg end
-This function returns a list of the overlays that overlap the region
+This function returns a list of the overlays that overlap with the region
 @var{beg} through @var{end}.  An overlay overlaps with a region if it
-contains one or more characters in the region; empty overlays
-(@pxref{Managing Overlays, empty overlay}) overlap if they are at
-@var{beg}, strictly between @var{beg} and @var{end}, or at @var{end}
-when @var{end} denotes the position at the end of the accessible part
-of the buffer.
+contains one or more characters between @var{beg} and @var{end}; this
+excludes the characters at (i.e.@: after) @var{end}.
+
+Empty overlays do not contain any characters, so the rule for including
+them is different: they are said to overlap if they are at @var{beg},
+strictly between @var{beg} and @var{end} excluding @var{end}, or at
+@var{end} when @var{end} denotes the position at the end of the buffer.
+(The special handling of empty overlays at end of buffer is to allow
+such overlays to be found and processed.  For any other value of
+@var{end} you could increment the @var{end} position instead.)  Note
+that if @var{beg} and @var{end} are the same position, an empty overlay
+that is at @var{beg} is also at @var{end}, so this case is somewhat
+similar to an empty overlay at the end of the buffer.
+
+The order in which the overlays appear in the returned list is
+unpredictable.
+
+Note that this function can return overlays outside of the current
+narrowing of the buffer if @var{beg} and/or @var{end} are outside of
+the narrowing.
 @end defun
 
 @defun next-overlay-change pos
@@ -2176,8 +2214,10 @@ Tables}).  The width of a tab character is usually @code{tab-width}
 @end defun
 
 @defun char-uppercase-p char
-Return non-@code{nil} if @var{char} is an uppercase character
-according to Unicode.
+Return non-@code{nil} if @var{char} is an upper-case character
+according to Unicode.  Note that a character is considered to be
+upper-case if the Unicode Standard defines a corresponding lower-case
+character.
 @end defun
 
 @defun string-width string &optional from to
@@ -2234,6 +2274,9 @@ The optional argument @var{ellipsis-text-property}, if non-@code{nil},
 means hide the excess parts of @var{string} with a @code{display} text
 property (@pxref{Display Property}) showing the ellipsis, instead of
 actually truncating the string.
+
+See also the function @code{truncate-string-pixelwise} for pixel-level
+resolution.
 
 @example
 @group
@@ -2421,13 +2464,46 @@ narrow the buffer to that part before calling this function
 (@pxref{Narrowing}).
 @end defun
 
-@defun string-pixel-width string
+@defun string-pixel-width string &optional buffer
 This is a convenience function that uses @code{window-text-pixel-size}
 to compute the width of @var{string} (in pixels).  Caveat: if you call
 this function to measure the width of a string with embedded newlines,
 it will then return the width of the widest substring that does not
 include newlines.  The meaning of this result is the widest line taken
-by the string if inserted into a buffer.
+by the string if inserted into a buffer.  If @var{buffer} is
+non-@code{nil}, use any face remappings (@pxref{Face Remapping}) from
+that buffer when computing the width of @var{string}.
+@end defun
+
+@defun truncate-string-pixelwise string max-pixels &optional buffer ellipsis ellipsis-pixels
+This is a convenience function that uses @code{window-text-pixel-size}
+to truncate @var{string} to @var{max-pixels} pixels.  Caveat: if you
+call this function to measure the width of a string with embedded
+newlines, it will then return the width of the widest substring that
+does not include newlines.  The meaning of this result is the widest
+line taken by the string if inserted into a buffer.  If @var{buffer} is
+non-@code{nil}, use any face remappings (@pxref{Face Remapping}) from
+that buffer when computing the width of @var{string}.
+
+If @var{ellipsis} is non-@code{nil}, it should be a string which will
+replace the end of @var{string} when it is truncated.  In this case,
+more characters will be removed from @var{string} to free enough space
+for @var{ellipsis} to fit within @var{max-pixels} pixels.  However, if
+the pixel width of @var{string} is less than the pixel width of
+@var{ellipsis}, @var{ellipsis} will not be appended to the result.  If
+@var{ellipsis} is non-@code{nil} and not a string, it stands for the
+value returned by the function @code{truncate-string-ellipsis},
+described above.
+
+If @var{ellipsis-pixels} is non-@code{nil} and @var{ellipsis} is
+non-@code{nil}, it should be the number of pixels of @var{ellipsis} that
+you should precompute using @code{string-pixel-width}, specifying the
+same buffer.  This is useful to avoid the cost of recomputing this value
+repeatedly when you have many strings to truncate using the same
+ellipsis string.
+
+See also the function @code{truncate-string-to-width} for
+character-level resolution.
 @end defun
 
 @defun line-pixel-height
@@ -2572,10 +2648,13 @@ the spacing relative to the frame's default line height.
 
 @vindex line-spacing
   You can specify the line spacing for all lines in a buffer via the
-buffer-local @code{line-spacing} variable.  An integer specifies
-the number of pixels put below lines.  A floating-point number
-specifies the spacing relative to the default frame line height.  This
-overrides line spacings specified for the frame.
+buffer-local @code{line-spacing} variable.  An integer specifies the
+number of pixels put below lines.  A floating-point number specifies the
+spacing relative to the default frame line height.  A cons cell of
+integers or floating-point numbers specifies the spacing put above and
+below the line, allowing for vertically centering text.  This overrides
+line spacings specified for the frame.
+
 
 @kindex line-spacing @r{(text property)}
   Finally, a newline can have a @code{line-spacing} text or overlay
@@ -3198,18 +3277,21 @@ For example:
 @end example
 @end defun
 
-@defun face-all-attributes face &optional frame
+@defun face-all-attributes face &optional frame inherit
 This function returns an alist of attributes of @var{face}.  The
 elements of the result are name-value pairs of the form
 @w{@code{(@var{attr-name} . @var{attr-value})}}.  Optional argument
 @var{frame} specifies the frame whose definition of @var{face} to
 return; if omitted or @code{nil}, the returned value describes the
 default attributes of @var{face} for newly created frames, i.e.@: the
-values these attributes have before applying the face spec in the
-face's @code{defface} definition or the spec set by
-@code{face-spec-set}.  These default values of the attributes are
-normally @code{unspecified}, unless you have specified some other
-value using @code{set-face-attribute}; see below.
+values these attributes have before applying the face spec in the face's
+@code{defface} definition or the spec set by @code{face-spec-set}.
+These default values of the attributes are normally @code{unspecified},
+unless you have specified some other value using
+@code{set-face-attribute}; see below.  The optional argument
+@var{inherit} has the same meaning as the same argument to
+@code{face-attribute}, which see.  This is useful when you want the face
+attributes to be absolute and not @code{unspecified}.
 @end defun
 
 @defun merge-face-attribute attribute value1 value2
@@ -3448,6 +3530,7 @@ non-selected window, Emacs applies the @code{mode-line-inactive} face.
 For a header line, Emacs applies the @code{header-line} face.
 For a tab line, Emacs applies the @code{tab-line} face.
 
+@cindex @code{margin} face, and face merging
 @item
 If the text comes from an overlay string via @code{before-string} or
 @code{after-string} properties (@pxref{Overlay Properties}), or from a
@@ -3456,8 +3539,14 @@ contain a @code{face} or @code{mouse-face} property, or these
 properties leave some face attributes undefined, but the buffer text
 affected by the overlay/display property does define a face or those
 attributes, Emacs applies the face attributes of the ``underlying''
-buffer text.  Note that this is so even if the overlay or display
-string is displayed in the display margins (@pxref{Display Margins}).
+buffer text.  However, this does not apply to strings displayed in the
+display margins, which use the @code{margin} face as the base instead
+(@pxref{Display Margins}).
+
+@item
+If the text is to be shown in the display margins, Emacs uses the
+@code{margin} face as the base, so any attribute not specified by the
+string's own face is taken from the @code{margin} face.
 
 @item
 If any given attribute has not been specified during the preceding
@@ -3650,10 +3739,10 @@ makes @code{modeline} an alias for the @code{mode-line} face.
 @end example
 
 @defmac define-obsolete-face-alias obsolete-face current-face when
-This macro defines @code{obsolete-face} as an alias for
+This macro defines @var{obsolete-face} as an alias for
 @var{current-face}, and also marks it as obsolete, indicating that it
-may be removed in future.  @var{when} should be a string indicating
-when @code{obsolete-face} was made obsolete (usually a version number
+may be removed in the future.  @var{when} should be a string indicating
+when @var{obsolete-face} was made obsolete (usually a version number
 string).
 @end defmac
 
@@ -3720,24 +3809,42 @@ The default face, whose attributes are all specified.  All other faces
 implicitly inherit from it: any unspecified attribute defaults to the
 attribute on this face (@pxref{Face Attributes}).
 
+@vindex mode-line @r{faces}
 @item mode-line-active
 @itemx mode-line-inactive
 @itemx header-line
 @itemx tab-line
 Basic faces used for the mode line, header line, and tab line.
 
+@vindex tool-bar @r{face}
 @item tool-bar
+@vindex tab-bar @r{face}
 @itemx tab-bar
+@vindex fringe @r{face}
 @itemx fringe
+@vindex scroll-bar @r{face}
 @itemx scroll-bar
+@vindex window-divider @r{face}
 @itemx window-divider
+@vindex border @r{face}
 @itemx border
+@vindex child-frame-border @r{face}
 @itemx child-frame-border
 Basic faces used for the corresponding decorations of GUI frames.
 
+@vindex cursor @r{face}
 @item cursor
 The basic face used for the text cursor.
 
+@vindex margin @r{face}
+@item margin
+The basic face used for window margins, both on the left and on the
+right.  It is commonly used to customize the background of the empty
+areas of the margins, and it also provides the base attributes for
+strings displayed in the margins (@pxref{Display Margins}).  It
+inherits from the @code{default} face.
+
+@vindex mouse @r{face}
 @item mouse
 The basic face used for displaying mouse-sensitive text when the mouse
 pointer is on that text.
@@ -3753,6 +3860,7 @@ These have the attributes indicated by their names (e.g., @code{bold}
 has a bold @code{:weight} attribute), with all other attributes
 unspecified (and so given by @code{default}).
 
+@vindex shadow @r{face}
 @item shadow
 For dimmed-out text.  For example, it is used for the ignored
 part of a filename in the minibuffer (@pxref{Minibuffer File,,
@@ -3768,15 +3876,21 @@ For stretches of text that should temporarily stand out.  For example,
 it is commonly assigned to the @code{mouse-face} property for cursor
 highlighting (@pxref{Special Properties}).
 
+@vindex match @r{face}
 @item match
+@vindex isearch @r{face}
 @itemx isearch
+@vindex lazy-highlight @r{face}
 @itemx lazy-highlight
 For text matching (respectively) permanent search matches, interactive
 search matches, and lazy highlighting other matches than the current
 interactive one.
 
+@vindex error @r{face}
 @item error
+@vindex warning @r{face}
 @itemx warning
+@vindex success @r{face}
 @itemx success
 For text concerning errors, warnings, or successes.  For example,
 these are used for messages in @file{*Compilation*} buffers.
@@ -4136,6 +4250,14 @@ available, since it also checks whether the coding system for the text
 terminal can encode the character (@pxref{Terminal I/O Encoding}).
 @end defun
 
+@defun char-displayable-on-frame-p char frame
+This function behaves like @code{char-displayable-p} does (relative to
+@var{frame}), but in the graphical case, it does not perform the final
+check of whether the underlying text terminal can encode the character.
+It thus provides a displayability check for @var{char} more specific to
+@var{frame}.
+@end defun
+
 @node Low-Level Font
 @subsection Low-Level Font Representation
 @cindex font property
@@ -4193,7 +4315,8 @@ The font name (a string), in either XLFD, Fontconfig, or GTK+ format.
 @itemx :width
 These have the same meanings as the face attributes of the same name.
 @xref{Face Attributes}.  @code{:family} and @code{:foundry} are
-strings, while the other three are symbols.  As example values,
+strings or symbols, while the other three are either symbols or numbers,
+the numerical values of the valid style symbols.  As example values,
 @code{:slant} may be @code{italic}, @code{:weight} may be @code{bold}
 and @code{:width} may be @code{normal}.
 
@@ -4889,7 +5012,7 @@ either a string or a vector of integers, where each element (an
 integer) corresponds to one row of the bitmap.  Each bit of an integer
 corresponds to one pixel of the bitmap, where the low bit corresponds
 to the rightmost pixel of the bitmap.  (Note that this order of bits
-is opposite of the order in XBM images; @pxref{XBM Images}.)
+is the opposite of the order in XBM images; @pxref{XBM Images}.)
 
 The height is normally the length of @var{bits}.  However, you
 can specify a different height with non-@code{nil} @var{height}.  The width
@@ -5261,27 +5384,29 @@ Properties}.
 specification, or a list or vector containing several display
 specifications.
 
-@defun get-display-property position prop &optional object properties
-This convenience function can be used to get a specific display
-property, no matter whether the @code{display} property is a vector, a
-list or a simple property.  This is like @code{get-text-property}
-(@pxref{Examining Properties}), but works on the @code{display}
-property only.
+@defun get-display-property position spec &optional object properties
+This convenience function can be used to get the value of a specific
+display specification, no matter whether the @code{display} property is
+a vector, a list or a single display specification.  This is like
+@code{get-text-property} (@pxref{Examining Properties}), but works on
+the @code{display} property only.  For specifications with a single
+value (e.g.@: @code{height}), this returns the value itself; for
+properties with a list of values (e.g.@: @code{slice}), this returns the
+list of values.
 
 @var{position} is the position in the buffer or string to examine, and
-@var{prop} is the @code{display} property to return.  The optional
-@var{object} argument should be either a string or a buffer, and
-defaults to the current buffer.  If the optional @var{properties}
-argument is non-@code{nil}, it should be a @code{display} property,
-and in that case, @var{position} and @var{object} are ignored.  (This
-can be useful if you've already gotten the @code{display} property
-with @code{get-char-property}, for instance (@pxref{Examining
-Properties}).
+@var{spec} is the @sc{car} of the display specification to return.  The
+optional @var{object} argument should be either a string or a buffer,
+and defaults to the current buffer.  If the optional @var{properties}
+argument is non-@code{nil}, it should be a @code{display} property, and
+in that case, @var{position} and @var{object} are ignored.  (This can be
+useful if you've already gotten the @code{display} property with
+@code{get-char-property}, for instance (@pxref{Examining Properties}).
 @end defun
 
-@defun add-display-text-property start end prop value &optional object
-Add @code{display} property @var{prop} of @var{value} to the text from
-@var{start} to @var{end}.
+@defun add-display-text-property start end spec value &optional object
+Add the display specification @code{(@var{prop} @var{value})} to the
+text from @var{start} to @var{end}.
 
 If any text in the region has a non-@code{nil} @code{display}
 property, those properties are retained.  For instance:
@@ -5292,13 +5417,51 @@ property, those properties are retained.  For instance:
 @end lisp
 
 After doing this, the region from 2 to 4 will have the @code{raise}
-@code{display} property, the region from 4 to 8 will have both the
-@code{raise} and @code{height} @code{display} properties, and finally
-the region from 8 to 12 will only have the @code{raise} @code{display}
-property.
+display specification, the region from 4 to 8 will have both the
+@code{raise} and @code{height} display specifications, and finally the
+region from 8 to 12 will only have the @code{raise} display
+specification.
 
-If @var{object} is non-@code{nil}, it should be a string or a buffer.
-If @code{nil}, this defaults to the current buffer.
+@var{object} is either a string or a buffer to add the specification to.
+If omitted, @var{object} defaults to the current buffer.
+@end defun
+
+@defun remove-display-text-property start end spec &optional object
+Remove the display specification @var{spec} from the text from
+@var{start} to @var{end}.  @var{spec} is the @sc{car} of the display
+specification to remove, e.g.@: @code{height} or @code{'(margin nil)}.
+
+If any text in the region has any other @code{display} properties, those
+properties are retained.  For instance:
+
+@lisp
+@group
+(add-display-text-property 1 8 'raise 0.5)
+(add-display-text-property 4 8 'height 2.0)
+(remove-display-text-property 2 6 'raise)
+@end group
+@end lisp
+
+After doing this, the text will have the following @code{display}
+properties:
+
+@itemize @bullet
+@item
+The region from 1 to 2, only @code{raise}
+
+@item
+The region from 2 to 4, no properties
+
+@item
+The region from 4 to 6, only @code{height}
+
+@item
+The region from 6 to 8, both @code{raise} and @code{height}
+
+@end itemize
+
+@var{object} is either a string or a buffer to remove the specification
+from. If omitted, @var{object} defaults to the current buffer.
 @end defun
 
 @cindex display property, unsafe evaluation
@@ -5761,8 +5924,7 @@ something changed since the last display cycle.
   A buffer can have blank areas called @dfn{display margins} on the
 left and on the right.  Ordinary text never appears in these areas,
 but you can put things into the display margins using the
-@code{display} property.  There is currently no way to make text or
-images in the margin mouse-sensitive.
+@code{display} property.
 
   The way to display something in the margins is to specify it in a
 margin display specification in the @code{display} property of some
@@ -5782,12 +5944,11 @@ that text, put on that text an overlay with a @code{before-string}
 property, and put the margin display specification on the contents of
 the before-string.
 
-  Note that if the string to be displayed in the margin doesn't
-specify a face, its face is determined using the same rules and
-priorities as it is for strings displayed in the text area
-(@pxref{Displaying Faces}).  If this results in undesirable
-``leaking'' of faces into the margin, make sure the string has an
-explicit face specified for it.
+  Note that if the string to be displayed in the margin doesn't fully
+specify its face, the nonspecified attributes are inherited from the
+@code{margin} face (@pxref{Basic Faces}).  If you want a margin string
+to have a specific appearance independent of the @code{margin} face,
+make sure the string has a face specifying all required attributes.
 
   Before the display margins can display anything, you must give
 them a nonzero width.  The usual way to do that is to set these
@@ -6306,8 +6467,8 @@ used for each pixel in the XBM that is 0.  The default is the frame's
 background color.
 @end table
 
-  If you specify an XBM image using data within Emacs instead of an
-external file, use the following three properties:
+  To specify an XBM image using data within Emacs instead of an
+external file, use the following properties:
 
 @table @code
 @item :data @var{data}
@@ -6451,7 +6612,7 @@ properties:
 @table @code
 @item :foreground @var{foreground}
 @var{foreground}, if non-@code{nil}, should be a string specifying a
-color, which is used as the image's foreground color.  If the value is
+color, which is used as the CSS `currentcolor' value.  If the value is
 @code{nil}, it defaults to the current face's foreground color.
 
 @item :background @var{background}
@@ -6771,7 +6932,7 @@ Draw vertical lines.
 @end deffn
 
 @deffn Command curveto coordinate-sets
-Using the first element in @var{coordinate-sets}, draw a cubic Bézier
+Using the first element in @var{coordinate-sets}, draw a cubic B@'ezier
 curve from the current point.  If there are multiple coordinate sets,
 draw a polybezier.  Each coordinate set is a list of the form
 @code{(@var{x1} @var{y1} @var{x2} @var{y2} @var{x} @var{y})}, where
@@ -6788,7 +6949,7 @@ beginning and at the end, respectively.
 @end deffn
 
 @deffn Command smooth-curveto coordinate-sets
-Using the first element in @var{coordinate-sets}, draw a cubic Bézier
+Using the first element in @var{coordinate-sets}, draw a cubic B@'ezier
 curve from the current point.  If there are multiple coordinate sets,
 draw a polybezier.  Each coordinate set is a list of the form
 @code{(@var{x2} @var{y2} @var{x} @var{y})}, where @w{(@var{x},
@@ -6809,7 +6970,7 @@ coincides with the current point.
 
 @deffn Command quadratic-bezier-curveto coordinate-sets
 Using the first element in @var{coordinate-sets}, draw a quadratic
-Bézier curve from the current point.  If there are multiple coordinate
+B@'ezier curve from the current point.  If there are multiple coordinate
 sets, draw a polybezier.  Each coordinate set is a list of the form
 @code{(@var{x1} @var{y1} @var{x} @var{y})}, where @w{(@var{x},
 @var{y})} is the curve's end point and @w{(@var{x1}, @var{y1})} is the
@@ -6827,7 +6988,7 @@ control point.
 
 @deffn Command smooth-quadratic-bezier-curveto coordinate-sets
 Using the first element in @var{coordinate-sets}, draw a quadratic
-Bézier curve from the current point.  If there are multiple coordinate
+B@'ezier curve from the current point.  If there are multiple coordinate
 sets, draw a polybezier.  Each coordinate set is a list of the form
 @code{(@var{x} @var{y})}, where @w{(@var{x}, @var{y})} is the curve's
 end point.  The control point is the reflection of the control point
@@ -6938,6 +7099,7 @@ Supports the @code{:index} property.  @xref{Multi-Frame Images}.
 
 @item WebP
 Image type @code{webp}.
+Supports the @code{:index} property.  @xref{Multi-Frame Images}.
 @end table
 
 @node Defining Images
@@ -7259,8 +7421,8 @@ about these image-specific key bindings.
 @cindex image frames
 Some image files can contain more than one image.  We say that there
 are multiple ``frames'' in the image.  At present, Emacs supports
-multiple frames for GIF, TIFF, and certain ImageMagick formats such as
-DJVM@.
+multiple frames for GIF, TIFF, WebP, and certain ImageMagick formats
+such as DJVM@.
 
 The frames can be used either to represent multiple pages (this is
 usually the case with multi-frame TIFF files, for example), or to
@@ -7350,7 +7512,7 @@ period much shorter than @code{image-cache-eviction-delay} (see
 below), you can opt to flush unused images yourself, instead of
 waiting for Emacs to do it automatically.
 
-@defun clear-image-cache &optional filter
+@defun clear-image-cache &optional filter animation-filter
 This function clears an image cache, removing all the images stored in
 it.  If @var{filter} is omitted or @code{nil}, it clears the cache for
 the selected frame.  If @var{filter} is a frame, it clears the cache
@@ -7358,6 +7520,16 @@ for that frame.  If @var{filter} is @code{t}, all image caches are
 cleared.  Otherwise, @var{filter} is taken to be a file name, and all
 images associated with that file name are removed from all image
 caches.
+
+This function also clears the image animation cache, which is a separate
+cache that Emacs maintains for animated multi-frame images
+(@pxref{Multi-Frame Images}).  If @var{animation-filter} is omitted or
+@code{nil}, it clears the animation cache in addition to the image
+caches selected by @var{filter}.  Otherwise, this function removes the
+image with specification @code{eq} to @var{animation-filter} only from
+the animation cache, and does not clear any image caches.  This can help
+reduce memory usage after an animation is stopped but the image is still
+displayed.
 @end defun
 
 If an image in the image cache has not been displayed for a specified
@@ -8017,6 +8189,11 @@ between @var{start} and @var{end} into a button.  Arguments
 @code{help-echo} property of the button.
 @end defun
 
+@defun unbuttonize-region start end
+This function removes all buttons between @var{start} and @var{end} in
+the current buffer (both overlay and text-property based ones).
+@end defun
+
 @node Manipulating Buttons
 @subsection Manipulating Buttons
 @cindex manipulating buttons
@@ -8097,6 +8274,7 @@ These are commands and functions for locating and operating on
 buttons in an Emacs buffer.
 
 @cindex buffer-button-map
+@findex button-mode
 @code{push-button} is the command that a user uses to actually push
 a button, and is bound by default in the button itself to @key{RET}
 and to @key{mouse-2} using a local keymap in the button's overlay or
@@ -8107,7 +8285,8 @@ additionally available in the keymap stored in
 @code{button-buffer-map} as a parent keymap for its keymap.
 Alternatively, the @code{button-mode} can be switched on for much the
 same effect: It's a minor mode that does nothing else than install
-@code{button-buffer-map} as a minor mode keymap.
+@code{button-buffer-map} as a minor mode keymap (note that disabling
+@code{button-mode} will remove all the buttons in the current buffer).
 
 If the button has a non-@code{nil} @code{follow-link} property, and
 @code{mouse-1-click-follows-link} is set, a quick @key{mouse-1} click
@@ -8610,6 +8789,7 @@ The newline character (character code 10) has a special effect: it
 ends the preceding line and starts a new line.
 
 @cindex ASCII control characters
+@cindex non-printable ASCII characters
 @item
 The non-printable @dfn{@acronym{ASCII} control characters}---character
 codes 0 through 31, as well as the @key{DEL} character (character code
@@ -8740,6 +8920,20 @@ scroll bars are supported and in use, a scroll bar separates the two
 windows, and if there are no vertical scroll bars and no dividers
 (@pxref{Window Dividers}), Emacs uses a thin line to indicate the
 border.
+
+@item 6 to 11
+
+The glyphs for a single-line border around child frames on a terminal,
+in the order of vertical, horizontal, down-right edge, down-left edge,
+up-right, and up-left edge glyphs.  The horizontal glyph is also used for
+the single-line tty menu separator.
+
+@item 12 to 17
+
+The glyphs for a double-line border, in the order of vertical,
+horizontal, down-right edge, down-left edge, up-right, and up-left edge
+glyphs.  The horizontal glyph is also used for the single-line TTY menu
+separator, the other glyphs are not yet used.
 @end table
 
   For example, here is how to construct a display table that mimics
@@ -8762,22 +8956,32 @@ the effect of setting @code{ctl-arrow} to a non-@code{nil} value
 @defun display-table-slot display-table slot
 This function returns the value of the extra slot @var{slot} of
 @var{display-table}.  The argument @var{slot} may be a number from 0 to
-5 inclusive, or a slot name (symbol).  Valid symbols are
-@code{truncation}, @code{wrap}, @code{escape}, @code{control},
-@code{selective-display}, and @code{vertical-border}.
+17 inclusive, or a slot name, a symbol.
 @end defun
 
 @defun set-display-table-slot display-table slot value
 This function stores @var{value} in the extra slot @var{slot} of
 @var{display-table}.  The argument @var{slot} may be a number from 0 to
-5 inclusive, or a slot name (symbol).  Valid symbols are
-@code{truncation}, @code{wrap}, @code{escape}, @code{control},
-@code{selective-display}, and @code{vertical-border}.
+17 inclusive, or a slot name, a symbol.
 @end defun
+
+Valid slot name symbols are @code{truncation}, @code{wrap},
+@code{escape}, @code{control}, @code{selective-display},
+@code{vertical-border}, @code{box-vertical}, @code{box-horizontal},
+@code{box-down-right}, @code{box-down-left}, @code{box-up-right},
+@code{box-up-left}, @code{box-double-vertical},
+@code{box-double-horizontal}, @code{box-double-down-right},
+@code{box-double-down-left}, @code{box-double-up-right},
+@code{box-double-up-left}.
 
 @defun describe-display-table display-table
 This function displays a description of the display table
 @var{display-table} in a help buffer.
+@end defun
+
+@defun standard-display-unicode-special-glyphs
+This function sets the extra slots of @var{standard-display-table} with
+suitable Unicode characters.
 @end defun
 
 @deffn Command describe-current-display-table

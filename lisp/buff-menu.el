@@ -1,6 +1,6 @@
 ;;; buff-menu.el --- Interface for viewing and manipulating buffers -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1985-2026 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: convenience
@@ -134,6 +134,14 @@ If this is nil, group names are unsorted."
                  (function :tag "Custom function"))
   :group 'Buffer-menu
   :version "30.1")
+
+(defcustom Buffer-menu-human-readable-sizes nil
+  "If non-nil, show buffer sizes in human-readable format.
+That means to use `file-size-human-readable' (which see) to format the
+buffer sizes in the buffer size column."
+  :type 'boolean
+  :group 'Buffer-menu
+  :version "31.1")
 
 (defvar-local Buffer-menu-files-only nil
   "Non-nil if the current Buffer Menu lists only file buffers.
@@ -457,7 +465,7 @@ When `outline-minor-mode' is enabled and point is on the outline
 heading line, this command will unmark all entries in the outline."
   (interactive "P" Buffer-menu-mode)
   (cond ((tabulated-list-get-id)
-         (Buffer-menu--unmark)
+         (Buffer-menu--unmark ?\r)
          (forward-line (if backup -1 1)))
         ((and (bound-and-true-p outline-minor-mode) (outline-on-heading-p))
          (let ((old-pos (point))
@@ -480,11 +488,7 @@ When called interactively prompt for MARK;  RET remove all marks."
   (save-excursion
     (goto-char (point-min))
     (while (not (eobp))
-      (when-let ((entry (tabulated-list-get-entry)))
-        (let ((xmarks (list (aref entry 0) (aref entry 2))))
-          (when (or (char-equal mark ?\r)
-                    (member (char-to-string mark) xmarks))
-            (Buffer-menu--unmark))))
+      (Buffer-menu--unmark mark)
       (forward-line))))
 
 (defun Buffer-menu-unmark-all ()
@@ -498,16 +502,22 @@ When called interactively prompt for MARK;  RET remove all marks."
   (forward-line -1)
   (while (and (not (tabulated-list-get-id)) (not (bobp)))
     (forward-line -1))
-  (unless (bobp)
-    (Buffer-menu--unmark)))
+  (if (tabulated-list-get-id) (Buffer-menu--unmark ?\r)))
 
-(defun Buffer-menu--unmark ()
-  (tabulated-list-set-col 0 " " t)
-  (let ((buf (Buffer-menu-buffer)))
-    (when buf
-      (if (buffer-modified-p buf)
-          (tabulated-list-set-col 2 "*" t)
-        (tabulated-list-set-col 2 " " t)))))
+(defun Buffer-menu--unmark (mark)
+  "Remove MARK in current entry.
+If MARK is \\`RET' remove all marks."
+  (when-let* ((entry (tabulated-list-get-entry)))
+    ;; A mark could appear in column 0 or 2.
+    (dolist (col '(0 2))
+      (when (or (char-equal mark ?\r)
+                (char-equal mark (string-to-char (aref entry col))))
+        (tabulated-list-set-col col " " t)))
+    ;; Reset modified mark in column 2.
+    (let ((buf (Buffer-menu-buffer)))
+      (when (and buf (buffer-modified-p buf)
+                 (string-equal (aref entry 2) " "))
+        (tabulated-list-set-col 2 "*" t)))))
 
 (defun Buffer-menu-delete (&optional arg)
   "Mark the buffer on this Buffer Menu buffer line for deletion.
@@ -831,7 +841,10 @@ See more at `Buffer-menu-filter-predicate'."
 				(if buffer-read-only "%" " ")
 				(if (buffer-modified-p) "*" " ")
 				(Buffer-menu--pretty-name name)
-				(number-to-string (buffer-size))
+				(funcall (if Buffer-menu-human-readable-sizes
+                                             #'file-size-human-readable
+                                           #'number-to-string)
+                                         (buffer-size))
 				(concat (format-mode-line mode-name
                                                           nil nil buffer)
 					(if mode-line-process
@@ -891,7 +904,7 @@ See more at `Buffer-menu-filter-predicate'."
 (declare-function project-root "project" (project))
 (defun Buffer-menu-group-by-root (entry)
   (with-current-buffer (car entry)
-    (if-let ((project (project-current)))
+    (if-let* ((project (project-current)))
         (project-root project)
       default-directory)))
 

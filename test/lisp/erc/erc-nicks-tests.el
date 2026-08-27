@@ -1,6 +1,6 @@
 ;;; erc-nicks-tests.el --- Tests for erc-nicks  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2023-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -30,8 +30,11 @@
 
 ;;; Code:
 
-(require 'ert-x)
 (require 'erc-nicks)
+(require 'ert-x)
+(eval-and-compile
+  (let ((load-path (cons (ert-resource-directory) load-path)))
+    (require 'erc-tests-common)))
 
 ;; This function replicates the behavior of older "invert" strategy
 ;; implementations from EmacsWiki, etc.  The values for the lower and

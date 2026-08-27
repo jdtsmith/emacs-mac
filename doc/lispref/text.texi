@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--2025 Free Software Foundation, Inc.
+@c Copyright (C) 1990--1995, 1998--2026 Free Software Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Text
 @chapter Text
@@ -238,7 +238,10 @@ reordering of bidirectional text, use the
 @defun filter-buffer-substring start end &optional delete
 This function filters the buffer text between @var{start} and @var{end}
 using a function specified by the variable
-@code{filter-buffer-substring-function}, and returns the result.
+@code{filter-buffer-substring-function}, and returns the result.  The
+order of buffer positions specified by @var{start} and @var{end} should
+not matter, since this function is frequently used for extracting text
+passed to kill functions (@pxref{Kill Functions}).
 
 The default filter function consults the obsolete wrapper hook
 @code{filter-buffer-substring-functions} (see the documentation string
@@ -264,6 +267,9 @@ will call to do the actual work.  The function receives three
 arguments, the same as those of @code{filter-buffer-substring},
 which it should treat as per the documentation of that function.  It
 should return the filtered text (and optionally delete the source text).
+Note that it must process the @var{start} and @var{end} arguments
+regardless of the order of the buffer positions they specify, to comply
+with the protocol of extracting text for the purposes of killing it.
 @end defvar
 
 @noindent The following two variables are obsoleted by
@@ -1383,7 +1389,11 @@ Here are the kinds of elements an undo list can have:
 This kind of element records a previous value of point; undoing this
 element moves point to @var{position}.  Ordinary cursor motion does not
 make any sort of undo record, but deletion operations use these entries
-to record where point was before the command.
+to record where point was before the command if re-inserting the deleted
+text by undoing the deletion will not already place point at the right
+position.  Lisp programs that need to ensure correct restoration of
+point by undoing a command can explicitly push @code{(point)} to
+@code{buffer-undo-list} to record the position to restore.
 
 @item (@var{beg} . @var{end})
 This kind of element indicates how to delete text that was inserted.
@@ -1524,6 +1534,7 @@ This macro removes all the undo boundaries inserted during the
 execution of @var{body} so that it can be undone as a single step.
 @end defmac
 
+@cindex @code{undo-inhibit-region} (symbol property)
 Some commands leave the region active after execution in such a way that
 it interferes with selective undo of that command.  To make @code{undo}
 ignore the active region when invoked immediately after such a command,
@@ -1650,6 +1661,16 @@ current paragraph.  When this command is called interactively,
 @var{region} is @code{t}.
 @end deffn
 
+@deffn Command unfill-paragraph arg &optional beg end
+This command is the inverse of the previous one: it joins up the lines
+of the current paragraph.  With a numeric prefix argument @var{arg}, it
+applies the operation to that many paragraphs.  With no prefix argument
+and an active region, unfill each paragraph in that region.  When called
+from Lisp with @var{arg} @code{nil} and @var{beg} and @var{end}
+non-@code{nil}, unfill paragraphs in the region delimited by @var{beg}
+and @var{end}.
+@end deffn
+
 @deffn Command fill-region start end &optional justify nosqueeze to-eop
 This command fills each of the paragraphs in the region from @var{start}
 to @var{end}.  It justifies as well if @var{justify} is
@@ -1736,7 +1757,12 @@ described above.
 
 @deffn Command fill-region-as-paragraph start end &optional justify nosqueeze squeeze-after
 This command considers a region of text as a single paragraph and fills
-it.  If the region was made up of many paragraphs, the blank lines
+it.  The behavior of this command is controlled by the variable
+@code{fill-region-as-paragraph-function}, with the default
+implementation being @code{fill-region-as-paragraph-default}, which is
+described in detail below.
+
+If the region was made up of many paragraphs, the blank lines
 between paragraphs are removed.  This function justifies as well as
 filling when @var{justify} is non-@code{nil}.
 
@@ -1838,6 +1864,15 @@ should return the difference between @var{n} and the number of
 paragraphs actually moved.  The default value of this variable is
 @code{forward-paragraph}.  @xref{Paragraphs,,, emacs, The GNU Emacs
 Manual}.
+@end defvar
+
+@defvar fill-region-as-paragraph-function
+This variable provides a way to override how functions like
+@code{fill-paragraph} and @code{fill-region} fill text.  Its value
+should be a function, which should accept the arguments defined by
+@code{fill-region-as-paragraph} and return the fill prefix used for
+filling.  The default value of this variable is
+@code{fill-region-as-paragraph-default}.
 @end defvar
 
 @defvar use-hard-newlines
@@ -2596,7 +2631,8 @@ avoid calling @code{widen} in their indentation code and obey
 @defvar prog-indentation-context
 This variable, when non-@code{nil}, holds the indentation context for
 the sub-mode's indentation engine provided by the superior major mode.
-The value should be a list of the form @code{(@var{first-column} . @var{rest}}.
+The value should be a list of the form @w{@code{(@var{first-column}
+. @var{rest})}}.
 The members of the list have the following meaning:
 
 @table @var
@@ -3013,6 +3049,7 @@ followed by the text properties.  If @var{object} is a string, only
 text properties are considered, since strings never have overlays.
 @end defun
 
+@anchor{Boundaries of text and overlay properties}
 @defun get-pos-property position prop &optional object
 This function is like @code{get-char-property}, except that it pays
 attention to properties' stickiness and overlays' advancement settings
@@ -3985,10 +4022,17 @@ These properties are obsolete; please use
 This special property records a list of functions that react to cursor
 motion.  Each function in the list is called, just before redisplay,
 with 3 arguments: the affected window, the previous known position of
-the cursor, and one of the symbols @code{entered} or @code{left},
-depending on whether the cursor is entering the text that has this
-property or leaving it.  The functions are called only when the minor
-mode @code{cursor-sensor-mode} is turned on.
+the cursor, and a symbol indicating the direction of the movement.
+The movement can be @code{entered} or @code{left}, depending on whether
+the cursor is entering the text that has this property or leaving it, or
+@code{moved} when the cursor moved within that text.
+Other values for the direction should be ignored.
+Whether the boundary positions (at the beginning and end of an overlay or
+a stretch of text-property) are considered as inside or outside follows
+the same rules as for @code{get-pos-property}, @pxref{Boundaries of
+text and overlay properties}.
+The functions are called only when the minor mode
+@code{cursor-sensor-mode} is turned on.
 
 When the variable @code{cursor-sensor-inhibit} is non-@code{nil}, the
 @code{cursor-sensor-functions} property is ignored.
@@ -4134,10 +4178,10 @@ list, properties are rear-sticky @emph{unless} their names are in the
 list.
 
 @defvar text-property-default-nonsticky
-This variable holds an alist which defines the default rear-stickiness
-of various text properties.  Each element has the form
-@code{(@var{property} . @var{nonstickiness})}, and it defines the
-stickiness of a particular text property, @var{property}.
+This buffer-local variable holds an alist which defines the default
+rear-stickiness of various text properties in the buffer.  Each element
+has the form @code{(@var{property} . @var{nonstickiness})}, and it
+defines the stickiness of a particular text property, @var{property}.
 
 If @var{nonstickiness} is non-@code{nil}, this means that the property
 @var{property} is rear-nonsticky by default.  Since all properties are
@@ -4290,7 +4334,7 @@ bind it within the link text, using the @code{keymap} text property
 
 @example
 (let ((map (make-sparse-keymap)))
-  (define-key map [mouse-2] 'operate-this-button)
+  (keymap-set map "<mouse-2>" 'operate-this-button)
   (put-text-property link-start link-end 'keymap map))
 @end example
 
@@ -4623,6 +4667,8 @@ with @var{tochar} in @var{string}.  By default, substitution occurs in
 a copy of @var{string}, but if the optional argument @var{inplace} is
 non-@code{nil}, the function modifies the @var{string} itself.  In any
 case, the function returns the resulting string.
+
+For restrictions when altering an existing string, @pxref{Modifying Strings}.
 @end defun
 
 @deffn Command translate-region start end table
@@ -4698,9 +4744,9 @@ value visits file @var{filename} and goes to buffer position
 @var{position}.  Restoring this type of position asks the user for
 confirmation first.
 
-@item @code{(buffer @var{buffer-name})}
-This represents a buffer; jumping to this value switches to buffer
-@var{buffer-name}.
+@item @code{(buffer @var{buffer})}
+This represents a buffer; jumping to this value switches to that
+@var{buffer}.
 @end table
 
   The functions in this section return unpredictable values unless
@@ -4775,30 +4821,42 @@ all markers unrelocated.
 @node Replacing
 @section Replacing Buffer Text
 
-  You can use the following function to replace the text of one buffer
-with the text of another buffer:
+  You can use the following function to replace some the text of the
+current buffer:
 
-@deffn Command replace-buffer-contents source &optional max-secs max-costs
-This function replaces the accessible portion of the current buffer
-with the accessible portion of the buffer @var{source}.  @var{source}
-may either be a buffer object or the name of a buffer.  When
-@code{replace-buffer-contents} succeeds, the text of the accessible
-portion of the current buffer will be equal to the text of the
-accessible portion of the @var{source} buffer.
+@defun replace-region-contents beg end source &optional max-secs max-costs inherit
+This function replaces the region between @var{beg} and @var{end}
+of the current buffer with the text found in @var{source} which
+is usually a string or a buffer, in which case it will use the
+accessible portion of that buffer.
 
 This function attempts to keep point, markers, text properties, and
 overlays in the current buffer intact.  One potential case where this
-behavior is useful is external code formatting programs: they
-typically write the reformatted text into a temporary buffer or file,
-and using @code{delete-region} and @code{insert-buffer-substring}
-would destroy these properties.  However, the latter combination is
-typically faster (@xref{Deletion}, and @ref{Insertion}).
+behavior is useful is external code formatting programs: they typically
+write the reformatted text into a temporary buffer or file, and using
+@code{insert} and @code{delete-region} would destroy these properties.
 
-For its working, @code{replace-buffer-contents} needs to compare the
-contents of the original buffer with that of @var{source} which is a
-costly operation if the buffers are huge and there is a high number of
-differences between them.  In order to keep
-@code{replace-buffer-contents}'s runtime in bounds, it has two
+However, in order to do that, @code{replace-region-contents} needs to
+compare the contents of the original buffer with that of @var{source},
+using a costly algorithm which makes the operation much slower than
+a simple @code{insert} and @code{delete-region}.  In many cases, you may
+not need that refinement, and you will then want to pass 0 as
+@var{max-secs} argument, so as to short-circuit that costly algorithm:
+It will then be just as fast as @code{insert} and @code{delete-region}
+while still preserving point and markers marginally better.
+
+Beyond that basic usage, if you need to use as source a subset of the
+accessible portion of a buffer, @var{source} can also be a vector
+@code{[@var{sbuf} @var{sbeg} @var{send}]} where the region between
+@var{sbeg} and @var{send} in buffer @var{sbuf} is the text
+you want to use as source.
+
+If you need the inserted text to inherit text-properties
+from the adjoining text, you can pass a non-@code{nil} value as
+@var{inherit} argument.
+
+When you do want the costly refined replacement, in order to keep
+@code{replace-region-contents}'s runtime in bounds, it has two
 optional arguments.
 
 @var{max-secs} defines a hard boundary in terms of seconds.  If given
@@ -4809,26 +4867,14 @@ and exceeded, it will fall back to @code{delete-region} and
 the actual costs exceed this limit, heuristics are used to provide a
 faster but suboptimal solution.  The default value is 1000000.
 
-@code{replace-buffer-contents} returns @code{t} if a non-destructive
+@code{replace-region-contents} returns @code{t} if a non-destructive
 replacement could be performed.  Otherwise, i.e., if @var{max-secs}
 was exceeded, it returns @code{nil}.
-@end deffn
 
-@defun replace-region-contents beg end replace-fn &optional max-secs max-costs
-This function replaces the region between @var{beg} and @var{end}
-using the given @var{replace-fn}.  The function @var{replace-fn} is
-run in the current buffer narrowed to the specified region and it
-should return either a string or a buffer replacing the region.
-
-The replacement is performed using @code{replace-buffer-contents} (see
-above) which also describes the @var{max-secs} and @var{max-costs}
-arguments and the return value.
-
-Note: If the replacement is a string, it will be placed in a temporary
-buffer so that @code{replace-buffer-contents} can operate on it.
-Therefore, if you already have the replacement in a buffer, it makes
-no sense to convert it to a string using @code{buffer-substring} or
-similar.
+Note: When using the refined replacement algorithm, if the replacement
+is a string, it will be internally copied to a temporary buffer.
+Therefore, all else being equal, it is preferable to pass a buffer than
+a string as @var{source} argument.
 @end defun
 
 @node Decompression
@@ -4963,15 +5009,15 @@ that you have an unaltered copy of that data.
 
 @cindex message digest
   Emacs supports several common cryptographic hash algorithms: MD5,
-SHA-1, SHA-2, SHA-224, SHA-256, SHA-384 and SHA-512.  MD5 is the
-oldest of these algorithms, and is commonly used in @dfn{message
-digests} to check the integrity of messages transmitted over a
-network.  MD5 and SHA-1 are not collision resistant (i.e., it is
-possible to deliberately design different pieces of data which have
-the same MD5 or SHA-1 hash), so you should not use them for anything
-security-related.  For security-related applications you should use
-the other hash types, such as SHA-2 (e.g., @code{sha256} or
-@code{sha512}).
+SHA-1, SHA-2, SHA-224, SHA-256, SHA-384, SHA-512, SHA3-224, SHA3-256,
+SHA3-384, and SHA3-512.  MD5 is the oldest of these algorithms, and is
+commonly used in @dfn{message digests} to check the integrity of
+messages transmitted over a network.  MD5 and SHA-1 are not collision
+resistant (i.e., it is possible to deliberately design different pieces
+of data which have the same MD5 or SHA-1 hash), so you should not use
+them for anything security-related.  For security-related applications
+you should use the other hash types, such as SHA-2 (e.g., @code{sha256}
+or @code{sha512}) or SHA-3 (e.g., @code{sha3-256} or @code{sha3-512}).
 
 @defun secure-hash-algorithms
 This function returns a list of symbols representing algorithms that
@@ -4981,8 +5027,9 @@ This function returns a list of symbols representing algorithms that
 @defun secure-hash algorithm object &optional start end binary
 This function returns a hash for @var{object}.  The argument
 @var{algorithm} is a symbol stating which hash to compute: one of
-@code{md5}, @code{sha1}, @code{sha224}, @code{sha256}, @code{sha384}
-or @code{sha512}.  The argument @var{object} should be a buffer or a
+@code{md5}, @code{sha1}, @code{sha224}, @code{sha256}, @code{sha384},
+@code{sha512}, @code{sha3-224}, @code{sha3-256}, @code{sha3-384}, or
+@code{sha3-512}.  The argument @var{object} should be a buffer or a
 string.
 
 The optional arguments @var{start} and @var{end} are character
@@ -5014,6 +5061,18 @@ For @code{sha384}: 96 characters (48 bytes if @var{binary} is
 non-@code{nil}).
 @item
 For @code{sha512}: 128 characters (64 bytes if @var{binary} is
+non-@code{nil}).
+@item
+For @code{sha3-224}: 56 characters (28 bytes if @var{binary} is
+non-@code{nil}).
+@item
+For @code{sha3-256}: 64 characters (32 bytes if @var{binary} is
+non-@code{nil}).
+@item
+For @code{sha3-384}: 96 characters (48 bytes if @var{binary} is
+non-@code{nil}).
+@item
+For @code{sha3-512}: 128 characters (64 bytes if @var{binary} is
 non-@code{nil}).
 @end itemize
 
@@ -5366,11 +5425,17 @@ available in this Emacs session.
 When SQLite support is available, the following functions can be used.
 
 @cindex database object
-@defun sqlite-open &optional file
+@defun sqlite-open &optional file readonly disable-uri
 This function opens @var{file} as an SQLite database file.  If
 @var{file} doesn't exist, a new database will be created and stored in
 that file.  If @var{file} is omitted or @code{nil}, a new in-memory
-database is created instead.
+database is created instead.  Second optional argument @var{readonly},
+if non-@code{nil}, means open the database only for reading; the
+database must already exist in that case.  By default, @var{file} can be
+a @file{file://} URI as well as a file name; in the unusual case that
+you have a local file whose name begins with @file{file:}, specify a
+non-@code{nil} value for the third optional argument @var{disable-uri}
+to disable the automatic recognition and processing of URIs.
 
 The return value is a @dfn{database object} that can be used as the
 argument to most of the subsequent functions described below.
@@ -5385,7 +5450,9 @@ database object.  The database object returned by the
 @defun sqlite-close db
 Close the database @var{db}.  It's usually not necessary to call this
 function explicitly---the database will automatically be closed if
-Emacs shuts down or the database object is garbage collected.
+Emacs shuts down or the database object is garbage collected.  If the
+connection identified by @var{db} is already closed, this function does
+nothing.
 @end defun
 
 @defun sqlite-execute db statement &optional values
@@ -5699,14 +5766,10 @@ Return all the non-string children of the node.
 @item dom-attributes @var{node}
 Return the key/value pair list of attributes of the node.
 
-@item dom-text @var{node}
-Return all the textual elements of the node as a concatenated string.
-
-@item dom-texts @var{node}
+@item dom-inner-text @var{node}
 Return all the textual elements of the node, as well as the textual
 elements of all the children of the node, recursively, as a
-concatenated string.  This function also takes an optional separator
-to be inserted between the textual elements.
+concatenated string.
 
 @item dom-parent @var{dom} @var{node}
 Return the parent of @var{node} in @var{dom}.
@@ -5992,12 +6055,21 @@ must be a Lisp object that can be serialized as JSON (@pxref{Parsing
 JSON}).  The result is forwarded to the server as the JSONRPC
 @code{result} object.  A non-local return, achieved by calling the
 function @code{jsonrpc-error}, causes an error response to be sent to
-the server.  The details of the accompanying JSONRPC @code{error}
-object are filled out with whatever was passed to
-@code{jsonrpc-error}.  A non-local return triggered by an unexpected
-error of any other type also causes an error response to be sent
-(unless you have set @code{debug-on-error}, in which case this calls
-the Lisp debugger, @pxref{Error Debugging}).
+the server.  A non-local return triggered by an unexpected error of any
+other type also causes a response to be sent.  The debugger is never
+called (unless you have set @code{debug-on-error}, in which case the
+Lisp debugger may be called, @pxref{Error Debugging}).
+
+The details of the accompanying JSONRPC @code{error} object are filled
+out automatically (in the case of unexpected errors) or with whatever
+was passed to @code{jsonrpc-error} (in the case of explicit calls).
+
+Exceptionally, an explicit call to @code{jsonrpc-error} which sets
+@code{:code} to 32000 and @code{:data} to any JSON object has the
+meaning of ``no error'' and triggers a normal response to the remote
+endpoint with @code{result} being set to @code{:data}.  This is useful
+if the application wants to treat some non-local exits such as user
+quits as benign.
 
 @findex jsonrpc-convert-to-endpoint
 @findex jsonrpc-convert-from-endpoint
@@ -6019,8 +6091,8 @@ a different underlying transport strategy (for details on how to
 subclass, see @ref{Inheritance,Inheritance,,eieio}.).  Users of the
 application-building interface can then instantiate objects of this
 concrete class (using the @code{make-instance} function) and connect
-to JSONRPC endpoints using that strategy.  See @ref{Process-based
-JSONRPC connections} for a built-in transport implementation.
+to JSONRPC endpoints using that strategy.  @xref{Process-based
+JSONRPC connections}, for a built-in transport implementation.
 
 This API has mandatory and optional parts.
 
@@ -6559,6 +6631,19 @@ a description: it lets you process the change without worrying about the
 risk that the @var{signal} function gets triggered in the middle of it,
 because the @var{signal} is re-enabled only after @var{func} finishes.
 @end defun
+
+@defvar track-changes-undo-only
+If your code uses @code{track-changes} to perform further modifications
+to the buffer (for example, to mark the parts of the buffer that have
+been edited), then you may want to refrain from making those
+modifications when the changes are the result of an undo (which
+presumably also undoes the modifications you had applied back when the
+corresponding edit was made).
+To that end @code{track-changes-fetch} binds
+@code{track-changes-undo-only} to non-@code{nil} during calls to
+@var{func} if the changes were the result of undo.
+@end defvar
+
 
 @defun track-changes-unregister id
 This function tells the library that the tracker @var{id} does not need

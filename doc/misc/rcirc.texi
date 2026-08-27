@@ -2,11 +2,12 @@
 @c %**start of header
 @setfilename ../../info/rcirc.info
 @settitle rcirc Manual
+@documentlanguage en
 @include docstyle.texi
 @c %**end of header
 
 @copying
-Copyright @copyright{} 2006--2025 Free Software Foundation, Inc.
+Copyright @copyright{} 2006--2026 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -594,6 +595,11 @@ password to use.
 Before you can use this method, you will have to register your nick and
 pick a password for it.  Contact @code{nickserv} and check out the
 details.  (Using @code{/msg nickserv help}, for example.)
+
+You can set the password to the keyword @code{:auth-source}, if you do
+not want to hard-code your password in your configuration.
+@xref{Top,,,auth, Emacs auth-source Library} for details on how and
+where Emacs gets the password from.
 
 @item chanserv
 @cindex chanserv authentication

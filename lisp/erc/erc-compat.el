@@ -1,6 +1,6 @@
 ;;; erc-compat.el --- ERC compatibility code for older Emacsen  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2003, 2005-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2003, 2005-2026 Free Software Foundation, Inc.
 
 ;; Author: Alex Schroeder <alex@gnu.org>
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
@@ -88,11 +88,11 @@ See `replace-match' for explanations of FIXEDCASE and LITERAL."
 (define-obsolete-function-alias 'erc-make-obsolete-variable
   #'make-obsolete-variable "28.1")
 
-;; Provide a simpler replacement for `cl-member-if'
+;; Provide a simpler replacement for `member-if'.
 (defun erc-member-if (predicate list)
   "Find the first item satisfying PREDICATE in LIST.
 Return the sublist of LIST whose car matches."
-  (declare (obsolete cl-member-if "28.1"))
+  (declare (obsolete member-if "28.1"))
   (let ((ptr list))
     (catch 'found
       (while ptr
@@ -369,6 +369,15 @@ If START or END is negative, it counts from the end."
     client-final-message))
 
 
+;;;; Misc 28.1
+
+(defmacro erc-compat--xml-escape-string (string &optional noerror)
+  "Call `xml-escape-string' with NO-ERROR if supported."
+  (if (>= emacs-major-version 28)
+      `(xml-escape-string ,string ,noerror)
+    `(xml-escape-string ,string)))
+
+
 ;;;; Misc 29.1
 
 (defvar url-irc-function)
@@ -439,6 +448,18 @@ fallback."
                                            ""))
                                   `(or ,v "")))))
                spec)))))
+
+
+;;;; Misc 31.1
+
+(defun erc-compat--window-no-other-p (window)
+  ;; See bug#73706.
+  (if (fboundp 'window-no-other-p)
+      (window-no-other-p window)
+    (setq window (window-normalize-window window t))
+    (and (not ignore-window-parameters)
+         (window-parameter window 'no-other-window))))
+
 
 (provide 'erc-compat)
 

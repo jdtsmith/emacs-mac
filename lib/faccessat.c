@@ -1,5 +1,5 @@
 /* Check the access rights of a file relative to an open directory.
-   Copyright (C) 2009-2025 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 #define _GL_INCLUDING_UNISTD_H
 #include <config.h>
 
-/* Specification.  */
+/* Get the original definition of faccessat.  */
 #include <unistd.h>
 
 #include <errno.h>
@@ -40,14 +40,8 @@ orig_faccessat (int fd, char const *name, int mode, int flag)
 }
 #endif
 
-#ifdef __osf__
-/* Write "unistd.h" here, not <unistd.h>, otherwise OSF/1 5.1 DTK cc
-   eliminates this include because of the preliminary #include <unistd.h>
-   above.  */
-# include "unistd.h"
-#else
-# include <unistd.h>
-#endif
+/* Specification.  */
+#include <unistd.h>
 
 #ifndef HAVE_ACCESS
 /* Mingw lacks access, but it also lacks real vs. effective ids, so
@@ -63,15 +57,17 @@ rpl_faccessat (int fd, char const *file, int mode, int flag)
 {
   int result = orig_faccessat (fd, file, mode, flag);
 
-  if (result == 0 && file[strlen (file) - 1] == '/')
+  if (file[strlen (file) - 1] == '/')
     {
       struct stat st;
-      result = fstatat (fd, file, &st, 0);
-      if (result == 0 && !S_ISDIR (st.st_mode))
+      int ret = fstatat (fd, file, &st, 0);
+      if (ret == 0 && !S_ISDIR (st.st_mode))
         {
           errno = ENOTDIR;
           return -1;
         }
+      if (result == 0)
+        result = ret;
     }
 
   return result;

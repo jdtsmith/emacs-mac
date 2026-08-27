@@ -1,6 +1,6 @@
 /* Emacs regular expression matching and search
 
-   Copyright (C) 1993-2025 Free Software Foundation, Inc.
+   Copyright (C) 1993-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -1290,7 +1290,7 @@ typedef int regnum_t;
 /* Macros for the compile stack.  */
 
 typedef long pattern_offset_t;
-verify (LONG_MIN <= -(MAX_BUF_SIZE - 1) && MAX_BUF_SIZE - 1 <= LONG_MAX);
+static_assert (LONG_MIN <= -(MAX_BUF_SIZE - 1) && MAX_BUF_SIZE - 1 <= LONG_MAX);
 
 typedef struct
 {
@@ -3751,7 +3751,7 @@ skip_one_char (re_char *p)
    C is character to test (possibly after translations) and CORIG is original
    character (i.e. without any translations).  UNIBYTE denotes whether c is
    unibyte or multibyte character.
-   CANON_TABLE is the canonicalisation table for case folding or Qnil.  */
+   CANON_TABLE is the canonicalization table for case folding or Qnil.  */
 static bool
 execute_charset (re_char **pp, int c, int corig, bool unibyte,
                  Lisp_Object canon_table)

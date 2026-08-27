@@ -1,6 +1,6 @@
 ;;; erc-scenarios-common.el --- Common helpers for ERC scenarios -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -150,7 +150,6 @@
       (timer-list (copy-sequence timer-list))
       (timer-idle-list (copy-sequence timer-idle-list))
       (erc-auth-source-parameters-join-function nil)
-      (erc--fill-wrap-scrolltobottom-exempt-p t)
       (erc-autojoin-channels-alist nil)
       (erc-server-auto-reconnect nil)
       (erc-after-connect nil)
@@ -185,8 +184,8 @@ Dialog resource directories are located by expanding the variable
 
          (ert-info ("Restore autojoin, etc., kill ERC buffers")
            (dolist (buf (buffer-list))
-             (when-let ((erc-d-u--process-buffer)
-                        (proc (get-buffer-process buf)))
+             (when-let* ((erc-d-u--process-buffer)
+                         (proc (get-buffer-process buf)))
                (delete-process proc)))
 
            (erc-scenarios-common--remove-silence)
@@ -239,7 +238,7 @@ Dialog resource directories are located by expanding the variable
                                     process-environment))
          (name (ert-test-name (ert-running-test)))
          (temp-file (make-temp-file "erc-term-test-"))
-         (cmd `(let ((stats 1))
+         (cmd `(let (stats)
                  (setq enable-dir-local-variables nil)
                  (unwind-protect
                      (setq stats (ert-run-tests-batch ',name))
@@ -248,7 +247,8 @@ Dialog resource directories are located by expanding the variable
                                   (buffer-string))))
                        (with-temp-file ,temp-file
                          (insert buf)))
-                     (kill-emacs (ert-stats-completed-unexpected stats))))))
+                     (kill-emacs
+                      (if stats (ert-stats-completed-unexpected stats) 1))))))
          ;; The `ert-test' object in Emacs 29 has a `file-name' field.
          (file-name (symbol-file name 'ert--test))
          (default-directory (expand-file-name (file-name-directory file-name)))
@@ -267,6 +267,10 @@ Dialog resource directories are located by expanding the variable
                               (package-initialize))))
                    (require 'erc)
                    (cl-assert (equal erc-version ,erc-version) t)))
+         ;; Load test-related compat shims too niche for Compat, such as
+         ;; a <31 definition of `ert-with-buffer-selected'.
+         (tcompat (and (featurep 'erc-tests-compat)
+                       (locate-library "erc-tests-compat")))
          ;; Make subprocess terminal bigger than controlling.
          (buf (cl-letf (((symbol-function 'window-screen-lines)
                          (lambda () (car erc-scenarios-common--term-size)))
@@ -277,6 +281,9 @@ Dialog resource directories are located by expanding the variable
                        nil `(,@(or init '("-Q")) "-nw"
                              "-eval" ,(format "%S" setup)
                              "-l" ,file-name
+                             ,@(and tcompat
+                                    (list "-L" (file-name-directory tcompat)
+                                          "-l" tcompat))
                              "-eval" ,(format "%S" cmd)))))
          (proc (get-buffer-process buf))
          (err (lambda ()

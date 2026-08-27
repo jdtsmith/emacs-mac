@@ -1,6 +1,6 @@
 ;;; calc-comb.el --- combinatoric functions for Calc  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1990-1993, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1990-1993, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: David Gillespie <daveg@synaptics.com>
 
@@ -826,8 +826,8 @@
 		       '(t))))
 		  ((not (equal n (car math-prime-test-cache)))
 		   (cond ((if (consp n)
-                              (= (% (nth 1 n) 2) 0)
-                            (= (% n 2) 0))
+                              (evenp (nth 1 n))
+                            (evenp n))
                           '(nil 2))
 			 ((if (consp n)
                               (= (% (nth 1 n) 5) 0)

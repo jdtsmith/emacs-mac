@@ -1,6 +1,6 @@
 ;;; misc.el --- some nonstandard editing and utility commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1989, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1989, 2001-2026 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: convenience
@@ -262,8 +262,7 @@ variation of `C-x M-c M-butterfly' from url `https://xkcd.com/378/'."
 ;; A command to list dynamically loaded libraries.  This useful in
 ;; environments where dynamic-library-alist is used, i.e., Windows
 
-(defvar list-dynamic-libraries--loaded-only-p)
-(make-variable-buffer-local 'list-dynamic-libraries--loaded-only-p)
+(defvar-local list-dynamic-libraries--loaded-only-p)
 
 (defun list-dynamic-libraries--loaded (from)
   "Compute the \"Loaded from\" column.

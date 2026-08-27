@@ -1,6 +1,6 @@
 ;;; calc-nlfit.el --- nonlinear curve fitting for Calc  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -678,7 +678,7 @@
           (sdata (if (math-contains-sdev-p ydata)
                      (mapcar (lambda (x) (math-get-sdev x t)) ydata)
                    nil))
-          (ydata (mapcar (lambda (x) (math-get-value x)) ydata))
+          (ydata (mapcar #'math-get-value ydata))
           (calc-curve-varnames nil)
           (calc-curve-coefnames nil)
           (calc-curve-nvars 1)
@@ -757,7 +757,7 @@
           (sdata (if (math-contains-sdev-p pdata)
                      (mapcar (lambda (x) (math-get-sdev x t)) pdata)
                    nil))
-          (pdata (mapcar (lambda (x) (math-get-value x)) pdata))
+          (pdata (mapcar #'math-get-value pdata))
           (poverqdata (math-map-binop 'math-div pdata qdata))
           (parmvals (math-nlfit-least-squares qdata poverqdata sdata sdevv))
           (finalparms (list (nth 0 parmvals)

@@ -1,6 +1,6 @@
 /* Fontset handler.
 
-Copyright (C) 2001-2025 Free Software Foundation, Inc.
+Copyright (C) 2001-2026 Free Software Foundation, Inc.
 Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
   2005, 2006, 2007, 2008, 2009, 2010, 2011
   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -668,38 +668,8 @@ fontset_find_font (Lisp_Object fontset, int c, struct face *face,
 	  font_object = font_open_for_lface (f, font_entity, face->lface,
 					     FONT_DEF_SPEC (font_def));
 
-#ifdef HAVE_ANDROID
-	  /* If the font registry is not the same as explicitly
-	     specified in the font spec, do not cache the font.
-	     TrueType fonts have contrived character map selection
-	     semantics which makes determining the repertory at font
-	     spec matching time unduly expensive.  */
-
-	  {
-	    Lisp_Object spec;
-
-	    spec = FONT_DEF_SPEC (font_def);
-
-	    if (!NILP (font_object)
-		&& !NILP (AREF (spec, FONT_REGISTRY_INDEX))
-		&& !NILP (AREF (font_object, FONT_REGISTRY_INDEX))
-		&& !EQ (AREF (spec, FONT_REGISTRY_INDEX),
-			AREF (font_object, FONT_REGISTRY_INDEX))
-		/* See sfntfont_registries_compatible_p in
-		   sfntfont.c.  */
-		&& !(EQ (AREF (spec, FONT_REGISTRY_INDEX),
-			 Qiso8859_1)
-		     && EQ (AREF (font_object, FONT_REGISTRY_INDEX),
-			    Qiso10646_1)))
-	      goto strangeness;
-	  }
-#endif /* HAVE_ANDROID */
-
 	  if (NILP (font_object))
 	    {
-#ifdef HAVE_ANDROID
-	    strangeness:
-#endif /* HAVE_ANDROID */
 	      /* Something strange happened, perhaps because of a
 		 Font-backend problem.  To avoid crashing, record
 		 that this spec is unusable.  It may be better to find
@@ -2206,7 +2176,7 @@ syms_of_fontset (void)
   set_fontset_id (Vdefault_fontset, make_fixnum (0));
   set_fontset_name
     (Vdefault_fontset,
-     build_pure_c_string ("-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default"));
+     build_string ("-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default"));
   ASET (Vfontset_table, 0, Vdefault_fontset);
   next_fontset_id = 1;
   PDUMPER_REMEMBER_SCALAR (next_fontset_id);
@@ -2264,7 +2234,7 @@ alternate fontnames (if any) are tried instead.  */);
 	       doc: /* Alist of fontset names vs the aliases.  */);
   Vfontset_alias_alist
     = list1 (Fcons (FONTSET_NAME (Vdefault_fontset),
-		    build_pure_c_string ("fontset-default")));
+		    build_string ("fontset-default")));
 
   DEFVAR_LISP ("vertical-centering-font-regexp",
 	       Vvertical_centering_font_regexp,

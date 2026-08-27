@@ -1,9 +1,10 @@
 # readutmp.m4
-# serial 31
-dnl Copyright (C) 2002-2025 Free Software Foundation, Inc.
+# serial 32
+dnl Copyright (C) 2002-2026 Free Software Foundation, Inc.
 dnl This file is free software; the Free Software Foundation
 dnl gives unlimited permission to copy and/or distribute it,
 dnl with or without modifications, as long as this notice is preserved.
+dnl This file is offered as-is, without any warranty.
 
 AC_DEFUN([gl_READUTMP],
 [
@@ -95,11 +96,9 @@ AC_INCLUDES_DEFAULT
     AC_CHECK_MEMBERS([struct utmpx.ut_exit],,,[$utmp_includes])
     AC_CHECK_MEMBERS([struct utmp.ut_exit],,,[$utmp_includes])
 
-    AC_CHECK_MEMBERS([struct utmpx.ut_exit.ut_exit],,,[$utmp_includes])
     AC_CHECK_MEMBERS([struct utmpx.ut_exit.e_exit],,,[$utmp_includes])
     AC_CHECK_MEMBERS([struct utmp.ut_exit.e_exit],,,[$utmp_includes])
 
-    AC_CHECK_MEMBERS([struct utmpx.ut_exit.ut_termination],,,[$utmp_includes])
     AC_CHECK_MEMBERS([struct utmpx.ut_exit.e_termination],,,[$utmp_includes])
     AC_CHECK_MEMBERS([struct utmp.ut_exit.e_termination],,,[$utmp_includes])
   fi

@@ -1,8 +1,9 @@
 ;;; org-persist.el --- Persist cached data across Emacs sessions         -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Author: Ihor Radchenko <yantar92 at posteo dot net>
+;; Maintainer: Ihor Radchenko <yantar92 at posteo dot net>
 ;; Keywords: cache, storage
 
 ;; This file is part of GNU Emacs.
@@ -58,7 +59,8 @@
 ;;    has been removed.
 ;;
 ;; 3. Temporarily cache a file, including TRAMP path to disk:
-;;    (org-persist-write 'file "/path/to/file")
+;;    (org-persist-write `(file "/path/to/file"))
+;;    (org-persist-read `(file "/path/to/file")) ; => get path to the cached file copy
 ;;
 ;; 4. Cache file or URL while some other file exists.
 ;;    (org-persist-register '(url "https://static.fsf.org/common/img/logo-new.png") '(:file "/path to the other file") :expiry 'never :write-immediately t)
@@ -262,10 +264,6 @@
 (require 'org-id)
 (require 'xdg nil t)
 
-(declare-function org-back-to-heading "org" (&optional invisible-ok))
-(declare-function org-next-visible-heading "org" (arg))
-(declare-function org-at-heading-p "org" (&optional invisible-not-ok))
-
 ;; Silence byte-compiler (used in `org-persist--write-elisp-file').
 (defvar pp-use-max-width)
 
@@ -291,7 +289,6 @@
         cache-dir))
     "org-persist/"))
   "Directory where the data is stored."
-  :group 'org-persist
   :package-version '(Org . "9.6")
   :type 'directory)
 
@@ -306,7 +303,6 @@ up to that number persistent values for remote files.
 
 Note that the last option `check-existence' may cause Emacs to show
 password prompts to log in."
-  :group 'org-persist
   :package-version '(Org . "9.6")
   :type '(choice (const :tag "Never" nil)
                  (const :tag "Always" t)
@@ -321,7 +317,6 @@ session.  When `never', the data never vanishes.  When a number, the
 data is deleted that number days after last access.  When a function,
 it should be a function returning non-nil when the data is expired.  The
 function will be called with a single argument - collection."
-  :group 'org-persist
   :package-version '(Org . "9.6")
   :type '(choice (const :tag "Never" never)
                  (const :tag "Always" nil)
@@ -399,6 +394,9 @@ message is displayed.
 When the value is a non-nil non-number, always display the message.
 When the value is nil, never display the message.")
 
+(defvar org-persist--wrote-to-disk nil
+  "Whether we wrote to disk during current Emacs session.")
+
 ;;;; Common functions
 
 (defun org-persist--display-time (duration format &rest args)
@@ -451,7 +449,11 @@ FORMAT and ARGS are passed to `message'."
 ;; FIXME: `pp' is very slow when writing even moderately large datasets
 ;; We should probably drop it or find some fast formatter.
 (defun org-persist--write-elisp-file (file data &optional no-circular pp)
-  "Write elisp DATA to FILE."
+  "Write to index and then write elisp DATA to FILE.
+When optional argument NO-CIRCULAR is non-nil, do not bind
+`print-circle' to t.
+When optional argument PP is non-nil, pretty-print the data (slow on
+moderately large data)."
   ;; Fsync slightly reduces the chance of an incomplete filesystem
   ;; write, however on modern hardware its effectiveness is
   ;; questionable and it is insufficient to guarantee complete writes.
@@ -475,20 +477,22 @@ FORMAT and ARGS are passed to `message'."
         (print-escape-nonascii t)
         (print-continuous-numbering t)
         print-number-table
-        (start-time (float-time)))
+        (start-time (float-time))
+        (tmp-file (make-temp-file "org-persist-")))
     (unless (file-exists-p (file-name-directory file))
       (make-directory (file-name-directory file) t))
-    ;; Force writing even when the file happens to be opened by
-    ;; another Emacs process.
-    (cl-letf (((symbol-function #'ask-user-about-lock)
-               ;; FIXME: Emacs 27 does not yet have `always'.
-               (lambda (&rest _) t)))
-      (with-temp-file file
-        (insert ";;   -*- mode: lisp-data; -*-\n")
-        (if pp
-            (let ((pp-use-max-width nil)) ; Emacs bug#58687
-              (pp data (current-buffer)))
-          (prin1 data (current-buffer)))))
+    ;; Do not write to FILE directly.  Another Emacs instance may be
+    ;; doing the same at the same time.  Instead, write to new
+    ;; temporary file and then rename it (renaming is atomic
+    ;; operation that does not create data races).
+    ;; See https://debbugs.gnu.org/cgi/bugreport.cgi?bug=75209#35
+    (with-temp-file tmp-file
+      (insert ";;   -*- mode: lisp-data; -*-\n")
+      (if pp
+          (let ((pp-use-max-width nil)) ; Emacs bug#58687
+            (pp data (current-buffer)))
+        (prin1 data (current-buffer))))
+    (rename-file tmp-file file 'overwrite)
     (org-persist--display-time
      (- (float-time) start-time)
      "Writing to %S" file)))
@@ -517,32 +521,45 @@ FORMAT and ARGS are passed to `message'."
 ;;;; Working with index
 
 (defmacro org-persist-collection-let (collection &rest body)
-  "Bind container and associated from COLLECTION and execute BODY."
+  "Bind container and associated from COLLECTION and execute BODY.
+BODY is executed in a context with the following additional variables:
+`container', `associated', `path', `inode', `hash', and `key'."
   (declare (debug (form body)) (indent 1))
-  `(with-no-warnings
-     (let* ((container (plist-get ,collection :container))
-            (associated (plist-get ,collection :associated))
-            (path (plist-get associated :file))
-            (inode (plist-get associated :inode))
-            (hash (plist-get associated :hash))
-            (key (plist-get associated :key)))
-       ;; Suppress "unused variable" warnings.
-       (ignore container associated path inode hash key)
-       ,@body)))
+  `(let* ((container (plist-get ,collection :container))
+          (associated (plist-get ,collection :associated))
+          (path (plist-get associated :file))
+          (inode (plist-get associated :inode))
+          (hash (plist-get associated :hash))
+          (key (plist-get associated :key)))
+     ;; Suppress "unused variable" warnings.
+     (ignore container associated path inode hash key)
+     ,@body))
 
 (defun org-persist--find-index (collection)
-"Find COLLECTION in `org-persist--index'."
-(org-persist-collection-let collection
-  (and org-persist--index-hash
-       (catch :found
-         (dolist (cont (cons container container))
-           (let (r)
-             (setq r (or (gethash (cons cont associated) org-persist--index-hash)
-                         (and path (gethash (cons cont (list :file path)) org-persist--index-hash))
-                         (and inode (gethash (cons cont (list :inode inode)) org-persist--index-hash))
-                         (and hash (gethash (cons cont (list :hash hash)) org-persist--index-hash))
-                         (and key (gethash (cons cont (list :key key)) org-persist--index-hash))))
-             (when r (throw :found r))))))))
+  "Find COLLECTION in `org-persist--index'."
+  (org-persist-collection-let collection
+    (and org-persist--index-hash
+         (catch :found
+           (dolist (cont
+                    (if (listp (car container)) ; container group
+                        (cons container container)
+                      (list container)))
+             (let ((r (or (gethash (cons cont associated) org-persist--index-hash)
+                          (and path (gethash (cons cont (list :file path)) org-persist--index-hash))
+                          (and inode (gethash (cons cont (list :inode inode)) org-persist--index-hash))
+                          (and hash (gethash (cons cont (list :hash hash)) org-persist--index-hash))
+                          (and key (gethash (cons cont (list :key key)) org-persist--index-hash)))))
+               (when (and r
+                          ;; Every element in container group of
+                          ;; COLLECTION matches returned CONTAINER.
+                          (seq-every-p
+                           (lambda (cont)
+                             (org-persist-collection-let r
+                               (member cont container)))
+                           (if (listp (car container))
+                               container
+                             (list container))))
+                 (throw :found r))))))))
 
 (defun org-persist--add-to-index (collection &optional hash-only)
   "Add or update COLLECTION in `org-persist--index'.
@@ -560,7 +577,10 @@ Return PLIST."
             existing)
         (unless hash-only (push collection org-persist--index))
         (unless org-persist--index-hash (setq org-persist--index-hash (make-hash-table :test 'equal)))
-        (dolist (cont (cons container container))
+        (dolist (cont
+                 (if (listp (car container)) ; container group
+                     (cons container container)
+                   (list container)))
           (puthash (cons cont associated) collection org-persist--index-hash)
           (when path (puthash (cons cont (list :file path)) collection org-persist--index-hash))
           (when inode (puthash (cons cont (list :inode inode)) collection org-persist--index-hash))
@@ -568,12 +588,24 @@ Return PLIST."
           (when key (puthash (cons cont (list :key inode)) collection org-persist--index-hash)))
         collection))))
 
+(defmacro org-persist-associated-files:generic (container collection)
+  "List associated files in `org-persist-directory' of CONTAINER in COLLECTION."
+  `(let* ((c (org-persist--normalize-container ,container))
+          (assocf-func-symbol (intern (format "org-persist-associated-files:%s" (car c)))))
+     (if (fboundp assocf-func-symbol)
+         (funcall assocf-func-symbol c ,collection)
+       (error "org-persist: Read function %s not defined"
+              assocf-func-symbol))))
+
 (defun org-persist--remove-from-index (collection)
   "Remove COLLECTION from `org-persist--index'."
   (let ((existing (org-persist--find-index collection)))
     (when existing
       (org-persist-collection-let collection
-        (dolist (cont (cons container container))
+        (dolist (cont
+                 (if (listp (car container)) ; container group
+                     (cons container container)
+                   (list container)))
           (unless (listp (car container))
             (org-persist-gc:generic cont collection)
             (dolist (afile (org-persist-associated-files:generic cont collection))
@@ -593,8 +625,7 @@ or file-path, (:inode inode), (:hash hash), or or (:key key).
 MISC, if non-nil will be appended to the collection.  It must be a plist."
   (unless (and (listp container) (listp (car container)))
     (setq container (list container)))
-  (setq associated (org-persist--normalize-associated associated))
-  (when (and misc (or (not (listp misc)) (= 1 (% (length misc) 2))))
+  (when (and misc (or (not (listp misc)) (cl-oddp (length misc))))
     (error "org-persist: Not a plist: %S" misc))
   (or (org-persist--find-index
        `( :container ,(org-persist--normalize-container container)
@@ -603,7 +634,8 @@ MISC, if non-nil will be appended to the collection.  It must be a plist."
        (nconc
         (list :container (org-persist--normalize-container container)
               :persist-file
-              (replace-regexp-in-string "^.." "\\&/" (org-id-uuid))
+              (let ((uuid (org-id-uuid)))
+                (concat (substring uuid 0 2) "/" (substring uuid 2)))
               :associated associated)
         misc))))
 
@@ -629,9 +661,10 @@ When INNER is non-nil, do not try to match as list of containers."
 (defvar org-persist--associated-buffer-cache (make-hash-table :weakness 'key)
   "Buffer hash cache.")
 
-(defun org-persist--normalize-associated (associated)
+(defsubst org-persist--normalize-associated (associated)
   "Normalize ASSOCIATED representation into (:type value)."
   (pcase associated
+    (`nil nil)
     ((or (pred stringp) `(:file ,_))
      (unless (stringp associated)
        (setq associated (cadr associated)))
@@ -723,7 +756,7 @@ COLLECTION is the plist holding data collection."
 
 (defun org-persist-read:index (cont index-file _)
   "Read index container CONT from INDEX-FILE."
-  (when (file-exists-p index-file)
+  (when (and (file-exists-p index-file) (file-readable-p index-file))
     (let ((index (org-persist--read-elisp-file index-file)))
       (when index
         (catch :found
@@ -779,9 +812,10 @@ COLLECTION is the plist holding data collection."
       (when (file-exists-p org-persist-directory)
         (dolist (file (directory-files org-persist-directory 'absolute
                                        "\\`[^.][^.]"))
-          (if (file-directory-p file)
-              (delete-directory file t)
-            (delete-file file))))
+          (when (file-writable-p file)
+            (if (file-directory-p file)
+                (delete-directory file t)
+              (delete-file file)))))
       (plist-put (org-persist--get-collection container) :expiry 'never))))
 
 (defun org-persist--load-index ()
@@ -810,8 +844,8 @@ COLLECTION is the plist holding data collection."
   (let ((scope (nth 2 container)))
     (pcase scope
       ((pred stringp)
-       (when-let ((buf (or (get-buffer scope)
-                           (get-file-buffer scope))))
+       (when-let* ((buf (or (get-buffer scope)
+                            (get-file-buffer scope))))
          ;; FIXME: There is `buffer-local-boundp' introduced in Emacs 28.
          ;; Not using it yet to keep backward compatibility.
          (condition-case nil
@@ -821,8 +855,14 @@ COLLECTION is the plist holding data collection."
        (when (boundp (cadr container))
          (symbol-value (cadr container))))
       (`nil
-       (if-let ((buf (and (plist-get (plist-get collection :associated) :file)
-                          (get-file-buffer (plist-get (plist-get collection :associated) :file)))))
+       ;; FIXME: Here and in other places, we use `get-file-buffer'
+       ;; assuming that all the buffers with the same
+       ;; `buffer-file-name' are same.  However, this may not
+       ;; necessarily be the case in general and we may initiate
+       ;; writing cache in one buffer, but `get-file-buffer' may then
+       ;; return _another_ buffer (with the same `buffer-file-name').
+       (if-let* ((buf (and (plist-get (plist-get collection :associated) :file)
+                           (get-file-buffer (plist-get (plist-get collection :associated) :file)))))
            ;; FIXME: There is `buffer-local-boundp' introduced in Emacs 28.
            ;; Not using it yet to keep backward compatibility.
            (condition-case nil
@@ -900,7 +940,7 @@ Otherwise, return t."
     (let ((index-file
            (org-file-name-concat org-persist-directory org-persist-index-file)))
       (org-persist--merge-index-with-disk)
-      (org-persist--write-elisp-file index-file org-persist--index t)
+      (org-persist--write-elisp-file index-file org-persist--index t nil)
       (setq org-persist--index-age
             (file-attribute-modification-time (file-attributes index-file)))
       index-file)))
@@ -912,6 +952,7 @@ Otherwise, return t."
 
 (defun org-persist--merge-index-with-disk ()
   "Merge `org-persist--index' with the current index file on disk."
+  (org-persist--load-index)
   (let* ((index-file
           (org-file-name-concat org-persist-directory org-persist-index-file))
          (disk-index
@@ -923,32 +964,37 @@ Otherwise, return t."
     (when disk-index
       (setq org-persist--index combined-index
             org-persist--index-age
-            (file-attribute-modification-time (file-attributes index-file))))))
+            (file-attribute-modification-time (file-attributes index-file)))
+      ;; Store newly added entries in the index hash.
+      (mapc (lambda (collection) (org-persist--add-to-index collection 'hash))
+            org-persist--index))))
 
 (defun org-persist--merge-index (base other)
   "Attempt to merge new index items in OTHER into BASE.
 Items with different details are considered too difficult, and skipped."
   (if other
-      (let ((new (cl-set-difference other base :test #'equal))
-            (base-files (mapcar (lambda (s) (plist-get s :persist-file)) base))
-            (combined (reverse base)))
-        (dolist (item (nreverse new))
-          (unless (or (memq 'index (mapcar #'car (plist-get item :container)))
-                      (not (file-exists-p
+      (if (not base) other
+        (let ((new (cl-set-difference other base :key #'org-persist--find-index))
+              (base-files (mapcar (lambda (s) (plist-get s :persist-file)) base))
+              (combined (reverse base)))
+          (dolist (item (nreverse new))
+            (unless (or (memq 'index (mapcar #'car (plist-get item :container)))
+                        (not (file-exists-p
                             (org-file-name-concat org-persist-directory
                                                   (plist-get item :persist-file))))
-                      (member (plist-get item :persist-file) base-files))
-            (push item combined)))
-        (nreverse combined))
+                        (member (plist-get item :persist-file) base-files))
+              (push item combined)))
+          (nreverse combined)))
     base))
 
 ;;;; Public API
 
-(cl-defun org-persist-register (container &optional associated &rest misc
-                               &key inherit
-                               &key (expiry org-persist-default-expiry)
-                               &key (write-immediately nil)
-                               &allow-other-keys)
+(cl-defun org-persist-register
+    ( container &optional associated &rest misc
+      &key inherit
+      &key (expiry org-persist-default-expiry)
+      &key (write-immediately nil)
+      &allow-other-keys)
   "Register CONTAINER in ASSOCIATED to be persistent across Emacs sessions.
 Optional key INHERIT makes CONTAINER dependent on another container.
 Such dependency means that data shared between variables will be
@@ -963,8 +1009,11 @@ MISC will be appended to the collection.  It must be alternating :KEY
 VALUE pairs.
 When WRITE-IMMEDIATELY is non-nil, the return value will be the same
 with `org-persist-write'."
-  (unless org-persist--index (org-persist--load-index))
+  ;; Sync cache with disk, dropping conflicting items between multiple
+  ;; Emacsen.
+  (org-persist--merge-index-with-disk)
   (setq container (org-persist--normalize-container container))
+  (setq associated (org-persist--normalize-associated associated))
   (when inherit
     (setq inherit (org-persist--normalize-container inherit))
     (let ((inherited-collection (org-persist--get-collection inherit associated))
@@ -990,7 +1039,9 @@ with `org-persist-write'."
 When ASSOCIATED is `all', unregister CONTAINER everywhere.
 When REMOVE-RELATED is non-nil, remove all the containers stored with
 the CONTAINER as well."
-  (unless org-persist--index (org-persist--load-index))
+  ;; Sync cache with disk, dropping conflicting items between multiple
+  ;; Emacsen.
+  (org-persist--merge-index-with-disk)
   (setq container (org-persist--normalize-container container))
   (if (eq associated 'all)
       (mapc (lambda (collection)
@@ -1006,10 +1057,6 @@ the CONTAINER as well."
                      (remove container (plist-get collection :container)))
           (org-persist--add-to-index collection))))))
 
-(defvar org-persist--write-cache (make-hash-table :test #'equal)
-  "Hash table storing as-written data objects.
-
-This data is used to avoid reading the data multiple times.")
 (cl-defun org-persist-read (container &optional associated hash-must-match load &key read-related)
   "Restore CONTAINER data for ASSOCIATED.
 When HASH-MUST-MATCH is non-nil, do not restore data if hash for
@@ -1031,7 +1078,9 @@ CONTAINER as well.  For example:
     (org-persist-read \"My data\") ; => \"My data\"
     (org-persist-read \"My data\" nil nil nil
                       :read-related t) ; => (\"My data\" \"test\")"
-  (unless org-persist--index (org-persist--load-index))
+  ;; Sync cache with disk, dropping conflicting items between multiple
+  ;; Emacsen.
+  (org-persist--merge-index-with-disk)
   (setq associated (org-persist--normalize-associated associated))
   (setq container (org-persist--normalize-container container))
   (let* ((collection (org-persist--find-index `(:container ,container :associated ,associated)))
@@ -1057,8 +1106,7 @@ CONTAINER as well.  For example:
       (unless (seq-find (lambda (v)
                           (run-hook-with-args-until-success 'org-persist-before-read-hook v associated))
                         (plist-get collection :container))
-        (setq data (or (gethash persist-file org-persist--write-cache)
-                       (org-persist--read-elisp-file persist-file)))
+        (setq data (org-persist--read-elisp-file persist-file))
         (when data
           (cl-loop for c in (plist-get collection :container)
                    with result = nil
@@ -1080,7 +1128,9 @@ have the same meaning as in `org-persist-read'."
 
 (defun org-persist-load-all (&optional associated)
   "Restore all the persistent data associated with ASSOCIATED."
-  (unless org-persist--index (org-persist--load-index))
+  ;; Sync cache with disk, dropping conflicting items between multiple
+  ;; Emacsen.
+  (org-persist--merge-index-with-disk)
   (setq associated (org-persist--normalize-associated associated))
   (let (all-containers)
     (dolist (collection org-persist--index)
@@ -1107,6 +1157,7 @@ The return value is nil when writing fails and the written value (as
 returned by `org-persist-read') on success.
 When IGNORE-RETURN is non-nil, just return t on success without calling
 `org-persist-read'."
+  (setq org-persist--wrote-to-disk t)
   (setq associated (org-persist--normalize-associated associated))
   ;; Update hash
   (when (and (plist-get associated :file)
@@ -1125,18 +1176,18 @@ When IGNORE-RETURN is non-nil, just return t on success without calling
              (seq-find (lambda (v)
                          (run-hook-with-args-until-success 'org-persist-before-write-hook v associated))
                        (plist-get collection :container)))
-      (when (or (file-exists-p org-persist-directory) (org-persist--save-index))
-        (let ((file (org-file-name-concat org-persist-directory (plist-get collection :persist-file)))
-              (data (mapcar (lambda (c) (cons c (org-persist-write:generic c collection)))
-                            (plist-get collection :container))))
-          (puthash file data org-persist--write-cache)
-          (org-persist--write-elisp-file file data)
-          (or ignore-return (org-persist-read container associated)))))))
+      (let ((file (org-file-name-concat org-persist-directory (plist-get collection :persist-file)))
+            (data (mapcar (lambda (c) (cons c (org-persist-write:generic c collection)))
+                          (plist-get collection :container))))
+        (org-persist--write-elisp-file file data)
+        (or ignore-return (org-persist-read container associated))))))
 
 (defun org-persist-write-all (&optional associated)
   "Save all the persistent data.
 When ASSOCIATED is non-nil, only save the matching data."
-  (unless org-persist--index (org-persist--load-index))
+  ;; Sync cache with disk, dropping conflicting items between multiple
+  ;; Emacsen.
+  (org-persist--merge-index-with-disk)
   (setq associated (org-persist--normalize-associated associated))
   (if
       (and (equal 1 (length org-persist--index))
@@ -1194,15 +1245,6 @@ Do nothing in an indirect buffer."
     (when (org-directory-empty-p (file-name-directory persist-file))
       (delete-directory (file-name-directory persist-file)))))
 
-(defmacro org-persist-associated-files:generic (container collection)
-  "List associated files in `org-persist-directory' of CONTAINER in COLLECTION."
-  `(let* ((c (org-persist--normalize-container ,container))
-          (assocf-func-symbol (intern (format "org-persist-associated-files:%s" (car c)))))
-     (if (fboundp assocf-func-symbol)
-         (funcall assocf-func-symbol c ,collection)
-       (error "org-persist: Read function %s not defined"
-              assocf-func-symbol))))
-
 (defalias 'org-persist-associated-files:elisp #'ignore)
 (defalias 'org-persist-associated-files:index #'ignore)
 (defalias 'org-persist-associated-files:elisp-data #'ignore)
@@ -1223,16 +1265,17 @@ Do nothing in an indirect buffer."
 (defun org-persist--refresh-gc-lock ()
   "Refresh session timestamp in `org-persist-gc-lock-file'.
 Remove expired sessions timestamps."
-  (let* ((file (org-file-name-concat org-persist-directory org-persist-gc-lock-file))
-         (alist (when (file-exists-p file) (org-persist--read-elisp-file file)))
-         new-alist)
-    (setf (alist-get before-init-time alist nil nil #'equal)
-          (current-time))
-    (dolist (record alist)
-      (when (< (- (float-time (cdr record)) (float-time (current-time)))
-               org-persist-gc-lock-expiry)
-        (push record new-alist)))
-    (org-persist--write-elisp-file file new-alist)))
+  (when org-persist--wrote-to-disk
+    (let* ((file (org-file-name-concat org-persist-directory org-persist-gc-lock-file))
+           (alist (when (file-exists-p file) (org-persist--read-elisp-file file)))
+           new-alist)
+      (setf (alist-get before-init-time alist nil nil #'equal)
+            (current-time))
+      (dolist (record alist)
+        (when (< (- (float-time (cdr record)) (float-time (current-time)))
+                 org-persist-gc-lock-expiry)
+          (push record new-alist)))
+      (ignore-errors (org-persist--write-elisp-file file new-alist)))))
 
 (defun org-persist--gc-orphan-p ()
   "Return non-nil, when orphan files should be garbage-collected.
@@ -1240,16 +1283,16 @@ Remove current sessions from `org-persist-gc-lock-file'."
   (let* ((file (org-file-name-concat org-persist-directory org-persist-gc-lock-file))
          (alist (when (file-exists-p file) (org-persist--read-elisp-file file))))
     (setq alist (org-assoc-delete-all before-init-time alist))
-    (org-persist--write-elisp-file file alist)
+    (ignore-errors (org-persist--write-elisp-file file alist))
     ;; Only GC orphan files when there are no active sessions.
     (not alist)))
 
 (defun org-persist-gc ()
   "Remove expired or unregistered containers and orphaned files.
 Also, remove containers associated with non-existing files."
-  (if org-persist--index
-      (org-persist--merge-index-with-disk)
-    (org-persist--load-index))
+  ;; Sync cache with disk, dropping conflicting items between multiple
+  ;; Emacsen.
+  (org-persist--merge-index-with-disk)
   (let (new-index
         (remote-files-num 0)
         (orphan-files

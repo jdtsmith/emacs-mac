@@ -1,6 +1,6 @@
 ;;; srecode/table.el --- Tables of Semantic Recoders  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -180,7 +180,6 @@ INIT are the initialization parameters for the new template table."
 	 (old (srecode-mode-table-find mt file))
 	 (attr (file-attributes file))
 	 (new (apply #'srecode-template-table
-		     (file-name-nondirectory file)
 		     :file file
 		     :filesize (file-attribute-size attr)
 		     :filedate (file-attribute-modification-time attr)

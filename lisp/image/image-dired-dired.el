@@ -1,6 +1,6 @@
 ;;; image-dired-dired.el --- Dired specific commands for Image-Dired  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2005-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2026 Free Software Foundation, Inc.
 
 ;; Author: Mathias Dahl <mathias.rem0veth1s.dahl@gmail.com>
 ;; Maintainer: Stefan Kangas <stefankangas@gmail.com>
@@ -385,7 +385,7 @@ matching tag will be marked in the Dired buffer."
         (setq curr-file (file-name-nondirectory curr-file))
         (goto-char (point-min))
         (when (search-forward-regexp (format "\\s %s[*@]?$" (regexp-quote curr-file)) nil t)
-          (setq hits (+ hits 1))
+          (incf hits)
           (dired-mark 1))))
     (message "%d files with matching tag marked" hits)))
 

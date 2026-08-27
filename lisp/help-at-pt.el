@@ -1,6 +1,6 @@
 ;;; help-at-pt.el --- local help through the keyboard  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2003-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
 ;; Author: Luc Teirlinck <teirllm@auburn.edu>
 ;; Keywords: help
@@ -40,8 +40,8 @@
 ;;
 ;; Suggested key bindings:
 ;;
-;; (global-set-key [C-tab] 'scan-buf-next-region)
-;; (global-set-key [C-M-tab] 'scan-buf-previous-region)
+;; (keymap-global-set "C-<tab>" #'scan-buf-next-region)
+;; (keymap-global-set "C-M-<tab>" #'scan-buf-previous-region)
 
 ;;; Code:
 
@@ -191,7 +191,12 @@ list of properties through Custom will set the timer, thus
 enabling buffer local values.  It sets the actual value to nil.
 Thus, Custom distinguishes between a nil value and other values
 that disable the feature, which Custom identifies with `never'.
-The default is `never'."
+The default is `never'.
+
+Eldoc uses the echo area to display documentation.  As such it
+conflicts with `help-at-pt-display-when-idle' due to the use of
+the echo area.  If you use Eldoc, consider setting
+`eldoc-help-at-pt' instead."
   :group 'help-at-pt
   :type '(choice  (const :tag "Always"
 			 :format "%t\n%h"

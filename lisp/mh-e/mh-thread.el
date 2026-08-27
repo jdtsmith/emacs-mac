@@ -1,6 +1,6 @@
 ;;; mh-thread.el --- MH-E threading support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2004, 2006-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2004, 2006-2026 Free Software Foundation, Inc.
 
 ;; Author: Satyaki Das <satyaki@theforce.stanford.edu>
 ;; Maintainer: Bill Wohler <wohler@newt.com>
@@ -73,6 +73,7 @@
 
 (require 'mh-e)
 (require 'mh-scan)
+(require 'mh-folder)
 
 (cl-defstruct (mh-thread-message (:conc-name mh-message-)
                                  (:constructor mh-thread-make-message))
@@ -193,14 +194,20 @@ sibling."
   (mh-thread-next-sibling t))
 
 ;;;###mh-autoload
-(defun mh-thread-refile (folder)
-  "Refile (output) thread into FOLDER."
+(defun mh-thread-refile (folder &optional dont-update-last-destination-flag)
+  "Refile (output) thread into FOLDER.
+In a program, update the variables `mh-last-destination' and
+`mh-last-destination-folder' unless DONT-UPDATE-LAST-DESTINATION-FLAG is
+non-nil."
   (interactive (list (intern (mh-prompt-for-refile-folder))))
   (cond ((not (memq 'unthread mh-view-ops))
          (error "Folder isn't threaded"))
         ((eobp)
          (error "No message at point"))
         (t (let ((region (mh-thread-find-children)))
+             (unless dont-update-last-destination-flag
+               (setq mh-last-destination (cons 'refile folder)
+                     mh-last-destination-folder mh-last-destination))
              (mh-iterate-on-messages-in-region () (car region) (cadr region)
                (mh-refile-a-msg nil folder))
              (mh-next-msg)))))
@@ -248,7 +255,7 @@ sibling."
       (beginning-of-line)
       (forward-char address-start-offset)
       (while (char-equal (char-after) ? )
-        (cl-incf level)
+        (incf level)
         (forward-char))
       level)))
 

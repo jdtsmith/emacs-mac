@@ -1,6 +1,6 @@
 ;;; ob-ruby.el --- Babel Functions for Ruby          -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2009-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
 ;; Author: Eric Schulte
 ;; Keywords: literate programming, reproducible research
@@ -192,7 +192,7 @@ Session settings (`:ruby' header arg value) are taken from PARAMS."
             (when new-session?
               (with-current-buffer session-buffer
                 (setq-local
-                 org-babel-comint-prompt-regexp-old comint-prompt-regexp
+                 org-babel-comint-prompt-regexp-fallback comint-prompt-regexp
                  comint-prompt-regexp (concat "^" org-babel-ruby-prompt))
                 (insert org-babel-ruby-define-prompt ";")
                 (insert "_org_prompt_mode=conf.prompt_mode;conf.prompt_mode=:CUSTOM;")
@@ -213,20 +213,18 @@ Session settings (`:ruby' header arg value) are taken from PARAMS."
 
 (defvar org-babel-ruby-wrapper-method
   "
-def main()
+results = (lambda do
 %s
-end
-results = main()
+end).call
 File.open('%s', 'w'){ |f| f.write((results.class == String) ? results : results.inspect) }
 ")
 
 (defvar org-babel-ruby-pp-wrapper-method
   "
 require 'pp'
-def main()
+results = (lambda do
 %s
-end
-results = main()
+end).call
 File.open('%s', 'w') do |f|
   $stdout = f
   pp results

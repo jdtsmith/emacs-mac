@@ -1,6 +1,6 @@
 ;;; gomoku.el --- Gomoku game between you and Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1988, 1994, 1996, 2001-2025 Free Software Foundation,
+;; Copyright (C) 1988, 1994, 1996, 2001-2026 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Philippe Schnoebelen <phs@lsv.ens-cachan.fr>
@@ -153,8 +153,7 @@ SHOULD be at least 2 (MUST BE at least 1).")
   "<remap> <next-line>"              #'gomoku-move-down
   "<remap> <move-beginning-of-line>" #'gomoku-beginning-of-line
   "<remap> <move-end-of-line>"       #'gomoku-end-of-line
-  "<remap> <undo>"                   #'gomoku-human-takes-back
-  "<remap> <advertised-undo>"        #'gomoku-human-takes-back)
+  "<remap> <undo>"                   #'gomoku-human-takes-back)
 
 
 (defvar gomoku-emacs-won ()

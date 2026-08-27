@@ -1,6 +1,6 @@
 ;;; bindat.el --- binary data structure packing and unpacking.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
 ;; Author: Kim F. Storm <storm@cua.dk>
 ;; Assignment name: struct.el
@@ -682,7 +682,7 @@ is the name of a variable that will hold the value we need to pack.")
 (cl-defmethod bindat--type (op (_ (eql 'byte)))
   (bindat--pcase op
     ('unpack `(bindat--unpack-u8))
-    (`(length . ,_) `(cl-incf bindat-idx 1))
+    (`(length . ,_) `(incf bindat-idx 1))
     (`(pack . ,args) `(bindat--pack-u8 . ,args))))
 
 (cl-defmethod bindat--type (op (_ (eql 'uint))  n &optional le)
@@ -690,7 +690,7 @@ is the name of a variable that will hold the value we need to pack.")
     (bindat--pcase op
       ('unpack
        `(if ,le (bindat--unpack-uintr ,n) (bindat--unpack-uint ,n)))
-      (`(length . ,_) `(cl-incf bindat-idx (/ ,n 8)))
+      (`(length . ,_) `(incf bindat-idx (/ ,n 8)))
       (`(pack . ,args)
        `(if ,le (bindat--pack-uintr ,n . ,args)
           (bindat--pack-uint ,n . ,args))))))
@@ -698,14 +698,14 @@ is the name of a variable that will hold the value we need to pack.")
 (cl-defmethod bindat--type (op (_ (eql 'str))   len)
   (bindat--pcase op
     ('unpack `(bindat--unpack-str ,len))
-    (`(length . ,_) `(cl-incf bindat-idx ,len))
+    (`(length . ,_) `(incf bindat-idx ,len))
     (`(pack . ,args) `(bindat--pack-str ,len . ,args))))
 
 (cl-defmethod bindat--type (op (_ (eql 'strz))  &optional len)
   (bindat--pcase op
     ('unpack `(bindat--unpack-strz ,len))
     (`(length ,val)
-     `(cl-incf bindat-idx ,(cond
+     `(incf bindat-idx ,(cond
                             ;; Optimizations if len is a literal number or nil.
                             ((null len) `(1+ (length ,val)))
                             ((numberp len) len)
@@ -716,11 +716,11 @@ is the name of a variable that will hold the value we need to pack.")
 (cl-defmethod bindat--type (op (_ (eql 'bits))  len)
   (bindat--pcase op
     ('unpack `(bindat--unpack-bits ,len))
-    (`(length . ,_) `(cl-incf bindat-idx ,len))
+    (`(length . ,_) `(incf bindat-idx ,len))
     (`(pack . ,args) `(bindat--pack-bits ,len . ,args))))
 
 (cl-defmethod bindat--type (_op (_ (eql 'fill))  len)
-  `(progn (cl-incf bindat-idx ,len) nil))
+  `(progn (incf bindat-idx ,len) nil))
 
 (cl-defmethod bindat--type (_op (_ (eql 'align)) len)
   `(progn (cl-callf bindat--align bindat-idx ,len) nil))
@@ -747,7 +747,7 @@ is the name of a variable that will hold the value we need to pack.")
             (let `#'(lambda (,val) (setq bindat-idx (+ bindat-idx ,len))) fun)
             (guard (not (macroexp--fgrep `((,val)) len))))
        ;; Optimize the case where the size of each element is constant.
-       `(cl-incf bindat-idx (* ,count ,len)))
+       `(incf bindat-idx (* ,count ,len)))
       ;; FIXME: It's tempting to use `(mapc (lambda (,val) ,exp) ,val)'
       ;; which would be more efficient when `val' is a list,
       ;; but that's only right if length of `val' is indeed `count'.
@@ -883,11 +883,11 @@ controlled in the following way:
 - If the list of fields is preceded with `:pack-var VAR' then the object to
   be packed is bound to VAR when evaluating the EXPs of `:pack-val'.
 
-All the above BITLEN, LEN, LE, COUNT, and EXP are ELisp expressions evaluated
+All the above BITLEN, LEN, LE, COUNT, and EXP are Elisp expressions evaluated
 in the current lexical context extended with the previous fields.
 
 TYPE can additionally be one of the Bindat type macros defined with
-`bindat-defmacro' (and listed below) or an ELisp expression which returns
+`bindat-defmacro' (and listed below) or an Elisp expression which returns
 a bindat type expression."
   (declare (indent 0) (debug (bindat-type)))
   `(progn

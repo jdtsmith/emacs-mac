@@ -1,6 +1,6 @@
 ;;; em-unix-tests.el --- em-unix test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2023-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -30,8 +30,9 @@
   (defvar this-directory (file-name-directory
                           (or load-file-name default-directory))))
 
+(require 'ert-x)
 (require 'eshell-tests-helpers
-         (expand-file-name "eshell-tests-helpers" this-directory))
+         (ert-resource-file "eshell-tests-helpers"))
 
 ;;; Tests:
 

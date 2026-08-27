@@ -1,5 +1,5 @@
 /* GNU Emacs routines to deal with syntax tables; also word and list parsing.
-   Copyright (C) 1985, 1987, 1993-1995, 1997-1999, 2001-2025 Free
+   Copyright (C) 1985, 1987, 1993-1995, 1997-1999, 2001-2026 Free
    Software Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -235,6 +235,9 @@ SYNTAX_MATCH (int c)
   return CONSP (ent) ? XCDR (ent) : Qnil;
 }
 
+/* A "dummy" value we never dereference, distinct from NULL.  */
+#define uninitialized_interval ((INTERVAL) (intptr_t) 1)
+
 /* This should be called with FROM at the start of forward
    search, or after the last position of the backward search.  It
    makes sure that the first char is picked up with correct table, so
@@ -252,11 +255,14 @@ SETUP_SYNTAX_TABLE (ptrdiff_t from, ptrdiff_t count)
   gl_state.object = Qnil;
   if (parse_sexp_lookup_properties)
     {
+      gl_state.start = gl_state.b_property;
+      gl_state.stop = gl_state.e_property;
+      gl_state.backward_i = gl_state.forward_i = uninitialized_interval;
       if (count > 0)
-	update_syntax_table_forward (from, true, Qnil);
+	update_syntax_table_forward (from, Qnil);
       else if (from > BEGV)
 	{
-	  update_syntax_table (from - 1, count, true, Qnil);
+	  update_syntax_table (from - 1, count, Qnil);
 	  parse_sexp_propertize (from - 1);
 	}
     }
@@ -295,8 +301,14 @@ RE_SETUP_SYNTAX_TABLE_FOR_OBJECT (Lisp_Object object,
       gl_state.e_property = 1 + SCHARS (gl_state.object);
     }
   if (parse_sexp_lookup_properties)
-    update_syntax_table (RE_SYNTAX_TABLE_BYTE_TO_CHAR (frombyte),
-			 1, 1, gl_state.object);
+    {
+      gl_state.start = gl_state.b_property;
+      gl_state.stop = gl_state.e_property;
+      /* Don't cover any char, to make sure we'll call `update_syntax_table`
+       * the very next time we need the syntax of a character.  */
+      gl_state.e_property = gl_state.b_property;
+      gl_state.backward_i = gl_state.forward_i = uninitialized_interval;
+    }
 }
 
 /* Update gl_state to an appropriate interval which contains CHARPOS.  The
@@ -313,7 +325,7 @@ RE_SETUP_SYNTAX_TABLE_FOR_OBJECT (Lisp_Object object,
    start/end of OBJECT.  */
 
 void
-update_syntax_table (ptrdiff_t charpos, EMACS_INT count, bool init,
+update_syntax_table (ptrdiff_t charpos, EMACS_INT count,
 		     Lisp_Object object)
 {
   Lisp_Object tmp_table;
@@ -321,22 +333,26 @@ update_syntax_table (ptrdiff_t charpos, EMACS_INT count, bool init,
   bool invalidate = true;
   INTERVAL i;
 
-  if (init)
+  if (gl_state.backward_i == uninitialized_interval)
     {
+      eassert (gl_state.forward_i == uninitialized_interval);
       gl_state.old_prop = Qnil;
-      gl_state.start = gl_state.b_property;
-      gl_state.stop = gl_state.e_property;
       i = interval_of (charpos, object);
       gl_state.backward_i = gl_state.forward_i = i;
       invalidate = false;
       if (!i)
-	return;
-      i = gl_state.forward_i;
+	{
+	  gl_state.b_property = gl_state.start;
+	  gl_state.e_property = gl_state.stop;
+	  return;
+	}
       gl_state.b_property = i->position;
       gl_state.e_property = INTERVAL_LAST_POS (i);
     }
   else
     {
+      eassert (gl_state.backward_i != uninitialized_interval);
+      eassert (gl_state.forward_i  != uninitialized_interval);
       i = count > 0 ? gl_state.forward_i : gl_state.backward_i;
 
       /* We are guaranteed to be called with CHARPOS either in i,
@@ -489,13 +505,12 @@ parse_sexp_propertize (ptrdiff_t charpos)
 	 e_property_truncated, so the e_property_truncated flag may
 	 occasionally be left raised spuriously.  This should be rare.  */
       gl_state.e_property_truncated = false;
-      update_syntax_table_forward (charpos, false, Qnil);
+      update_syntax_table_forward (charpos, Qnil);
     }
 }
 
 void
-update_syntax_table_forward (ptrdiff_t charpos, bool init,
-			     Lisp_Object object)
+update_syntax_table_forward (ptrdiff_t charpos, Lisp_Object object)
 {
   if (gl_state.e_property_truncated)
     {
@@ -505,7 +520,7 @@ update_syntax_table_forward (ptrdiff_t charpos, bool init,
     }
   else
     {
-      update_syntax_table (charpos, 1, init, object);
+      update_syntax_table (charpos, 1, object);
       if (NILP (object) && gl_state.e_property > syntax_propertize__done)
 	parse_sexp_propertize (charpos);
     }
@@ -585,7 +600,7 @@ find_defun_start (ptrdiff_t pos, ptrdiff_t pos_byte)
   if (!NILP (Vcomment_use_syntax_ppss))
     {
       modiff_count modiffs = CHARS_MODIFF;
-      Lisp_Object ppss = call1 (Qsyntax_ppss, make_fixnum (pos));
+      Lisp_Object ppss = calln (Qsyntax_ppss, make_fixnum (pos));
       if (modiffs != CHARS_MODIFF)
 	error ("syntax-ppss modified the buffer!");
       TEMP_SET_PT_BOTH (opoint, opoint_byte);
@@ -1430,7 +1445,7 @@ DEFUN ("internal-describe-syntax-value", Finternal_describe_syntax_value,
     {
       AUTO_STRING (prefixdoc,
 		   ",\n\t  is a prefix character for `backward-prefix-chars'");
-      insert1 (call1 (Qsubstitute_command_keys, prefixdoc));
+      insert1 (calln (Qsubstitute_command_keys, prefixdoc));
     }
 
   return syntax;
@@ -1474,7 +1489,7 @@ scan_words (ptrdiff_t from, EMACS_INT count)
       func = CHAR_TABLE_REF (Vfind_word_boundary_function_table, ch0);
       if (! NILP (Ffboundp (func)))
 	{
-	  pos = call2 (func, make_fixnum (from - 1), make_fixnum (end));
+	  pos = calln (func, make_fixnum (from - 1), make_fixnum (end));
 	  if (FIXNUMP (pos) && from < XFIXNUM (pos) && XFIXNUM (pos) <= ZV)
 	    {
 	      from = XFIXNUM (pos);
@@ -1523,7 +1538,7 @@ scan_words (ptrdiff_t from, EMACS_INT count)
       func = CHAR_TABLE_REF (Vfind_word_boundary_function_table, ch1);
       if (! NILP (Ffboundp (func)))
  	{
-	  pos = call2 (func, make_fixnum (from), make_fixnum (beg));
+	  pos = calln (func, make_fixnum (from), make_fixnum (beg));
 	  if (FIXNUMP (pos) && BEGV <= XFIXNUM (pos) && XFIXNUM (pos) < from)
 	    {
 	      from = XFIXNUM (pos);
@@ -2187,7 +2202,7 @@ skip_syntaxes (bool forwardp, Lisp_Object string, Lisp_Object lim)
 	    while (!parse_sexp_lookup_properties
 		   || pos < gl_state.e_property);
 
-	    update_syntax_table_forward (pos, false, gl_state.object);
+	    update_syntax_table_forward (pos, gl_state.object);
 	  }
       }
     else
@@ -2433,6 +2448,9 @@ between them, return t; otherwise return nil.  */)
   EMACS_INT dummy;
   int dummy2;
   unsigned short int quit_count = 0;
+
+  if (!NILP (Vforward_comment_function))
+    return calln (Vforward_comment_function, count);
 
   CHECK_FIXNUM (count);
   count1 = XFIXNUM (count);
@@ -3739,9 +3757,9 @@ syms_of_syntax (void)
 
   DEFSYM (Qscan_error, "scan-error");
   Fput (Qscan_error, Qerror_conditions,
-	pure_list (Qscan_error, Qerror));
+	list (Qscan_error, Qerror));
   Fput (Qscan_error, Qerror_message,
-	build_pure_c_string ("Scan error"));
+	build_string ("Scan error"));
 
   DEFVAR_BOOL ("parse-sexp-ignore-comments", parse_sexp_ignore_comments,
 	       doc: /* Non-nil means `forward-sexp', etc., should treat comments as whitespace.  */);
@@ -3795,6 +3813,11 @@ In both cases, LIMIT bounds the search. */);
   comment_end_can_be_escaped = false;
   DEFSYM (Qcomment_end_can_be_escaped, "comment-end-can-be-escaped");
   Fmake_variable_buffer_local (Qcomment_end_can_be_escaped);
+
+  DEFVAR_LISP ("forward-comment-function", Vforward_comment_function,
+	       doc: /* If non-nil, `forward-comment' delegates to this function.
+Should take the same arguments and behave similarly to `forward-comment'.  */);
+  Vforward_comment_function = Qnil;
 
   defsubr (&Ssyntax_table_p);
   defsubr (&Ssyntax_table);

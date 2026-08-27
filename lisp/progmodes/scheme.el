@@ -1,6 +1,6 @@
 ;;; scheme.el --- Scheme (and DSSSL) editing mode    -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1986-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
 ;; Author: Bill Rozas <jinx@martigny.ai.mit.edu>
 ;; Adapted-by: Dave Love <d.love@dl.ac.uk>
@@ -201,7 +201,9 @@
            scheme-font-lock-keywords-1 scheme-font-lock-keywords-2)
           nil t (("+-*/.<>=!?$%_&~^:" . "w") (?#. "w 14"))
           beginning-of-defun
-          (font-lock-mark-block-function . mark-defun)))
+          (font-lock-mark-block-function . mark-defun)
+	  (font-lock-syntactic-face-function
+	   . lisp-font-lock-syntactic-face-function)))
   (setq-local prettify-symbols-alist lisp-prettify-symbols-alist)
   (setq-local lisp-doc-string-elt-property 'scheme-doc-string-elt))
 
@@ -681,9 +683,14 @@ indentation."
 (put 'define-values 'scheme-indent-function 1)
 (put 'define-record-type 'scheme-indent-function 1) ;; is 1 correct?
 (put 'define-library 'scheme-indent-function 1)
+(put 'guard 'scheme-indent-function 1)
 
 ;; SRFI-8
 (put 'receive 'scheme-indent-function 2)
+
+;; SRFI 64
+(put 'test-group 'scheme-indent-function 1)
+(put 'test-group-with-cleanup 'scheme-indent-function 1)
 
 ;; SRFI-204 (withdrawn, but provided in many implementations, see the SRFI text)
 (put 'match 'scheme-indent-function 1)
@@ -692,6 +699,19 @@ indentation."
 (put 'match-let 'scheme-indent-function 'scheme-let-indent)
 (put 'match-let* 'scheme-indent-function 1)
 (put 'match-letrec 'scheme-indent-function 1)
+
+;; SRFI-227
+(put 'opt-lambda 'scheme-indent-function 1)
+(put 'opt*-lambda 'scheme-indent-function 1)
+(put 'let-optionals 'scheme-indent-function 2)
+(put 'let-optionals* 'scheme-indent-function 2)
+;; define-optionals and define-optionals* already work
+
+;; SRFI-253
+(put 'check-case 'scheme-indent-function 1)
+(put 'lambda-checked 'scheme-indent-function 1)
+(put 'case-lambda-checked 'scheme-doc-string-elt 1)
+;; define-checked and define-record-type-checked already work
 
 ;;;; MIT Scheme specific indentation.
 

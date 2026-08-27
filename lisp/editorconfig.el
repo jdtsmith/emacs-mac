@@ -1,6 +1,6 @@
 ;;; editorconfig.el --- EditorConfig Plugin  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2011-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2026 Free Software Foundation, Inc.
 
 ;; Author: EditorConfig Team <editorconfig@googlegroups.com>
 ;; Version: 0.11.0
@@ -127,33 +127,17 @@ This hook will be run even when there are no matching sections in
   "0.5")
 (defcustom editorconfig-indentation-alist
   ;; For contributors: Sort modes in alphabetical order
-  '((apache-mode apache-indent-level)
-    (awk-mode c-basic-offset)
+  '((awk-mode c-basic-offset)
     (bash-ts-mode sh-basic-offset)
     (bpftrace-mode c-basic-offset)
     (c++-mode c-basic-offset)
-    (c++-ts-mode c-basic-offset
-                 c-ts-mode-indent-offset)
-    (c-mode c-basic-offset)
-    (c-ts-mode c-basic-offset
-               c-ts-mode-indent-offset)
     (cmake-mode cmake-tab-width)
-    (cmake-ts-mode cmake-tab-width
-                   cmake-ts-mode-indent-offset)
     (coffee-mode coffee-tab-width)
-    (cperl-mode cperl-indent-level)
-    (crystal-mode crystal-indent-level)
     (csharp-mode c-basic-offset)
-    (csharp-ts-mode c-basic-offset
-                    csharp-ts-mode-indent-offset)
-    (css-mode css-indent-offset)
     (css-ts-mode css-indent-offset)
     (d-mode c-basic-offset)
     (elixir-ts-mode elixir-ts-indent-offset)
     (emacs-lisp-mode . editorconfig--get-indentation-lisp-mode)
-    (enh-ruby-mode enh-ruby-indent-level)
-    (erlang-mode erlang-indent-level)
-    (ess-mode ess-indent-offset)
     (f90-mode f90-associate-indent
               f90-continuation-indent
               f90-critical-indent
@@ -166,10 +150,6 @@ This hook will be run even when there are no matching sections in
     (fsharp-mode fsharp-continuation-offset
                  fsharp-indent-level
                  fsharp-indent-offset)
-    (gdscript-mode gdscript-indent-offset)
-    (go-ts-mode go-ts-mode-indent-offset)
-    (graphql-mode graphql-indent-level)
-    (groovy-mode groovy-indent-offset)
     (haskell-mode haskell-indent-spaces
                   haskell-indent-offset
                   haskell-indentation-layout-offset
@@ -179,76 +159,43 @@ This hook will be run even when there are no matching sections in
                   haskell-indentation-where-pre-offset
                   shm-indent-spaces)
     (haxor-mode haxor-tab-width)
-    (hcl-mode hcl-indent-level)
-    (html-ts-mode html-ts-mode-indent-offset)
     (idl-mode c-basic-offset)
     (jade-mode jade-tab-width)
     (java-mode c-basic-offset)
-    (java-ts-mode c-basic-offset
-                  java-ts-mode-indent-offset)
-    (js-mode js-indent-level)
     (js-ts-mode js-indent-level)
     (js-jsx-mode js-indent-level sgml-basic-offset)
-    (js2-mode js2-basic-offset)
     (js2-jsx-mode js2-basic-offset sgml-basic-offset)
-    (js3-mode js3-indent-level)
     (json-mode js-indent-level)
-    (json-ts-mode json-ts-mode-indent-offset)
     (jsonian-mode jsonian-default-indentation)
-    (julia-mode julia-indent-offset)
     (kotlin-mode kotlin-tab-width)
-    (kotlin-ts-mode kotlin-ts-mode-indent-offset)
     (latex-mode . editorconfig--get-indentation-latex-mode)
     (lisp-mode . editorconfig--get-indentation-lisp-mode)
     (livescript-mode livescript-tab-width)
-    (lua-mode lua-indent-level)
-    (lua-ts-mode lua-ts-indent-offset)
-    (magik-mode magik-indent-level)
     (magik-ts-mode magik-indent-level)
-    (matlab-mode matlab-indent-level)
     (meson-mode meson-indent-basic)
     (mips-mode mips-tab-width)
-    (mustache-mode mustache-basic-offset)
-    (nasm-mode nasm-basic-offset)
-    (nginx-mode nginx-indent-level)
     (nxml-mode . editorconfig--get-indentation-nxml-mode)
     (objc-mode c-basic-offset)
     (octave-mode octave-block-offset)
-    (perl-mode perl-indent-level)
     ;; No need to change `php-mode-coding-style' value for php-mode
     ;; since we run editorconfig later than it resets `c-basic-offset'.
     ;; See https://github.com/editorconfig/editorconfig-emacs/issues/116
     ;; for details.
     (php-mode c-basic-offset)
-    (php-ts-mode php-ts-mode-indent-offset)
     (pike-mode c-basic-offset)
     (protobuf-mode c-basic-offset)
     (ps-mode ps-mode-tab)
     (pug-mode pug-tab-width)
-    (puppet-mode puppet-indent-level)
     (python-mode . editorconfig--get-indentation-python-mode)
     (python-ts-mode . editorconfig--get-indentation-python-mode)
     (rjsx-mode js-indent-level sgml-basic-offset)
-    (ruby-mode ruby-indent-level)
     (ruby-ts-mode ruby-indent-level)
-    (rust-mode rust-indent-offset)
-    (rust-ts-mode rust-indent-offset
-                  rust-ts-mode-indent-offset)
-    (rustic-mode rustic-indent-offset)
     (scala-mode scala-indent:step)
     (scss-mode css-indent-offset)
-    (sgml-mode sgml-basic-offset)
-    (sh-mode sh-basic-offset)
-    (slim-mode slim-indent-offset)
-    (sml-mode sml-indent-level)
-    (svelte-mode svelte-basic-offset)
     (swift-mode swift-mode:basic-offset)
-    (terra-mode terra-indent-level)
     (tcl-mode tcl-indent-level
               tcl-continued-indent-level)
-    (toml-ts-mode toml-ts-mode-indent-offset)
-    (typescript-mode typescript-indent-level)
-    (typescript-ts-base-mode typescript-ts-mode-indent-offset)
+    (typescript-ts-base-mode typescript-ts-indent-offset)
     (verilog-mode verilog-indent-level
                   verilog-indent-level-behavioral
                   verilog-indent-level-declaration
@@ -256,9 +203,7 @@ This hook will be run even when there are no matching sections in
                   verilog-cexp-indent
                   verilog-case-indent)
     (web-mode . editorconfig--get-indentation-web-mode)
-    (yaml-mode yaml-indent-offset)
     (yaml-ts-mode yaml-indent-offset)
-    (zig-mode zig-indent-offset)
     )
   "Alist of indentation setting methods by modes.
 
@@ -277,22 +222,17 @@ a list of settings in the form (VARIABLE . VALUE)."
   :version "30.1"
   :risky t)
 
-(defcustom editorconfig-trim-whitespaces-mode nil
+(defcustom editorconfig-trim-whitespaces-mode #'delete-trailing-whitespace-mode
   "Buffer local minor-mode to use to trim trailing whitespaces.
 
 If set, enable that mode when `trim_trailing_whitespace` is set to true.
 Otherwise, use `delete-trailing-whitespace'."
   :version "30.1"
-  :type 'symbol)
+  :type 'function)
 
-(defvar editorconfig-properties-hash nil
-  "Hash object of EditorConfig properties that was enabled for current buffer.
-Set by `editorconfig-apply' and nil if that is not invoked in
-current buffer yet.")
-(make-variable-buffer-local 'editorconfig-properties-hash)
-(put 'editorconfig-properties-hash
-     'permanent-local
-     t)
+(defvar-local editorconfig-properties-hash nil
+  "Hash object of EditorConfig properties that was enabled for current buffer.")
+(put 'editorconfig-properties-hash 'permanent-local t)
 
 (defvar editorconfig-lisp-use-default-indent nil
   "Selectively ignore the value of indent_size for Lisp files.
@@ -418,8 +358,7 @@ heuristic for those modes not found there."
                            (funcall rule size)
                          (mapcar (lambda (elem) `(,elem . ,size)) rule))))))
      ;; Fallback, let's try and guess.
-     (let ((suffixes '("-indent-level" "-basic-offset" "-indent-offset"
-                       "-block-offset"))
+     (let ((suffixes '("-indent-level" "-basic-offset" "-indent-offset"))
            (guess ()))
        (while (and parents (not guess))
          (let* ((mode (pop parents))
@@ -476,9 +415,7 @@ heuristic for those modes not found there."
 
 (defvar-local editorconfig--apply-coding-system-currently nil
   "Used internally.")
-(put 'editorconfig--apply-coding-system-currently
-     'permanent-local
-     t)
+(put 'editorconfig--apply-coding-system-currently 'permanent-local t)
 
 (defun editorconfig-merge-coding-systems (end-of-line charset)
   "Return merged coding system symbol of END-OF-LINE and CHARSET."
@@ -547,33 +484,17 @@ This function will revert buffer when the coding-system has been changed."
   "Call `delete-trailing-whitespace' unless the buffer is read-only."
   (unless buffer-read-only (delete-trailing-whitespace)))
 
-;; Arrange for our (eval . (add-hook ...)) "local var" to be considered safe.
-(defun editorconfig--add-hook-safe-p (exp)
-  (equal exp '(add-hook 'before-save-hook
-                        #'editorconfig--delete-trailing-whitespace nil t)))
-(let ((predicates (get 'add-hook 'safe-local-eval-function)))
-  (when (functionp predicates)
-    (setq predicates (list predicates)))
-  (unless (memq #'editorconfig--add-hook-safe-p predicates)
-    (put 'add-hook 'safe-local-eval-function #'editorconfig--add-hook-safe-p)))
-
 (defun editorconfig--get-trailing-ws (props)
   "Get vars to trim of trailing whitespace according to PROPS."
-  (pcase (gethash 'trim_trailing_whitespace props)
-    ("true"
-     `((eval
-        . ,(if editorconfig-trim-whitespaces-mode
-               `(,editorconfig-trim-whitespaces-mode 1)
-             '(add-hook 'before-save-hook
-                        #'editorconfig--delete-trailing-whitespace nil t)))))
-    ("false"
-     ;; Just do it right away rather than return a (VAR . VAL), which
-     ;; would be probably more trouble than it's worth.
-     (when editorconfig-trim-whitespaces-mode
-       (funcall editorconfig-trim-whitespaces-mode 0))
-     (remove-hook 'before-save-hook
-                  #'editorconfig--delete-trailing-whitespace t)
-     nil)))
+  (let ((fun (or editorconfig-trim-whitespaces-mode
+                 #'delete-trailing-whitespace-mode)))
+    (pcase (gethash 'trim_trailing_whitespace props)
+      ("true" `((eval . (,fun 1))))
+      ("false"
+       ;; Just do it right away rather than return a (VAR . VAL), which
+       ;; would be probably more trouble than it's worth.
+       (funcall fun 0)
+       nil))))
 
 (defun editorconfig--get-line-length (props)
   "Get the max line length (`fill-column') to PROPS."
@@ -584,9 +505,7 @@ This function will revert buffer when the coding-system has been changed."
 
 (defun editorconfig-call-get-properties-function (filename)
   "Call `editorconfig-core-get-properties-hash' with FILENAME and return result.
-
-This function also removes `unset' properties and calls
-`editorconfig-hack-properties-functions'."
+This function also removes `unset' properties."
   (if (stringp filename)
       (setq filename (expand-file-name filename))
     (editorconfig-error "Invalid argument: %S" filename))
@@ -598,6 +517,12 @@ This function also removes `unset' properties and calls
                            err)))
     (cl-loop for k being the hash-keys of props using (hash-values v)
              when (equal v "unset") do (remhash k props))
+    ;; E.g. for `editorconfig-display-current-properties'.
+    ;; FIXME: Use it for memoization as well to avoid the duplicate
+    ;; calls to `editorconfig-core-get-properties-hash' (one for
+    ;; `editorconfig--get-coding-system' and one for
+    ;; `editorconfig--get-dir-local-variables')?
+    (setq editorconfig-properties-hash props)
     props))
 
 (defvar editorconfig-get-local-variables-functions
@@ -609,7 +534,7 @@ This function also removes `unset' properties and calls
 Every function is called with one argument, a hash-table indexed by
 EditorConfig settings represented as symbols and whose corresponding value
 is represented as a string.  It should return a list of (VAR . VAL) settings
-where VAR is an ELisp variable and VAL is the value to which it should be set.")
+where VAR is a Lisp variable and VAL is the value to which it should be set.")
 
 (defun editorconfig--get-local-variables (props)
   "Get variables settings according to EditorConfig PROPS."
@@ -713,24 +638,29 @@ F is that function, and FILENAME and ARGS are arguments passed to F."
   "Return the coding system to use according to EditorConfig.
 Meant to be used on `auto-coding-functions'."
   (defvar auto-coding-file-name) ;; Emacs≥30
-  (when (and (stringp auto-coding-file-name)
-             (file-name-absolute-p auto-coding-file-name)
-	     ;; Don't recurse infinitely.
-	     (not (member auto-coding-file-name
-	                  editorconfig--getting-coding-system)))
-    (let* ((editorconfig--getting-coding-system
-            (cons auto-coding-file-name editorconfig--getting-coding-system))
-           (props (editorconfig-call-get-properties-function
-                   auto-coding-file-name)))
-      (editorconfig-merge-coding-systems (gethash 'end_of_line props)
-                                         (gethash 'charset props)))))
+  ;; Not only we don't want that an error in the `.editorconfig' file
+  ;; prevents opening a file but we don't want an error to be dropped on
+  ;; the floor by some `ignore-errors' higher up.
+  (with-demoted-errors "EditorConfig: %S"
+    (when (and (stringp auto-coding-file-name)
+               (file-name-absolute-p auto-coding-file-name)
+	       ;; Don't recurse infinitely.
+	       (not (member auto-coding-file-name
+	                    editorconfig--getting-coding-system)))
+      (let* ((editorconfig--getting-coding-system
+              (cons auto-coding-file-name editorconfig--getting-coding-system))
+             (props (editorconfig-call-get-properties-function
+                     auto-coding-file-name)))
+        (editorconfig-merge-coding-systems (gethash 'end_of_line props)
+                                           (gethash 'charset props))))))
 
 (defun editorconfig--get-dir-local-variables ()
   "Return the directory local variables specified via EditorConfig.
 Meant to be used on `hack-dir-local-get-variables-functions'."
   (when (stringp buffer-file-name)
     (let* ((props (editorconfig-call-get-properties-function buffer-file-name))
-           (alist (editorconfig--get-local-variables props)))
+           (alist (if (< 0 (hash-table-count props))
+                      (editorconfig--get-local-variables props))))
       ;; FIXME: If there's `/foo/.editorconfig', `/foo/bar/.dir-locals.el',
       ;; and `/foo/bar/baz/.editorconfig', it would be nice to return two
       ;; pairs here, so that hack-dir-local can give different priorities

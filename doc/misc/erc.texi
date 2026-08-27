@@ -2,7 +2,8 @@
 @c %**start of header
 @setfilename ../../info/erc.info
 @settitle ERC Manual
-@set ERCVER 5.6.0.30.1
+@documentlanguage en
+@set ERCVER 5.6.2.31.1
 @set ERCDIST as distributed with Emacs @value{EMACSVER}
 @include docstyle.texi
 @syncodeindex fn cp
@@ -12,7 +13,7 @@
 @copying
 This manual is for ERC @value{ERCVER} @value{ERCDIST}.
 
-Copyright @copyright{} 2005--2025 Free Software Foundation, Inc.
+Copyright @copyright{} 2005--2026 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -452,7 +453,7 @@ Buttonize URLs, nicknames, and other text
 Mark unidentified users on freenode and other servers supporting CAPAB.
 
 @cindex modules, command-indicator
-@item command-indicator
+@item command-indicator (local)
 Echo command lines for ``slash commands'', like @kbd{/JOIN #erc} and
 @kbd{/HELP join}
 
@@ -494,7 +495,7 @@ Display a menu in ERC buffers
 Detect netsplits
 
 @cindex modules, nicks
-@item nicks
+@item nicks (local)
 Automatically colorize nicks
 
 @cindex modules, nickbar
@@ -519,10 +520,6 @@ or your nickname is mentioned
 @item page
 Process CTCP PAGE requests from IRC
 
-@cindex modules, querypoll
-@item querypoll
-Update query participant data by continually polling the server
-
 @cindex modules, readonly
 @item readonly
 Make displayed lines read-only
@@ -536,7 +533,7 @@ Replace text in messages
 Enable an input history
 
 @cindex modules, sasl
-@item sasl
+@item sasl (local)
 Enable SASL authentication
 
 @cindex modules, scrolltobottom
@@ -583,22 +580,26 @@ Translate morse code in messages
 
 For various reasons, the following modules aren't currently listed in
 the Custom interface for @code{erc-modules}, but feel free to add them
-explicitly.  They may be managed by another module or considered more
-useful when toggled interactively or just deemed experimental.
+explicitly.  They may be managed by another module or just deemed too
+niche or experimental.
 
 @table @code
 
 @cindex modules, fill-wrap
-@item fill-wrap
+@item fill-wrap (local)
 Wrap long lines using @code{visual-line-mode}
 
 @cindex modules, keep-place-indicator
-@item keep-place-indicator
+@item keep-place-indicator (local)
 Remember your place in buffers with a visible reminder; activated
 interactively or via something like @code{erc-join-hook}
 
+@cindex modules, querypoll
+@item querypoll (local)
+Update query participant data by continually polling the server
+
 @cindex modules, services-regain
-@item services-regain
+@item services-regain (local)
 Automatically ask NickServ to reclaim your nick when reconnecting;
 experimental as of ERC 5.6
 
@@ -618,51 +619,84 @@ always loads anyway.
 @subheading Local Modules
 @cindex local modules
 
-All modules operate as minor modes under the hood, and some newer ones
-may be defined as buffer-local.  These so-called ``local modules'' are
-a work in progress and their behavior and interface are subject to
-change.  As of ERC 5.5, the only practical differences are as follows:
+@c Earlier language in code comments, commit messages, and tracker
+@c discussions used to describe a local module as being "active" in a
+@c buffer if it had a local binding but "disabled" if that binding's
+@c value was nil.  For better or worse, ERC has since abandoned that
+@c distinction and now considers "active" to be synonymous with
+@c "enabled".
+
+All modules operate as minor modes under the hood, and newer ones are
+mostly defined as buffer-local.  These so-called @dfn{local modules} are
+a work in progress, and their behavior and interface are subject to
+change.  As of ERC 5.6, the only practical differences are as follows:
 
 @enumerate
 @item
-``Control variables,'' like @code{erc-sasl-mode}, retain their values
-across IRC sessions and override @code{erc-module} membership when
-influencing module activation.
+@dfn{Mode variables}, a.k.a. @dfn{control variables}, like
+@code{erc-sasl-mode}, retain their values across IRC sessions.
 @item
 Removing a local module from @code{erc-modules} via Customize not only
-disables its mode but also kills its control variable in all ERC
-buffers.
+disables its mode but also kills its mode variable in all ERC buffers.
 @item
-``Mode toggles,'' like @code{erc-sasl-mode} and the complementary
-@code{erc-sasl-enable}/@code{erc-sasl-disable} pairing, behave
-differently than their global counterparts.
+@dfn{Mode commands}, like @code{erc-sasl-mode} and its one-way variants
+@code{erc-sasl-enable} and @code{erc-sasl-disable}, behave differently
+than their global counterparts.
 @end enumerate
 
-In target buffers, a local module's activation state survives
-``reassociation'' by default, but modules themselves always have the
-final say.  For example, a module may reset all instances of itself in
-its network context upon reconnecting.  Moreover, the value of a mode
-variable may be meaningless in buffers that its module has no interest
-in.  For example, the value of @code{erc-sasl-mode} doesn't matter in
-target buffers and may even remain non-@code{nil} after SASL has been
-disabled for the current connection (and vice versa).
+To detect whether a module is local, examine its mode variable.  For
+example, if you run @kbd{C-h v erc-sasl-mode @key{RET}}, you'll notice
+it says ``Automatically becomes buffer-local when set''.  You can do the
+same in Lisp code with @code{(local-variable-if-set-p 'erc-sasl-mode)}.
 
-When it comes to server buffers, a module's activation state only
-persists for sessions revived via the automatic reconnection mechanism
-or a manual @samp{/reconnect} issued at the prompt.  In other words,
-this doesn't apply to sessions revived by an entry-point command, such
-as @code{erc-tls}, because such commands always ensure a clean slate
-by looking only to @code{erc-modules}.  Although a session revived in
-this manner may indeed harvest other information from a previous
-server buffer, it simply doesn't care which modules might have been
-active during that connection.
+In an ERC buffer, a local module is either enabled or disabled if its
+mode variable has a local binding.  This @dfn{activation state} may
+contradict a module's presence in @code{erc-modules}, namely, in buffers
+where it isn't applicable or has otherwise been disabled.  In fact, a
+local module's membership in @code{erc-modules} does nothing more than
+guarantee
 
-Lastly, a local mode's toggle command, like @code{erc-sasl-mode}, only
-affects the current buffer, but its ``non-mode'' cousins, like
+@enumerate
+@item
+its setup code runs in @emph{new} buffers
+@item
+its mode variable has a local binding in all affected buffers
+@end enumerate
+
+In keeping with this, all built-in local modules disable themselves in
+inapplicable buffers rather than remain no-ops.  Some also take strides
+to enable themselves elsewhere when needed or at least emit a helpful
+error.  For example, the @samp{nicks} module does both in server
+buffers, where it shares resources among the target buffers it primarily
+services.  ERC expects third-party local modules to mimic this pattern
+and to document what buffer types they operate in: server, query, or
+channel.  (In the case of @samp{nicks}, it would be all three: it's
+@dfn{session-local}.)
+
+In ERC, you can think of an IRC session as a group of buffers sharing
+the same connection to a server.  After a connection ends, this
+association endures so that ERC can revive the session when
+reconnecting.  As it does with connection parameters, ERC therefore
+persists a local module's activation state through reconnections,
+reenabling modules that were previously active while ensuring others are
+disabled.  A couple related things to note here are
+
+@enumerate
+@item
+each module must manage its own application data and restore or reset
+its environment accordingly
+@item
+session persistence is less predictable if a user changes the makeup of
+@code{erc-modules} between sessions
+@end enumerate
+
+When it comes to a local module's various activation commands, the
+primary mode command, like @code{erc-sasl-mode}, for example, only
+affects the current buffer, but its unidirectional cousins, like
 @code{erc-sasl-enable} and @code{erc-sasl-disable}, operate on all
-buffers belonging to their connection (when called interactively).
-And unlike global toggles, none of these ever mutates
-@code{erc-modules}.
+buffers belonging to their connection (when called interactively).  And
+unlike global toggles, none of these ever mutates @code{erc-modules}.
+
 
 @c FIXME add section to Advanced chapter for creating modules, and
 @c move this there.
@@ -833,15 +867,15 @@ Examples of use:
 @example
 (erc-tls :server "irc.libera.chat" :port 6697
          :client-certificate
-         '("/home/bandali/my-cert.key"
-           "/home/bandali/my-cert.crt"))
+         (list (expand-file-name "~/key.pem")
+               (expand-file-name "~/cert.pem")))
 @end example
 
 @example
 (erc-tls :server "irc.libera.chat" :port 6697
          :client-certificate
-         `(,(expand-file-name "~/cert-libera.key")
-           ,(expand-file-name "~/cert-libera.crt")))
+         '("/home/bandali/libera.pem"
+           "/home/bandali/libera.pem")) ; same file
 @end example
 
 @example
@@ -849,16 +883,23 @@ Examples of use:
          :client-certificate t)
 @end example
 
+Make sure to use absolute file names for the key and the cert.  The
+files themselves must be in @acronym{PEM}-encoded text format and can be
+concatenated into a single file.
+
 In the case of @code{:client-certificate t}, you will need to add a
 line like the following to your authinfo file
 (for example, @file{~/.authinfo.gpg}):
 
 @example
-machine irc.libera.chat key /home/bandali/my-cert.key cert /home/bandali/my-cert.crt
+machine irc.libera.chat key /home/bandali/key.pem cert /home/bandali/cert.pem
 @end example
 
 @xref{Help for users,,,auth, Emacs auth-source Library}, for more on the
 @file{.authinfo}/@file{.netrc} backend of @code{auth-source}.
+If you invoke @code{erc-tls} interactively and need ERC to query
+auth-source for a client cert, see the user option
+@code{network-stream-use-client-certificates}.
 For other uses of auth-source throughout ERC, @pxref{auth-source,
 ERC's auth-source integration}.
 @end defun
@@ -1211,7 +1252,7 @@ External
 
 (erc-tls :server "irc.libera.chat" :port 6697 :nick "aph"
          :client-certificate
-         '("/home/aph/my.key" "/home/aph/my.crt"))
+         '("/home/aph/key.pem" "/home/aph/cert.pem"))
 @end lisp
 
 You decide to switch things up and try out the @samp{EXTERNAL}
@@ -1225,7 +1266,7 @@ Multiple networks
 @example
 # ~/.authinfo.gpg
 
-machine irc.libera.chat key /home/aph/my.key cert /home/aph/my.crt
+machine irc.libera.chat key /home/aph/key.pem cert /home/aph/cert.pem
 machine Example.Net login alyssa password sEcReT
 machine Example.Net login aph-bot password sesame
 @end example
@@ -1340,8 +1381,7 @@ settings (@pxref{Sample configuration via Customize}).
   ;; Scroll all windows to prompt when submitting input.
   (erc-scrolltobottom-all t)
 
-  ;; Reconnect automatically using a fancy strategy.
-  (erc-server-reconnect-function #'erc-server-delayed-check-reconnect)
+  ;; Wait a bit longer between automatic reconnect attempts.
   (erc-server-reconnect-timeout 30)
 
   ;; Show new buffers in the current window instead of a split.
@@ -1372,6 +1412,13 @@ settings (@pxref{Sample configuration via Customize}).
   (erc-fill-static-center 18)
 
   :bind (:map erc-fill-wrap-mode-map ("C-c =" . #'erc-fill-wrap-nudge)))
+
+(use-package erc-match
+  ;; Use the same face for my own nick wherever it appears.
+  :custom-face
+  (erc-current-nick-face ((t ( :weight unspecified
+                               :foreground unspecified
+                               :inherit erc-my-nick-face)))))
 
 (use-package erc-track
   ;; Prevent JOINs and PARTs from lighting up the mode-line.
@@ -1437,30 +1484,18 @@ descriptions just in case you want to disable them later.  When
 finished, hit @kbd{C-x C-s} or click @samp{[Apply and Save]} atop the
 buffer.
 
-Now do the same for another couple options, this time having to do
-with automatic reconnection.  But instead of searching for their print
-names, try running @kbd{M-x customize-option @key{RET} @samp{<option>}
-@key{RET}}, replacing @samp{<option>} with:
+Now do the same for another option, this time having to do with
+automatic reconnection.  But instead of searching for its print name,
+try running @kbd{M-x customize-option @key{RET}
+erc-server-reconnect-timeout @key{RET}}.  (If it helps, hit @key{TAB}
+for completion.)  As you may have noticed, when customizing options
+individually, each buffer displays but a single option's widget.  For
+@code{erc-server-reconnect-timeout}, you'll encounter a text field
+(instead of a button), which works like those in a typical web form.
+Enter @samp{30} and either hit @kbd{C-x C-s} to save or @key{TAB} over
+to @samp{[State]} and hit @key{RET} followed by @kbd{1} to persist your
+changes.
 
-@itemize @bullet
-@item @code{erc-server-reconnect-function}, a function
-@item @code{erc-server-reconnect-timeout}, a number
-@end itemize
-
-@noindent
-(If it helps, hit @key{TAB} for completion.)  As you may have noticed,
-when customizing options individually, each buffer displays but a
-single option's widget.  When you get to the buffer for ``Erc Server
-Reconnect Function'', you'll see that @samp{[Toggle]} has been
-replaced with @samp{[Value Menu]} and that clicking it reveals three
-choices in a pop-up window.  Enter @kbd{1} to select
-@code{erc-server-delayed-check-reconnect} before @key{TAB}'ing over to
-@samp{[State]} and hitting @key{RET}.  Enter @kbd{1} again, this time
-to persists your changes.
-
-For the final option, @code{erc-server-reconnect-timeout}, you'll
-encounter a text field (instead of a button), which works like those
-in a typical web form.  Enter @samp{30} and hit @kbd{C-x C-s} to save.
 Just for fun, click the group link for @samp{Erc Server} at the bottom
 of the buffer.  You could just as well have set the last two options
 from this ``custom group'' buffer alone, which very much resembles the
@@ -1552,6 +1587,18 @@ function @code{erc-fill-wrap-nudge} in the minor-mode keymap
 @code{erc-fill-wrap-mode-map} (hint: the minor mode's hook is called
 @code{erc-fill-wrap-mode-hook}, and it's not a member of any
 customization group).
+
+Try customizing another face, this time with inheritance.  ERC's match
+module highlights your nick whenever someone mentions you in
+conversation.  However, some users don't like that this face differs
+from the one in your own messages.  Let's change that.  Type @kbd{M-x
+customize-group @key{RET} erc-faces @key{RET}}.  Either search for the
+word ``Current'' or type @kbd{M-x customize-face @key{RET}
+erc-current-nick-face @key{RET}}.  Untick @samp{Weight} and
+@samp{Foreground}, then click the ``Show All Attributes'' button below
+them.  Navigate down to the @samp{Inherit} box, tick it, hit
+@samp{[INS]}, and type @code{erc-my-nick-face} in the @samp{Face} field.
+Hit @kbd{C-x C-s} to save.
 
 ERC users tend to be picky about the mode line.  If you find that
 you'd rather not see changes when people join and leave channels,
@@ -1661,6 +1708,8 @@ shown in the following example:
         (socks-server '("tor" "localhost" 9050 5)))
     (apply #'erc-open-socks-tls-stream args)))
 
+(setopt erc-server-reconnect-function #'erc-server-delayed-check-reconnect)
+
 (let* ((erc-modules (cons 'sasl erc-modules))
        (erc-sasl-mechanism 'external)
        (erc-server-connect-function #'my-erc-open-socks-tls-stream))
@@ -1680,6 +1729,18 @@ available when reconnecting.  If you plan on using @acronym{SOCKS}
 with ERC exclusively, you can just set those options and variables
 globally and bind @code{erc-server-connect-function} to
 @code{erc-open-socks-tls-stream} instead.
+
+@defun erc-open-socks-tls-stream
+The default TLS @dfn{connector} for @acronym{SOCKS} connections.
+Compatible with option @code{erc-server-connect-function}.  Be aware
+that if used in conjunction with certain values of
+@code{erc-server-reconnect-function} (such as
+@code{erc-server-prefer-check-reconnect}, currently the default
+@dfn{reconnector}, or @code{erc-server-delayed-check-reconnect}, the
+more specialized workhorse it defers to), this function may cause ERC to
+misreport proxy-related failures as routine lapses in internet
+connectivity.
+@end defun
 
 @node auth-source
 @subsection auth-source
@@ -1896,8 +1957,8 @@ interactve contexts covered by the option
 @lisp
 (defun my-erc-interactive-display-buffer (buffer action)
   "Pop to BUFFER when running \\[erc-tls], clicking a link, etc."
-  (when-let ((alist (cdr action))
-             (found (alist-get 'erc-interactive-display alist)))
+  (when-let* ((alist (cdr action))
+              (found (alist-get 'erc-interactive-display alist)))
     (if (eq found 'erc-tls)
         (pop-to-buffer-same-window buffer action)
       (pop-to-buffer buffer action))))

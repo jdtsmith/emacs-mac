@@ -1,6 +1,6 @@
 ;;; prog-mode.el --- Generic major mode for programming  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2013-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2026 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: internal
@@ -30,14 +30,7 @@
 ;;; Code:
 
 (eval-when-compile (require 'cl-lib)
-                   (require 'subr-x)
-                   (require 'treesit))
-
-(declare-function treesit-available-p "treesit.c")
-(declare-function treesit-parser-list "treesit.c")
-(declare-function treesit-node-type "treesit.c")
-(declare-function treesit-node-at "treesit.c")
-(declare-function treesit-node-match-p "treesit.c")
+                   (require 'subr-x))
 
 (defgroup prog-mode nil
   "Generic programming mode, from which others derive."
@@ -148,29 +141,61 @@ instead."
 	  (end (progn (forward-sexp 1) (point))))
       (indent-region start end nil))))
 
-(defun prog-fill-reindent-defun (&optional argument)
+(defun prog--text-at-point-p ()
+  "Return non-nil if point is in text (comment or string)."
+  ;; FIXME: For some reason, the comment-start syntax regexp doesn't
+  ;; work for me.  But I kept it around to be safe, and in the hope
+  ;; that it can cover cases where comment-start-skip is unset.
+  (or (nth 8 (syntax-ppss))
+      ;; If point is at the beginning of a comment delimiter,
+      ;; syntax-ppss doesn't consider point as being inside a
+      ;; comment.
+      (save-excursion
+        (beginning-of-line)
+        (and comment-start-skip
+             ;; FIXME: This doesn't work for the case where there
+             ;; are two matches of comment-start-skip, and the
+             ;; first one is, say, inside a string.  We need to
+             ;; call re-search-forward repeatedly until either
+             ;; reached EOL or (nth 4 (syntax-ppss)) returns
+             ;; non-nil.
+             (re-search-forward comment-start-skip (pos-eol) t)
+             (nth 8 (syntax-ppss))))
+      (save-excursion
+        (beginning-of-line)
+        (and (re-search-forward "\\s-*\\s<" (line-end-position) t)
+             (nth 8 (syntax-ppss))))))
+
+(defvar prog-fill-reindent-defun-function
+  #'prog-fill-reindent-defun-default
+  "Function called by `prog-fill-reindent-defun' to do the actual work.
+It should take the same argument as `prog-fill-reindent-defun'.")
+
+(defun prog-fill-reindent-defun-default (&optional justify)
+  "Default implementation of `prog-fill-reindent-defun'.
+JUSTIFY is the same as in `fill-paragraph'."
+  (interactive "P")
+  (save-excursion
+    (if (prog--text-at-point-p)
+        (fill-paragraph justify (region-active-p))
+      (beginning-of-defun)
+      (let ((start (point)))
+        (end-of-defun)
+        (indent-region start (point) nil)))))
+
+(defun prog-fill-reindent-defun (&optional justify)
   "Refill or reindent the paragraph or defun that contains point.
 
 If the point is in a string or a comment, fill the paragraph that
 contains point or follows point.
 
 Otherwise, reindent the function definition that contains point
-or follows point."
+or follows point.
+
+If JUSTIFY is non-nil (interactively, with prefix argument), justify as
+well."
   (interactive "P")
-  (save-excursion
-    (let ((treesit-text-node
-           (and (treesit-available-p)
-                (treesit-parser-list)
-                (treesit-node-match-p
-                 (treesit-node-at (point)) 'text t))))
-      (if (or treesit-text-node
-              (nth 8 (syntax-ppss))
-              (re-search-forward "\\s-*\\s<" (line-end-position) t))
-          (fill-paragraph argument (region-active-p))
-        (beginning-of-defun)
-        (let ((start (point)))
-          (end-of-defun)
-          (indent-region start (point) nil))))))
+  (funcall prog-fill-reindent-defun-function justify))
 
 (defun prog-first-column ()
   "Return the indentation column normally used for top-level constructs."
@@ -232,10 +257,37 @@ Regexp match data 0 specifies the characters to be composed."
   ;; Return nil because we're not adding any face property.
   nil)
 
+(defun prettify-symbols--composition-displayable-p (composition)
+  "Return non-nil if COMPOSITION can be displayed with the current fonts.
+COMPOSITION can be a single character, a string, or a sequence (vector or
+list) of characters and composition rules as described in the documentation
+of `prettify-symbols-alist' and `compose-region'."
+  (cond
+   ((characterp composition)
+    (char-displayable-on-frame-p composition))
+   ((stringp composition)
+    (seq-every-p #'char-displayable-on-frame-p composition))
+   ((seqp composition)
+    ;; check that every even-indexed element is displayable
+    (seq-every-p
+     (lambda (idx-elt)
+       (if (evenp (cdr idx-elt))
+           (char-displayable-on-frame-p (car idx-elt))
+         t))
+     (seq-map-indexed #'cons composition)))
+   (t
+    ;; silently ignore invalid compositions
+    t)))
+
 (defun prettify-symbols--make-keywords ()
   (if prettify-symbols-alist
-      `((,(regexp-opt (mapcar 'car prettify-symbols-alist) t)
-         (0 (prettify-symbols--compose-symbol ',prettify-symbols-alist))))
+      (let ((filtered-alist
+             (seq-filter
+              (lambda (elt)
+                (prettify-symbols--composition-displayable-p (cdr elt)))
+              prettify-symbols-alist)))
+        `((,(regexp-opt (mapcar 'car filtered-alist) t)
+           (0 (prettify-symbols--compose-symbol ',filtered-alist)))))
     nil))
 
 (defvar-local prettify-symbols--keywords nil)

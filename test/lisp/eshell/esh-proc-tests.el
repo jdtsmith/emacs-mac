@@ -1,6 +1,6 @@
 ;;; esh-proc-tests.el --- esh-proc test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -24,11 +24,10 @@
 (require 'esh-mode)
 (require 'eshell)
 (require 'em-prompt)                    ; For `eshell-previous-prompt'
+(require 'ert-x)
 
 (require 'eshell-tests-helpers
-         (expand-file-name "eshell-tests-helpers"
-                           (file-name-directory (or load-file-name
-                                                    default-directory))))
+         (ert-resource-file "eshell-tests-helpers"))
 
 (defvar esh-proc-test--output-cmd
   (concat "sh -c '"
@@ -135,16 +134,19 @@
 (ert-deftest esh-proc-test/sentinel/change-buffer ()
   "Check that changing the current buffer while running a command works.
 See bug#71778."
-  (eshell-with-temp-buffer bufname ""
-    (with-temp-eshell
-      (let (eshell-test-value)
-        (eshell-insert-command
-         (concat (format "for i in 1 2 {sleep 1; echo hello} > #<%s>; " bufname)
-                 "setq eshell-test-value t"))
-        (with-current-buffer bufname
-          (eshell-wait-for (lambda () eshell-test-value))
-          (should (equal (buffer-string) "hellohello")))
-        (eshell-match-command-output "echo goodbye" "\\`goodbye\n")))))
+  (let ((starting-process-list (process-list)))
+    (eshell-with-temp-buffer bufname ""
+      (with-temp-eshell
+        (let (eshell-test-value)
+          (eshell-insert-command
+           (concat (format "for i in 1 2 {sleep 1; echo hello} > #<%s>; "
+                           bufname)
+                   "setq eshell-test-value t"))
+          (with-current-buffer bufname
+            (eshell-wait-for (lambda () eshell-test-value))
+            (should (equal (buffer-string) "hellohello")))
+          (should (equal (process-list) starting-process-list))
+          (eshell-match-command-output "echo goodbye" "\\`goodbye\n"))))))
 
 
 ;; Pipelines
@@ -167,7 +169,10 @@ See bug#71778."
               "sh -c 'read NAME; echo ${NAME}'")
       "y\n")
      (eshell-wait-for-subprocess t)
-     (should (equal (process-list) starting-process-list)))))
+     (should (equal (process-list) starting-process-list))
+     ;; Make sure the exit status is from the last command in the
+     ;; pipeline.
+     (should (= eshell-last-command-status 0)))))
 
 (ert-deftest esh-proc-test/pipeline-connection-type/no-pipeline ()
   "Test that all streams are PTYs when a command is not in a pipeline."
@@ -343,6 +348,38 @@ write the exit status to the pipe.  See bug#54136."
         (should (equal (buffer-substring-no-properties
                         output-start (eshell-end-of-output))
                        ""))))))
+
+(ert-deftest esh-proc-test/kill/process-id ()
+  "Test killing processes with the \"kill\" built-in using PIDs."
+  (skip-unless (executable-find "sleep"))
+  (with-temp-eshell
+    (eshell-insert-command "sleep 100 &")
+    (string-match (rx (group (+ digit)) eol) (eshell-last-output))
+    (let ((pid (match-string 1 (eshell-last-output))))
+      (should (= (length eshell-process-list) 1))
+      (eshell-insert-command
+       (format "kill %s%s"
+               ;; On MS-Windows we cannot kill a sleeping program except
+               ;; with SIGKILL.
+               (if (eq system-type 'windows-nt) "-9 " "")
+               pid))
+      (should (= eshell-last-command-status 0))
+      (eshell-wait-for-subprocess t)
+      (should (= (length eshell-process-list) 0)))))
+
+(ert-deftest esh-proc-test/kill/process-object ()
+  "Test killing processes with the \"kill\" built-in using process objects."
+  (skip-unless (executable-find "sleep"))
+  (with-temp-eshell
+    (eshell-insert-command "sleep 100 &")
+    (should (= (length eshell-process-list) 1))
+    (eshell-insert-command
+     ;; On MS-Windows we cannot kill a sleeping program except with SIGKILL.
+     (format "kill %s(caar eshell-process-list)"
+             (if (eq system-type 'windows-nt) "-9 " "")))
+    (should (= eshell-last-command-status 0))
+    (eshell-wait-for-subprocess t)
+    (should (= (length eshell-process-list) 0))))
 
 
 ;; Remote processes

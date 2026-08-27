@@ -1,6 +1,6 @@
 ;;; x-win.el --- parse relevant switches and set up for X  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1993-1994, 2001-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1994, 2001-2026 Free Software Foundation, Inc.
 
 ;; Author: FSF
 ;; Keywords: terminals, i18n
@@ -1318,7 +1318,7 @@ This returns an error if any Emacs frames are X frames."
   ;; and turned the Emacs f10 back on.
   ;; ;; Motif normally handles f10 itself, so don't try to handle it a second time.
   ;; (if (featurep 'motif)
-  ;;     (global-set-key [f10] 'ignore))
+  ;;     (keymap-global-set "<f10>" 'ignore))
 
   ;; Enable CLIPBOARD copy/paste through menu bar commands.
   (menu-bar-enable-clipboard)
@@ -1375,8 +1375,6 @@ This returns an error if any Emacs frames are X frames."
 (define-key special-event-map [drag-n-drop] 'x-dnd-handle-drag-n-drop-event)
 
 (defcustom x-gtk-stock-map
-  (mapcar (lambda (arg)
-	    (cons (purecopy (car arg)) (purecopy (cdr arg))))
   '(
     ("etc/images/new" . ("document-new" "gtk-new"))
     ("etc/images/open" . ("document-open" "gtk-open"))
@@ -1385,6 +1383,7 @@ This returns an error if any Emacs frames are X frames."
     ("etc/images/save" . ("document-save" "gtk-save"))
     ("etc/images/saveas" . ("document-save-as" "gtk-save-as"))
     ("etc/images/undo" . ("edit-undo" "gtk-undo"))
+    ("etc/images/redo" . ("edit-redo" "gtk-redo"))
     ("etc/images/cut" . ("edit-cut" "gtk-cut"))
     ("etc/images/copy" . ("edit-copy" "gtk-copy"))
     ("etc/images/paste" . ("edit-paste" "gtk-paste"))
@@ -1401,6 +1400,14 @@ This returns an error if any Emacs frames are X frames."
     ("etc/images/cancel" . "gtk-cancel")
     ("etc/images/info" . ("dialog-information" "gtk-info"))
     ("etc/images/bookmark_add" . "n:bookmark_add")
+    ;; Used in package-menu
+    ("images/package-menu/execute" . "gtk-apply")
+    ("images/package-menu/info" . ("dialog-information" "gtk-info"))
+    ("images/package-menu/install" . ("archive-insert" "list-add"))
+    ("images/package-menu/delete" . ("archive-remove" "gtk-remove"))
+    ("images/package-menu/unmark" . ("gnumeric-object-checkbox" "box"))
+    ("images/package-menu/url" . "globe")
+    ("images/package-menu/upgrade" . ("archive-extract" "go-bottom"))
     ;; Used in Gnus and/or MH-E:
     ("etc/images/attach" . ("mail-attachment" "gtk-attach"))
     ("etc/images/connect" . "gtk-connect")
@@ -1442,11 +1449,19 @@ This returns an error if any Emacs frames are X frames."
     ;; No themed versions available:
     ;; mail/preview (combining stock_mail and stock_zoom)
     ;; mail/save    (combining stock_mail, stock_save and stock_convert)
-    ))
+    ("images/mpc/prev" . "media-skip-backward")
+    ("images/mpc/rewind" . "media-seek-backward")
+    ("images/mpc/pause" . "media-playback-pause")
+    ("images/mpc/play" . "media-playback-start")
+    ("images/mpc/ffwd" . "media-seek-forward")
+    ("images/mpc/next" . "media-skip-forward")
+    ("images/mpc/stop" . "media-playback-stop")
+    ("images/mpc/add" . "list-add")
+    )
   "How icons for tool bars are mapped to Gtk+ stock items.
 Emacs must be compiled with the Gtk+ toolkit for this to have any effect.
 A value that begins with n: denotes a named icon instead of a stock icon."
-  :version "22.2"
+  :version "31.1"
   :type '(choice (repeat
 		  (choice symbol
 			  (cons (string :tag "Emacs icon")
@@ -1476,7 +1491,10 @@ If you don't want stock icons, set the variable to nil."
   :type '(choice (const :tag "Don't use stock icons" nil)
 		 (repeat (choice symbol
 				 (cons (string :tag "Emacs icon")
-				       (string :tag "Stock/named")))))
+                                       (choice
+                                        (group (string "Named")
+                                               (string "Stock"))
+				        (string :tag "Stock/named"))))))
   :group 'x)
 
 (defcustom x-display-cursor-at-start-of-preedit-string nil

@@ -1,6 +1,6 @@
 ;;; tex-mode.el --- TeX, LaTeX, and SliTeX mode commands  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1986, 1989, 1992, 1994-1999, 2001-2025 Free
+;; Copyright (C) 1985-1986, 1989, 1992, 1994-1999, 2001-2026 Free
 ;; Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -64,7 +64,7 @@
   :group 'tex-run)
 
 ;;;###autoload
-(defcustom tex-directory (purecopy ".")
+(defcustom tex-directory "."
   "Directory in which temporary files are written.
 You can make this `/tmp' if your TEXINPUTS has no relative directories in it
 and you don't try to apply \\[tex-region] or \\[tex-buffer] when there are
@@ -89,6 +89,7 @@ The command `tex-file' runs TeX on the file specified by `tex-main-file'
 if the variable is non-nil."
   :type '(choice (const :tag "None" nil)
                  file)
+  :safe (lambda (x) (or (stringp x) (null x)))
   :group 'tex-file)
 
 ;;;###autoload
@@ -98,7 +99,7 @@ if the variable is non-nil."
   :group 'tex-file)
 
 ;;;###autoload
-(defcustom tex-run-command (purecopy "tex")
+(defcustom tex-run-command "tex"
   "Command used to run TeX subjob.
 TeX Mode sets `tex-command' to this string.
 See the documentation of that variable."
@@ -106,7 +107,7 @@ See the documentation of that variable."
   :group 'tex-run)
 
 ;;;###autoload
-(defcustom latex-run-command (purecopy "latex")
+(defcustom latex-run-command "latex"
   "Command used to run LaTeX subjob.
 LaTeX Mode sets `tex-command' to this string.
 See the documentation of that variable."
@@ -114,7 +115,7 @@ See the documentation of that variable."
   :group 'tex-run)
 
 ;;;###autoload
-(defcustom slitex-run-command (purecopy "slitex")
+(defcustom slitex-run-command "slitex"
   "Command used to run SliTeX subjob.
 SliTeX Mode sets `tex-command' to this string.
 See the documentation of that variable."
@@ -122,7 +123,7 @@ See the documentation of that variable."
   :group 'tex-run)
 
 ;;;###autoload
-(defcustom tex-start-options (purecopy "")
+(defcustom tex-start-options ""
   "TeX options to use when starting TeX.
 These immediately precede the commands in `tex-start-commands'
 and the input file name, with no separating space and are not shell-quoted.
@@ -132,7 +133,7 @@ If nil, TeX runs with no options.  See the documentation of `tex-command'."
   :version "22.1")
 
 ;;;###autoload
-(defcustom tex-start-commands (purecopy "\\nonstopmode\\input")
+(defcustom tex-start-commands "\\nonstopmode\\input"
   "TeX commands to use when starting TeX.
 They are shell-quoted and precede the input file name, with a separating space.
 If nil, no commands are used.  See the documentation of `tex-command'."
@@ -163,7 +164,7 @@ Combined with `latex-standard-block-names' for minibuffer completion."
   :group 'tex-run)
 
 ;;;###autoload
-(defcustom tex-bibtex-command (purecopy "bibtex")
+(defcustom tex-bibtex-command "bibtex"
   "Command used by `tex-bibtex-file' to gather bibliographic data.
 If this string contains an asterisk (`*'), that is replaced by the file name;
 otherwise, the file name, preceded by blank, is added at the end."
@@ -171,7 +172,7 @@ otherwise, the file name, preceded by blank, is added at the end."
   :group 'tex-run)
 
 ;;;###autoload
-(defcustom tex-dvi-print-command (purecopy "lpr -d")
+(defcustom tex-dvi-print-command "lpr -d"
   "Command used by \\[tex-print] to print a .dvi file.
 If this string contains an asterisk (`*'), that is replaced by the file name;
 otherwise, the file name, preceded by blank, is added at the end."
@@ -179,7 +180,7 @@ otherwise, the file name, preceded by blank, is added at the end."
   :group 'tex-view)
 
 ;;;###autoload
-(defcustom tex-alt-dvi-print-command (purecopy "lpr -d")
+(defcustom tex-alt-dvi-print-command "lpr -d"
   "Command used by \\[tex-print] with a prefix arg to print a .dvi file.
 If this string contains an asterisk (`*'), that is replaced by the file name;
 otherwise, the file name, preceded by blank, is added at the end.
@@ -199,21 +200,22 @@ use."
 
 ;;;###autoload
 (defcustom tex-dvi-view-command
-  `(cond
-    ((eq window-system 'x) ,(purecopy "xdvi"))
-    ((eq window-system 'w32) ,(purecopy "yap"))
-    (t ,(purecopy "dvi2tty * | cat -s")))
+  (cond ((eq window-system 'x) "xdvi")
+        ((eq window-system 'w32) "yap")
+        (t "dvi2tty * | cat -s"))
   "Command used by \\[tex-view] to display a `.dvi' file.
-If it is a string, that specifies the command directly.
 If this string contains an asterisk (`*'), that is replaced by the file name;
 otherwise, the file name, preceded by a space, is added at the end.
 
-If the value is a form, it is evaluated to get the command to use."
-  :type '(choice (const nil) string sexp)
+For backwards-compatibility, the value can also be a form, in which case
+it is evaluated to get the command to use.  This is now obsolete, and
+will lead to a warning.  Set it to a string instead."
+  :type '(choice (const nil) string)
+  :risky t
   :group 'tex-view)
 
 ;;;###autoload
-(defcustom tex-show-queue-command (purecopy "lpq")
+(defcustom tex-show-queue-command "lpq"
   "Command used by \\[tex-show-print-queue] to show the print queue.
 Should show the queue(s) that \\[tex-print] puts jobs on."
   :type 'string
@@ -229,14 +231,14 @@ Normally set to either `plain-tex-mode' or `latex-mode'."
   :group 'tex)
 
 ;;;###autoload
-(defcustom tex-open-quote (purecopy "``")
+(defcustom tex-open-quote "``"
   "String inserted by typing \\[tex-insert-quote] to open a quotation."
   :type 'string
   :options '("``" "\"<" "\"`" "<<" "«")
   :group 'tex)
 
 ;;;###autoload
-(defcustom tex-close-quote (purecopy "''")
+(defcustom tex-close-quote "''"
   "String inserted by typing \\[tex-insert-quote] to close a quotation."
   :type 'string
   :options '("''" "\">" "\"'" ">>" "»")
@@ -309,7 +311,7 @@ Should be a simple file name with no extension or directory specification.")
 
 (defvar tex-print-file nil
   "File name that \\[tex-print] prints.
-Set by \\[tex-region], \\[tex-buffer], and \\[tex-file].")
+Set by \\[tex-region], \\[tex-buffer], \\[tex-file] and \\[tex-compile].")
 
 (defvar tex-mode-syntax-table
   (let ((st (make-syntax-table)))
@@ -636,6 +638,14 @@ An alternative value is \" . \", if you use a font with a narrow period."
 	      3 '(tex-font-lock-append-prop 'bold) 'append)))))
    "Gaudy expressions to highlight in TeX modes.")
 
+(defvar-local tex-expl-region-list nil
+  "List of region boundaries where expl3 syntax is active.
+It will be nil in buffers visiting files which use expl3 syntax
+throughout, for example, expl3 classes or packages.")
+
+(defvar-local tex-expl-buffer-p nil
+  "Non-nil in buffers using expl3 syntax throughout.")
+
 (defun tex-font-lock-suscript (pos)
   (unless (or (memq (get-text-property pos 'face)
 		    '(font-lock-constant-face font-lock-builtin-face
@@ -645,7 +655,17 @@ An alternative value is \" . \", if you use a font with a narrow period."
 		    (pos pos))
 		(while (eq (char-before pos) ?\\)
 		  (setq pos (1- pos) odd (not odd)))
-		odd))
+		odd)
+              ;; Check if POS is in an expl3 syntax region or an expl3 buffer
+              (when (eq (char-after pos) ?_)
+                (or tex-expl-buffer-p
+                    (and
+                     tex-expl-region-list
+                     (catch 'result
+                       (dolist (range tex-expl-region-list)
+                         (and (> pos (car range))
+                              (< pos (cdr range))
+                              (throw 'result t))))))))
     (if (eq (char-after pos) ?_)
 	`(face subscript display (raise ,(car tex-font-script-display)))
       `(face superscript display (raise ,(cadr tex-font-script-display))))))
@@ -926,18 +946,14 @@ START is the position of the \\ and DELIM is the delimiter char."
     map)
  "Keymap shared by TeX modes.")
 
-(defvar latex-mode-map
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map tex-mode-map)
-    (define-key map "\C-c\C-s" #'latex-split-block)
-    map)
-  "Keymap for `latex-mode'.  See also `tex-mode-map'.")
+(defvar-keymap latex-mode-map
+  :doc "Keymap for `latex-mode'.  See also `tex-mode-map'."
+  :parent tex-mode-map
+  "C-c C-s" #'latex-split-block)
 
-(defvar plain-tex-mode-map
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map tex-mode-map)
-    map)
-  "Keymap for `plain-tex-mode'.  See also `tex-mode-map'.")
+(defvar-keymap plain-tex-mode-map
+  :doc "Keymap for `plain-tex-mode'.  See also `tex-mode-map'."
+  :parent tex-mode-map)
 
 (defvar tex-shell-map
   (let ((m (make-sparse-keymap)))
@@ -1289,8 +1305,16 @@ Entering SliTeX mode runs the hook `text-mode-hook', then the hook
                 #'tex--prettify-symbols-compose-p)
   (setq-local syntax-propertize-function
 	      (syntax-propertize-rules latex-syntax-propertize-rules))
+  ;; Don't add extra processing to `syntax-propertize' in files where
+  ;; expl3 syntax is always active.
+  :after-hook (progn (tex-expl-buffer-parse)
+                     (unless tex-expl-buffer-p
+                       (add-hook 'syntax-propertize-extend-region-functions
+                                 #'tex-expl-region-set nil t)))
   ;; TABs in verbatim environments don't do what you think.
   (setq-local indent-tabs-mode nil)
+  ;; Set up xref backend in TeX buffers.
+  (add-hook 'xref-backend-functions #'tex--xref-backend nil t)
   ;; Other vars that should be buffer-local.
   (make-local-variable 'tex-command)
   (make-local-variable 'tex-start-of-header)
@@ -1851,7 +1875,7 @@ Mark is left at original location."
 		  (progn (latex-backward-sexp-1) (1+ arg)))))
       (scan-error
        (goto-char pos)
-       (signal (car err) (cdr err))))))
+       (signal err)))))
 
 (defun latex-syntax-after ()
   "Like (char-syntax (char-after)) but aware of multi-char elements."
@@ -1918,7 +1942,7 @@ Mark is left at original location."
 	(if (not (eq (char-syntax (preceding-char)) ?/))
 	    (progn
 	      ;; Don't count single-char words.
-	      (unless (looking-at ".\\>") (cl-incf count))
+              (unless (looking-at ".\\>") (incf count))
 	      (forward-char 1))
 	  (let ((cmd
 		 (buffer-substring-no-properties
@@ -1936,6 +1960,36 @@ Mark is left at original location."
 		(forward-sexp 1))))))
       (message "%s words" count))))
 
+(defun tex-expl-buffer-parse ()
+  "Identify buffers using expl3 syntax throughout."
+  (save-excursion
+    (goto-char (point-min))
+    (when (tex-search-noncomment
+           (re-search-forward
+            "\\\\\\(?:ExplFile\\|ProvidesExpl\\|__xparse_file\\)"
+            nil t))
+      (setq tex-expl-buffer-p t))))
+
+(defun tex-expl-region-set (_beg _end)
+  "Create a list of regions where expl3 syntax is active.
+This function updates the list whenever `syntax-propertize' runs, and
+stores it in the buffer-local variable `tex-expl-region-list'.  The list
+will always be nil when the buffer visits an expl3 file, for example, an
+expl3 class or package, where the entire file uses expl3 syntax."
+  (unless syntax-ppss--updated-cache;; Stop forward search running twice.
+    (setq tex-expl-region-list nil)
+    ;; Leaving this test here allows users to set `tex-expl-buffer-p'
+    ;; independently of the mode's automatic detection of an expl3 file.
+    (unless tex-expl-buffer-p
+      (goto-char (point-min))
+      (let ((case-fold-search nil))
+        (while (tex-search-noncomment
+                (search-forward "\\ExplSyntaxOn" nil t))
+          (let ((new-beg (point))
+                (new-end (or (tex-search-noncomment
+                              (search-forward "\\ExplSyntaxOff" nil t))
+                             (point-max))))
+            (push (cons new-beg new-end) tex-expl-region-list)))))))
 
 
 ;;; Invoking TeX in an inferior shell.
@@ -2035,8 +2089,9 @@ In the tex shell buffer this command behaves like `comint-send-input'."
 
 (defun tex-display-shell ()
   "Make the TeX shell buffer visible in a window."
-  (with-suppressed-warnings ((obsolete display-tex-shell-buffer-action))
-    (display-buffer (tex-shell-buf) display-tex-shell-buffer-action))
+  (display-buffer (tex-shell-buf) '(display-buffer-in-previous-window
+                                    (inhibit-same-window . t)
+                                    (category . tex-shell)))
   (tex-recenter-output-buffer nil))
 
 (defun tex-shell-sentinel (proc _msg)
@@ -2155,6 +2210,8 @@ If NOT-ALL is non-nil, save the `.dvi' file."
      t "%r.dvi")
     ("xdvi %r &" "%r.dvi")
     ("\\doc-view \"%r.pdf\"" "%r.pdf")
+    ("evince %r.pdf &" "%r.pdf")
+    ("mupdf %r.pdf &" "%r.pdf")
     ("xpdf %r.pdf &" "%r.pdf")
     ("gv %r.ps &" "%r.ps")
     ("yap %r &" "%r.dvi")
@@ -2473,6 +2530,7 @@ Only applies the FSPEC to the args part of FORMAT."
       (if (tex-shell-running)
           (tex-kill-job)
         (tex-start-shell))
+      (setq tex-print-file (expand-file-name (tex-main-file)))
       (tex-send-tex-command cmd dir))))
 
 (defun tex-start-tex (command file &optional dir)
@@ -2692,9 +2750,10 @@ line LINE of the window, or centered if LINE is nil."
   (let ((tex-shell (get-buffer "*tex-shell*")))
     (if (null tex-shell)
 	(message "No TeX output buffer")
-      (when-let ((window
-                  (with-suppressed-warnings ((obsolete display-tex-shell-buffer-action))
-                    (display-buffer tex-shell display-tex-shell-buffer-action))))
+      (when-let* ((window
+                   (display-buffer tex-shell '(display-buffer-in-previous-window
+                                               (inhibit-same-window . t)
+                                               (category . tex-shell)))))
         (with-selected-window window
 	  (bury-buffer tex-shell)
 	  (goto-char (point-max))
@@ -2742,6 +2801,7 @@ Runs the shell command defined by `tex-alt-dvi-print-command'."
   (interactive)
   (tex-print t))
 
+(defvar tex-view--warned-once nil)
 (defun tex-view ()
   "Preview the last `.dvi' file made by running TeX under Emacs.
 This means, made using \\[tex-region], \\[tex-buffer] or \\[tex-file].
@@ -2754,7 +2814,14 @@ because there is no standard value that would generally work."
   ;; Restart the TeX shell if necessary.
   (or (tex-shell-running)
       (tex-start-shell))
-  (let ((tex-dvi-print-command (eval tex-dvi-view-command t)))
+  (let ((tex-dvi-print-command
+         (if (stringp tex-dvi-view-command)
+             tex-dvi-view-command
+           (unless tex-view--warned-once
+             (warn (concat "Setting `tex-dvi-view-command' to an S-expression"
+                           " is obsolete since Emacs " "31.1"))
+             (setq tex-view--warned-once t))
+           (eval tex-dvi-view-command t))))
     (tex-print)))
 
 (defun tex-append (file-name suffix)
@@ -3000,7 +3067,7 @@ There might be text before point."
 		     '(?\n nil))))
       ;; Anything else is just as for LaTeX.
       (tex-font-lock-syntactic-face-function state)
-    font-lock-doc-face))
+    'font-lock-doc-face))
 
 (eval-when-compile
   (defconst doctex-syntax-propertize-rules
@@ -3119,9 +3186,14 @@ There might be text before point."
     ("\\bigcap" . ?⋂)
     ("\\bigcirc" . ?◯)
     ("\\bigcup" . ?⋃)
+    ("\\bigodot" . ?⨀)
+    ("\\bigoplus" . ?⨁)
+    ("\\bigotimes" . ?⨂)
+    ("\\bigsqcup" . ?⨆)
     ("\\bigstar" . ?★)
     ("\\bigtriangledown" . ?▽)
     ("\\bigtriangleup" . ?△)
+    ("\\biguplus" . ?⨄)
     ("\\bigvee" . ?⋁)
     ("\\bigwedge" . ?⋀)
     ("\\blacklozenge" . ?✦)
@@ -3138,12 +3210,11 @@ There might be text before point."
     ("\\bullet" . ?•)
     ("\\bumpeq" . ?≏)
     ("\\cap" . ?∩)
+    ("\\cdot" . ?⋅)
     ("\\cdots" . ?⋯)
     ("\\centerdot" . ?·)
     ("\\checkmark" . ?✓)
     ("\\chi" . ?χ)
-    ("\\cdot" . ?⋅)
-    ("\\cdots" . ?⋯)
     ("\\circ" . ?∘)
     ("\\circeq" . ?≗)
     ("\\circlearrowleft" . ?↺)
@@ -3220,12 +3291,16 @@ There might be text before point."
     ("\\hookleftarrow" . ?↩)
     ("\\hookrightarrow" . ?↪)
     ("\\iff" . ?⇔)
+    ("\\iiiint" . ?⨌)
+    ("\\iiint" . ?∭)
+    ("\\iint" . ?∬)
     ("\\imath" . ?ı)
     ("\\in" . ?∈)
     ("\\infty" . ?∞)
     ("\\int" . ?∫)
     ("\\intercal" . ?⊺)
-    ("\\langle" . 10216)          ; Literal ?⟨ breaks indentation.
+    ("\\jmath" . ?ȷ)
+    ("\\langle" . ?\⟨)
     ("\\lbrace" . ?{)
     ("\\lbrack" . ?\[)
     ("\\lceil" . ?⌈)
@@ -3257,6 +3332,7 @@ There might be text before point."
     ("\\rhd" . ?▷)
     ("\\ll" . ?≪)
     ("\\llcorner" . ?⌞)
+    ("\\lll" . ?⋘)
     ("\\lnapprox" . ?⋦)
     ("\\lneq" . ?≨)
     ("\\lneqq" . ?≨)
@@ -3294,7 +3370,6 @@ There might be text before point."
     ("\\neg" . ?¬)
     ("\\neq" . ?≠)
     ("\\nequiv" . ?≢)
-    ("\\newline" . ? )
     ("\\nexists" . ?∄)
     ("\\ngeq" . ?≱)
     ("\\ngeqq" . ?≱)
@@ -3334,6 +3409,8 @@ There might be text before point."
     ("\\nvdash" . ?⊬)
     ("\\nwarrow" . ?↖)
     ("\\odot" . ?⊙)
+    ("\\oiiint" . ?∰)
+    ("\\oiint" . ?∯)
     ("\\oint" . ?∮)
     ("\\ominus" . ?⊖)
     ("\\oplus" . ?⊕)
@@ -3355,7 +3432,7 @@ There might be text before point."
     ("\\qed" . ?∎)
     ("\\qquad" . ?⧢)
     ("\\quad" . ?␣)
-    ("\\rangle" . 10217)            ; Literal ?⟩ breaks indentation.
+    ("\\rangle" . ?\⟩)
     ("\\rbrace" . ?})
     ("\\rbrack" . ?\])
     ("\\rceil" . ?⌉)
@@ -3442,10 +3519,12 @@ There might be text before point."
     ("\\vDash" . ?⊨)
     ("\\varepsilon" . ?ε)
     ("\\varphi" . ?φ)
+    ("\\varpi" . ?ϖ)
     ("\\varprime" . ?′)
     ("\\varpropto" . ?∝)
     ("\\varrho" . ?ϱ)
     ("\\varsigma" . ?ς)
+    ("\\vartheta" . ?ϑ)
     ("\\vartriangleleft" . ?⊲)
     ("\\vartriangleright" . ?⊳)
     ("\\vdash" . ?⊢)
@@ -3456,19 +3535,60 @@ There might be text before point."
     ("\\wedge" . ?∧)
     ("\\wp" . ?℘)
     ("\\wr" . ?≀)
-    ("\\Bbb{N}" . ?ℕ)			; AMS commands for blackboard bold
-    ("\\Bbb{P}" . ?ℙ)			; Also sometimes \mathbb.
+    ("\\Bbb{A}" . ?𝔸)			; AMS commands for blackboard bold
+    ("\\Bbb{B}" . ?𝔹)			; Also sometimes \mathbb.
+    ("\\Bbb{C}" . ?ℂ)
+    ("\\Bbb{D}" . ?𝔻)
+    ("\\Bbb{E}" . ?𝔼)
+    ("\\Bbb{F}" . ?𝔽)
+    ("\\Bbb{G}" . ?𝔾)
+    ("\\Bbb{H}" . ?ℍ)
+    ("\\Bbb{I}" . ?𝕀)
+    ("\\Bbb{J}" . ?𝕁)
+    ("\\Bbb{K}" . ?𝕂)
+    ("\\Bbb{L}" . ?𝕃)
+    ("\\Bbb{M}" . ?𝕄)
+    ("\\Bbb{N}" . ?ℕ)
+    ("\\Bbb{O}" . ?𝕆)
+    ("\\Bbb{P}" . ?ℙ)
     ("\\Bbb{Q}" . ?ℚ)
     ("\\Bbb{R}" . ?ℝ)
+    ("\\Bbb{S}" . ?𝕊)
     ("\\Bbb{T}" . ?𝕋)
+    ("\\Bbb{U}" . ?𝕌)
+    ("\\Bbb{V}" . ?𝕍)
+    ("\\Bbb{W}" . ?𝕎)
+    ("\\Bbb{X}" . ?𝕏)
+    ("\\Bbb{Y}" . ?𝕐)
     ("\\Bbb{Z}" . ?ℤ)
-    ("\\mathbb{N}" . ?ℕ)			; AMS commands for blackboard bold
-    ("\\mathbb{P}" . ?ℙ)			; Also sometimes \mathbb.
+    ("\\mathbb{A}" . ?𝔸)			; AMS commands for blackboard bold
+    ("\\mathbb{B}" . ?𝔹)			; Also sometimes \mathbb.
+    ("\\mathbb{C}" . ?ℂ)
+    ("\\mathbb{D}" . ?𝔻)
+    ("\\mathbb{E}" . ?𝔼)
+    ("\\mathbb{F}" . ?𝔽)
+    ("\\mathbb{G}" . ?𝔾)
+    ("\\mathbb{H}" . ?ℍ)
+    ("\\mathbb{I}" . ?𝕀)
+    ("\\mathbb{J}" . ?𝕁)
+    ("\\mathbb{K}" . ?𝕂)
+    ("\\mathbb{L}" . ?𝕃)
+    ("\\mathbb{M}" . ?𝕄)
+    ("\\mathbb{N}" . ?ℕ)
+    ("\\mathbb{O}" . ?𝕆)
+    ("\\mathbb{P}" . ?ℙ)
     ("\\mathbb{Q}" . ?ℚ)
     ("\\mathbb{R}" . ?ℝ)
+    ("\\mathbb{S}" . ?𝕊)
     ("\\mathbb{T}" . ?𝕋)
+    ("\\mathbb{U}" . ?𝕌)
+    ("\\mathbb{V}" . ?𝕍)
+    ("\\mathbb{W}" . ?𝕎)
+    ("\\mathbb{X}" . ?𝕏)
+    ("\\mathbb{Y}" . ?𝕐)
     ("\\mathbb{Z}" . ?ℤ)
     ("\\pm" . ?±)
+    ("\\pounds" . ?£)
     ("\\|" . ?‖)
     ("\\varkappa" . ?ϰ)
     ;; caligraphic
@@ -3633,8 +3753,8 @@ There might be text before point."
     ("\\textreferencemark" . ?※)
     ("\\textinterrobang" . ?‽)
     ("\\textfractionsolidus" . ?⁄)
-    ("\\textlquill" . 8261) ; Literal ?⁅ breaks indentation
-    ("\\textrquill" . 8262) ; Literal ?⁆ breaks indentation
+    ("\\textlquill" . ?\⁅)
+    ("\\textrquill" . ?\⁆)
     ("\\textdiscount" . ?⁒)
     ("\\textcolonmonetary" . ?₡)
     ("\\textlira" . ?₤)
@@ -3659,8 +3779,8 @@ There might be text before point."
     ("\\textdownarrow" . ?↓)
     ("\\textminus" . ?−)
     ("\\textsurd" . ?√)
-    ("\\textlangle" . 9001) ; Literal ?〈 breaks indentation
-    ("\\textrangle" . 9002) ; Literal ?〉 breaks indentation
+    ("\\textlangle" . ?\〈)
+    ("\\textrangle" . ?\〉)
     ("\\textblank" . ?␢)
     ("\\textvisiblespace" . ?␣)
     ("\\textopenbullet" . ?◦)
@@ -3670,30 +3790,88 @@ There might be text before point."
     ("\\textmusicalnote" . ?♪)
     ("\\textmarried" . ?⚭)
     ("\\textdivorced" . ?⚮)
-    ("\\textlbrackdbl" . 10214) ; Literal ?⟦ breaks indentation
-    ("\\textrbrackdbl" . 10215) ; Literal ?⟧ breaks indentation
-    ("\\textinterrobangdown" . ?⸘))
+    ("\\textlbrackdbl" . ?\⟦)
+    ("\\textrbrackdbl" . ?\⟧)
+    ("\\textinterrobangdown" . ?⸘)
+
+    ;; TeX quotes
+    ("``" . ?“)
+    ("''" . ?”)
+
+    ;; Unicode Fractions
+    ("\\frac{1}{2}" . "½")
+    ("\\frac{1}{3}" . "⅓")
+    ("\\frac{2}{3}" . "⅔")
+    ("\\frac{1}{4}" . "¼")
+    ("\\frac{3}{4}" . "¾")
+    ("\\frac{1}{5}" . "⅕")
+    ("\\frac{2}{5}" . "⅖")
+    ("\\frac{3}{5}" . "⅗")
+    ("\\frac{4}{5}" . "⅘")
+    ("\\frac{1}{6}" . "⅙")
+    ("\\frac{5}{6}" . "⅚")
+    ("\\frac{1}{7}" . "⅐")
+    ("\\frac{1}{8}" . "⅛")
+    ("\\frac{3}{8}" . "⅜")
+    ("\\frac{5}{8}" . "⅝")
+    ("\\frac{7}{8}" . "⅞")
+    ("\\frac{1}{9}" . "⅑")
+    ("\\frac{1}{10}" . "⅒")
+    ("\\tfrac{1}{2}" . "½")
+    ("\\tfrac{1}{3}" . "⅓")
+    ("\\tfrac{2}{3}" . "⅔")
+    ("\\tfrac{1}{4}" . "¼")
+    ("\\tfrac{3}{4}" . "¾")
+    ("\\tfrac{1}{5}" . "⅕")
+    ("\\tfrac{2}{5}" . "⅖")
+    ("\\tfrac{3}{5}" . "⅗")
+    ("\\tfrac{4}{5}" . "⅘")
+    ("\\tfrac{1}{6}" . "⅙")
+    ("\\tfrac{5}{6}" . "⅚")
+    ("\\tfrac{1}{7}" . "⅐")
+    ("\\tfrac{1}{8}" . "⅛")
+    ("\\tfrac{3}{8}" . "⅜")
+    ("\\tfrac{5}{8}" . "⅝")
+    ("\\tfrac{7}{8}" . "⅞")
+    ("\\tfrac{1}{9}" . "⅑")
+    ("\\tfrac{1}{10}" . "⅒")
+
+    ;; Other symbols
+    ("\\S" . ?§)
+    ("\\Finv" . ?Ⅎ)
+    ("\\Game" . ?⅁)
+    ("\\ " . ?␣) ; Use ?␣ (OPEN BOX) and not ?⎵ (BOTTOM SQUARE BRACKET)
+    ("\\lvert" . ?|)
+    ("\\rvert" . ?|)
+    ("\\lVert" . ?‖)
+    ("\\rVert" . ?‖))
   "A `prettify-symbols-alist' usable for (La)TeX modes.")
 
-(defun tex--prettify-symbols-compose-p (_start end _match)
-  (or
-   ;; If the matched symbol doesn't end in a word character, then we
-   ;; simply allow composition.  The symbol is probably something like
-   ;; \|, \(, etc.
-   (not (eq ?w (char-syntax (char-before end))))
-   ;; Else we look at what follows the match in order to decide.
-   (let* ((after-char (char-after end))
-          (after-syntax (char-syntax after-char)))
-     (not (or
-           ;; Don't compose \alpha@foo.
-           (eq after-char ?@)
-           ;; The \alpha in \alpha2 or \alpha-\beta may be composed but
-           ;; of course \alphax may not.
-           (and (eq after-syntax ?w)
-                (not (memq after-char
-                           '(?0 ?1 ?2 ?3 ?4 ?5 ?6 ?7 ?8 ?9 ?+ ?- ?' ?\"))))
-           ;; Don't compose inside verbatim blocks.
-           (eq 2 (nth 7 (syntax-ppss))))))))
+(defun tex--prettify-symbols-compose-p (start end _match)
+  (if (save-excursion
+        (goto-char start)
+        ;; Skip composition when the control backslash at START is
+        ;; itself escaped, as in constructs like \"\\\\S\".
+        (not (zerop (mod (skip-chars-backward "\\\\") 2))))
+      nil
+    (or
+     ;; If the matched symbol doesn't end in a word character, then we
+     ;; simply allow composition.  The symbol is probably something like
+     ;; \|, \(, etc.
+     (not (eq ?w (char-syntax (char-before end))))
+     ;; Else we look at what follows the match in order to decide.
+     (let* ((after-char (char-after end))
+            (after-syntax (char-syntax after-char)))
+       (not (or
+             ;; Don't compose \alpha@foo.
+             (eq after-char ?@)
+             ;; The \alpha in \alpha2 or \alpha-\beta may be composed but
+             ;; of course \alphax may not.
+             (and (eq after-syntax ?w)
+                  (not (memq after-char
+                             '(?0 ?1 ?2 ?3 ?4 ?5 ?6 ?7 ?8 ?9 ?+ ?- ?' ?\"))))
+             ;; Don't compose inside verbatim blocks.
+             (eq 2 (nth 7 (syntax-ppss)))))))))
 
 
 ;;; Flymake support
@@ -3741,6 +3919,267 @@ There might be text before point."
                    (kill-buffer (process-buffer process)))))))
       (process-send-region tex-chktex--process (point-min) (point-max))
       (process-send-eof tex-chktex--process))))
+
+
+;;; Xref backend
+
+;; Here we lightly adapt the default etags backend for xref so that
+;; the main xref user commands (including `xref-find-definitions',
+;; `xref-find-apropos', and `xref-find-references' [on M-., C-M-., and
+;; M-?, respectively]) work in TeX buffers.  The only methods we
+;; actually modify are `xref-backend-identifier-at-point' and
+;; `xref-backend-references'.  Many of the complications here, and in
+;; `etags' itself, are due to the necessity of parsing both the old
+;; TeX syntax and the new expl3 syntax, which will continue to appear
+;; together in documents for the foreseeable future.  Synchronizing
+;; Emacs and `etags' this way aims to improve the user experience "out
+;; of the box."
+
+;; Populate `semantic-symref-filepattern-alist' for the in-tree modes;
+;; AUCTeX is doing the same for its modes.
+(with-eval-after-load 'semantic/symref/grep
+  (defvar semantic-symref-filepattern-alist)
+  (push '(latex-mode "*.[tT]e[xX]" "*.ltx" "*.sty" "*.cl[so]"
+                     "*.bbl" "*.drv" "*.hva")
+        semantic-symref-filepattern-alist)
+  (push '(plain-tex-mode "*.[tT]e[xX]" "*.ins")
+        semantic-symref-filepattern-alist)
+  (push '(doctex-mode "*.dtx") semantic-symref-filepattern-alist))
+
+(defun tex--xref-backend () 'tex-etags)
+
+(cl-defmethod xref-backend-identifier-at-point ((_backend (eql 'tex-etags)))
+  (require 'etags)
+  (tex--thing-at-point))
+
+;; The detection of `_' and `:' is a primitive method for determining
+;; whether point is on an expl3 construct.  It may fail in some
+;; instances.
+(defun tex--thing-at-point ()
+  "Demarcate `thing-at-point' for the TeX `xref' backend."
+  (let ((bounds (tex--bounds-of-symbol-at-point)))
+    (when bounds
+      (let ((texsym (buffer-substring-no-properties (car bounds) (cdr bounds))))
+        (if (and (not (string-match-p "reference" (symbol-name this-command)))
+                 (seq-contains-p texsym ?_)
+                 (seq-contains-p texsym ?:))
+            (seq-take texsym (seq-position texsym ?:))
+          texsym)))))
+
+(defun tex-thingatpt--beginning-of-symbol ()
+  (and
+   (re-search-backward "[][\\{}\"*`'#=&()%,|$[:cntrl:][:blank:]]" nil t)
+   (forward-char)))
+
+(defun tex-thingatpt--end-of-symbol ()
+  (and
+   (re-search-forward "[][\\{}\"*`'#=&()%,|$[:cntrl:][:blank:]]" nil t)
+   (backward-char)))
+
+(defun tex--bounds-of-symbol-at-point ()
+  "Simplify `bounds-of-thing-at-point' for TeX `xref' backend."
+  (let ((orig (point)))
+    (ignore-errors
+      (save-excursion
+        (tex-thingatpt--end-of-symbol)
+        (tex-thingatpt--beginning-of-symbol)
+        (let ((beg (point)))
+          (if (<= beg orig)
+              (let ((real-end
+                     (progn
+                       (tex-thingatpt--end-of-symbol)
+                       (point))))
+                (cond ((and (<= orig real-end) (< beg real-end))
+                       (cons beg real-end))
+                      ((and (= orig real-end) (= beg real-end))
+                       (cons beg (1+ beg)))))))))));; For 1-char TeX commands.
+
+(cl-defmethod xref-backend-identifier-completion-table ((_backend
+                                                         (eql 'tex-etags)))
+  (xref-backend-identifier-completion-table 'etags))
+
+(cl-defmethod xref-backend-identifier-completion-ignore-case ((_backend
+                                                               (eql
+                                                                'tex-etags)))
+  (xref-backend-identifier-completion-ignore-case 'etags))
+
+(cl-defmethod xref-backend-definitions ((_backend (eql 'tex-etags)) symbol)
+  (xref-backend-definitions 'etags symbol))
+
+(cl-defmethod xref-backend-apropos ((_backend (eql 'tex-etags)) pattern)
+  (xref-backend-apropos 'etags pattern))
+
+;; The `xref-backend-references' method requires more code than the
+;; others for at least two main reasons: TeX authors have typically been
+;; free in their invention of new file types with new suffixes, and they
+;; have also tended sometimes to include non-symbol characters in
+;; command names.  When combined with the default Semantic Symbol
+;; Reference API, these two characteristics of TeX code mean that a
+;; command like `xref-find-references' would often fail to find any hits
+;; for a symbol at point, including the one under point in the current
+;; buffer, or it would find only some instances and skip others.
+
+(defun tex-find-references-syntax-table ()
+  (let ((st (if (boundp 'TeX-mode-syntax-table)
+                 (make-syntax-table TeX-mode-syntax-table)
+               (make-syntax-table tex-mode-syntax-table))))
+    st))
+
+(defvar tex--xref-syntax-fun nil)
+
+(defun tex-xref-syntax-function (str beg end)
+  "Provide a bespoke `syntax-propertize-function' for \\[xref-find-references]."
+  (let* (grpb tempstr
+              (shrtstr (if end
+                           (progn
+                             (setq tempstr (seq-take str (1- (length str))))
+                             (if beg
+                                 (setq tempstr (seq-drop tempstr 1))
+                               tempstr))
+                         (seq-drop str 1)))
+              (grpa (if (and beg end)
+                        (prog1
+                            (list 1 "_")
+                          (setq grpb (list 2 "_")))
+                      (list 1 "_")))
+              (re (concat beg (regexp-quote shrtstr) end))
+              (temp-rule (if grpb
+                             (list re grpa grpb)
+                           (list re grpa))))
+    ;; Simple benchmarks suggested that the speed-up from compiling this
+    ;; function was nearly nil, so `eval' and its non-byte-compiled
+    ;; function remain.
+    (setq tex--xref-syntax-fun (eval
+                                `(syntax-propertize-rules ,temp-rule)))))
+
+(defun tex--collect-file-extensions ()
+  "Gather TeX file extensions from `auto-mode-alist'."
+  (let* ((mlist (when (rassq major-mode auto-mode-alist)
+                  (seq-filter
+                   (lambda (elt)
+                     (eq (cdr elt) major-mode))
+                   auto-mode-alist)))
+         (lcsym (intern-soft (downcase (symbol-name major-mode))))
+         (lclist (and lcsym
+                      (not (eq lcsym major-mode))
+                      (rassq lcsym auto-mode-alist)
+                      (seq-filter
+                       (lambda (elt)
+                         (eq (cdr elt) lcsym))
+                       auto-mode-alist)))
+         (shortsym (when (stringp mode-name)
+                     (intern-soft (concat (string-trim-right mode-name "/.*")
+                                          "-mode"))))
+         (lcshortsym (when (stringp mode-name)
+                       (intern-soft (downcase
+                                     (concat
+                                      (string-trim-right mode-name "/.*")
+                                      "-mode")))))
+         (shlist (and shortsym
+                      (not (eq shortsym major-mode))
+                      (not (eq shortsym lcsym))
+                      (rassq shortsym auto-mode-alist)
+                      (seq-filter
+                       (lambda (elt)
+                         (eq (cdr elt) shortsym))
+                       auto-mode-alist)))
+         (lcshlist (and lcshortsym
+                        (not (eq lcshortsym major-mode))
+                        (not (eq lcshortsym lcsym))
+                        (rassq lcshortsym auto-mode-alist)
+                        (seq-filter
+                         (lambda (elt)
+                           (eq (cdr elt) lcshortsym))
+                         auto-mode-alist)))
+         (exts (when (or mlist lclist shlist lcshlist)
+                 (seq-union (seq-map #'car lclist)
+                            (seq-union (seq-map #'car mlist)
+                                       (seq-union (seq-map #'car lcshlist)
+                                                  (seq-map #'car shlist))))))
+         (ed-exts (when exts
+                    (seq-map
+                     (lambda (elt)
+                       (concat "*" (string-trim  elt "\\\\" "\\\\'")))
+                     exts))))
+    ed-exts))
+
+(defvar tex--buffers-list nil)
+(defvar-local tex--old-syntax-function nil)
+
+(cl-defmethod xref-backend-references ((_backend (eql 'tex-etags)) identifier)
+  "Find references of IDENTIFIER in TeX buffers and files."
+  (require 'semantic/symref/grep)
+  (defvar semantic-symref-filepattern-alist)
+  (let (bufs texbufs
+             (mode major-mode))
+    (dolist (buf (buffer-list))
+      (if (eq (buffer-local-value 'major-mode buf) mode)
+          (push buf bufs)
+        (when (string-match-p ".*\\.[tT]e[xX]" (buffer-name buf))
+          (push buf texbufs))))
+    (unless (seq-set-equal-p tex--buffers-list bufs)
+      (let* ((amalist (tex--collect-file-extensions))
+             (extlist (alist-get mode semantic-symref-filepattern-alist))
+             (extlist-new (seq-uniq
+                           (seq-union amalist extlist #'string-match-p))))
+        (setq tex--buffers-list bufs)
+        (dolist (buf bufs)
+          (when-let* ((fbuf (buffer-file-name buf))
+                      (ext (file-name-extension fbuf))
+                      (finext (concat "*." ext))
+                      ((not (seq-find (lambda (elt) (string-match-p elt finext))
+                                      extlist-new))))
+            (push finext extlist-new)))
+        (unless (seq-set-equal-p extlist-new extlist)
+          (setf (alist-get mode semantic-symref-filepattern-alist)
+                extlist-new))))
+    (let* (setsyntax
+           (punct (with-syntax-table (tex-find-references-syntax-table)
+                    (seq-positions identifier (list ?w ?_)
+                                   (lambda (elt sycode)
+                                     (not (memq (char-syntax elt) sycode))))))
+           (end (and punct
+                     (memq (1- (length identifier)) punct)
+                     (> (length identifier) 1)
+                     (concat "\\("
+                             (regexp-quote
+                              (string (elt identifier
+                                           (1- (length identifier)))))
+                             "\\)")))
+           (beg (and punct
+                     (memq 0 punct)
+                     (concat "\\("
+                             (regexp-quote (string (elt identifier 0)))
+                             "\\)")))
+           (text-mode-hook
+            (if (or end beg)
+                (progn
+                  (tex-xref-syntax-function identifier beg end)
+                  (setq setsyntax (lambda ()
+                                    (setq-local syntax-propertize-function
+                                                tex--xref-syntax-fun)
+                                    (setq-local TeX-style-hook-applied-p t)))
+                  (cons setsyntax text-mode-hook))
+              text-mode-hook)))
+      (unless (memq 'doctex-mode (derived-mode-all-parents mode))
+        (setq bufs (append texbufs bufs)))
+      (when (or end beg)
+        (dolist (buf bufs)
+          (with-current-buffer buf
+            (unless (local-variable-p 'tex--old-syntax-function)
+              (setq tex--old-syntax-function syntax-propertize-function))
+            (setq-local syntax-propertize-function
+                        tex--xref-syntax-fun)
+            (syntax-ppss-flush-cache (point-min)))))
+      (unwind-protect
+          (xref-backend-references nil identifier)
+        (when (or end beg)
+          (dolist (buf bufs)
+            (with-current-buffer buf
+              (when buffer-file-truename
+                (setq-local syntax-propertize-function
+                            tex--old-syntax-function)
+                (syntax-ppss-flush-cache (point-min))))))))))
 
 (make-obsolete-variable 'tex-mode-load-hook
                         "use `with-eval-after-load' instead." "28.1")

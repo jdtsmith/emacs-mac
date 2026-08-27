@@ -1,6 +1,6 @@
 ;;; comp-cstr.el --- native compiler constraint library -*- lexical-binding: t -*-
 
-;; Copyright (C) 2020-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
 ;; Author: Andrea Corallo <acorallo@gnu.org>
 ;; Keywords: lisp
@@ -89,10 +89,10 @@ Integer values are handled in the `range' slot.")
   "Return all non built-in type names currently defined."
   (let (res)
     (mapatoms (lambda (x)
-                (when-let ((class (cl-find-class x))
-                           ;; Ignore EIEIO classes as they can be
-                           ;; redefined at runtime.
-                           (gate (not (eq 'eieio--class (type-of class)))))
+                (when-let* ((class (cl-find-class x))
+                            ;; Ignore EIEIO classes as they can be
+                            ;; redefined at runtime.
+                            (gate (not (eq 'eieio--class (type-of class)))))
                   (push x res)))
               obarray)
     res))
@@ -216,7 +216,7 @@ Return them as multiple value."
      collect cstr into positives
    finally return (cl-values positives negatives)))
 
-;; So we can load comp-cstr.el and comp.el in non native compiled
+;; So we can load comp-cstr.el and comp.el in non natively compiled
 ;; builds.
 (defvar comp-ctxt nil)
 
@@ -452,12 +452,12 @@ Return them as multiple value."
    do
    (when (zerop nest)
      (setf low i))
-   (cl-incf nest)
+   (incf nest)
    else
    do
    (when (= nest 1)
      (push `(,(comp-range-1+ low) . ,i) res))
-   (cl-decf nest)
+   (decf nest)
    finally return (reverse res)))
 
 (defun comp--range-intersection (&rest ranges)
@@ -481,7 +481,7 @@ Return them as multiple value."
                (cl-return '()))
    if (eq x 'l)
    do
-   (cl-incf nest)
+   (incf nest)
    (when (= nest n-ranges)
      (setf low i))
    else
@@ -489,7 +489,7 @@ Return them as multiple value."
    (when (= nest n-ranges)
      (push `(,low . ,i)
            res))
-   (cl-decf nest)
+   (decf nest)
    finally return (reverse res)))
 
 (defun comp--range-negation (range)
@@ -532,8 +532,8 @@ Return them as multiple value."
   `(with-comp-cstr-accessors
      (if (or (neg src1) (neg src2))
          (setf (typeset ,dst) '(number))
-       (when-let ((r1 (range ,src1))
-                  (r2 (range ,src2)))
+       (when-let* ((r1 (range ,src1))
+                   (r2 (range ,src2)))
          (let* ((l1 (comp-cstr-smallest-in-range r1))
                 (l2 (comp-cstr-smallest-in-range r2))
                 (h1 (comp-cstr-greatest-in-range r1))
@@ -624,7 +624,7 @@ DST is returned."
 
         ;; Check first if we are in the simple case of all input non-negate
         ;; or negated so we don't have to cons.
-        (when-let ((res (comp--cstrs-homogeneous srcs)))
+        (when-let* ((res (comp--cstrs-homogeneous srcs)))
           (apply #'comp--cstr-union-homogeneous range dst srcs)
           (cl-return-from comp--cstr-union-1-no-mem dst))
 
@@ -809,7 +809,7 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
                                     (range dst) ()
                                     (neg dst) nil)
                               (cl-return-from comp-cstr-intersection-no-mem dst)))
-        (when-let ((res (comp--cstrs-homogeneous srcs)))
+        (when-let* ((res (comp--cstrs-homogeneous srcs)))
           (if (eq res 'neg)
               (apply #'comp--cstr-union-homogeneous t dst srcs)
             (apply #'comp-cstr-intersection-homogeneous dst srcs))
@@ -921,7 +921,7 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
     (when (and (null (neg cstr))
                (null (valset cstr))
                (null (typeset cstr)))
-      (when-let (range (range cstr))
+      (when-let* ((range (range cstr)))
         (let* ((low (caar range))
                (high (cdar (last range))))
           (unless (or (eq low '-)
@@ -929,15 +929,6 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
                       (eq high '+)
                       (> high most-positive-fixnum))
             t))))))
-
-(defun comp-cstr-symbol-p (cstr)
-  "Return t if CSTR is certainly a symbol."
-  (with-comp-cstr-accessors
-    (and (null (range cstr))
-         (null (neg cstr))
-         (and (or (null (typeset cstr))
-                  (equal (typeset cstr) '(symbol)))
-              (cl-every #'symbolp (valset cstr))))))
 
 (defsubst comp-cstr-cons-p (cstr)
   "Return t if CSTR is certainly a cons."
@@ -949,6 +940,8 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
 
 (defun comp-cstr-type-p (cstr type)
   "Return t if CSTR is certainly of type TYPE."
+  ;; Only basic types are valid input.
+  (cl-assert (symbolp type))
   (when
       (with-comp-cstr-accessors
         (cl-case type
@@ -960,14 +953,21 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
                       (or (null (typeset cstr))
                           (equal (typeset cstr) '(integer)))))))
           (t
-           (if-let ((pred (get type 'cl-deftype-satisfies)))
+           (if-let* ((pred (get type 'cl-deftype-satisfies)))
                (and (null (range cstr))
                     (null (neg cstr))
-                    (and (or (null (typeset cstr))
-                             (equal (typeset cstr) `(,type)))
-                         (cl-every pred (valset cstr))))
+                    (if (null (typeset cstr))
+                        (and (valset cstr)
+                             (cl-every pred (valset cstr)))
+                      (when (equal (typeset cstr) `(,type))
+                        ;; (valset cstr) can be nil as well.
+                        (cl-every pred (valset cstr)))))
              (error "Unknown predicate for type %s" type)))))
     t))
+
+(defun comp-cstr-symbol-p (cstr)
+  "Return t if CSTR is certainly a symbol."
+  (comp-cstr-type-p cstr 'symbol))
 
 ;; Move to comp.el?
 (defsubst comp-cstr-cl-tag-p (cstr)
@@ -986,8 +986,10 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
     (and (comp-cstr-cl-tag-p cstr)
          (intern (match-string 1 (symbol-name (car (valset cstr))))))))
 
-(defun comp-cstr-= (dst op1 op2)
-  "Constraint OP1 being = OP2 setting the result into DST."
+(defun comp-cstr-= (dst op1 op2 nm-objs-h)
+  "Constraint OP1 being = OP2 setting the result into DST.
+NM-OBJS-H is an hash with all the immediate values generated at compile
+time which should not be rendered into compiled code."
   (with-comp-cstr-accessors
     (cl-flet ((relax-cstr (cstr)
                 (setf cstr (copy-sequence cstr))
@@ -1015,8 +1017,11 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
                  else
                    do (cl-pushnew 'float (typeset cstr))
                       (cl-return cstr)
-                 finally (setf (valset cstr)
-                               (append vals-to-add (valset cstr))))
+                 finally
+                   (mapc (lambda (x) (puthash x t nm-objs-h))
+                         vals-to-add)
+                   (setf (valset cstr)
+                         (append vals-to-add (valset cstr))))
                 (when (memql 0.0 (valset cstr))
                   (cl-pushnew -0.0 (valset cstr)))
                 (when (memql -0.0 (valset cstr))

@@ -4,9 +4,9 @@
 #+language: en
 #+options: ':t toc:nil author:t email:t num:t
 #+startup: content
-#+macro: stable-version 4.4.0
-#+macro: release-date 2024-03-17
-#+macro: development-version 4.5.0-dev
+#+macro: stable-version 5.2.0
+#+macro: release-date 2025-12-31
+#+macro: development-version 5.3.0-dev
 #+macro: file @@texinfo:@file{@@$1@@texinfo:}@@
 #+macro: space @@texinfo:@: @@
 #+macro: kbd @@texinfo:@kbd{@@$1@@texinfo:}@@
@@ -50,7 +50,7 @@ Current development target is {{{development-version}}}.
 :custom_id: h:b14c3fcb-13dd-4144-9d92-2c58b3ed16d3
 :end:
 
-Copyright (C) 2020-2025 Free Software Foundation, Inc.
+Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
 #+begin_quote
 Permission is granted to copy, distribute and/or modify this document
@@ -88,7 +88,7 @@ The Modus themes consist of eight themes, divided into four subgroups.
   are variants of the two main themes.  They slightly tone down the
   intensity of the background and provide a bit more color variety.
   ~modus-operandi-tinted~ has a set of base tones that are shades of
-  light ocher (earthly colors), while ~modus-vivendi-tinted~ gives a
+  light ochre (earthly colors), while ~modus-vivendi-tinted~ gives a
   night sky impression.
 
 - Deuteranopia themes :: ~modus-operandi-deuteranopia~ and its
@@ -143,10 +143,10 @@ and covers everything that goes into every tagged release of the themes.
 :custom_id: h:1af85373-7f81-4c35-af25-afcef490c111
 :end:
 
-The Modus themes are distributed with Emacs starting with version 28.1.
-On older versions of Emacs, they can be installed using Emacs's package
-manager or manually from their code repository.  There also exist
-packages for distributions of GNU/Linux.
+The Modus themes are distributed with Emacs starting with version
+28.1. On Emacs 27, they can be installed using Emacs' package manager
+or manually from their code repository. There also exist packages for
+distributions of GNU/Linux.
 
 Emacs 28 ships with ~modus-themes~ version =1.6.0=.  Emacs 29 includes
 version =3.0.0=.  Emacs 30 provides a newer, refactored version that
@@ -365,9 +365,26 @@ customizations ([[#h:f4651d55-8c07-46aa-b52b-bed1e53463bb][Advanced customizatio
 
 #+findex: modus-themes-toggle
 #+findex: modus-themes-select
-The commands ~modus-themes-toggle~ and ~modus-themes-select~ use
+#+findex: modus-themes-rotate
+#+findex: modus-themes-load-random
+The commands ~modus-themes-toggle~, ~modus-themes-rotate~,
+~modus-themes-load-random~, and ~modus-themes-select~ use
 ~modus-themes-load-theme~ internally ([[#h:4fbfed66-5a89-447a-a07d-a03f6819c5bd][Option for which themes to toggle]]).
 The aforementioned hold true for them as well.
+
+Convenience commands for loading only dark or light themes are:
+
+#+findex: modus-themes-select-dark
+- ~modus-themes-select-dark~
+
+#+findex: modus-themes-select-light
+- ~modus-themes-select-light~
+
+#+findex: modus-themes-load-random-dark
+- ~modus-themes-load-random-dark~
+
+#+findex: modus-themes-load-random-light
+- ~modus-themes-load-random-light~
 
 ** The ~require-theme~ for built-in Emacs themes
 :PROPERTIES:
@@ -386,10 +403,6 @@ function must be used in this case as a replacement.  For example:
 (setq modus-themes-bold-constructs t
       modus-themes-italic-constructs t)
 
-;; Maybe define some palette overrides, such as by using our presets
-(setq modus-themes-common-palette-overrides
-      modus-themes-preset-overrides-intense)
-
 ;; Load the theme of choice (built-in themes are always "safe" so they
 ;; do not need the `no-require' argument of `load-theme').
 (load-theme 'modus-operandi)
@@ -397,7 +410,7 @@ function must be used in this case as a replacement.  For example:
 (define-key global-map (kbd "<f5>") #'modus-themes-toggle)
 #+end_src
 
-** Sample configuration with and without use-package
+** Sample configuration
 :properties:
 :custom_id: h:e979734c-a9e1-4373-9365-0f2cd36107b8
 :end:
@@ -413,19 +426,15 @@ package configurations in their setup.  We use this as an example:
 #+begin_src emacs-lisp
 ;;; For the built-in themes which cannot use `require'.
 (use-package emacs
-  :config
+  :init
   (require-theme 'modus-themes) ; `require-theme' is ONLY for the built-in Modus themes
-
+  :config
   ;; Add all your customizations prior to loading the themes
   (setq modus-themes-italic-constructs t
         modus-themes-bold-constructs nil)
 
-  ;; Maybe define some palette overrides, such as by using our presets
-  (setq modus-themes-common-palette-overrides
-        modus-themes-preset-overrides-intense)
-
   ;; Load the theme of your choice.
-  (load-theme 'modus-operandi)
+  (modus-themes-load-theme 'modus-operandi)
 
   (define-key global-map (kbd "<f5>") #'modus-themes-toggle))
 
@@ -439,12 +448,8 @@ package configurations in their setup.  We use this as an example:
   (setq modus-themes-italic-constructs t
         modus-themes-bold-constructs nil)
 
-  ;; Maybe define some palette overrides, such as by using our presets
-  (setq modus-themes-common-palette-overrides
-        modus-themes-preset-overrides-intense)
-
   ;; Load the theme of your choice.
-  (load-theme 'modus-operandi)
+  (modus-themes-load-theme 'modus-operandi)
 
   (define-key global-map (kbd "<f5>") #'modus-themes-toggle))
 #+end_src
@@ -458,12 +463,8 @@ The same without ~use-package~:
 (setq modus-themes-italic-constructs t
       modus-themes-bold-constructs nil)
 
-;; Maybe define some palette overrides, such as by using our presets
-(setq modus-themes-common-palette-overrides
-      modus-themes-preset-overrides-intense)
-
 ;; Load the theme of your choice:
-(load-theme 'modus-operandi :no-confirm)
+(modus-themes-load-theme 'modus-operandi :no-confirm)
 
 (define-key global-map (kbd "<f5>") #'modus-themes-toggle)
 #+end_src
@@ -516,7 +517,7 @@ session, are better off using something like this:
 
 [[#h:b40aca50-a3b2-4c43-be58-2c26fcd14237][Toggle themes without reloading them]].
 
-[[#h:e979734c-a9e1-4373-9365-0f2cd36107b8][Sample configuration with and without use-package]].
+[[#h:e979734c-a9e1-4373-9365-0f2cd36107b8][Sample configuration]].
 
 With the above granted, other sections of the manual discuss how to
 configure custom faces, where ~load-theme~ is expected, though
@@ -548,7 +549,6 @@ reloaded for changes to take effect.
       modus-themes-bold-constructs nil
       modus-themes-mixed-fonts t
       modus-themes-variable-pitch-ui nil
-      modus-themes-custom-auto-reload t
       modus-themes-disable-other-themes t
 
       ;; Options for `modus-themes-prompts' are either nil (the
@@ -585,34 +585,6 @@ reloaded for changes to take effect.
 ;; document extensively in this manual.
 #+end_src
 
-** Option for reloading the theme on custom change
-:properties:
-:alt_title: Custom reload theme
-:description: Toggle auto-reload of the theme when setting custom variables
-:custom_id: h:9001527a-4e2c-43e0-98e8-3ef72d770639
-:end:
-#+vindex: modus-themes-custom-auto-reload
-
-Brief: Toggle reloading of the active theme when an option is changed
-through the Custom UI.
-
-Symbol: ~modus-themes-custom-auto-reload~ (=boolean= type)
-
-Possible values:
-
-1. ~nil~
-2. ~t~ (default)
-
-All theme user options take effect when a theme is loaded.  Any
-subsequent changes require the theme to be reloaded.
-
-When this variable has a non-~nil~ value, any change made via the Custom
-UI or related functions such as ~customize-set-variable~ and ~setopt~
-(Emacs 29), will trigger a reload automatically.
-
-With a ~nil~ value, changes to user options have no further consequences:
-the user must manually reload the theme ([[#h:3f3c3728-1b34-437d-9d0c-b110f5b161a9][Enable and load]]).
-
 ** Option for disabling other themes while loading Modus
 :properties:
 :alt_title: Disable other themes
@@ -630,12 +602,20 @@ Possible values:
 1. ~nil~
 2. ~t~ (default)
 
-When the value is non-~nil~, the commands ~modus-themes-toggle~ and
+#+findex: modus-themes-toggle
+#+findex: modus-themes-rotate
+#+findex: modus-themes-load-random
+#+findex: modus-themes-select
+#+findex: modus-themes-load-theme
+When the value is non-~nil~, the commands ~modus-themes-toggle~,
+~modus-themes-rotate~, ~modus-themes-load-random~, and
 ~modus-themes-select~, as well as the ~modus-themes-load-theme~
-function, will disable all other themes while loading the specified
-Modus theme ([[#h:4fbfed66-5a89-447a-a07d-a03f6819c5bd][Option for which themes to toggle]]).  This is done to
-ensure that Emacs does not blend two or more themes: such blends lead
-to awkward results that undermine the work of the designer.
+function (and any related convenience wrappers like
+~modus-themes-load-random-dark~), will disable all other themes while
+loading the specified Modus theme ([[#h:4fbfed66-5a89-447a-a07d-a03f6819c5bd][Option for which themes to toggle]]).
+This is done to ensure that Emacs does not blend two or more themes:
+such blends lead to awkward results that undermine the work of the
+designer.
 
 When the value is ~nil~, the aforementioned commands and function will
 only disable other themes within the Modus collection.
@@ -707,10 +687,12 @@ Advanced users may also want to configure the exact attributes of the
 :PROPERTIES:
 :CUSTOM_ID: h:4fbfed66-5a89-447a-a07d-a03f6819c5bd
 :END:
+
+#+findex: modus-themes-toggle
+Brief: Specify which two themes to toggle between when using the command
+~modus-themes-toggle~.
+
 #+vindex: modus-themes-to-toggle
-
-Brief: Choose to Modus themes to toggle between
-
 Symbol: ~modus-themes-to-toggle~ (=list= type)
 
 Default value: ='(modus-operandi modus-vivendi)=
@@ -718,16 +700,41 @@ Default value: ='(modus-operandi modus-vivendi)=
 Possible values:
 
 - ~modus-operandi~
-- ~modus-vivendi~
 - ~modus-operandi-tinted~
-- ~modus-vivendi-tinted~
 - ~modus-operandi-deuteranopia~
-- ~modus-vivendi-deuteranopia~
 - ~modus-operandi-tritanopia~
+- ~modus-vivendi~
+- ~modus-vivendi-tinted~
+- ~modus-vivendi-deuteranopia~
 - ~modus-vivendi-tritanopia~
 
-Specify two themes to toggle between using the command
-~modus-themes-toggle~.
+** Option for which themes to rotate
+:PROPERTIES:
+:CUSTOM_ID: h:a10c0202-3683-4fad-9897-433c25e255f6
+:END:
+
+#+findex: modus-themes-rotate
+Brief: Specify which themes to rotate through when using the command
+~modus-themes-rotate~.
+
+#+vindex: modus-themes-to-rotate
+Symbol: ~modus-themes-to-rotate~ (=list= type)
+
+Default value: nil
+
+Possible values:
+
+#+vindex: modus-themes-items
+- Any of the themes listed in the value of the variable ~modus-themes-items~.
+#+findex: modus-themes-get-themes
+- Any of the themes returned by the function ~modus-themes-get-themes~
+  ([[#h:86eb375b-9be4-43ce-879a-0686a524a63b][Build on top of the Modus themes]]).
+
+When the value is a list of themes, ~modus-themes-rotate~ will go
+through them from left to right. With an optional prefix argument
+({{{kbd(C-u)}}} by default), it will move in reverse. If the value is
+~nil~, the command will perform the same action for all the themes
+returned by the function ~modus-themes-get-themes~.
 
 ** Option for font mixing
 :properties:
@@ -1171,8 +1178,8 @@ a cyan hue to keywords:
         (keyword cyan-cooler)))
 #+end_src
 
-Changes take effect upon theme reload ([[#h:9001527a-4e2c-43e0-98e8-3ef72d770639][Custom reload theme]]).
-Overrides are removed by setting their variable to a ~nil~ value.
+Changes take effect upon theme reload. Overrides are removed by
+setting their variable to a ~nil~ value.
 
 The common accented foregrounds in each palette follow a predictable
 naming scheme: =HUE{,-warmer,-cooler,-faint,-intense}=.  =HUE= is one
@@ -1190,6 +1197,92 @@ Named colors can be previewed, such as with the command
 For a video tutorial that users of all skill levels can approach,
 watch: https://protesilaos.com/codelog/2022-12-17-modus-themes-v4-demo/.
 
+** Option to extend the palette
+:PROPERTIES:
+:ALT_TITLE: Palette extension
+:DESCRIPTION: Define new colors and use them like the original ones
+:CUSTOM_ID: h:287fb971-a866-4d88-9993-56e902dd63c4
+:END:
+
+It is possible to extend the palette of each theme. For example, the
+user may define their own =cherry= color with a value of =#a0134f= and
+then apply it as an override ([[#h:34c7a691-19bb-4037-8d2f-67a07edab150][Option for palette overrides]]). Those
+colors may also be used in custom code that leverages either the
+~modus-themes-with-colors~ macro or the function
+~modus-themes-get-color-value~.
+
+The palette extension can be done in the form of a common set of
+definitions that are shared among the themes or on a per-theme basis.
+
+#+vindex: modus-themes-common-palette-user
+The common values are stored in the user option ~modus-themes-common-palette-user~.
+As for per-theme variables, we have the following user options:
+
+#+vindex: modus-operandi-palette-user
+- ~modus-operandi-palette-user~
+
+#+vindex: modus-operandi-tinted-palette-user
+- ~modus-operandi-tinted-palette-user~
+
+#+vindex: modus-operandi-deuteranopia-palette-user
+- ~modus-operandi-deuteranopia-palette-user~
+
+#+vindex: modus-operandi-tritanopia-palette-user
+- ~modus-operandi-tritanopia-palette-user~
+
+#+vindex: modus-vivendi-palette-user
+- ~modus-vivendi-palette-user~
+
+#+vindex: modus-vivendi-tinted-palette-user
+- ~modus-vivendi-tinted-palette-user~
+
+#+vindex: modus-vivendi-deuteranopia-palette-user
+- ~modus-vivendi-deuteranopia-palette-user~
+
+#+vindex: modus-vivendi-tritanopia-palette-user
+- ~modus-vivendi-tritanopia-palette-user~
+
+Examples demonstrating how to use the aforementioned:
+
+#+begin_src emacs-lisp
+;;; Common customizations
+
+;; Define two new colors in the common "user" palette of all the Modus themes.
+(setq modus-themes-common-palette-user
+      '((cherry "#a0134f")
+        (plum "#6f459a")))
+
+;; Use them in the overrides.
+(setq modus-themes-common-palette-overrides
+      '((cursor cherry)
+        (string plum)))
+
+;;; Per-theme customizations
+
+;; Define two new colors in the "user" palette of `modus-operandi'.
+;; Other themes will not use these.
+(setq modus-operandi-palette-user
+      '((cherry "#a0134f")
+        (plum "#6f459a")))
+
+;; Use them in the overrides.
+(setq modus-operandi-palette-overrides
+      '((cursor cherry)
+        (string plum)))
+
+
+;; Tweaks on a per-theme basis give the user maximum flexibility. For
+;; example, they can have the above for `modus-operandi' while they use
+;; these for `modus-vivendi':
+(setq modus-vivendi-palette-user
+      '((apricot "#dfb350")
+        (kiwi "#80d458")))
+
+(setq modus-vivendi-palette-overrides
+      '((cursor apricot)
+        (string kiwi)))
+#+end_src
+
 * Preview theme colors
 :properties:
 :custom_id: h:f4d4b71b-2ca5-4c3d-b0b4-9bfd7aa7fb4d
@@ -1199,37 +1292,77 @@ watch: https://protesilaos.com/codelog/2022-12-17-modus-themes-v4-demo/.
 #+findex: modus-themes-list-colors
 The command ~modus-themes-list-colors~ uses minibuffer completion to
 select an item from the Modus themes and then produces a buffer with
-previews of its color palette entries.  The buffer has a naming scheme
-that reflects the given choice, like =modus-operandi-list-colors= for
-the ~modus-operandi~ theme.
+previews of all of its color palette entries ([[#h:4952cd81-8a9a-4a4e-9867-3e63b9ef2f7e][Commands for the preview palette buffer]]).
 
 #+findex: modus-themes-list-colors-current
 The command ~modus-themes-list-colors-current~ skips the minibuffer
-selection process and just produces a preview for the current Modus
-theme.
+selection process to produce a preview for the current Modus theme.
 
-When called with a prefix argument (=C-u= with the default key
+When called with a prefix argument {{{kbd(C-u)}}} with the default key
 bindings), these commands will show a preview of the palette's
-semantic color mappings instead of the named colors.  In this context,
-"named colors" are entries that associate a symbol to a string color
-value, such as =(blue-warmer "#354fcf")=.  Whereas "semantic color
-mappings" associate a named color to a symbol, like =(string
-blue-warmer)=, thus making the theme render all string constructs in
-the =blue-warmer= color value ([[#h:34c7a691-19bb-4037-8d2f-67a07edab150][Option for palette overrides]]).
+semantic color mappings instead of the full palette ([[#h:34c7a691-19bb-4037-8d2f-67a07edab150][Option for palette overrides]]).
 
 #+findex: modus-themes-preview-colors
 #+findex: modus-themes-preview-colors-current
 Aliases for those commands are ~modus-themes-preview-colors~ and
 ~modus-themes-preview-colors-current~.
 
-Each row shows a foreground and background coloration using the
-underlying value it references.  For example a line with =#a60000= (a
-shade of red) will show red text followed by a stripe with that same
-color as a backdrop.
+Each row includes a foreground and background rendition of the given
+color value. For example a line with =#a60000= (a shade of red) will
+show a column with a red background combined with a suitable
+foreground followed by another column with a red foreground against
+the current theme's background. The intent is to illustrate which
+values are suitable as a background or foreground.
 
 The name of the buffer describes the given Modus theme and what the
-contents are, such as =*modus-operandi-list-colors*= for named colors
-and ==*modus-operandi-list-mappings*= for the semantic color mappings.
+contents are, such as =*modus-operandi-list-all*= for the entirety of
+the palette (named colors as well as semantic color mappings) and
+==*modus-operandi-list-mappings*= for the mappings only.
+
+** Commands for the preview palette buffer
+:PROPERTIES:
+:CUSTOM_ID: h:4952cd81-8a9a-4a4e-9867-3e63b9ef2f7e
+:END:
+
+#+findex: modus-themes-preview-mode
+#+vindex: modus-themes-preview-mode-map
+The palette preview buffer uses the major mode ~modus-themes-preview-mode~,
+which provides the ~modus-themes-preview-mode-map~ ([[#h:f4d4b71b-2ca5-4c3d-b0b4-9bfd7aa7fb4d][Preview theme colors]]).
+The following key bindings are available by default:
+
+| Default key binding | Name of the command                    |
+|---------------------+----------------------------------------|
+| =w=                 | ~modus-themes-preview-mode-copy-color~ |
+| =W=                 | ~modus-themes-preview-mode-copy-entry~ |
+| =m=                 | ~modus-themes-preview-mode-mark~       |
+| =M=                 | ~modus-themes-preview-mode-mark-all~   |
+| =u=                 | ~modus-themes-preview-mode-unmark~     |
+| =U=                 | ~modus-themes-preview-mode-unmark-all~ |
+
+#+findex: modus-themes-preview-mode-copy-color
+The command ~modus-themes-preview-mode-copy-color~ copies the resolved
+color value of the entry at point or of all the marked entries. This
+means that it always returns a string with the value of the color, not
+a symbolic representation of it. For example, if =cursor= is mapped to
+=red-warmer=, this command will return ="#972500"= while previewing
+the palette of the ~modus-operandi~ theme.
+
+#+findex: modus-themes-preview-mode-copy-entry
+The command ~modus-themes-preview-mode-copy-entry~ copies the palette
+entry as such. This is how the entry is in the underlying palette
+definition. For example, it will return =(magenta-cooler "#531ab6")=
+or =(keybind blue-warmer)=. Copying those is useful as a starting
+point for writing palette overrides ([[#h:34c7a691-19bb-4037-8d2f-67a07edab150][Option for palette overrides]]).
+
+#+findex: modus-themes-preview-mode-mark
+#+findex: modus-themes-preview-mode-mark-all
+#+findex: modus-themes-preview-mode-unmark
+#+findex: modus-themes-preview-mode-unmark-all
+The commands ~modus-themes-preview-mode-mark~, ~modus-themes-preview-mode-mark-all~,
+~modus-themes-preview-mode-unmark~, and ~modus-themes-preview-mode-unmark-all~,
+will add or remove a marker from the current or affected lines. These
+marks influence the result of the aforementioned commands for copying
+colors and palette entries.
 
 * Use colors from the Modus themes palette
 :PROPERTIES:
@@ -1237,7 +1370,7 @@ and ==*modus-operandi-list-mappings*= for the semantic color mappings.
 :END:
 
 The Modus themes provide the means to access the palette of (i) the
-active theme or (ii) any theme in the Modus collection.  These are
+active theme or (ii) any theme in the Modus collection. These are
 useful for Do-It-Yourself customizations ([[#h:f4651d55-8c07-46aa-b52b-bed1e53463bb][Advanced customization]]),
 though it can also be helpful in other cases, such as to reuse a color
 value in some other application.
@@ -1252,8 +1385,8 @@ value in some other application.
 
 #+findex: modus-themes-get-color-value
 The function ~modus-themes-get-color-value~ can be called from Lisp to
-return the value of a color from the active Modus theme palette.  It
-takea a =COLOR= argument and an optional =OVERRIDES=.  It also accepts
+return the value of a color from the active Modus theme palette. It
+takea a =COLOR= argument and an optional =OVERRIDES=. It also accepts
 a third =THEME= argument, to get the color from the given theme.
 
 =COLOR= is a symbol that represents a named color entry in the
@@ -1264,7 +1397,7 @@ mapping), this function recurs until it finds the underlying color
 value.
 
 With an optional =OVERRIDES= argument as a non-~nil~ value, it
-accounts for palette overrides.  Else it reads only the default palette
+accounts for palette overrides. Else it reads only the default palette
 ([[#h:34c7a691-19bb-4037-8d2f-67a07edab150][Option for palette overrides]])
 
 With an optional =THEME= as a symbol among the ~modus-themes-items~
@@ -1309,12 +1442,12 @@ with/without overrides and when recursive mappings are introduced.
 
 #+findex: modus-themes-with-colors
 Advanced users may want to apply many colors from the palette of the
-active Modus theme in their custom code.  In such a case, retrieving
+active Modus theme in their custom code. In such a case, retrieving
 each value with the function ~modus-themes-get-color-value~ is
-inefficient ([[#h:1cc552c1-5f5f-4a56-ae78-7b69e8512c4e][Get a single color from the palette]]).  The Lisp macro
-~modus-themes-with-colors~ provides the requisite functionality.  It
+inefficient ([[#h:1cc552c1-5f5f-4a56-ae78-7b69e8512c4e][Get a single color from the palette]]). The Lisp macro
+~modus-themes-with-colors~ provides the requisite functionality. It
 supplies the current theme's palette to the code called from inside of
-it.  For example:
+it. For example:
 
 #+begin_src emacs-lisp
 (modus-themes-with-colors
@@ -1323,9 +1456,9 @@ it.  For example:
 #+end_src
 
 The above return value is for ~modus-operandi~ when that is the active
-theme.  Switching to another theme and evaluating this code anew will
+theme. Switching to another theme and evaluating this code anew will
 return the relevant results for that theme (remember that since
-version 4, the Modus themes consist of many items ([[#h:f0f3dbcb-602d-40cf-b918-8f929c441baf][Overview]])).  The
+version 4, the Modus themes consist of many items ([[#h:f0f3dbcb-602d-40cf-b918-8f929c441baf][Overview]])). The
 same with ~modus-vivendi~ as the active theme:
 
 #+begin_src emacs-lisp
@@ -1340,7 +1473,7 @@ like =blue-warmer= and (ii) semantic color mappings like =warning=.
 We provide commands to inspect those ([[#h:f4d4b71b-2ca5-4c3d-b0b4-9bfd7aa7fb4d][Preview theme colors]]).
 
 Others sections in this manual show how to use the aforementioned
-macro ([[#h:f4651d55-8c07-46aa-b52b-bed1e53463bb][Advanced customization]]).  In practice, the use of a hook will
+macro ([[#h:f4651d55-8c07-46aa-b52b-bed1e53463bb][Advanced customization]]). In practice, the use of a hook will
 also be needed ([[#h:d87673fe-2ce1-4c80-a4b8-be36ca9f2d24][DIY Use a hook at the post-load-theme phase]]).
 
 * Advanced customization
@@ -1355,7 +1488,7 @@ mechanism to control things with precision ([[#h:bf1c82f2-46c7-4eb2-ad00-dd11fdd
 
 This section is of interest only to users who are prepared to maintain
 their own local tweaks and who are willing to deal with any possible
-incompatibilities between versioned releases of the themes.  As such,
+incompatibilities between versioned releases of the themes. As such,
 they are labeled as "do-it-yourself" or "DIY".
 
 ** DIY Palette override presets
@@ -1429,6 +1562,101 @@ the general idea (extra space for didactic purposes):
         ;; we use the backtick for this list, instead of a straight
         ;; quote.
         ,@modus-themes-preset-overrides-intense))
+#+end_src
+
+** DIY Add support for ~engrave-faces~
+:PROPERTIES:
+:CUSTOM_ID: h:6c3f87a8-3573-43de-89e0-53f567c0ede1
+:END:
+
+The ~engraved-faces~ package is used as part of an Org export process
+to produce decent colors in the output. Its default style though
+requires changes to use the colors of the active Modus theme.
+
+In the code below we show how to map everything that ~engrave-faces~
+defines to the corresponding entry in the palette of the active Modus
+theme. We then use a hook to ensure that the value is updated after we
+switch to another theme in the collection ([[#h:d87673fe-2ce1-4c80-a4b8-be36ca9f2d24][DIY Use a hook at the post-load-theme phase]]).
+
+#+begin_src emacs-lisp
+(defun my-modus-themes-engraved-faces (&rest _)
+  (modus-themes-with-colors
+    (setq engrave-faces-themes
+          `((default .
+                     (;; faces.el --- excluding: bold, italic, bold-italic, underline, and some others
+                      (default                             :short "default"             :slug "D"   :foreground ,fg-main :background ,bg-main :family "Monospace")
+                      (variable-pitch                      :short "var-pitch"           :slug "vp"  :foreground ,fg-main                       :family "Sans Serif")
+                      (shadow                              :short "shadow"              :slug "h"   :foreground ,fg-dim)
+                      (success                             :short "success"             :slug "sc"  :foreground ,green :weight bold)
+                      (warning                             :short "warning"             :slug "w"   :foreground ,warning :weight bold)
+                      (error                               :short "error"               :slug "e"   :foreground ,err :weight bold)
+                      (link                                :short "link"                :slug "l"   :foreground ,fg-link)
+                      (link-visited                        :short "link"                :slug "lv"  :foreground ,fg-link-visited)
+                      (highlight                           :short "link"                :slug "hi"  :foreground ,info)
+                      ;; font-lock.el
+                      (font-lock-comment-face              :short "fl-comment"          :slug "c"   :foreground ,comment)
+                      (font-lock-comment-delimiter-face    :short "fl-comment-delim"    :slug "cd"  :foreground ,comment)
+                      (font-lock-string-face               :short "fl-string"           :slug "s"   :foreground ,string)
+                      (font-lock-doc-face                  :short "fl-doc"              :slug "d"   :foreground ,docstring)
+                      (font-lock-doc-markup-face           :short "fl-doc-markup"       :slug "m"   :foreground ,docmarkup)
+                      (font-lock-keyword-face              :short "fl-keyword"          :slug "k"   :foreground ,keyword)
+                      (font-lock-builtin-face              :short "fl-builtin"          :slug "b"   :foreground ,builtin)
+                      (font-lock-function-name-face        :short "fl-function"         :slug "f"   :foreground ,fnname)
+                      (font-lock-variable-name-face        :short "fl-variable"         :slug "v"   :foreground ,variable)
+                      (font-lock-type-face                 :short "fl-type"             :slug "t"   :foreground ,type)
+                      (font-lock-constant-face             :short "fl-constant"         :slug "o"   :foreground ,constant)
+                      (font-lock-warning-face              :short "fl-warning"          :slug "wr"  :foreground ,warning :weight bold)
+                      (font-lock-negation-char-face        :short "fl-neg-char"         :slug "nc")
+                      (font-lock-preprocessor-face         :short "fl-preprocessor"     :slug "pp"  :foreground ,preprocessor)
+                      (font-lock-regexp-grouping-construct :short "fl-regexp"           :slug "rc"                        :weight bold)
+                      (font-lock-regexp-grouping-backslash :short "fl-regexp-backslash" :slug "rb"                        :weight bold)
+                      ;; org-faces.el
+                      (org-block                           :short "org-block"           :slug "ob") ; forcing no background is preferable
+                      (org-block-begin-line                :short "org-block-begin"     :slug "obb") ; forcing no background is preferable
+                      (org-block-end-line                  :short "org-block-end"       :slug "obe") ; forcing no background is preferable
+                      ;; outlines
+                      (outline-1                           :short "outline-1"           :slug "Oa"  :foreground ,fg-heading-1)
+                      (outline-2                           :short "outline-2"           :slug "Ob"  :foreground ,fg-heading-2)
+                      (outline-3                           :short "outline-3"           :slug "Oc"  :foreground ,fg-heading-3)
+                      (outline-4                           :short "outline-4"           :slug "Od"  :foreground ,fg-heading-4)
+                      (outline-5                           :short "outline-5"           :slug "Oe"  :foreground ,fg-heading-5)
+                      (outline-6                           :short "outline-6"           :slug "Of"  :foreground ,fg-heading-6)
+                      (outline-7                           :short "outline-7"           :slug "Og"  :foreground ,fg-heading-7)
+                      (outline-8                           :short "outline-8"           :slug "Oh"  :foreground ,fg-heading-8)
+                      ;; highlight-numbers.el
+                      (highlight-numbers-number            :short "hl-number"           :slug "hn"  :foreground ,number)
+                      ;; highlight-quoted.el
+                      (highlight-quoted-quote              :short "hl-qquote"           :slug "hq"  :foreground ,string)
+                      (highlight-quoted-symbol             :short "hl-qsymbol"          :slug "hs"  :foreground ,constant)
+                      ;; rainbow-delimiters.el
+                      (rainbow-delimiters-depth-1-face     :short "rd-1"                :slug "rda" :foreground ,rainbow-0)
+                      (rainbow-delimiters-depth-2-face     :short "rd-2"                :slug "rdb" :foreground ,rainbow-1)
+                      (rainbow-delimiters-depth-3-face     :short "rd-3"                :slug "rdc" :foreground ,rainbow-2)
+                      (rainbow-delimiters-depth-4-face     :short "rd-4"                :slug "rdd" :foreground ,rainbow-3)
+                      (rainbow-delimiters-depth-5-face     :short "rd-5"                :slug "rde" :foreground ,rainbow-4)
+                      (rainbow-delimiters-depth-6-face     :short "rd-6"                :slug "rdf" :foreground ,rainbow-5)
+                      (rainbow-delimiters-depth-7-face     :short "rd-7"                :slug "rdg" :foreground ,rainbow-6)
+                      (rainbow-delimiters-depth-8-face     :short "rd-8"                :slug "rdh" :foreground ,rainbow-7)
+                      (rainbow-delimiters-depth-9-face     :short "rd-9"                :slug "rdi" :foreground ,rainbow-8)
+                      ;; ansi-color
+                      (ansi-color-yellow                   :short "ansi-yellow"         :slug "any" :foreground ,fg-term-yellow)
+                      (ansi-color-red                      :short "ansi-red"            :slug "anr" :foreground ,fg-term-red)
+                      (ansi-color-black                    :short "ansi-black"          :slug "anb" :foreground ,fg-term-black)
+                      (ansi-color-green                    :short "ansi-green"          :slug "ang" :foreground ,fg-term-green)
+                      (ansi-color-blue                     :short "ansi-blue"           :slug "anB" :foreground ,fg-term-blue)
+                      (ansi-color-cyan                     :short "ansi-cyan"           :slug "anc" :foreground ,fg-term-cyan)
+                      (ansi-color-white                    :short "ansi-white"          :slug "anw" :foreground ,fg-term-white)
+                      (ansi-color-magenta                  :short "ansi-magenta"        :slug "anm" :foreground ,fg-term-magenta)
+                      (ansi-color-bright-yellow            :short "ansi-bright-yellow"  :slug "ANy" :foreground ,fg-term-yellow-bright)
+                      (ansi-color-bright-red               :short "ansi-bright-red"     :slug "ANr" :foreground ,fg-term-red-bright)
+                      (ansi-color-bright-black             :short "ansi-bright-black"   :slug "ANb" :foregroun  ,fg-term-black-bright)
+                      (ansi-color-bright-green             :short "ansi-bright-green"   :slug "ANg" :foreground ,fg-term-green-bright)
+                      (ansi-color-bright-blue              :short "ansi-bright-blue"    :slug "ANB" :foreground ,fg-term-blue-bright)
+                      (ansi-color-bright-cyan              :short "ansi-bright-cyan"    :slug "ANc" :foreground ,fg-term-cyan-bright)
+                      (ansi-color-bright-white             :short "ansi-bright-white"   :slug "ANw" :foregroun  ,fg-term-white-bright)
+                      (ansi-color-bright-magenta           :short "ansi-bright-magenta" :slug "ANm" :foregroun  ,fg-term-magenta-bright)))))))
+
+(add-hook 'enable-theme-functions #'my-modus-themes-engraved-faces)
 #+end_src
 
 ** DIY Stylistic variants using palette overrides
@@ -2076,14 +2304,14 @@ Reload the theme for changes to take effect.
 :end:
 
 This is one of our practical examples to override the semantic colors
-of the Modus themes ([[#h:df1199d8-eaba-47db-805d-6b568a577bf3][Stylistic variants using palette overrides]]).  Here
+of the Modus themes ([[#h:df1199d8-eaba-47db-805d-6b568a577bf3][Stylistic variants using palette overrides]]). Here
 we show how to change the presentation of Org blocks (and other such
 blocks like Markdown fenced code sections, though the exact
 presentation depends on each major mode).
 
 The default style of Org blocks is a subtle gray background for the
 contents and for the delimiter lines (the =#+begin_= and =#+end_=
-parts).  The text of the delimiter lines is a subtle gray foreground
+parts). The text of the delimiter lines is a subtle gray foreground
 color.
 
 [[#h:bb5b396f-5532-4d52-ab13-149ca24854f1][Make inline code in prose use alternative styles]].
@@ -2123,8 +2351,8 @@ color.
 #+end_src
 
 The previous examples differentiate the delimiter lines from the
-block's contents.  Though we can mimic the default aesthetic of a
-uniform background, while changing the applicable colors.  Here are
+block's contents. Though we can mimic the default aesthetic of a
+uniform background, while changing the applicable colors. Here are
 some nice combinations:
 
 #+begin_src emacs-lisp
@@ -2152,7 +2380,7 @@ some nice combinations:
 
 Finally, the following makes code blocks have no distinct background.
 The minimal styles are applied to the delimiter lines, which only use
-a subtle gray foreground.  This was the default for the Modus themes up
+a subtle gray foreground. This was the default for the Modus themes up
 until version 4.3.0.
 
 #+begin_src emacs-lisp
@@ -2162,7 +2390,7 @@ until version 4.3.0.
 ;; was the default in versions of the Modus themes before 4.4.0
 (setq modus-themes-common-palette-overrides
       '((bg-prose-block-contents unspecified)
-        (bg-prose-block-delimiter unspecified)
+        (bg-prose-block-delimiter unspeficied)
         (fg-prose-block-delimiter fg-dim)))
 #+end_src
 
@@ -3160,7 +3388,7 @@ specification of that variable looks like this:
 
 With the exception of ~org-verbatim~ and ~org-code~ faces, everything else
 uses the corresponding type of emphasis: a bold typographic weight, or
-italicized, underlined, and struck through text.
+italicised, underlined, and struck through text.
 
 The best way for users to add some extra attributes, such as a
 foreground color, is to define their own faces and assign them to the
@@ -3280,11 +3508,11 @@ invoke {{{kbd(M-x org-mode-restart)}}}.
 
 In versions of the Modus themes before =4.4.0= there was an option to
 change the coloration of Org source blocks so that certain languages
-would have a distinctly colored background.  This was not flexible
+would have a distinctly colored background. This was not flexible
 enough, because (i) we cannot cover all languages effectively and (ii)
 the user had no choice over the =language --> color= mapping.
 
-As such, the old user option is no more.  Users can use the following
+As such, the old user option is no more. Users can use the following
 to achieve what they want:
 
 [ All this is done by setting the Org user option ~org-src-block-faces~,
@@ -3323,9 +3551,9 @@ to achieve what they want:
 [[#h:d87673fe-2ce1-4c80-a4b8-be36ca9f2d24][DIY Use a hook at the post-load-theme phase]].
 
 Note that the ~org-src-block-faces~ accepts a named face, as shown
-above, as well as a list of face attributes.  The latter approach is
+above, as well as a list of face attributes. The latter approach is
 not good enough because it hardcodes values in such a way that an
-~org-mode-restart~ is necessary.  Whereas the indirection of the named
+~org-mode-restart~ is necessary. Whereas the indirection of the named
 face lets the theme change the values while Org buffers continue to
 show the right colors.
 
@@ -3638,7 +3866,7 @@ Add this to the `modus-themes-post-load-hook'."
 The above will work only for themes that belong to the Modus family.
 For users of Emacs version 29 or higher, there exists a theme-agnostic
 hook that takes a function with one argument---that of the theme---and
-calls in the "post enable" phase of theme loading.  Here is the
+calls in the the "post enable" phase of theme loading.  Here is the
 above snippet, with the necessary tweaks:
 
 #+begin_src emacs-lisp
@@ -3751,7 +3979,7 @@ on what we cover at length elsewhere in this manual:
   (modus-themes-with-colors
     (custom-set-faces
      `(solaire-default-face ((,c :inherit default :background ,bg-dim :foreground ,fg-dim)))
-     `(solaire-line-number-face ((,c :inherit solaire-default-face :foreground ,fg-unfocused)))
+     `(solaire-line-number-face ((,c :inherit solaire-default-face :foreground ,fg-dim)))
      `(solaire-hl-line-face ((,c :background ,bg-active)))
      `(solaire-org-hide-face ((,c :background ,bg-dim :foreground ,bg-dim))))))
 
@@ -3762,13 +3990,95 @@ on what we cover at length elsewhere in this manual:
 
 Reload the theme for changes to take effect.
 
+** DIY Add support for meow-mode
+:PROPERTIES:
+:CUSTOM_ID: h:caa5a5c4-18fb-4b9f-91f9-883f216fce41
+:END:
+
+The ~meow~ package provides a modal editing experience. It is meant to
+build on top of the key bindings the user is already familiar with. My
+problem as an outsider is that I cannot make sense of all the contexts
+where its faces are used in, so I cannot make a good choice of which
+styles to use. The following is but a basic attempt to get started.
+
+#+begin_src emacs-lisp
+;; This is not complete, because it is difficult for a non-user to
+;; make sense of where all the faces are used in.
+(defun my-modus-themes-custom-faces (&rest _)
+  (modus-themes-with-colors
+    (custom-set-faces
+     ;; FIXME: What is a "region cursor" and should it differ from the position highlights below?
+     `(meow-region-cursor-1 ((,c :inherit (bold modus-themes-search-current modus-themes-reset-soft))))
+     `(meow-region-cursor-2 ((,c :inherit (bold modus-themes-search-current modus-themes-reset-soft))))
+     `(meow-region-cursor-3 ((,c :inherit (bold modus-themes-search-current modus-themes-reset-soft))))
+
+     `(meow-position-highlight-number-1 ((,c :inherit (bold modus-themes-search-current modus-themes-reset-soft))))
+     `(meow-position-highlight-number-2 ((,c :inherit (bold modus-themes-search-current modus-themes-reset-soft))))
+     `(meow-position-highlight-number-3 ((,c :inherit (bold modus-themes-search-current modus-themes-reset-soft)))))))
+
+(add-hook 'enable-theme-functions #'my-modus-themes-custom-faces)
+#+end_src
+
+[[#h:d87673fe-2ce1-4c80-a4b8-be36ca9f2d24][Using a hook at the post-load-theme phase]].
+
+** DIY Add support for combobulate
+:PROPERTIES:
+:CUSTOM_ID: h:e94bdd17-1c2d-41b5-86c5-83462bd8f30c
+:END:
+
+The ~combobulate~ package provides the means to operate on text that
+is underpinned by the ~tree-sitter~ program. Because this is a
+specialized case that requires intimate knowledge of the
+technicalities, I am not adding support for this package directly at
+the theme level. Users can try this instead:
+
+#+begin_src emacs-lisp
+(defun my-modus-themes-custom-faces (&rest _)
+  (modus-themes-with-colors
+    (custom-set-faces
+     `(combobulate-active-indicator-face ((,c :foreground ,fg-main)))
+     `(combobulate-dimmed-indicator-face ((,c :inherit shadow)))
+     `(combobulate-error-indicator-face ((,c :inherit error)))
+     `(combobulate-query-highlight-fiery-flames-face ((,c :inherit modus-themes-intense-red)))
+     `(combobulate-query-highlight-gleaming-gold-face ((,c :inherit modus-themes-intense-yellow)))
+     `(combobulate-query-highlight-majestic-mercury-face ((,c :inherit modus-themes-intense-cyan)))
+     `(combobulate-query-highlight-mysterious-mauve-face ((,c :inherit modus-themes-intense-magenta)))
+     `(combobulate-query-highlight-radiant-rind-face ((,c :inherit modus-themes-subtle-red)))
+     `(combobulate-query-highlight-regal-ripples-face ((,c :inherit modus-themes-intense-blue)))
+     `(combobulate-query-highlight-serene-shade-face ((,c :inherit modus-themes-subtle-green)))
+     `(combobulate-query-highlight-silver-shadows-face ((,c :background ,bg-active :foreground ,fg-main)))
+     `(combobulate-query-highlight-vibrant-veggie-face ((,c :inherit modus-themes-intense-green)))
+     `(combobulate-query-query-anonymous-face ((,c :inherit modus-themes-bold :foreground ,fg-alt)))
+     `(combobulate-query-query-builtin-face ((,c :inherit font-lock-builtin-face)))
+     `(combobulate-query-query-constant-face ((,c :inherit font-lock-constant-face)))
+     `(combobulate-query-query-doc-markup-face ((,c :inherit font-lock-doc-markup-face)))
+     `(combobulate-query-query-keyword-face ((,c :inherit font-lock-keyword-face)))
+     `(combobulate-query-query-predicate-builtin-face ((,c :inherit bold)))
+     `(combobulate-query-query-string-face ((,c :inherit font-lock-string-face)))
+     `(combobulate-refactor-choice-face ((,c :inherit modus-themes-slant :foreground ,info)))
+     `(combobulate-refactor-cursor-face ((,c :foreground ,cursor)))
+     `(combobulate-refactor-field-face ((,c :background ,bg-inactive :foreground ,fg-main :extend nil)))
+     `(combobulate-refactor-highlight-face ((,c :inherit highlight)))
+     `(combobulate-refactor-inactive-choice-face ((,c :inherit modus-themes-slant :foreground ,fg-dim)))
+     `(combobulate-refactor-inactive-field-face ((,c :background ,bg-dim :foreground ,fg-dim :extend nil)))
+     `(combobulate-refactor-label-face ((,c :inherit modus-themes-search-replace)))
+     `(combobulate-tree-branch-face ((,c :inherit shadow)))
+     `(combobulate-tree-highlighted-node-face ((,c :inherit success)))
+     `(combobulate-tree-normal-node-face ((,c :foreground ,fg-main)))
+     `(combobulate-tree-pulse-node-face ((,c :background ,bg-blue-intense :extend t))))))
+
+(add-hook 'enable-theme-functions #'my-modus-themes-custom-faces)
+#+end_src
+
+[[#h:d87673fe-2ce1-4c80-a4b8-be36ca9f2d24][Using a hook at the post-load-theme phase]].
+
 ** DIY Use a hook at the post-load-theme phase
 :PROPERTIES:
 :CUSTOM_ID: h:d87673fe-2ce1-4c80-a4b8-be36ca9f2d24
 :END:
 
 Many of the Do-It-Yourself (DIY) snippets provided herein make use of
-a hook to apply the desired changes.  In most examples, this hook is
+a hook to apply the desired changes. In most examples, this hook is
 the ~modus-themes-after-load-theme-hook~ (alias ~modus-themes-post-load-hook~).
 This hook is provided by the Modus themes and is called at the end of
 one the following:
@@ -3786,7 +4096,7 @@ one the following:
 
 Users who switch between themes that are not limited to the Modus
 collection cannot benefit from the aforementioned hook: it only works
-with the Modus themes.  A theme-agnostic hook is needed in such a case.
+with the Modus themes. A theme-agnostic hook is needed in such a case.
 Before Emacs 29, this had to be set up manually ([[#h:86f6906b-f090-46cc-9816-1fe8aeb38776][DIY A theme-agnostic hook for theme loading]]).
 Starting with Emacs 29, the special hook ~enable-theme-functions~
 works with anything that uses the basic ~enable-theme~ function.
@@ -3799,7 +4109,7 @@ the way it is done with every hook:
 #+end_src
 
 Functions added to ~enable-theme-functions~ accept a single =THEME=
-argument.  The examples shown in this manual use the pattern =(&rest
+argument. The examples shown in this manual use the pattern =(&rest
 _)=, which is how a function accepts one or more arguments but
 declares it will not use them (in plain terms, the code works with or
 without ~enable-theme-functions~).
@@ -3809,7 +4119,7 @@ without ~enable-theme-functions~).
 :custom_id: h:86f6906b-f090-46cc-9816-1fe8aeb38776
 :end:
 
-[ NOTE: The following is for versions of Emacs before 29.  For Emacs 29
+[ NOTE: The following is for versions of Emacs before 29. For Emacs 29
   or higher, users can rely on the built-in ~enable-theme-functions~
   ([[#h:d87673fe-2ce1-4c80-a4b8-be36ca9f2d24][Using a hook at the post-load-theme phase]]). ]
 
@@ -3859,6 +4169,963 @@ In this document, we cover ~modus-themes-after-load-theme-hook~ though
 the user can replace it with ~after-enable-theme-hook~ should they
 need to (provided they understand the implications).
 
+* Build on top of the Modus themes
+:PROPERTIES:
+:CUSTOM_ID: h:86eb375b-9be4-43ce-879a-0686a524a63b
+:END:
+
+This section concerns package developers or advanced users.
+
+The Modus themes can be used as the basis for another theme. The
+~ef-themes~ and ~standard-themes~ packages (also by Protesilaos), are
+two such case. Developers may build on top of Modus to benefit from
+the extensive customization of the Modus themes and the fact that they
+are part of core Emacs. Note that because the ~ef-themes~ and
+~standard-themes~ existed before they were redone on top of Modus,
+they have to provide lots of compatibility aliases. Whereas a new
+theme can be as simple as a single file that only calls
+~modus-themes-theme~. This manual covers everything in detail with
+examples that can be copy-pasted directly, both for private use or to
+create a new package ([[#h:bd47fea9-416d-481e-a504-82850b8c2a58][Complete example of a Modus derivative theme]]).
+
+#+findex: modus-themes-theme
+#+vindex: modus-themes-registered-items
+A theme exists in a file whose directory is in the ~custom-theme-load-path~.
+The theme file is named =NAME-theme.el=. For example, the ~modus-operandi~
+theme is in the file =modus-operandi-theme.el=. A theme object can be
+instantiated with the function ~modus-themes-theme~. This function takes care to
+(i) declare the theme, (ii) add to it relevant ~theme-properties~, (iii) register
+it in the ~modus-themes-registered-items~, (iv) make it work with all the faces
+and customizations documented in this manual, and (v) ~provide-theme~ the theme.
+
+Concretely, ~modus-themes-theme~ expects the following mandatory arguments:
+
+- =NAME= :: The name of the new theme as a symbol, like ~modus-operandi~.
+- =FAMILY= :: The collection this theme is a member of as a symbol,
+  like ~modus-themes~.
+- =DESCRIPTION= :: A string describing the theme.
+- =BACKGROUND-MODE= :: The symbol =dark= or =light=, in reference to
+  the theme's background color.
+- =CORE-PALETTE= :: The symbol of a variable containing a palette with
+  named colors and semantic mappings, like ~modus-operandi-palette~. A
+  palette that does not have at least all the entries of a default
+  Modus palette will eventually not work properly because some face
+  definition will expect a given color. Though the macro does not
+  impose any check in this regard.
+- =USER-PALETTE= :: The symbol of a user-defined extension to the
+  =CORE-PALETTE=, commensurate with it, though with arbitrary entries.
+  This can be nil, a fully fledged palette, or a short list of
+  entries. Any colors defined therein are treated the same as the
+  =CORE-PALETTE= and can, in practice, be used to apply distinct
+  styles to the =CUSTOM-FACES= and =CUSTOM-VARIABLES= (more below).
+- =OVERRIDES-PALETTE= :: The symbol of a palette that contains
+  overrides for the above two palettes. It is functionally equivalent
+  to the =USER-PALETTE=, except it is meant to be customized by the
+  end user. Its value can also be nil.
+#+vindex: modus-themes-faces
+- Optional =CUSTOM-FACES= :: The symbol of a variable with list of
+  face definitions like those in ~modus-themes-faces~, to extend or
+  modify what core Modus defines. If provided, they override whatever
+  definition is present in ~modus-themes-faces~ in case of a conflict.
+  Derivative themes can thus deviate from the style of core Modus,
+  wherever necessary.
+#+vindex: modus-themes-custom-variables
+- Optional =CUSTOM-VARIABLES= :: The symbol of a variable with a list
+  of custom variables (typically user options) like those defined in
+  ~modus-themes-custom-variables~. They also override the core Modus
+  definitions in case of a conflict.
+
+This is an example of a theme that builds on top of ~modus-operandi~,
+passing all the mandatory arguments, but not the optional ones:
+
+#+begin_src emacs-lisp
+(modus-themes-theme
+  'ef-summer
+  'ef-themes
+  "Legible light warm pink theme with magenta, purple, gold, cyan colors."
+  'light
+  'modus-operandi-palette
+  'ef-summer-palette
+  'ef-summer-palette-overrides)
+#+end_src
+
+Here we notice how ~ef-summer~ has ~modus-operandi-palette~ as its
+=CORE-PALETTE=. This means that if the ~ef-summer-palette~ lacks some
+entry, the theme will still work and it will inherit the style of
+~modus-operandi~ for that specific element.
+
+The ~modus-themes-theme~ macro does not try to be smart about the
+arguments it is given. It will thus not make any attempt to test if
+the variables are bound, nor will it declare any customization
+options. In the above example, the ~ef-summer-palette-overrides~ is a
+user option that is declared in that theme's file.
+
+In addition to defining their own colors, themes can provide an
+entirely custom list of face definitions and customization options.
+This mirrors the style of ~modus-themes-faces~ and
+~modus-themes-custom-variables~, as already noted. For example, the
+~standard-themes~ have a pseudo-3D style for their active mode line.
+They are declared in this way:
+
+#+begin_src emacs-lisp
+(modus-themes-theme
+  'standard-dark
+  'standard-themes
+  "Like the unthemed dark Emacs, but more consistent."
+  'dark
+  'modus-vivendi-palette
+  'standard-dark-palette
+  'standard-dard-palette-overrides
+  'standard-themes-custom-faces) ; NOTE the additional optional argument
+#+end_src
+
+The ~standard-themes-custom-faces~ in this example specifies a list of
+face definitions like this:
+
+#+begin_src emacs-lisp
+;; Simplified example for illustration purposes
+(defconst standard-themes-custom-faces
+  '(
+    `(mode-line ((,c :box (:style released-button :color ,border-mode-line-active))))))
+#+end_src
+
+Custom faces passed in this way can still define their semantic
+palette mappings, as illustrated herein where ~border-mode-line-active~
+corresponds to some named color in the palette of the active theme.
+
+** Complete example of a Modus derivative theme
+:PROPERTIES:
+:CUSTOM_ID: h:bd47fea9-416d-481e-a504-82850b8c2a58
+:END:
+
+[ For more context: [[#h:86eb375b-9be4-43ce-879a-0686a524a63b][Build on top of the Modus themes]]. ]
+
+In this section, we show how to define a new Modus derivative theme.
+In its simplest form, a theme is a file called =NAME-theme.el= in a
+directory that is part of the ~custom-theme-load-path~. We show how to
+do this for a package and for a private configuration:
+
+- [[#h:f2757848-ea41-4cd7-a04d-7e650555a59b][Complete example of a package that is derived from Modus]]
+- [[#h:48e391a6-831b-48ec-b92d-4e7e6871b043][Complete example of a private theme derived from Modus]]
+
+*** Complete example of a package that is derived from Modus
+:PROPERTIES:
+:CUSTOM_ID: h:f2757848-ea41-4cd7-a04d-7e650555a59b
+:END:
+
+For package developers, the following snippet needs to be included in
+each theme file ([[#h:48e391a6-831b-48ec-b92d-4e7e6871b043][Complete example of a private theme derived from Modus]]):
+
+#+begin_src emacs-lisp
+;;;; Add themes from this package to the `custom-theme-load-path'
+
+;;;###autoload
+(when load-file-name
+  (let ((dir (file-name-directory load-file-name)))
+      (add-to-list 'custom-theme-load-path dir)))
+#+end_src
+
+If the package provides many themes, then the above snippet can be
+included in a shared file that is then loaded via ~require~ in the
+individual theme files.
+
+For example, the family of themes that includes =prot-light-theme.el=
+and =prot-dark-theme.el= has a shared library which is
+=prot-themes.el= and therein we find at least the following:
+
+#+begin_src emacs-lisp
+;; Package headers here for prot-themes.el...
+
+;; Any other shared definitions...
+
+;;;; Add themes from this package to the `custom-theme-load-path'
+
+;;;###autoload
+(when load-file-name
+  (let ((dir (file-name-directory load-file-name)))
+      (add-to-list 'custom-theme-load-path dir)))
+
+(provide 'prot-themes)
+;;; prot-themes.el ends here
+#+end_src
+
+Then each individual theme can look like this ([[#h:ca3031b5-5f7a-46d4-bc83-e84e8bed038c][Complete example of a custom theme with its own palette]]):
+
+#+begin_src emacs-lisp
+(require 'prot-themes)
+
+(modus-themes-theme
+ 'prot-light
+ 'prot-themes
+ "My demo `prot-light' theme."
+ 'light
+ 'modus-operandi-palette
+ nil
+ nil)
+#+end_src
+
+The contents of such a package will be of this form:
+
+- =prot-themes.el= :: Common file with all the shared definitions.
+- =prot-light-theme.el= :: The light theme.
+- =prot-dark-theme.el= :: The dark theme.
+
+The shared file can be skipped if the only piece of common code is
+the aforementioned snippet about the ~custom-theme-load-path~. Simply
+add that snippet to the bottom of each theme file, like this:
+
+#+begin_src emacs-lisp
+(modus-themes-theme
+ 'prot-light
+ 'prot-themes
+ "My demo `prot-light' theme."
+ 'light
+ 'modus-operandi-palette
+ nil
+ nil)
+
+;;;###autoload
+(when load-file-name
+  (let ((dir (file-name-directory load-file-name)))
+      (add-to-list 'custom-theme-load-path dir)))
+#+end_src
+
+The package is then a collection of =NAME-theme.el= files and nothing more.
+
+In principle, a package derived from Modus does not need to define any
+commands or user options. What is shown in this section is enough.
+Packages such as the ~ef-themes~ and ~standard-themes~ are exceptions
+because they existed for years before they were based on Modus and
+must remain backward compatible.
+
+[[#h:6eb0dba7-89cb-4b21-bc5d-97f6b5eb3caa][Arrange to activate your derivative themes]].
+
+*** Complete example of a private theme derived from Modus
+:PROPERTIES:
+:CUSTOM_ID: h:48e391a6-831b-48ec-b92d-4e7e6871b043
+:END:
+
+If your derivative theme is not going to be distributed as a package
+([[#h:f2757848-ea41-4cd7-a04d-7e650555a59b][Complete example of a package that is derived from Modus]]), then
+create a directory where all custom themes are stored and add it to
+the ~custom-theme-load-path~. For example, the =my-custom-themes=
+directory can be included thus somewhere in the Emacs initialization
+file:
+
+#+begin_src emacs-lisp
+(add-to-list 'custom-theme-load-path (locate-user-emacs-file "my-custom-themes/"))
+#+end_src
+
+The function ~locate-user-emacs-file~ takes care to return a path
+relative to where the user's init file is. If, say, we have
+=~/.emacs.d/init.el= then we get =~/.emacs.d/my-custom-themes/=.
+
+Create the directory in that path. Then for each derivative Modus
+theme, write a new file of the form =NAME-theme.el=. If, for instance,
+your theme is named =prot-light= the file is called =prot-light-theme.el=.
+
+At minimum, the contents of a theme file are these ([[#h:ca3031b5-5f7a-46d4-bc83-e84e8bed038c][Complete example of a custom theme with its own palette]]):
+
+#+begin_src emacs-lisp
+(modus-themes-theme
+ 'prot-light
+ 'prot-themes
+ "My demo `prot-light' theme."
+ 'light
+ 'modus-operandi-palette
+ nil
+ nil)
+#+end_src
+
+[[#h:6eb0dba7-89cb-4b21-bc5d-97f6b5eb3caa][Arrange to activate your derivative themes]].
+
+*** Complete example of a custom theme with its own palette
+:PROPERTIES:
+:CUSTOM_ID: h:ca3031b5-5f7a-46d4-bc83-e84e8bed038c
+:END:
+
+It is a good idea for a derivative theme to use as its core palette
+one of those defined in the ~modus-themes~, such as ~modus-operandi-palette~.
+This guarantees that all core palette definitions are inherited by the
+derivative theme.
+
+The derivative may then add its own colors to the user palette, which
+will override the core palette in such of a conflict ([[#h:f4d4b71b-2ca5-4c3d-b0b4-9bfd7aa7fb4d][Preview theme colors]]).
+
+The core and user palettes are among the arguments passed to the
+~modus-themes-theme~ functions, as explained elsewhere in this manual
+([[#h:86eb375b-9be4-43ce-879a-0686a524a63b][Build on top of the Modus themes]]).
+
+In the following example, we are defining the ~prot-light~ theme in
+the =prot-light-theme.el= file. This theme declares itself as
+belonging to the =prot-themes= family. It is based on the
+~modus-operandi-palette~ but then defines its own palette, the
+~prot-light-palette~ with entries that take precedence over whatever
+equivalent is in the ~modus-operandi-palette~.
+
+#+begin_src emacs-lisp
+(defvar prot-light-palette
+  '((cursor "#ff0000")
+    (bg-main "#f0e0d0")
+    (fg-main "#202020"))
+  "Like `modus-operandi-palette'.")
+
+(modus-themes-theme
+ 'prot-light
+ 'prot-themes
+ "My demo `prot-light' theme."
+ 'light
+ 'modus-operandi-palette
+ 'prot-light-palette
+ nil)
+#+end_src
+
+The above is a complete theme which is like ~modus-operandi~ except
+for those three color definitions specified in the ~prot-light-palette~.
+There is no limit to how comprehensive the user palette is.
+
+Depending on the requirements, this theme can make itself further
+customizable by the end user via theme-specific palette overrides. In
+this case, we have the addition of a user option, which we could call
+anything though it makes sense to name it consistently like ~prot-light-palette-overrides~.
+
+#+begin_src emacs-lisp
+(defvar prot-light-palette
+  '((cursor "#ff0000")
+    (bg-main "#f0e0d0")
+    (fg-main "#202020"))
+  "Like `modus-operandi-palette'.")
+
+(defcustom prot-light-palette-overrides nil
+  "Overrides for the `prot-light' theme."
+  :type '(repeat (list symbol (choice symbol string)))
+  :link '(info-link "(modus-themes) Palette overrides"))
+
+(modus-themes-theme
+ 'prot-light
+ 'prot-themes
+ "My demo `prot-light' theme."
+ 'light
+ 'modus-operandi-palette
+ 'prot-light-palette
+ 'prot-light-palette-overrides)
+#+end_src
+
+In the above example, we have our ~prot-light~ theme which is like
+~modus-operandi~ except three colors and which can now be customized
+further by the user via the ~prot-light-palette-overrides~ ([[#h:34c7a691-19bb-4037-8d2f-67a07edab150][Option for palette overrides]]).
+
+Finally, a derivative theme can specify its own settings for custom
+faces and variables. This is generally not needed, but is provided as
+an option for maximum flexibility. In the following example, the
+~prot-light~ theme has its own face definitions in addition to all the
+aforementioned:
+
+#+begin_src emacs-lisp
+(defvar prot-light-palette
+  '((cursor "#ff0000")
+    (bg-main "#f0e0d0")
+    (fg-main "#202020"))
+  "Like `modus-operandi-palette'.")
+
+(defcustom prot-light-palette-overrides nil
+  "Overrides for the `prot-light' theme."
+  :type '(repeat (list symbol (choice symbol string)))
+  :link '(info-link "(modus-themes) Palette overrides"))
+
+(defvar prot-light-custom-faces
+  '(
+    `(region ((,c :background ,bg-ochre :foreground ,unspecified :extend nil)))
+    `(font-lock-keyword-face ((,c :inherit italic :foreground ,keyword))))
+  "Custom faces that deviate from---or complement---those in the Modus themes.")
+
+(modus-themes-theme
+ 'prot-light
+ 'prot-themes
+ "My demo `prot-light' theme."
+ 'light
+ 'modus-operandi-palette
+ 'prot-light-palette
+ 'prot-light-palette-overrides
+ 'prot-light-custom-faces)
+#+end_src
+
+The custom faces can name a color from the given theme's palette. In
+this example, =bg-ochre= comes from the ~modus-operandi-palette~
+though it would work the same way if, say, ~prot-light-palette~
+defined ~bg-soil~ and then referenced it in ~prot-light-custom-faces~.
+
+[[#h:6eb0dba7-89cb-4b21-bc5d-97f6b5eb3caa][Arrange to activate your derivative themes]].
+
+*** Complete example that also uses ~modus-themes-generate-palette~
+:PROPERTIES:
+:CUSTOM_ID: h:3a7ede17-f0d4-4322-8e69-1804ed69012b
+:END:
+#+cindex: Easily define a fully fledged Modus palette
+
+The guide herein is of use to those who plan to create their own
+derivative themes ([[#h:48e391a6-831b-48ec-b92d-4e7e6871b043][Complete example of a private theme derived from Modus]]).
+
+The ~modus-themes-generate-palette~ defines a fully flegded Modus
+palette that can be passed to ~modus-themes-theme~ without necessarily
+depending on any of the core Modus palettes. I will walk you through
+the steps of working with something like the following code block.
+
+[ We use color values from Solarized as an example for the rest of
+  this entry, naming them according to our conventions. ]
+
+#+begin_src emacs-lisp
+(defvar modus-solarized-dark-palette
+  (modus-themes-generate-palette
+   '((bg-main "#073642")
+     (fg-main "#EEE8D5")
+     (red "#DC322F")
+     (green "#859900")
+     (yellow "#B58900")
+     (blue "#268BD2")
+     (magenta "#D33682")
+     (cyan "#2AA198"))))
+
+(modus-themes-theme
+ 'modus-solarized-dark
+ 'modus-solarized-themes
+ "Sample of a basic Solarized port."
+ 'dark
+ 'modus-solarized-dark-palette
+ nil
+ nil)
+#+end_src
+
+The Modus themes define hundreds of entries in their palette. Some are
+named colors while others are semantic mappings ([[#h:34c7a691-19bb-4037-8d2f-67a07edab150][Option for palette overrides]]).
+
+This gives users maximum control via overrides, though comes at the
+considerable cost of making it harder to derive a custom palette from
+a small set of colors. Color schemes, which are not themes in the
+sense of ensuring consistency across all elements and interfaces, will
+typically provide 8 or 16 colors. This is the case with terminal
+emulators. For example, the widely known Solarized theme, originally
+designed by Ethan Schoonover, defines 16 colors for terminal
+emulators. Nothing else. Thus a hypothetical Modus+Solarized cannot
+work without knowing how to complement the base with all the extra
+color definitions.
+
+#+findex: modus-themes-generate-palette
+This is where the function ~modus-themes-generate-palette~ comes in.
+In broad terms, it is meant to be used as a starting point. The user
+may then decide which results need further tweaking. But at least they
+will have something to create a fully fledged Modus palette right
+away.
+
+The minimum ~modus-themes-generate-palette~ needs is a list of
+=BASE-COLORS=. Each element is of the form =(NAME VALUE)= where =NAME=
+is a symbol and =VALUE= is a string with a hexadecimal RGB color value
+or a string with a name of a color among those listed in the output of
+the command ~list-colors-display~.
+
+The =BASE-COLORS= can be as short as follows:
+
+#+begin_src emacs-lisp
+;; All missing palette entries will be derived automatically.  This
+;; will return a COMPLETE Modus themes palette.
+(modus-themes-generate-palette
+ '((bg-main "#073642")
+   (fg-main "#EEE8D5")))
+#+end_src
+
+The only two mandatory entries in =BASE-COLORS= are =bg-main= and
+=fg-main= as shown above. In this scenario, the derived palette will
+get the job done, but will be very close to what Modus defines. The
+more we add to the =BASE-COLORS=, the more well defined the character
+of the new palette will be. For example:
+
+#+begin_src emacs-lisp
+(modus-themes-generate-palette
+ ;; The two base colors of Solarized, plus most of its accents.
+ '((bg-main "#073642")
+   (fg-main "#EEE8D5")
+   (red "#DC322F")
+   (green "#859900")
+   (yellow "#B58900")
+   (blue "#268BD2")
+   (magenta "#D33682")
+   (cyan "#2AA198")))
+#+end_src
+
+This is already going to be a tolerable port of Solarized. If the
+=BASE-COLORS= provides =bg-main=, =fg-main=, and the six hues of
+=red=, =green=, =yellow=, =blue=, =magenta=, =cyan=, we will get a new
+palette that has no trace of the color values implemented by core
+Modus. Though we can go further and greatly improve the results.
+
+#+vindex: modus-themes-operandi-palette
+#+vindex: modus-themes-vivendi-palette
+The ~modus-themes-generate-palette~ will internally calculate colors
+based on what it receives. Anything missing will be taken from a core
+Modus palette, depending on the value of =bg-main=: if it is light,
+then the ~modus-themes-operandi-palette~ is used, otherwise it is
+~modus-themes-vivendi-palette~. If all six of the aforementioned hues
+are present, the ~modus-themes-generate-palette~ will not calculate
+any more color values. It will use those to derive the relevant
+permutations (e.g. blue backgrounds from the =blue= we give it).
+
+What also plays a role in the interal calculations is whether
+=bg-main= is a =cool= or =warm= color, meaning whether it is closer to
+blue or red, respectively. Internally, =cool= and =warm= influence the
+kind of color values and semantic mappings that will go into the new
+palette. To this end, the ~modus-themes-generate-palette~ accepts an
+optional parameter called =COOL-OR-WARM-PREFERENCE=. This is a
+preference for the symbol =cool= or =warm=: it make the decision
+explicit.
+
+For example, Solarized can swap the values of =bg-main= and =fg-main=
+to switch between its light and dark implementations (I understand
+this is a smart trick for terminal emulators, but is otherwise not
+good enough for thematic consistency as some accent values look
+out-of-place and the contrasts vary considerably). The light color
+Solarized uses is inherently =warm= (yellowish color means it is
+closer to red than blue) while the dark color is =cool=, due to it
+being closer to pure blue. Users may wish to experiment with a
+deviation from what would have been the default output, such that the
+dark blue when used as a background actually combines with warmer
+foreground hues, while the light cream background goes together with
+cooler foreground values. Thus:
+
+#+begin_src emacs-lisp
+(modus-themes-generate-palette
+ '((bg-main "#073642") ; normally this is a `cool' theme
+   (fg-main "#EEE8D5")
+   (red "#DC322F")
+   (green "#859900")
+   (yellow "#B58900")
+   (blue "#268BD2")
+   (magenta "#D33682")
+   (cyan "#2AA198"))
+ 'warm) ; but we want to use it with `warm' foregrounds
+
+;; And here is the inverse of the above, now with the light version of
+;; Solarized.
+(modus-themes-generate-palette
+ '((bg-main "#EEE8D5") ; normally this is a `warm' theme
+   (fg-main "#073642")
+   (red "#DC322F")
+   (green "#859900")
+   (yellow "#B58900")
+   (blue "#268BD2")
+   (magenta "#D33682")
+   (cyan "#2AA198"))
+ 'cool) ; but we want to use it with `cool' foregrounds
+#+end_src
+
+This is now getting better, but we can go further. At this point users
+should be able to do the common work of taking a color scheme that was
+originally designed for terminal emulators and quickly turning it into
+a fully fledged Modus palette. All they need is to follow the naming
+convention for =bg-main=, =fg-main=, and then
+={red,green,yellow,blue,magenta,cyan}{,-warmer,-cooler}=. Preview a
+palette to get the complete list ([[#h:f4d4b71b-2ca5-4c3d-b0b4-9bfd7aa7fb4d][Preview theme colors]]). And, again,
+remember that not all colors need to be defined in =BASE-COLORS= (e.g.
+we could leave out ~magenta-cooler~ if we do not care about it).
+
+The next optional parameter of ~modus-themes-generate-palette~ is the
+=CORE-PALETTE= it should use. This is to make explicit the decision
+that is otherwise handled internally on whether to fill in any missing
+palette entries from Modus Operandi or Modus Vivendi (or their tinted
+variants if =warm= is the preference).
+
+The =CORE-PALETTE= is the symbol of a variable whose value is a
+palette, like ~modus-themes-operandi-palette~. Normally, users do not
+need to ever set =CORE-PALETTE=. The only two scenaria where this is
+likely helpful is (i) the theme is optimized for red-green or
+blue-yellow color deficiency, in which case one of the Modus palettes
+for deuteranopia and tritanopia is needed, or (ii) the user wants to
+use a palette from a Modus derivative theme, such as my ~ef-themes~
+and ~standard-themes~. In the latter scenario, users need to take care
+to either copy the palette they want to use or, anyhow, ~load~ the
+relevant files.
+
+In the interest of clarity, here is how the =CORE-PALETTE= is passed,
+but, again, users probably should leave this to ~nil~:
+
+#+begin_src emacs-lisp
+(modus-themes-generate-palette
+ ;; The two base colors of Solarized, plus all its accents.
+ '((bg-main "#073642")
+   (fg-main "#EEE8D5")
+   (red "#DC322F")
+   (green "#859900")
+   (yellow "#B58900")
+   (blue "#268BD2")
+   (magenta "#D33682")
+   (cyan "#2AA198"))
+ nil ; COOL-OR-WARM-PREFERENCE is derived internally based on `bg-main'
+ 'modus-themes-vivendi-tritanopia-palette) ; we specifically want this as our CORE-PALETTE
+#+end_src
+
+With core Modus palettes, the =CORE-PALETTE= should not make much of a
+difference. Though a completely custom Modus derivative, like one of
+the ~ef-themes~, will be defining colors values that differ
+substantially from those of core Modus, as well as completely
+different semantic mappings.
+
+Finally, ~modus-themes-generate-palette~ has an optional =MAPPINGS=
+parameter. This is a list of semantic mappings where each entry is of
+the form =(NAME OTHER-NAME)= ([[#h:34c7a691-19bb-4037-8d2f-67a07edab150][Option for palette overrides]]). The
+=NAME= has the same meaning as for the =BASE-COLORS= we have been
+examining all along, while =OTHER-NAME= is the symbol of another
+=NAME= that exists in the palette, hence the mapping. This manual
+contains lots of examples along those lines ([[#h:df1199d8-eaba-47db-805d-6b568a577bf3][DIY Stylistic variants using palette overrides]]).
+For our purposes, we will modify some of the obvious elements of the
+theme, namely, the cursor, mode lines, current line highlight,
+matching parentheses, and active region.
+
+#+begin_src emacs-lisp
+(modus-themes-generate-palette
+   '((bg-main "#073642")
+     (fg-main "#EEE8D5")
+     (red "#DC322F")
+     (green "#859900")
+     (yellow "#B58900")
+     (blue "#268BD2")
+     (magenta "#D33682")
+     (cyan "#2AA198"))
+   nil
+   nil
+   ;; And here are our MAPPINGS where we can specify what values apply
+   ;; to which semantic color.  The `modus-themes-list-colors' shows
+   ;; them all.
+   ;;
+   ;; Note that in our BASE-COLORS above we never wrote what, say,
+   ;; `magenta-warmer' is: it is derived programmatically from the
+   ;; `magenta' we have there.  Absent that, it would be taken from
+   ;; the CORE-PALETTE.
+   '((cursor magenta-warmer)
+     (bg-hl-line bg-blue-nuanced)
+     (bg-paren-match bg-magenta-subtle)
+     (bg-region bg-blue-intense)
+     (fg-region fg-dim)
+     (bg-mode-line-active bg-blue-nuanced)
+     (fg-mode-line-active blue-warmer)
+     (border-mode-line-active blue-cooler)))
+#+end_src
+
+The =MAPPINGS= can be as long as the user needs. Whatever is defined
+here will take precedence of what the =CORE-PALETTE= (or its
+internally derived equivalent) provides. At most, users can have a
+completely custom palette. Though I expect that this will not be done
+at the outset, but only after a long process of experimentation (if
+you already knew how to do this, ~modus-themes-generate-palette~ would
+not be of real value). The point is to start with something that works
+and then refine it one small step at a time.
+
+We are now ready to try our Solarized themes, using the example of
+doing this in our private configuration ([[#h:f2757848-ea41-4cd7-a04d-7e650555a59b][Complete example of a package that is derived from Modus]]).
+
+- Create two files, one is called =modus-solarized-dark-theme.el= (or
+  however you want to identify it, but always keep =-theme.el= at the
+  end) and the other is =modus-solarized-light-theme=.
+
+- Add their directory to the ~custom-theme-load-path~, like
+  ~(add-to-list 'custom-theme-load-path "~/.emacs.d/custom-themes/")~.
+
+- Use the minimal code from the following two blocks to create your
+  new themes.
+
+- Optionally activate ~modus-themes-include-derivatives-mode~ to have
+  all Modus commands recognize your themes.
+
+- Load your themes with ~load-theme~.
+
+- Enjoy!
+
+#+begin_src emacs-lisp
+;; Modus+Solarized dark
+(defvar modus-solarized-dark-palette
+  (modus-themes-generate-palette
+   ;; We provide the two base colors of Solarized, plus most of its
+   ;; accents.  These form the BASE-COLORS we pass as an argument.
+   ;; All other color values come from those.  The BASE-COLORS here
+   ;; are enough to generate a new palatte that has no traces of, say,
+   ;; the `modus-vivendi' color values.
+   '((bg-main "#073642")
+     (fg-main "#EEE8D5")
+     (red "#DC322F")
+     (green "#859900")
+     (yellow "#B58900")
+     (blue "#268BD2")
+     (magenta "#D33682")
+     (cyan "#2AA198"))
+   ;; The COOL-OR-WARM-PREFERENCE is derived internally based on
+   ;; `bg-main'.  We can pass it here if we feel strongly about it.
+   nil
+   ;; If we need to specify the CORE-PALETTE from where to inherit any
+   ;; missing colors and/or semantic mappings, we can give it here.
+   ;; Though nil is the appropriate starting point, as the code will
+   ;; handle things internally.
+   nil
+   ;; And here are our MAPPINGS where we can specify what values apply
+   ;; to which semantic color.  The `modus-themes-list-colors' shows
+   ;; them all.
+   ;;
+   ;; Note that in our BASE-COLORS above we never wrote what, say,
+   ;; `magenta-warmer' is: it is derived programmatically from the
+   ;; `magenta' we have there.  Absent that, it would be taken from
+   ;; the CORE-PALETTE.
+   '((cursor magenta-warmer)
+     (bg-hl-line bg-blue-nuanced)
+     (bg-paren-match bg-magenta-subtle)
+     (bg-region bg-blue-intense)
+     (fg-region fg-dim)
+     (bg-mode-line-active bg-blue-nuanced)
+     (fg-mode-line-active blue-warmer)
+     (border-mode-line-active blue-cooler))))
+
+(modus-themes-theme
+ 'modus-solarized-dark
+ 'modus-solarized-themes
+ "Sample of a basic Solarized dark port."
+ 'dark
+ 'modus-solarized-dark-palette
+ nil
+ nil)
+#+end_src
+
+And the light variant:
+
+#+begin_src emacs-lisp
+;; Modus+Solarized light
+(defvar modus-solarized-light-palette
+  (modus-themes-generate-palette
+   ;; We provide the two base colors of Solarized, plus most of its
+   ;; accents.  These form the BASE-COLORS we pass as an argument.
+   ;; All other color values come from those.  The BASE-COLORS here
+   ;; are enough to generate a new palatte that has no traces of, say,
+   ;; the `modus-operandi' color values.
+   '((bg-main "#EEE8D5")
+     (fg-main "#073642")
+     (red "#DC322F")
+     (green "#859900")
+     (yellow "#B58900")
+     (blue "#268BD2")
+     (magenta "#D33682")
+     (cyan "#2AA198"))
+   ;; The COOL-OR-WARM-PREFERENCE is derived internally based on
+   ;; `bg-main'.  We can pass it here if we feel strongly about it.
+   nil
+   ;; If we need to specify the CORE-PALETTE from where to inherit any
+   ;; missing colors and/or semantic mappings, we can give it here.
+   ;; Though nil is the appropriate starting point, as the code will
+   ;; handle things internally.
+   nil
+   ;; And here are our MAPPINGS where we can specify what values apply
+   ;; to which semantic color.  The `modus-themes-list-colors' shows
+   ;; them all.
+   ;;
+   ;; Note that in our BASE-COLORS above we never wrote what, say,
+   ;; `magenta-warmer' is: it is derived programmatically from the
+   ;; `magenta' we have there.  Absent that, it would be taken from
+   ;; the CORE-PALETTE.
+   '((cursor yellow-warmer)
+     (bg-hl-line bg-red-nuanced)
+     (bg-paren-match bg-green-subtle)
+     (bg-region bg-blue-intense)
+     (fg-region fg-dim)
+     (bg-mode-line-active bg-yellow-subtle)
+     (fg-mode-line-active yellow-cooler)
+     (border-mode-line-active yellow-warmer))))
+
+(modus-themes-theme
+ 'modus-solarized-light
+ 'modus-solarized-themes
+ "Sample of a basic Solarized light port."
+ 'light
+ 'modus-solarized-light-palette
+ nil
+ nil)
+#+end_src
+
+[[#h:6eb0dba7-89cb-4b21-bc5d-97f6b5eb3caa][Arrange to activate your derivative themes]].
+
+** Determine what counts as a Modus theme
+:PROPERTIES:
+:CUSTOM_ID: h:412e3017-81fe-4a95-97a6-225de1867757
+:END:
+
+[ NOTE: Users of many Modus derivatives do not need to do anything of
+  what is described herein. Just enable the ~modus-themes-include-derivatives-mode~. ]
+
+#+findex: modus-themes-get-all-known-themes
+Once the theme is instantiated, it will be listed in the return value
+of the function ~modus-themes-get-all-known-themes~. This function
+accepts an optional argument to filter themes by their given family,
+as specified at the time of the theme's reification ([[#h:86eb375b-9be4-43ce-879a-0686a524a63b][Build on top of the Modus themes]]).
+
+#+findex: modus-themes-get-themes
+The generic function ~modus-themes-get-themes~ is how developers/users
+can affect what counts as a "Modus" theme. By default,
+~modus-themes-get-themes~ essentially calls the following, to only
+return the themes whose family is =modus-themes=:
+
+#+begin_src emacs-lisp
+(modus-themes-get-all-known-themes 'modus-themes)
+#+end_src
+
+A new method can be declared with ~cl-defmethod~ to do something else
+instead. When exactly should that method come into effect is up to the
+developer/user. In the ~ef-themes~, this is done via a minor mode,
+that users must opt in to. Here is the complete example:
+
+#+begin_src emacs-lisp
+(define-minor-mode ef-themes-take-over-modus-themes-mode
+  "When enabled, all Modus themes commands consider only Ef themes."
+  :global t
+  :init-value nil)
+
+(cl-defmethod modus-themes-get-themes (&context (ef-themes-take-over-modus-themes-mode (eql t)))
+  (if-let* ((themes (modus-themes-get-all-known-themes 'ef-themes))
+            (sorted-themes (modus-themes-sort themes 'light)))
+      sorted-themes
+    ef-themes-items))
+#+end_src
+
+The ~define-minor-mode~ does not need to do anything else here. Its
+corresponding function simply takes care to toggle the variable of the
+same name (i.e. ~ef-themes-take-over-modus-themes-mode~) between ~nil~
+and non-~nil~. The method will take effect when the minor mode is
+enabled. In this scenario, "Modus" themes are only those whose family
+is =ef-themes=. All the Modus commands that switch between themes will
+thus only work with those Ef themes.
+
+#+findex: modus-themes-include-derivatives-mode
+For our part, we define the ~modus-themes-include-derivatives-mode~.
+It is how users can opt in to the all-inclusive conception of "Modus".
+In this scenario, every theme that is declared with the aforementioned
+~modus-themes-theme~ will count as "Modus" and be available to all the
+relevant commands for switching themes, previewing their palette, and
+so on.
+
+#+begin_src emacs-lisp
+(define-minor-mode modus-themes-include-derivatives-mode
+  "When enabled, all Modus themes commands cover derivatives as well.
+Otherwise, they only consider the `modus-themes-items'.
+
+Derivative theme projects can implement the equivalent of this minor
+mode plus a method for `modus-themes-get-themes' to filter themes
+accordingly."
+  :global t
+  :init-value nil)
+
+(cl-defmethod modus-themes-get-themes (&context (modus-themes-include-derivatives-mode (eql t)))
+  (if-let* ((themes (modus-themes-get-all-known-themes nil))
+            (sorted-themes (modus-themes-sort themes 'light)))
+      sorted-themes
+    modus-themes-items))
+#+end_src
+
+** Create convenience commands to load a derivative theme
+:PROPERTIES:
+:CUSTOM_ID: h:6bfbb4d6-2f23-4d06-827a-8b9a91507a02
+:END:
+
+[ NOTE: Users of many Modus derivatives do not need to do anything of
+  what is described herein. Just enable the ~modus-themes-include-derivatives-mode~. ]
+
+#+findex: modus-themes-define-derivative-command
+In the previous section, we explored the mechanics of the
+~modus-themes-get-themes~ ([[#h:412e3017-81fe-4a95-97a6-225de1867757][Determine what counts as a Modus theme]]).
+Independent of that method, developers can use the macro
+~modus-themes-define-derivative-command~ to define small wrappers for
+Modus commands that load a theme only for a specific family of Modus
+derivatives ([[#h:86eb375b-9be4-43ce-879a-0686a524a63b][Build on top of the Modus themes]]).
+
+The ~modus-themes-define-derivative-command~ takes two mandatory
+arguments:
+
+- =FAMILY= :: the family of the Modus themes derivatives, such as ~ef-themes~.
+
+#+vindex: ~modus-themes-define-derivative-command-known-suffixes~
+- =SUFFIX= :: the suffix of the command-to-be-defined. It is one among
+  the symbols listed in ~modus-themes-define-derivative-command-known-suffixes~.
+
+The suffix is appended to =FAMILY= to derive the symbol of the
+command. For example, if =SUFFIX= is =rotate= and =FAMILY= is
+~ef-themes~, then the symbol is ~ef-themes-rotate~.
+
+Here is how it actually looks in the source code of the Ef themes:
+
+#+begin_src emacs-lisp
+;;;###autoload (autoload 'ef-themes-rotate "ef-themes")
+(modus-themes-define-derivative-command ef-themes rotate)
+#+end_src
+
+This is what the macroexpanded form looks like:
+
+#+begin_src emacs-lisp
+(defun ef-themes-rotate ()
+  "Like `modus-themes-rotate' but only consider members of the `ef-themes'"
+  (interactive)
+  (cl-letf (((symbol-function 'modus-themes-get-themes)
+             (lambda () (modus-themes-get-all-known-themes 'ef-themes))))
+    (call-interactively 'modus-themes-rotate)))
+#+end_src
+
+Sometimes, it makes no sense to re-use an existing Modus command (e.g.
+because the developer wants to introduce a user option to affect what
+the command is doing), though this approach with the ~cl-letf~ can
+still prove useful.
+
+** Arrange to activate your derivative themes
+:PROPERTIES:
+:CUSTOM_ID: h:6eb0dba7-89cb-4b21-bc5d-97f6b5eb3caa
+:END:
+
+The ~modus-themes-theme~ function is responsible for instantiating a
+theme and registering it for use by the various Modus commands that
+act on a theme ([[#h:86eb375b-9be4-43ce-879a-0686a524a63b][Build on top of the Modus themes]]). Due to how Emacs
+themes are designed to be bound to files, ~modus-themes-theme~ can
+only work if the given theme file is already loaded. Otherwise our
+function is never called and the theme is never created.
+
+To this end, users need to call the function ~modus-themes-activate~
+with each theme they want as an argument. Remember that themes are
+files with a =-theme.el= suffix inside one of the directories listed
+in the value of the variable ~custom-theme-load-path~. In its simplest
+form, the activation looks as follows, assuming the theme's file
+=modus-solarized-dark-theme.el= exists:
+
+#+begin_src emacs-lisp
+(modus-themes-activate 'modus-solarized-dark)
+#+end_src
+
+To load multiple themes at once we can define a function like the
+following:
+
+#+begin_src emacs-lisp
+(defun my-modus-derivatives-activate-themes (directory)
+  "Activate all themes in DIRECTORY.
+This makes all Modus derivatives available to commands such as
+`modus-themes-select' if `modus-themes-include-derivatives-mode' is
+enabled."
+  (let* ((files (directory-files directory :full-path "-theme\\.el"))
+         (names (mapcar
+                 (lambda (file)
+                   (intern (replace-regexp-in-string "-theme\\.el" "" file)))
+                 files)))
+    (mapc #'modus-themes-activate names)))
+#+end_src
+
+Then call it thus:
+
+#+begin_src emacs-lisp
+(my-modus-derivatives-activate-themes "/path/to/my/custom/theme/directory/")
+#+end_src
+
+Again, remember that the directory is in the ~custom-theme-load-path~:
+
+#+begin_src emacs-lisp
+(add-to-list 'custom-theme-load-path "/path/to/my/custom/theme/directory/")
+#+end_src
+
 * Face coverage
 :properties:
 :custom_id: h:a9c8f29d-7f72-4b54-b74b-ddefe15d6a19
@@ -3881,8 +5148,8 @@ project.  The idea is to offer an overview of the known status of all
 affected face groups.  The items with an appended asterisk =*= tend to
 have lots of extensions, so the "full support" may not be 100% true…
 
++ abbrev
 + ace-window
-+ agda2-mode
 + all-the-icons
 + all-the-icons-dired
 + all-the-icons-ibuffer
@@ -3909,6 +5176,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + column-enforce-mode
 + company-mode*
 + compilation-mode
++ completion-preview
 + completions
 + consult
 + corfu
@@ -3947,11 +5215,11 @@ have lots of extensions, so the "full support" may not be 100% true…
 + eldoc-box
 + elfeed
 + elfeed-score
++ elisp (Emacs Lisp semantic highlighting)
 + elpher
 + embark
 + ement
 + emms
-+ enh-ruby-mode (enhanced-ruby-mode)
 + epa
 + erc
 + ert
@@ -3971,6 +5239,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + focus
 + fold-this
 + font-lock (generic syntax highlighting)
++ forge
 + geiser
 + git-commit
 + git-gutter (and variants)
@@ -3980,12 +5249,15 @@ have lots of extensions, so the "full support" may not be 100% true…
 + gotest
 + golden-ratio-scroll-screen
 + helpful
++ hexl-mode
++ hideshow
 + highlight-numbers
 + highlight-parentheses ([[#h:24bab397-dcb2-421d-aa6e-ec5bd622b913][Note on highlight-parentheses.el]])
 + highlight-thing
 + hl-fill-column
 + hl-line-mode
 + hl-todo
++ howm
 + hydra
 + ibuffer
 + icomplete
@@ -3994,7 +5266,6 @@ have lots of extensions, so the "full support" may not be 100% true…
 + iflipb
 + image-dired
 + imenu-list
-+ indium
 + info
 + info+ (info-plus)
 + info-colors
@@ -4002,6 +5273,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + isearch, occur, etc.
 + ivy*
 + ivy-posframe
++ jabber
 + japanese-holidays
 + jira (org-jira)
 + jit-spell
@@ -4011,6 +5283,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + julia
 + kaocha-runner
 + keycast
++ kmacro-menu
 + ledger-mode
 + leerzeichen
 + line numbers (~display-line-numbers-mode~ and global variant)
@@ -4020,6 +5293,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + marginalia
 + markdown-mode
 + markup-faces (~adoc-mode~)
++ mb-depth
 + mct
 + messages
 + minimap
@@ -4089,6 +5363,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + sly
 + smart-mode-line
 + smerge
++ spacious-padding
 + speedbar
 + spell-fu
 + stripes
@@ -4104,8 +5379,11 @@ have lots of extensions, so the "full support" may not be 100% true…
 + terraform-mode
 + term
 + textsec
++ tldr
++ tmr
 + transient (pop-up windows such as Magit's)
 + trashed
++ treemacs
 + tree-sitter
 + tty-menu
 + tuareg
@@ -4115,8 +5393,10 @@ have lots of extensions, so the "full support" may not be 100% true…
 + vertico
 + vertico-quick
 + vimish-fold
++ viper
 + visible-mark
 + visual-regexp
++ vtable
 + vterm
 + vundo
 + wcheck-mode
@@ -4126,6 +5406,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + which-key
 + whitespace-mode
 + window-divider-mode
++ window-tool-bar
 + writegood-mode
 + woman
 + xah-elisp-mode
@@ -4172,7 +5453,6 @@ supported by the themes.
 + flyspell-correct
 + fortran-mode
 + freeze-it
-+ forge
 + git-walktree
 + goggles
 + highlight-defined
@@ -4769,7 +6049,7 @@ and/or mode line setup.
 :custom_id: h:4cc767dc-ffef-4c5c-9f10-82eb7b8921bf
 :end:
 
-Emacs's HTML rendering library ({{{file(shr.el)}}}) may need explicit
+Emacs' HTML rendering library ({{{file(shr.el)}}}) may need explicit
 configuration to respect the theme's colors instead of whatever
 specifications the webpage provides.
 
@@ -4781,7 +6061,7 @@ Consult the doc string of ~shr-use-colors~.
 :end:
 #+cindex: Fonts in EWW, Elfeed, Ement, and SHR
 
-By default, packages that build on top of the Simple HTML Remember
+By default, packages that build on top of the Simple HTML Renderer
 (~shr~) use proportionately spaced fonts.  This is controlled by the
 user option ~shr-use-fonts~, which is set to non-~nil~ by default.  To
 use the standard font instead, set that variable to ~nil~.
@@ -5074,7 +6354,7 @@ more effective than trying to do the same with either red or blue (the
 latter is the least effective in that regard).
 
 When we need to work with several colors, it is always better to have
-sufficient maneuvering space, especially since we cannot pick arbitrary
+sufficient manoeuvring space, especially since we cannot pick arbitrary
 colors but only those that satisfy the accessibility objectives of the
 themes.
 
@@ -5180,7 +6460,7 @@ it is already understood that one must follow the indicator or headline
 to view its contents and (ii) underlining everything would make the
 interface virtually unusable.
 
-Again, one must exercise judgment in order to avoid discrimination,
+Again, one must exercise judgement in order to avoid discrimination,
 where "discrimination" refers to:
 
 + The treatment of substantially different magnitudes as if they were of
@@ -5254,7 +6534,7 @@ the themes, which is partially fleshed out in this manual.
 
 With regard to the artistic aspect (where "art" qua skill may amount to
 an imprecise science), there is no hard-and-fast rule in effect as it
-requires one to exercise discretion and make decisions based on
+requires one to exercize discretion and make decisions based on
 context-dependent information or constraints.  As is true with most
 things in life, when in doubt, do not cling on to the letter of the law
 but try to understand its spirit.
@@ -5401,51 +6681,58 @@ The Modus themes are a collective effort.  Every bit of work matters.
 + Contributions to code or documentation :: Aleksei Gusev, Alex
   Griffin, Anders Johansson, Antonio Ruiz, Basil L.{{{space()}}}
   Contovounesios, Björn Lindström, Carlo Zancanaro, Christian Tietze,
-  Daniel Mendler, David Edmondson, Eli Zaretskii, Fritz Grabo, Gautier
-  Ponsinet, Illia Ostapyshyn, Kévin Le Gouguec, Koen van Greevenbroek,
-  Kostadin Ninev, Madhavan Krishnan, Manuel Giraud, Markus Beppler,
+  Daniel Mendler, David Edmondson, Eli Zaretskii, Eric Ottosson,
+  Frédéric Giquel, Fritz Grabo, Gautier Ponsinet, Illia Ostapyshyn,
+  Jacob S.{{{space()}}} Gordon, Jared Finder, Jimmy Yuen Ho Wong,
+  Kevin Fleming, Kévin Le Gouguec, Koen van Greevenbroek, Kostadin
+  Ninev, Leilei332, Madhavan Krishnan, Manuel Giraud, Markus Beppler,
   Matthew Stevenson, Mauro Aranda, Nacho Barrientos, Niall Dooley,
-  Nicolas De Jaeghere, Paul David, Philip Kaludercic, Pierre
-  Téchoueyres, Rudolf Adamkovič, Sergey Nichiporchik, Shreyas Ragavan,
-  Stefan Kangas, Stephen Berman, Stephen Gildea, Steve Downey, Tomasz
-  Hołubowicz, Utkarsh Singh, Vincent Murphy, Xinglu Chen, Yuanchen
-  Xie, fluentpwn, okamsn.
+  Nicolas De Jaeghere, Paul David, Pavel Novichkov, Philip Kaludercic,
+  Pierre Téchoueyres, Rahul M.{{{space()}}} Juliato, Rudolf Adamkovič,
+  Sergey Nichiporchik, Shreyas Ragavan, Stefan x Kangas, Stephen
+  Berman, Stephen Gildea, Steve Downey, Suleyman Boyar, Thanos Apollo,
+  Tomasz Hołubowicz, Utkarsh Singh, Vincent Murphy, Xinglu Chen,
+  Yuanchen Xie, fluentpwn, okamsn.
 
 + Ideas and user feedback :: Aaron Jensen, Adam Porter, Adam Spiers,
   Adrian Manea, Aleksei Pirogov, Alex Griffin, Alex Koen, Alex
-  Peitsinis, Alexey Shmalko, Alok Singh, Anders Johansson, André
-  Alexandre Gomes, Andrew Tropin, Antonio Hernández Blas, Arif Rezai,
-  Augusto Stoffel, Basil L.{{{space()}}} Contovounesios, Bernd
-  Rellermeyer, Burgess Chang, Charlotte Van Petegem, Christian Tietze,
-  Christopher Dimech, Christopher League, Damien Cassou, Daniel
-  Mendler, Dario Gjorgjevski, David Edmondson, Davor Rotim, Divan
-  Santana, Eliraz Kedmi, Emanuele Michele Alberto Monterosso, Farasha
-  Euker, Feng Shu, Gautier Ponsinet, Gerry Agbobada, Gianluca Recchia,
-  Gonçalo Marrafa, Guilherme Semente, Gustavo Barros, Hörmetjan
-  Yiltiz, Ilja Kocken, Imran Khan, Iris Garcia, Ivan Popovych, James
-  Ferguson, Jeremy Friesen, Jerry Zhang, Johannes Grødem, John Haman,
-  John Wick, Jonas Collberg, Jorge Morais, Joshua O'Connor, Julio C.
-  Villasante, Kenta Usami, Kevin Fleming, Kévin Le Gouguec, Kevin
-  Kainan Li, Kostadin Ninev, Laith Bahodi, Lasse Lindner, Len Trigg,
-  Lennart C.{{{space()}}} Karssen, Luis Miguel Castañeda, Magne Hov, Manuel Giraud,
-  Manuel Uberti, Mark Bestley, Mark Burton, Mark Simpson, Marko Kocic,
-  Markus Beppler, Matt Armstrong, Matthias Fuchs, Mattias Engdegård,
-  Mauro Aranda, Maxime Tréca, Michael Goldenberg, Morgan Smith, Morgan
-  Willcock, Murilo Pereira, Nicky van Foreest, Nicolas De Jaeghere,
-  Nicolas Semrau, Olaf Meeuwissen, Oliver Epper, Pablo Stafforini,
-  Paul Poloskov, Pengji Zhang, Pete Kazmier, Peter Wu, Philip
-  Kaludercic, Pierre Téchoueyres, Przemysław Kryger, Robert Hepple,
-  Roman Rudakov, Russell Sim, Ryan Phillips, Rytis Paškauskas, Rudolf
+  Peitsinis, Alexandr Semenov, Alexey Shmalko, Alok Singh, Anders
+  Johansson, André Alexandre Gomes, Andrew Tropin, Antonio Hernández
+  Blas, Arif Rezai, Ashton Wiersdorf, Augusto Stoffel, Basil
+  L.{{{space()}}} Contovounesios, Bernd Rellermeyer, Burgess Chang,
+  Charlotte Van Petegem, Christian Tietze, Christopher Dimech,
+  Christopher League, Damien Cassou, Daniel Mendler, Dario
+  Gjorgjevski, David Edmondson, Davor Rotim, Divan Santana, Dominik
+  Schrempf, Eliraz Kedmi, Emanuele Michele Alberto Monterosso, Eshel
+  Yaron, Farasha Euker, Feng Shu, Filippo Argiolas, Gaston Cabotin,
+  Gautier Ponsinet, Gerry Agbobada, Gianluca Recchia, Gonçalo Marrafa,
+  Guilherme Semente, Gustavo Barros, Hörmetjan Yiltiz, Ilja Kocken,
+  Imran Khan, Iris Garcia, Ivan Popovych, Jabir Ali Ouassou, James
+  Ferguson, JD Smith, Jeremy Friesen, Jerry Zhang, Johannes Grødem,
+  John Haman, John Sullivan, John Wick, Jonas Collberg, Jorge Morais,
+  Joshua O'Connor, Julio C. Villasante, Kenta Usami, Kevin Fleming,
+  Kévin Le Gouguec, Kevin Kainan Li, Kostadin Ninev, Laith Bahodi,
+  Lasse Lindner, Len Trigg, Lennart C.{{{space()}}} Karssen, Luis
+  Miguel Castañeda, Magne Hov, Manuel Giraud, Manuel Uberti, Mark
+  Bestley, Mark Burton, Mark Simpson, Marko Kocic, Markus Beppler,
+  Matt Armstrong, Matthias Fuchs, Mattias Engdegård, Mauro Aranda,
+  Maxime Tréca, Michael Goldenberg, Morgan Smith, Morgan Willcock,
+  Murilo Pereira, Nicky van Foreest, Nicolas De Jaeghere, Nicolas
+  Semrau, Olaf Meeuwissen, Oliver Epper, Pablo Stafforini, Paul
+  Poloskov, Pengji Zhang, Pete Kazmier, Peter Wu, Philip Kaludercic,
+  Pierre Téchoueyres, Przemysław Kryger, Robert Hepple, Roman Rudakov,
+  Roshan Shariff, Russell Sim, Ryan Phillips, Rytis Paškauskas, Rudolf
   Adamkovič, Sam Kleinman, Samuel Culpepper, Saša Janiška, Shreyas
-  Ragavan, Simon Pugnet, Steve Downey, Tassilo Horn, Thanos Apollo,
-  Thibaut Verron, Thomas Heartman, Togan Muftuoglu, Tony Zorman, Trey
-  Merkley, Tomasz Hołubowicz, Toon Claes, Uri Sharf, Utkarsh Singh,
-  Vincent Foley, Zoltan Kiraly. As well as users: Ben, CsBigDataHub1,
-  Emacs Contrib, Eugene, Fourchaux, Fredrik, Moesasji, Nick, Summer
-  Emacs, TheBlob42, TitusMu, Trey, bepolymathe, bit9tream,
-  bangedorrunt, derek-upham, doolio, fleimgruber, gitrj95, iSeeU,
-  jixiuf, ltmsyvag, okamsn, pRot0ta1p, soaringbird, tumashu,
-  wakamenod.
+  Ragavan, Simon Pugnet, Stéphane Marks, Steve Downey, Tassilo Horn,
+  Thanos Apollo, Thibaut Verron, Thomas Heartman, Togan Muftuoglu,
+  Tony Zorman, Trey Merkley, Tomasz Hołubowicz, Toon Claes, Uri Sharf,
+  Utkarsh Singh, Vincent Foley, Zoltan Kiraly. As well as users: Ben,
+  CsBigDataHub1, Emacs Contrib, Eugene, Fourchaux, Fredrik, Moesasji,
+  Nick, Summer Emacs, TheBlob42, TitusMu, Trey, bepolymathe,
+  bit9tream, bangedorrunt, case-lambda, chainedghost, derek-upham,
+  doolio, fleimgruber, gitrj95, iSeeU, jixiuf, ltmsyvag, okamsn,
+  pedro-nonfree, pRot0ta1p, realazy, shimeike, shipmints, soaringbird,
+  tumashu, wakamenod.
 
 + Packaging :: Basil L.{{{space()}}} Contovounesios, Eli Zaretskii,
   Glenn Morris, Mauro Aranda, Richard Stallman, Stefan Kangas (core
@@ -5478,7 +6765,7 @@ All errors are my own.
                  Version 1.3, 3 November 2008
 
 
- Copyright (C) 2000-2002, 2007-2008, 2025 Free Software Foundation, Inc.
+ Copyright (C) 2000-2002, 2007-2008, 2026 Free Software Foundation, Inc.
      <https://fsf.org/>
  Everyone is permitted to copy and distribute verbatim copies
  of this license document, but changing it is not allowed.

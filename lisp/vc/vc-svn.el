@@ -1,6 +1,6 @@
 ;;; vc-svn.el --- non-resident support for Subversion version-control  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2003-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
 ;; Author:      FSF (see vc.el for full credits)
 ;; Maintainer:  Stefan Monnier <monnier@gnu.org>
@@ -106,6 +106,16 @@ switches."
   :version "24.1"     ; no longer consult the obsolete vc-header-alist
   :type '(repeat string))
 
+(defcustom vc-svn-resolve-conflicts 'default
+  "Whether to mark conflicted file as resolved upon saving.
+If this is t and there are no more conflict markers in the file,
+VC will mark the conflicts in the saved file as resolved.
+A value of `default' means to use the value of `vc-resolve-conflicts'."
+  :type '(choice (const :tag "Don't resolve" nil)
+                 (const :tag "Resolve" t)
+                 (const :tag "Use vc-resolve-conflicts" default))
+  :version "31.1")
+
 ;; We want to autoload it for use by the autoloaded version of
 ;; vc-svn-registered, but we want the value to be compiled at startup, not
 ;; at dump time.
@@ -165,7 +175,8 @@ switches."
   "SVN-specific version of `vc-state'."
   (let (process-file-side-effects)
     (with-temp-buffer
-      (cd (file-name-directory file))
+      (when-let* ((d (file-name-directory file)))
+        (cd d))
       (vc-svn-command t 0 file "status" "-v")
       (vc-svn-parse-status file))))
 
@@ -207,7 +218,7 @@ switches."
 
 ;; dir-status-files called from vc-dir, which loads vc,
 ;; which loads vc-dispatcher.
-(declare-function vc-exec-after "vc-dispatcher" (code &optional success))
+(declare-function vc-exec-after "vc-dispatcher" (code &optional okstatus proc))
 
 (autoload 'vc-expand-dirs "vc")
 
@@ -217,6 +228,7 @@ CALLBACK is called as (CALLBACK RESULT BUFFER), where
 RESULT is a list of conses (FILE . STATE) for directory DIR."
   ;; FIXME shouldn't this rather default to all the files in dir?
   (apply #'vc-svn-command (current-buffer) 'async nil "status" "-u" files)
+  ;; FIXME: Consider `vc-run-delayed-success'.
   (vc-run-delayed (vc-svn-after-dir-status callback t)))
 
 (defun vc-svn-dir-extra-headers (_dir)
@@ -688,7 +700,10 @@ and that it passes `vc-svn-global-switches' to it before FLAGS."
         ;; There are conflict markers.
         (progn
           (smerge-start-session)
-          (add-hook 'after-save-hook #'vc-svn-resolve-when-done nil t))
+          (when (or (eq vc-svn-resolve-conflicts t)
+              (and (eq vc-svn-resolve-conflicts 'default)
+                   vc-resolve-conflicts))
+            (add-hook 'after-save-hook #'vc-svn-resolve-when-done nil t)))
       ;; There are no conflict markers.  This is problematic: maybe it means
       ;; the conflict has been resolved and we should immediately call "svn
       ;; resolved", or it means that the file's type does not allow Svn to
@@ -778,10 +793,8 @@ Set file properties accordingly.  If FILENAME is non-nil, return its status."
   ;; Arbitrarily assume 10 commits per day.
   (/ (string-to-number rev) 10.0))
 
-(defvar vc-annotate-parent-rev)
-
 (defun vc-svn-annotate-current-time ()
-  (vc-svn-annotate-time-of-rev vc-annotate-parent-rev))
+  (vc-svn-annotate-time-of-rev vc-buffer-revision))
 
 (defconst vc-svn-annotate-re "[ \t]*\\([0-9]+\\)[ \t]+[^\t ]+ ")
 

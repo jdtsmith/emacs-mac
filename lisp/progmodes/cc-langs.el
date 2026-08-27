@@ -1,6 +1,6 @@
 ;;; cc-langs.el --- language specific settings for CC Mode -*- lexical-binding: t; coding: utf-8 -*-
 
-;; Copyright (C) 1985, 1987, 1992-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1985, 1987, 1992-2026 Free Software Foundation, Inc.
 
 ;; Authors:    2002- Alan Mackenzie
 ;;             1998- Martin Stjernholm
@@ -346,7 +346,7 @@ the comment syntax to handle both line style \"//\" and block style
   (modify-syntax-entry ?&  "."     table)
   (modify-syntax-entry ?|  "."     table)
   (modify-syntax-entry ?\' "\""    table)
-  (modify-syntax-entry ?\240 "."   table)
+  (modify-syntax-entry ?\240 " "   table)
 
   ;; Set up block and line oriented comments.  The new C
   ;; standard mandates both comment styles even in C, so since
@@ -382,7 +382,8 @@ The syntax tables aren't stored directly since they're quite large."
 		 ;; every keyword is a single symbol.
 		 '(modify-syntax-entry ?@ "_" table))
 		((c-major-mode-is 'java-mode)
-		 '(modify-syntax-entry ?@ "'" table))
+		 ;; In Java, @ can be the start of an annotation symbol.
+		 `(modify-syntax-entry ?@ "_" table))
 		((c-major-mode-is 'pike-mode)
 		 '(modify-syntax-entry ?@ "." table)))
 	 table)))
@@ -451,7 +452,8 @@ so that all identifiers are recognized as words.")
 (c-lang-defconst c-get-state-before-change-functions
   ;; For documentation see the following c-lang-defvar of the same name.
   ;; The value here may be a list of functions or a single function.
-  t 'c-before-change-check-unbalanced-strings
+  t '(c-before-change-include-<>
+      c-before-change-check-unbalanced-strings)
   c++ '(c-extend-region-for-CPP
 	c-depropertize-CPP
 	c-before-change-check-ml-strings
@@ -463,6 +465,7 @@ so that all identifiers are recognized as words.")
 	c-parse-quotes-before-change
 	c-before-change-fix-comment-escapes)
   c '(c-extend-region-for-CPP
+      c-before-change-include-<>
       c-depropertize-CPP
       c-truncate-bs-cache
       c-before-change-check-unbalanced-strings
@@ -480,7 +483,8 @@ so that all identifiers are recognized as words.")
 	 c-unmark-<>-around-region
 	 c-before-change-check-unbalanced-strings
 	 c-before-change-check-<>-operators)
-  pike '(c-before-change-check-ml-strings
+  pike '(c-before-change-include-<>
+	 c-before-change-check-ml-strings
 	 c-before-change-check-unbalanced-strings)
   awk 'c-awk-record-region-clear-NL)
 (c-lang-defvar c-get-state-before-change-functions
@@ -511,6 +515,7 @@ parameters \(point-min) and \(point-max).")
   t '(c-depropertize-new-text
       c-after-change-escape-NL-in-string
       c-after-change-mark-abnormal-strings
+      c-after-change-include-<>
       c-change-expand-fl-region)
   c '(c-depropertize-new-text
       c-after-change-fix-comment-escapes
@@ -518,6 +523,7 @@ parameters \(point-min) and \(point-max).")
       c-parse-quotes-after-change
       c-after-change-mark-abnormal-strings
       c-extend-font-lock-region-for-macros
+      c-after-change-include-<>
       c-neutralize-syntax-in-CPP
       c-change-expand-fl-region)
   objc '(c-depropertize-new-text
@@ -553,6 +559,7 @@ parameters \(point-min) and \(point-max).")
 	 c-after-change-escape-NL-in-string
 	 c-after-change-unmark-ml-strings
 	 c-after-change-mark-abnormal-strings
+	 c-after-change-include-<>
 	 c-change-expand-fl-region)
   awk '(c-depropertize-new-text
 	c-awk-extend-and-syntax-tablify-region))
@@ -829,7 +836,7 @@ there be copies of the opener contained in the multi-line string."
 (c-lang-defconst c-has-quoted-numbers
   "Whether the language has numbers quoted like 4'294'967'295."
   t nil
-  c++ t)
+  (c c++) t)
 (c-lang-defvar c-has-quoted-numbers (c-lang-const c-has-quoted-numbers))
 
 (c-lang-defconst c-has-compound-literals
@@ -945,7 +952,7 @@ This value is by default merged into `c-operators'."
 			     '(left-assoc right-assoc)
 			     t)))
       (when ops
-	(c-make-keywords-re 'appendable ops))))
+	(c-make-keywords-re t ops))))
 (c-lang-defvar c-opt-identifier-concat-key
   (c-lang-const c-opt-identifier-concat-key))
 
@@ -961,7 +968,7 @@ This value is by default merged into `c-operators'."
 			     '(prefix)
 			     t)))
       (when ops
-	(c-make-keywords-re 'appendable ops))))
+	(c-make-keywords-re t ops))))
 (c-lang-defvar c-opt-identifier-prefix-key
 	       (c-lang-const c-opt-identifier-prefix-key))
 
@@ -990,7 +997,7 @@ it's not taken care of by default."
   ;; considered internal - change `c-after-id-concat-ops' instead.
   t (concat (c-lang-const c-symbol-start)
 	    (if (c-lang-const c-after-id-concat-ops)
-		(concat "\\|" (c-make-keywords-re 'appendable
+		(concat "\\|" (c-make-keywords-re t
 				(c-lang-const c-after-id-concat-ops)))
 	      "")))
 
@@ -1030,7 +1037,7 @@ e.g. identifiers with template arguments such as \"A<X,Y>\" in C++."
 		 (if (c-lang-const c-after-id-concat-ops)
 		     (concat
 		      "\\("
-		       (c-make-keywords-re 'appendable
+		       (c-make-keywords-re t
 			 (c-lang-const c-after-id-concat-ops))
 		      (concat
 		       ;; For flexibility, consider the symbol match
@@ -1049,6 +1056,13 @@ e.g. identifiers with template arguments such as \"A<X,Y>\" in C++."
 		 "\\)*")
 	      "")))
 (c-lang-defvar c-identifier-key (c-lang-const c-identifier-key))
+
+(c-lang-defconst c-annotation-re
+  "Regexp that matches the first token of an annotation or nil.
+Currently only used in Java Mode."
+  t nil
+  java "\\_<@[[:alnum:]]+\\_>")
+(c-lang-defvar c-annotation-re (c-lang-const c-annotation-re))
 
 (c-lang-defconst c-module-name-re
   "This regexp matches (a component of) a module name.
@@ -1166,11 +1180,37 @@ string message."
 	   '("error"))
   (c c++ objc pike) '("error" "warning"))
 
+(c-lang-defconst c-cpp-message-directives-re
+  ;; Appendable regexp matching any of the tokens in `c-cpp-message-directives'.
+  t (c-make-keywords-re t (c-lang-const c-cpp-message-directives)))
+
+(c-lang-defconst noncontinued-line-end
+  t "\\(\\=\\|\\(\\=\\|[^\\]\\)[\n\r]\\)")
+(c-lang-defconst ncle-depth
+  t (regexp-opt-depth (c-lang-const noncontinued-line-end)))
+
+(c-lang-defconst c-cpp-messages-re
+  ;; Regexp to match a #error or #warning construct.  See
+  ;; `c-cpp-message-directives'.
+  t (if (c-lang-const c-cpp-message-directives)
+	(concat (c-lang-const noncontinued-line-end)
+		(c-lang-const c-opt-cpp-prefix)
+		(c-lang-const c-cpp-message-directives-re)
+		"\\s +\\(\\(\\\\\\(\\\\?\n\\|.\\)\\|[^\n]\\)*\\)$")))
+(c-lang-defvar c-cpp-messages-re (c-lang-const c-cpp-messages-re))
+
+(c-lang-defconst c-cpp-message-match-no
+    t (if (c-lang-const c-cpp-messages-re)
+	  (+ 1 (c-lang-const ncle-depth)
+	     (regexp-opt-depth (c-lang-const c-cpp-message-directives-re)))))
+(c-lang-defvar c-cpp-message-match-no (c-lang-const c-cpp-message-match-no))
+
 (c-lang-defconst c-cpp-include-directives
   "List of cpp directives (without the prefix) that are followed by a
 file name in angle brackets or quotes."
   t    (if (c-lang-const c-opt-cpp-prefix)
 	   '("include"))
+  c '("include" "embed")
   objc '("include" "import"))
 
 (c-lang-defconst c-cpp-include-key
@@ -1180,8 +1220,7 @@ file name in angle brackets or quotes."
 	     (c-lang-const c-cpp-include-directives))
 	(concat
 	 (c-lang-const c-anchored-cpp-prefix)
-	 (c-make-keywords-re 'appendable
-	   (c-lang-const c-cpp-include-directives))
+	 (c-make-keywords-re t (c-lang-const c-cpp-include-directives))
 	 "[ \t]*")
       regexp-unmatchable))
 (c-lang-defvar c-cpp-include-key (c-lang-const c-cpp-include-key))
@@ -1229,7 +1268,8 @@ definition, or nil if the language doesn't have any."
   "List of cpp directives (without the prefix) that are followed by an
 expression."
   t (if (c-lang-const c-opt-cpp-prefix)
-	'("if" "elif")))
+	'("if" "elif"
+	  "elifdef" "elifndef")))
 
 (c-lang-defconst c-cpp-expr-intro-re
   "Regexp which matches the start of a CPP directive which contains an
@@ -1745,9 +1785,10 @@ This doesn't count the merely contextual bits of the regexp match."
 		(c-lang-const c-opt-cpp-symbol) ; usually #
 		(substring (c-lang-const c-stmt-delim-chars) 1)) ; ";{}?:"
       (c-lang-const c-stmt-delim-chars))
-  c++ (concat (substring (c-lang-const c-stmt-boundary-skip-chars) 0 1) ; "^"
-	      "["
-	      (substring (c-lang-const c-stmt-boundary-skip-chars) 1))) ; ";{}?:"
+  (c c++) (concat
+	   (substring (c-lang-const c-stmt-boundary-skip-chars) 0 1) ; "^"
+	   "["
+	   (substring (c-lang-const c-stmt-boundary-skip-chars) 1))) ; ";{}?:"
 (c-lang-defvar c-stmt-boundary-skip-chars
   (c-lang-const c-stmt-boundary-skip-chars))
 
@@ -1791,7 +1832,7 @@ This doesn't count the merely contextual bits of the regexp match."
   t nil
   c++ '("..."))
 (c-lang-defconst c-pack-key
-  t (c-make-keywords-re 'appendable (c-lang-const c-pack-ops)))
+  t (c-make-keywords-re t (c-lang-const c-pack-ops)))
 (c-lang-defvar c-pack-key (c-lang-const c-pack-key))
 
 (c-lang-defconst c-auto-ops
@@ -2226,8 +2267,8 @@ This works in Emacs >= 25.1."
 (c-lang-defconst c-paragraph-start
   "Regexp to append to `paragraph-start'."
   t    "$"
-  java "\\(@[a-zA-Z]+\\>\\|$\\)"	; For Javadoc.
-  pike "\\(@[a-zA-Z_-]+\\>\\([^{]\\|$\\)\\|$\\)") ; For Pike refdoc.
+  java "\\(@[a-zA-Z]+\\_>\\|$\\)" ; For Javadoc.
+  pike "\\(@[a-zA-Z_-]+\\_>\\([^{]\\|$\\)\\|$\\)") ; For Pike refdoc.
 (c-lang-defvar c-paragraph-start (c-lang-const c-paragraph-start))
 
 (c-lang-defconst c-paragraph-separate
@@ -2244,7 +2285,7 @@ This works in Emacs >= 25.1."
 ;; `c-kwds-lang-consts' list below and used to build `c-keywords' etc.
 
 (c-lang-defconst c-primitive-type-kwds
-  "Primitive type keywords.  As opposed to the other keyword lists, the
+  "Primitive type keywords.  As opposed to most other keyword lists, the
 keywords listed here are fontified with the type face instead of the
 keyword face.
 
@@ -2259,10 +2300,12 @@ the appropriate place for that."
   t    '("char" "double" "float" "int" "long" "short" "signed"
 	 "unsigned" "void")
   c    (append
-	'("_Bool" "_Complex" "_Imaginary") ; Conditionally defined in C99.
+	'("_Bool" "_Complex" "_Imaginary" ;) Conditionally defined in C99.
+	  "_Decimal32" "_Decimal64" "_Decimal128"
+	  "bool" "char8_t" "char16_t" "char32_t" "nullptr_t")
 	(c-lang-const c-primitive-type-kwds))
   c++  (append
-	'("bool" "wchar_t" "char8_t" "char16_t" "char32_t")
+	'("bool" "wchar_t" "char8_t" "char16_t" "char32_t" "nullptr_t")
 	(c-lang-const c-primitive-type-kwds))
   ;; Objective-C extends C, but probably not the new stuff in C99.
   objc (append
@@ -2321,7 +2364,7 @@ of a variable declaration."
   "Keywords followed by a parenthesized expression, which stands for
 the type of that expression."
   t nil
-  c '("typeof")				; longstanding GNU C(++) extension.
+  c '("typeof" "typeof_unqual")
   c++ '("decltype" "typeof"))
 
 (c-lang-defconst c-typeof-key
@@ -2351,6 +2394,16 @@ used in declarations without the keyword."
 (c-lang-defvar c-self-contained-typename-key
 	       (c-lang-const c-self-contained-typename-key))
 
+(c-lang-defconst c-type-with-paren-kwds
+  "Keywords followed by a parenthesis expression, which form types."
+  t nil
+  c '("_BitInt"))
+
+(c-lang-defconst c-type-with-paren-key
+  "Adorned regexp which matches an element of `c-type-with-paren-kwds'."
+  t (c-make-keywords-re t (c-lang-const c-type-with-paren-kwds)))
+(c-lang-defvar c-type-with-paren-key (c-lang-const c-type-with-paren-key))
+
 (c-lang-defconst c-type-prefix-kwds
   "Keywords where the following name - if any - is a type name, and
 where the keyword together with the symbol works as a type in
@@ -2369,6 +2422,31 @@ on one of the `*-decl-kwds' lists."
   t (c-make-keywords-re t (c-lang-const c-type-prefix-kwds)))
 (c-lang-defvar c-type-prefix-key (c-lang-const c-type-prefix-key))
 
+(c-lang-defconst c-type-modifier-with-parens-kwds
+  "Keywords which have parenthesis expressions which modify a type.
+They can appear anywhere in the type.  Not included here are kwds which
+stand in place of a type, namely those in `c-no-type-kwds'."
+  t nil
+  c '("alignof" "alignas" "_Alignas" "_Alignof"))
+
+(c-lang-defconst c-type-modifier-with-parens-key
+  ;; Adorned regexp matching `c-type-modifier-with-parens-kwds'.
+  t (c-make-keywords-re t (c-lang-const c-type-modifier-with-parens-kwds)))
+(c-lang-defvar c-type-modifier-with-parens-key
+  (c-lang-const c-type-modifier-with-parens-key))
+
+(c-lang-defconst c-type-internal-paren-kwds
+  ;; Keywords which can be followed by a parenthesis expression inside a type
+  ;; specification.
+  t (append (c-lang-const c-type-with-paren-kwds)
+	    (c-lang-const c-type-modifier-with-parens-kwds)))
+
+(c-lang-defconst c-type-internal-paren-key
+  ;; Adorned regexp matching any member of `c-type-internal-paren-kwds'.
+  t (c-make-keywords-re t (c-lang-const c-type-internal-paren-kwds)))
+(c-lang-defvar c-type-internal-paren-key
+  (c-lang-const c-type-internal-paren-key))
+
 (c-lang-defconst c-type-modifier-prefix-kwds
   "Type modifier keywords which can appear in front of a type.  These can
 also occur almost anywhere in types but they don't build a type of
@@ -2378,7 +2456,9 @@ fontified with the keyword face and not the type face."
   c    '("const" "restrict" "volatile")
   c++  '("const" "noexcept" "volatile")
   objc '("const" "volatile")
+  java '("final")
   t    (append (c-lang-const c-no-type-kwds)
+	       (c-lang-const c-type-modifier-with-parens-kwds)
 	       (c-lang-const c-type-modifier-prefix-kwds)))
 
 (c-lang-defconst c-opt-type-modifier-prefix-key
@@ -2420,7 +2500,8 @@ the type face."
   ;; or a complete type).
   t (c--delete-duplicates (append (c-lang-const c-primitive-type-kwds)
 				  (c-lang-const c-type-prefix-kwds)
-				  (c-lang-const c-type-modifier-kwds))
+				  (c-lang-const c-type-modifier-kwds)
+				  (c-lang-const c-type-with-paren-kwds))
 			  :test 'string-equal))
 
 (c-lang-defconst c-type-decl-suffix-ws-ids-kwds
@@ -2479,9 +2560,9 @@ following identifier as a type; the keyword must also be present on
   t (c-make-keywords-re t (c-lang-const c-class-decl-kwds)))
 (c-lang-defvar c-class-key (c-lang-const c-class-key))
 
-(c-lang-defconst c-brace-list-decl-kwds
+(c-lang-defconst c-enum-list-kwds
   "Keywords introducing declarations where the following block (if
-any) is a brace list.
+any) is an enum list.
 
 If any of these also are on `c-type-list-kwds', `c-ref-list-kwds',
 `c-colon-type-list-kwds', `c-paren-nontype-kwds', `c-paren-type-kwds',
@@ -2490,29 +2571,49 @@ will be handled."
   t    '("enum")
   (awk) nil)
 
-(c-lang-defconst c-brace-list-key
+(c-lang-defconst c-enum-list-key
   ;; Regexp matching the start of declarations where the following
   ;; block is a brace list.
-  t (c-make-keywords-re t (c-lang-const c-brace-list-decl-kwds)))
-(c-lang-defvar c-brace-list-key (c-lang-const c-brace-list-key))
+  t (let ((liszt
+	   (condition-case nil
+	       ;; (prog1
+	       (c-lang-const c-brace-list-decl-kwds)
+	     ;; (message "`c-brace-list-decl-kwds' has been renamed \
+	     ;; to `c-enum-list-kwds'.  Please amend your derived mode"))
+	     ;; After a few CC Mode versions, output a message here,
+	     ;; prompting the derived mode's maintainer to update the source.
+	     ;; 2024-09.
+	     (error (c-lang-const c-enum-list-kwds)))))
+      (c-make-keywords-re t liszt)))
+(c-lang-defvar c-enum-list-key (c-lang-const c-enum-list-key))
 
-(c-lang-defconst c-after-brace-list-decl-kwds
-  "Keywords that might follow keywords in `c-brace-list-decl-kwds'
+(c-lang-defconst c-after-enum-list-kwds
+  "Keywords that might follow keywords in `c-enum-list-kwds'
 and precede the opening brace."
   t    nil
   c++  '("class" "struct"))
 
-(c-lang-defconst c-after-brace-list-key
-  ;; Regexp matching keywords that can fall between a brace-list
+(c-lang-defconst c-after-enum-list-key
+  ;; Regexp matching keywords that can fall between an enum-list
   ;; keyword and the associated brace list.
-  t (c-make-keywords-re t (c-lang-const c-after-brace-list-decl-kwds)))
-(c-lang-defvar c-after-brace-list-key (c-lang-const c-after-brace-list-key))
+  t (let ((liszt
+	   (condition-case nil
+	       ;; (prog1
+	       (c-lang-const c-after-brace-list-decl-kwds)
+	     ;; (message "`c-after-brace-list-decl-kwds' has been renamed \
+	     ;; to `c-after-enum-list-kwds'.  Please amend your derived mode"))
+	     ;; After a few CC Mode versions, output a message here,
+	     ;; prompting the derived mode's maintainer to update the source.
+	     ;; 2024-09.
+	     (error (c-lang-const c-after-enum-list-kwds)))))
+      (c-make-keywords-re t liszt)))
+(c-lang-defvar c-after-enum-list-key (c-lang-const c-after-enum-list-key))
 
 (c-lang-defconst c-recognize-post-brace-list-type-p
   "Set to t when we recognize a colon and then a type after an enum,
 e.g., enum foo : int { A, B, C };"
   t nil
-  c++ t)
+  (c c++) t)
 (c-lang-defvar c-recognize-post-brace-list-type-p
 	       (c-lang-const c-recognize-post-brace-list-type-p))
 
@@ -2564,7 +2665,7 @@ their matching \"in\" syntactic symbols.")
   "Keywords introducing a named block, where the name is a \"defun\"
     name."
   t (append (c-lang-const c-class-decl-kwds)
-	    (c-lang-const c-brace-list-decl-kwds)))
+	    (c-lang-const c-enum-list-kwds)))
 
 (c-lang-defconst c-defun-type-name-decl-key
   ;; Regexp matching a keyword in `c-defun-type-name-decl-kwds'.
@@ -2580,11 +2681,11 @@ If any of these also are on `c-type-list-kwds', `c-ref-list-kwds',
 `c-colon-type-list-kwds', `c-paren-nontype-kwds', `c-paren-type-kwds',
 `c-<>-type-kwds', or `c-<>-arglist-kwds' then the associated clauses
 will be handled."
-  ;; Default to `c-class-decl-kwds' and `c-brace-list-decl-kwds'
+  ;; Default to `c-class-decl-kwds' and `c-enum-list-kwds'
   ;; (since e.g. "Foo" is a type that's being defined in "class Foo
   ;; {...}").
   t    (append (c-lang-const c-class-decl-kwds)
-	       (c-lang-const c-brace-list-decl-kwds))
+	       (c-lang-const c-enum-list-kwds))
   ;; Languages that have a "typedef" construct.
   (c c++ objc idl pike) (append (c-lang-const c-typedef-decl-kwds)
 				'("typedef"))
@@ -2609,12 +2710,24 @@ will be handled."
 (c-lang-defconst c-no-type-kwds
   "Keywords which remove the need to specify a type in declarations"
   t nil
-  c++ '("auto"))
+  c++  '("auto")
+  java '("var"))
 
 (c-lang-defconst c-no-type-key
   ;; Regexp matching an entry from `c-no-type-kwds'
   t (c-make-keywords-re t (c-lang-const c-no-type-kwds)))
 (c-lang-defvar c-no-type-key (c-lang-const c-no-type-key))
+
+(c-lang-defconst c-no-type-with-equals-kwds
+  "Keywords after which no type is needed when there's an = sign."
+  t nil
+  c '("auto"))
+
+(c-lang-defconst c-no-type-with-equals-key
+  ;; Regexp matching an entry from `c-no-type-with-equals-kwds'.
+  t (c-make-keywords-re t (c-lang-const c-no-type-with-equals-kwds)))
+(c-lang-defvar c-no-type-with-equals-key
+  (c-lang-const c-no-type-with-equals-key))
 
 (c-lang-defconst c-typeless-decl-kwds
   "Keywords introducing declarations where the (first) identifier
@@ -2624,11 +2737,11 @@ If any of these also are on `c-type-list-kwds', `c-ref-list-kwds',
 `c-colon-type-list-kwds', `c-paren-nontype-kwds', `c-paren-type-kwds',
 `c-<>-type-kwds', or `c-<>-arglist-kwds' then the associated clauses
 will be handled."
-  ;; Default to `c-class-decl-kwds' and `c-brace-list-decl-kwds'
+  ;; Default to `c-class-decl-kwds' and `c-enum-list-kwds'
   ;; (since e.g. "Foo" is the identifier being defined in "class Foo
   ;; {...}").
   t    (append (c-lang-const c-class-decl-kwds)
-	       (c-lang-const c-brace-list-decl-kwds))
+	       (c-lang-const c-enum-list-kwds))
   c nil
   ;; Note: "manages" for CORBA CIDL clashes with its presence on
   ;; `c-type-list-kwds' for IDL.
@@ -2653,6 +2766,19 @@ will be handled."
   t (c-make-keywords-re t (c-lang-const c-equals-type-clause-kwds)))
 (c-lang-defvar c-equals-type-clause-key (c-lang-const c-equals-type-clause-key))
 
+(c-lang-defconst c-lambda-spec-kwds
+  "Keywords which are specifiers of certain elements of a C++ lambda function.
+This is only used in C++ Mode."
+  t nil
+  c++ '("mutable" "constexpr" "consteval" "static"))
+
+(c-lang-defconst c-lambda-spec-key
+  ;; A regular expression which matches a member of `c-lambda-spec-kwds',
+  ;; or nil.
+  t (if (c-lang-const c-lambda-spec-kwds)
+	(c-make-keywords-re t (c-lang-const c-lambda-spec-kwds))))
+(c-lang-defvar c-lambda-spec-key (c-lang-const c-lambda-spec-key))
+
 (c-lang-defconst c-equals-nontype-decl-kwds
   "Keywords which are followed by an identifier then an \"=\"
 sign, which declares the identifier to be something other than a
@@ -2671,19 +2797,28 @@ type."
 (c-lang-defconst c-fun-name-substitute-kwds
   "Keywords which take the place of type+declarator at the beginning
 of a function-like structure, such as a C++20 \"requires\"
-clause.  An arglist may or may not follow such a keyword."
+expression.  An arglist may or may not follow such a keyword.
+Not to be confused with `c-requires-clause-kwds'."
   t nil
   c++ '("requires"))
 
 (c-lang-defconst c-fun-name-substitute-key
-  ;; An unadorned regular expression which matches any member of
+  ;; An adorned regular expression which matches any member of
   ;; `c-fun-name-substitute-kwds'.
-  t (c-make-keywords-re 'appendable (c-lang-const c-fun-name-substitute-kwds)))
-;; We use 'appendable, so that we get "\\>" on the regexp, but without a further
-;; character, which would mess up backward regexp search from just after the
-;; keyword.  If only XEmacs had \\_>.  ;-(
+  t (c-make-keywords-re t (c-lang-const c-fun-name-substitute-kwds)))
 (c-lang-defvar c-fun-name-substitute-key
 	       (c-lang-const c-fun-name-substitute-key))
+
+(c-lang-defconst c-requires-clause-kwds
+  "Keywords which introduce a C++ requires clause, or something analogous.
+This should not be confused with `c-fun-name-substitute-kwds'."
+  t nil
+  c++ '("requires"))
+
+(c-lang-defconst c-requires-clause-key
+  ;; A regexp matching any member of `c-requires-clause-kwds'.
+  t (c-make-keywords-re t (c-lang-const c-requires-clause-kwds)))
+(c-lang-defvar c-requires-clause-key (c-lang-const c-requires-clause-key))
 
 (c-lang-defconst c-modifier-kwds
   "Keywords that can prefix normal declarations of identifiers
@@ -2696,10 +2831,12 @@ If any of these also are on `c-type-list-kwds', `c-ref-list-kwds',
 `c-<>-type-kwds', or `c-<>-arglist-kwds' then the associated clauses
 will be handled."
   t    nil
-  (c c++) '("extern" "inline" "register" "static")
-  c    (append '("auto") (c-lang-const c-modifier-kwds))
-  c++  (append '("consteval" "constexpr" "constinit" "explicit"
-		 "friend" "mutable" "template" "thread_local" "virtual")
+  (c c++) '("constexpr" "extern" "inline" "register"
+	    "static" "thread_local")
+  c    (append '("auto" "_Thread_local")
+	       (c-lang-const c-modifier-kwds))
+  c++  (append '("consteval" "constinit" "explicit"
+		 "friend" "mutable" "template" "virtual")
 	       ;; "using" is now handled specially (2020-09-14).
 	       (c-lang-const c-modifier-kwds))
   objc '("auto" "bycopy" "byref" "extern" "in" "inout" "oneway" "out" "static")
@@ -2719,7 +2856,7 @@ will be handled."
 
 (c-lang-defconst c-other-decl-kwds
   "Keywords that can start or prefix any declaration level construct,
-besides those on `c-class-decl-kwds', `c-brace-list-decl-kwds',
+besides those on `c-class-decl-kwds', `c-enum-list-kwds',
 `c-other-block-decl-kwds', `c-typedef-decl-kwds',
 `c-typeless-decl-kwds' and `c-modifier-kwds'.
 
@@ -2790,7 +2927,7 @@ one of `c-type-list-kwds', `c-ref-list-kwds',
   ;; declaration.  They might be ambiguous with types or type
   ;; prefixes.
   t (c--delete-duplicates (append (c-lang-const c-class-decl-kwds)
-				  (c-lang-const c-brace-list-decl-kwds)
+				  (c-lang-const c-enum-list-kwds)
 				  (c-lang-const c-other-block-decl-kwds)
 				  (c-lang-const c-typedef-decl-kwds)
 				  (c-lang-const c-typeless-decl-kwds)
@@ -2853,12 +2990,12 @@ one of `c-type-list-kwds', `c-ref-list-kwds',
 (c-lang-defconst c-protection-kwds
   "Access protection label keywords in classes."
   t    nil
-  c++  '("private" "protected" "public")
+  (c++ java)  '("private" "protected" "public")
   objc '("@private" "@protected" "@package" "@public"
 	 "@required" "@optional"))
 
 (c-lang-defconst c-protection-key
-  ;; A regexp match an element of `c-protection-kwds' cleanly.
+  ;; A regexp matching an element of `c-protection-kwds' cleanly.
   t (c-make-keywords-re t (c-lang-const c-protection-kwds)))
 (c-lang-defvar c-protection-key (c-lang-const c-protection-key))
 
@@ -3007,7 +3144,9 @@ contain type identifiers."
   (c c++) '(;; GCC extension.
 	    "__attribute__"
 	    ;; MSVC extension.
-	    "__declspec")
+	    "__declspec"
+	    "static_assert")
+  c (append (c-lang-const c-paren-nontype-kwds) '("_Static_assert"))
   c++ (append (c-lang-const c-paren-nontype-kwds) '("noexcept" "alignas")))
 
 (c-lang-defconst c-paren-nontype-key
@@ -3086,7 +3225,7 @@ assumed to be set if this isn't nil."
   "Keywords that may be followed by a brace block containing a comma
 separated list of identifier definitions, i.e. like the list of
 identifiers that follows the type in a normal declaration."
-  t (c-lang-const c-brace-list-decl-kwds))
+  t (c-lang-const c-enum-list-kwds))
 
 (c-lang-defconst c-block-stmt-1-kwds
   "Statement keywords followed directly by a substatement."
@@ -3199,7 +3338,7 @@ Such a keyword is a member of `c-paren-clause-kwds."
   c++    '("break" "continue" "goto" "return" "co_return")
   objc '("break" "continue" "goto" "return" "@throw")
   ;; Note: `goto' is not valid in Java, but the keyword is still reserved.
-  java '("break" "continue" "goto" "return" "throw")
+  java '("assert" "break" "continue" "goto" "return" "throw")
   idl  nil
   pike '("break" "continue" "return")
   awk  '(;; Not sure about "delete", "exit", "getline", etc. ; ACM 2002/5/30
@@ -3283,11 +3422,9 @@ not really template operators."
 (c-lang-defconst c-constant-kwds
   "Keywords for constants."
   t       nil
-  c       '("NULL" ;; Not a keyword, but practically works as one.
-	    "false" "true")		; Defined in C99.
-  c++     (append
-           '("nullptr")
-           (c-lang-const c-constant-kwds c))
+  (c c++) '("NULL" ;; Not a keyword, but practically works as one.
+	    "false" "true"		; Defined in C99.
+	    "nullptr")
   objc    '("nil" "Nil" "YES" "NO" "IBAction" "IBOutlet"
 	    "NS_DURING" "NS_HANDLER" "NS_ENDHANDLER")
   idl     '("TRUE" "FALSE")
@@ -3365,7 +3502,7 @@ Note that Java specific rules are currently applied to tell this from
 (c-lang-defconst c-brace-stack-thing-key
   ;; Regexp matching any keyword or operator relevant to the brace stack (see
   ;; `c-update-brace-stack' in cc-engine.el).
-  t (c-make-keywords-re 'appendable
+  t (c-make-keywords-re t
       (append
        (c-lang-const c-flat-decl-block-kwds)
        (if (c-lang-const c-recognize-<>-arglists)
@@ -3377,7 +3514,7 @@ Note that Java specific rules are currently applied to tell this from
   ;; Regexp matching any keyword or operator relevant to the brace stack when
   ;; a semicolon is not relevant (see `c-update-brace-stack' in
   ;; cc-engine.el).
-  t (c-make-keywords-re 'appendable
+  t (c-make-keywords-re t
       (append
        (c-lang-const c-flat-decl-block-kwds)
        (if (c-lang-const c-recognize-<>-arglists)
@@ -3493,7 +3630,7 @@ Note that Java specific rules are currently applied to tell this from
 (c-lang-defconst c-stmt-block-only-keywords-regexp
   ;; A regexp matching a keyword in `c-stmt-block-only-keywords'.  Such a
   ;; match can start and end only at token boundaries.
-  t (concat "\\(^\\|\\=\\|[^" (c-lang-const c-symbol-chars) "]\\)"
+  t (concat "\\(\\_<\\|\\=\\)"
 	    (c-make-keywords-re t (c-lang-const c-stmt-block-only-keywords))))
 (c-lang-defvar c-stmt-block-only-keywords-regexp
   (c-lang-const c-stmt-block-only-keywords-regexp))
@@ -3550,12 +3687,9 @@ Note that Java specific rules are currently applied to tell this from
 		;; Emacs has an odd bug that causes `mapcan' to fail
 		;; with unintelligible errors.  (XEmacs works.)
 		;; (2015-06-24): This bug has not yet been fixed.
-		;;(mapcan (lambda (lang-const)
-		;;	      (list lang-const t))
-		;;	    lang-const-list)
-		(apply 'nconc (mapcar (lambda (lang-const)
-					(list lang-const t))
-				      lang-const-list))))
+		(c--mapcan (lambda (lang-const)
+			      (list lang-const t))
+			    lang-const-list)))
     obarray))
 
 (c-lang-defconst c-regular-keywords-regexp
@@ -3564,7 +3698,8 @@ Note that Java specific rules are currently applied to tell this from
   t (c-make-keywords-re t
       (c--set-difference (c-lang-const c-keywords)
 			 (append (c-lang-const c-primitive-type-kwds)
-				 (c-lang-const c-constant-kwds))
+				 (c-lang-const c-constant-kwds)
+				 (c-lang-const c-type-with-paren-kwds))
 			 :test 'string-equal)))
 (c-lang-defvar c-regular-keywords-regexp
   (c-lang-const c-regular-keywords-regexp))
@@ -3938,16 +4073,13 @@ possible for good performance."
 
 (c-lang-defconst c-type-decl-prefix-keywords-key
   ;; Regexp matching any keyword operator that might precede the identifier in
-  ;; a declaration, e.g. "const" or nil.  It doesn't test there is no "_"
-  ;; following the keyword.
+  ;; a declaration, e.g. "const" or nil.
   t (if (or (c-lang-const c-type-modifier-kwds) (c-lang-const c-modifier-kwds))
-	(concat
 	 (regexp-opt (c--delete-duplicates
 		      (append (c-lang-const c-type-modifier-kwds)
 			      (c-lang-const c-modifier-kwds))
 		      :test 'string-equal)
-		     t)
-	 "\\>")))
+		     'symbols)))
 
 (c-lang-defconst c-maybe-typeless-specifier-re
   "Regexp matching keywords which might, but needn't, declare variables with
@@ -3965,16 +4097,14 @@ The operator found is either the first submatch (if it is not a
 keyword) or the second submatch (if it is)."
   t (if (c-lang-const c-type-decl-prefix-keywords-key)
 	(concat "\\(\\`a\\`\\)\\|"	; 1 - will never match.
-		(c-lang-const c-type-decl-prefix-keywords-key) ; 2
-		"\\([^_]\\|$\\)")			       ; 3
+		(c-lang-const c-type-decl-prefix-keywords-key)) ; 2
       "\\`a\\`") ;; Default to a regexp that never matches.
   ;; Check that there's no "=" afterwards to avoid matching tokens
   ;; like "*=".
   (c objc) (concat "\\("		; 1
 		   "[*(]"
 		   "\\)\\|"
-		   (c-lang-const c-type-decl-prefix-keywords-key) ; 2
-		   "\\([^=_]\\|$\\)")	; 3
+		   (c-lang-const c-type-decl-prefix-keywords-key)) ; 2
   c++  (concat "\\("			; 1
 	       "&&"
 	       "\\|"
@@ -3989,10 +4119,10 @@ keyword) or the second submatch (if it is)."
 		       ;; `c-font-lock-declarators' and
 		       ;; `c-font-lock-declarations' that check for a
 		       ;; complete name followed by ":: *".
-		       (c-lang-const c-identifier-start)
+		       (c-lang-const c-identifier-start) ; 5
 		       "\\)")
-	       "\\)"
-	       "\\([^=_]\\|$\\)")	; 5
+	       "\\)"			; 2
+	       "\\([^=_]\\|$\\)")	; 6
   pike "\\(\\*\\)\\([^=]\\|$\\)")
 
 (c-lang-defvar c-type-decl-prefix-key (c-lang-const c-type-decl-prefix-key)
@@ -4032,7 +4162,7 @@ is in effect when this is matched (see `c-identifier-syntax-table')."
   ;; function argument list parenthesis.
   t    (if (c-lang-const c-type-modifier-kwds)
 	   (concat "\\((\\|"
-		   (regexp-opt (c-lang-const c-type-modifier-kwds) t) "\\>"
+		   (regexp-opt (c-lang-const c-type-modifier-kwds) 'symbols)
 		   "\\)")
 	 "\\((\\)")
   (c c++ objc) (concat
@@ -4047,8 +4177,7 @@ is in effect when this is matched (see `c-identifier-syntax-table')."
 		     (regexp-opt
 		      (append (c-lang-const c-fun-name-substitute-kwds)
 			      (c-lang-const c-type-modifier-kwds))
-		      t)
-		     "\\>")
+		      'symbols))
 		  "")
 		"\\)")
   java "\\([[()]\\)"
@@ -4126,8 +4255,8 @@ is in effect or not."
   ;; Regexp matching the known type identifiers.  This is initialized
   ;; from the type keywords and `*-font-lock-extra-types'.  The first
   ;; submatch is the one that matches the type.  Note that this regexp
-  ;; assumes that symbol constituents like '_' and '$' have word
-  ;; syntax.
+  ;; assumes that symbol constituents like '_' and '$' have word or
+  ;; symbol syntax.
   (let* ((extra-types
 	  (when (boundp (c-mode-symbol "font-lock-extra-types"))
 	    (c-mode-var "font-lock-extra-types")))
@@ -4141,14 +4270,14 @@ is in effect or not."
 			      (unless (string-match "[][.*+?^$\\]" re)
 				re))
 			    extra-types))))
-    (concat "\\<\\("
+    (concat "\\_<\\("
 	    (c-concat-separated
 	     (append (list (c-make-keywords-re nil
 			     (append (c-lang-const c-primitive-type-kwds)
 				     plain-strings)))
 		     regexp-strings)
 	     "\\|")
-	    "\\)\\>")))
+	    "\\)\\_>")))
 
 (c-lang-defconst c-special-brace-lists
 "List of open- and close-chars that makes up a pike-style brace list,
@@ -4182,6 +4311,13 @@ This is only used in c++-mode."
   c++ "&&?\\(\\S.\\|$\\)")
 (c-lang-defvar c-pre-brace-non-bracelist-key
   (c-lang-const c-pre-brace-non-bracelist-key))
+
+(c-lang-defconst c-recognize-nameless-type-decls
+  "Non-nil means a type may be used in an arglist without an identifier."
+  t nil
+  c t)
+(c-lang-defvar c-recognize-nameless-type-decls
+  (c-lang-const c-recognize-nameless-type-decls))
 
 (c-lang-defconst c-recognize-typeless-decls
   "Non-nil means function declarations without return type should be
@@ -4226,11 +4362,9 @@ the invalidity of the putative template construct."
   ;; keyword itself, and extending up to the "{".  It may match text which
   ;; isn't such a construct; more accurate tests will rule these out when
   ;; needed.
-  t (if (c-lang-const c-brace-list-decl-kwds)
+  t (if (c-lang-const c-enum-list-kwds)
 	(concat
-	 "\\<\\("
-	 (c-make-keywords-re nil (c-lang-const c-brace-list-decl-kwds))
-	 "\\)\\>"
+	 (c-make-keywords-re t (c-lang-const c-enum-list-kwds))
 	 ;; Disallow various common punctuation chars that can't come
 	 ;; before the '{' of the enum list, to avoid searching too far.
 	 "[^][{};/#=]*"
