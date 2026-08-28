@@ -667,16 +667,16 @@ case ${with_gameuser} in
   *) gameuser=${with_gameuser} ;;
 esac
 
-AC_ARG_ENABLE(mac-app,
+AC_ARG_ENABLE([mac-app],
 [AS_HELP_STRING([--enable-mac-app@<:@=DIR@:>@],
-                [specify install directory for Emacs.app on macOS
-		 [DIR=/Application]])],
-[ mac_appdir_x=${enableval}])
+                [specify install directory for Emacs.app on macOS.])],
+   [mac_appdir_x=${enableval}])
 
-AC_ARG_ENABLE(mac-self-contained,
-[AS_HELP_STRING([--enable-mac-self-contained],
-                [enable self contained build under mac])],
-                EN_MAC_SELF_CONTAINED=$enableval)
+AC_ARG_ENABLE([mac-self-contained],
+[AS_HELP_STRING([--disable-mac-self-contained],
+                [disable self contained build under mac])],
+   [EN_MAC_SELF_CONTAINED=$enableval],
+   [EN_MAC_SELF_CONTAINED=yes])
 
 AC_ARG_WITH([gnustep-conf],
 [AS_HELP_STRING([--with-gnustep-conf=FILENAME],
@@ -2866,12 +2866,9 @@ if test "${with_mac}" != no; then
   test "${HAVE_MACGUI}" = yes && window_system=mac
 
   ## Specify the install directory
-  mac_appdir=`pwd`/mac
+  mac_appdir=`pwd`/carbon
   if test "${mac_appdir_x}" != ""; then
-    case ${mac_appdir_x} in
-      y | ye | yes)  mac_appdir=/Applications ;;
-      * ) mac_appdir=${mac_appdir_x} ;;
-    esac
+    mac_appdir=${mac_appdir_x}
   fi
 
   mac_appbindir=${mac_appdir}/Emacs.app/Contents/MacOS
