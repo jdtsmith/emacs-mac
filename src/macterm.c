@@ -5687,6 +5687,10 @@ mac_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
   gui_init_fringe (terminal->rif);
 
+  /* Startup can inhibit window-system use until the first Mac terminal has
+     finished initialization.  AppKit events must be processed after that.  */
+  inhibit_window_system = false;
+
   unblock_input ();
 
   return dpyinfo;
