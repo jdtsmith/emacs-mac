@@ -1373,12 +1373,8 @@ affects all frames on the same terminal device.  */)
     emacs_abort ();
 #else /* not MSDOS */
 
-#if defined WINDOWSNT || defined HAVE_MACGUI /* This should work now! */
-  if (sf->output_method != output_termcap
-#ifdef HAVE_MACGUI
-      && sf->output_method != output_initial
-#endif
-      )
+#ifdef WINDOWSNT /* This should work now! */
+  if (sf->output_method != output_termcap)
     error ("Not using an ASCII terminal now; cannot make a new ASCII frame");
 #endif
 #endif /* not MSDOS */
