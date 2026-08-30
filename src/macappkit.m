@@ -2757,6 +2757,8 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
      causes emacsView to receive drawRect: before closing a tabbed
      window on macOS 10.12.  It is too late to remove the view in the
      windowWillClose: delegate method, so we remove it here.  */
+  /* AppKit close animations block one global dispatch worker per frame.  */
+  emacsWindow.animationBehavior = NSWindowAnimationBehaviorNone;
   [emacsView removeFromSuperview];
   [emacsWindow close];
 }
@@ -5844,6 +5846,8 @@ mac_iosurface_create (size_t width, size_t height)
     return nil;
 
   scaleFactor = view.window.backingScaleFactor;
+  copyFromFrontToBackQueue =
+    dispatch_queue_create ("org.gnu.Emacs.backing-copy", DISPATCH_QUEUE_SERIAL);
 
   NSSize size = view.bounds.size;
   size_t width = size.width * scaleFactor;
@@ -5917,11 +5921,9 @@ mac_iosurface_create (size_t width, size_t height)
   NSArrayOf (NSValue *) *rectValues = invalidRectValues;
   invalidRectValues = [[NSMutableArray alloc] initWithCapacity:0];
 
-  dispatch_queue_t queue =
-    dispatch_get_global_queue (DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
   copyFromFrontToBackSemaphore = dispatch_semaphore_create (0);
 
-  dispatch_async (queue, ^{
+  dispatch_async (copyFromFrontToBackQueue, ^{
 #if HAVE_MAC_METAL
       if (backTexture)
 	{
@@ -6006,6 +6008,9 @@ mac_iosurface_create (size_t width, size_t height)
 - (void)dealloc
 {
   [self waitCopyFromFrontToBack];
+#if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
+  dispatch_release (copyFromFrontToBackQueue);
+#endif
   CGContextRelease (backBitmap);
   CGContextRelease (frontBitmap);
   if (backSurface)
@@ -16705,6 +16710,9 @@ static NSMutableArray *mac_deferred_lisp_queue;
    select emulation.  */
 static dispatch_source_t mac_select_dispatch_source;
 
+/* This must stay runnable when AppKit saturates global dispatch workers.  */
+static dispatch_queue_t mac_select_queue;
+
 /* Command to execute in the GUI thread after the run loop is
    broken.  */
 static enum
@@ -16726,6 +16734,8 @@ mac_init_thread_synchronization (void)
   mac_deferred_lisp_queue = [[NSMutableArray alloc] initWithCapacity:0];
 
   mac_select_next_command = MAC_SELECT_COMMAND_TERMINATE;
+  mac_select_queue =
+    dispatch_queue_create ("org.gnu.Emacs.select", DISPATCH_QUEUE_SERIAL);
   mac_select_dispatch_source =
     dispatch_source_create (DISPATCH_SOURCE_TYPE_DATA_OR, 0, 0,
 			    dispatch_get_main_queue ());
@@ -17196,10 +17206,7 @@ mac_select (int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds,
 	}
       else
 	{
-	  dispatch_queue_t queue =
-	    dispatch_get_global_queue (DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
-
-	  dispatch_async (queue, ^{
+	  dispatch_async (mac_select_queue, ^{
 	      r = pselect (nfds, rfds, wfds, efds, timeout, sigmask);
 	      dispatch_source_merge_data (mac_select_dispatch_source,
 					  MAC_SELECT_COMMAND_TERMINATE);
