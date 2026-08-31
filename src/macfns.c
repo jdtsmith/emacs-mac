@@ -1215,6 +1215,36 @@ mac_set_override_redirect (struct frame *f, Lisp_Object new_value, Lisp_Object o
     }
 }
 
+static enum mac_appearance_type
+mac_set_appearance_1 (struct frame *f, Lisp_Object new_value)
+{
+  enum mac_appearance_type appearance = mac_appearance_system_default;
+  if (EQ (new_value, Qdark))
+    appearance = mac_appearance_vibrant_dark;
+  else if (EQ (new_value, Qlight))
+    appearance = mac_appearance_vibrant_light;
+
+  FRAME_MAC_APPEARANCE (f) = appearance;
+  return appearance;
+}
+
+static void
+mac_set_appearance (struct frame *f, Lisp_Object new_value, Lisp_Object old_value)
+{
+  if ((mac_operating_system_version.major < 10
+       || (mac_operating_system_version.major == 10
+	   && mac_operating_system_version.minor < 10)))
+    return;
+
+  if (!EQ (new_value, old_value))
+    {
+      enum mac_appearance_type appearance = mac_set_appearance_1 (f, new_value);
+      block_input ();
+      mac_set_frame_window_appearance (f, appearance);
+      unblock_input ();
+    }
+}
+
 static void
 mac_set_transparent_titlebar (struct frame *f, Lisp_Object new_value, Lisp_Object old_value)
 {
@@ -2546,6 +2576,12 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   mac_default_scroll_bar_color_parameter (f, parms, Qscroll_bar_background,
 					  "scrollBarBackground",
 					  "ScrollBarBackground", false);
+
+  tem = gui_display_get_arg (dpyinfo, parms, Qmac_appearance,
+			     NULL, NULL, RES_TYPE_SYMBOL);
+  mac_set_appearance_1 (f, tem);
+  store_frame_param (f, Qmac_appearance,
+                     (!NILP (tem) && !EQ (tem, Qunbound)) ? tem : Qnil);
 
   tem = gui_display_get_arg (dpyinfo, parms, Qmac_transparent_titlebar,
 			     NULL, NULL, RES_TYPE_BOOLEAN);
@@ -5275,6 +5311,7 @@ frame_parm_handler mac_frame_parm_handlers[] =
      ns-appearance
      ns-transparent-titlebar
    */
+  mac_set_appearance,
   mac_set_transparent_titlebar,
 };
 
@@ -5314,6 +5351,8 @@ syms_of_macfns (void)
   DEFSYM (QCactive_p, ":active-p");
   DEFSYM (QChidden_p, ":hidden-p");
   DEFSYM (QCappearance, ":appearance");
+  DEFSYM (Qdark, "dark");
+  DEFSYM (Qlight, "light");
   DEFSYM (QCoverview_visible_p, ":overview-visible-p");
   DEFSYM (QCtab_bar_visible_p, ":tab-bar-visible-p");
   DEFSYM (QCselected_frame, ":selected-frame");
