@@ -300,11 +300,15 @@ The following keywords are meaningful:
 	given in the `defcustom' call.  The default is
 	`custom-initialize-reset'.
 :set	VALUE should be a function to set the value of the symbol
-	when using the Customize user interface.  It takes two arguments,
-	the symbol to set and the value to give it.  The function should
-	not modify its value argument destructively.  The default choice
-	of function is `set-default-toplevel-value'.  If this keyword is
-	defined, modifying the value of SYMBOL via `setopt' will call the
+	when using the Customize user interface.  It takes two
+        mandatory arguments, the symbol to set and the value to give
+        it, and one optional argument, which, if its value is
+        `buffer-local', means the value should be set
+        buffer-locally, without affecting the global or default
+        value.  The function should not modify its value argument
+        destructively.  The default choice of function is
+        `set-default-toplevel-value'.  If this keyword is defined,
+        modifying the value of SYMBOL via `setopt' will call the
 	function specified by VALUE to install the new value.
 :get	VALUE should be a function to extract the value of symbol.
 	The function takes one argument, a symbol, and should return
@@ -1334,6 +1338,9 @@ This variable cannot be set in a Custom theme."
   :risky t
   :version "24.1")
 
+(defvar custom--theme-load-file nil
+  "File name of a theme being loaded.")
+
 (defun load-theme (theme &optional no-confirm no-enable)
   "Load Custom theme named THEME from its file and possibly enable it.
 The theme file is named THEME-theme.el, in one of the directories
@@ -1393,10 +1400,12 @@ Return t if THEME was successfully loaded, nil otherwise."
                     (equal (file-name-directory file)
                            (expand-file-name "themes/" data-directory))))
            ;; Theme is safe; load byte-compiled version if available.
-           (load (file-name-sans-extension file) nil t nil t))
+           (let ((custom--theme-load-file file))
+             (load (file-name-sans-extension file) nil t nil t)))
           ((with-temp-buffer
              (insert-file-contents file)
-             (let ((hash (secure-hash 'sha256 (current-buffer))))
+             (let ((hash (secure-hash 'sha256 (current-buffer)))
+                   (custom--theme-load-file file))
                (when (or (member hash custom-safe-themes)
                          (custom-theme-load-confirm hash))
                  (eval-buffer nil nil file)

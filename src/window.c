@@ -2326,7 +2326,11 @@ WINDOW must be a live window and defaults to the selected one.
 
 The return value is a list of elements (BUFFER WINDOW-START POS),
 where BUFFER is a buffer, WINDOW-START is the start position of the
-window for that buffer, and POS is a window-specific point value.  */)
+window for that buffer, and POS is a window-specific point value.
+
+In rare ocasions BUFFER may have been already killed.  It's therefore
+advisable to always check the return value for the occurrence of dead
+buffers before using it.  */)
   (Lisp_Object window)
 {
   return decode_live_window (window)->prev_buffers;
@@ -7594,7 +7598,8 @@ struct save_window_data
 
     /* All fields above are traced by the GC.
        After saved_windows, the fields are ignored by the GC.  */
-
+    /* The change stamp of the frame at the time of saving.  */
+    int change_stamp;
     /* We should be able to do without the following two.  */
     int frame_cols, frame_lines;
     /* These three should get eventually replaced by their pixel
@@ -7611,7 +7616,7 @@ struct saved_window
 {
   union vectorlike_header header;
 
-  Lisp_Object window, buffer, start, pointm, old_pointm;
+  Lisp_Object window, buffer, old_buffer, start, pointm, old_pointm;
   Lisp_Object pixel_left, pixel_top, pixel_height, pixel_width;
   Lisp_Object left_col, top_line, total_cols, total_lines;
   Lisp_Object normal_cols, normal_lines;
@@ -7835,6 +7840,25 @@ the return value is nil.  Otherwise the value is t.  */)
 	  /* If we squirreled away the buffer, restore it now.  */
 	  if (BUFFERP (w->combination_limit))
 	    wset_buffer (w, w->combination_limit);
+
+	  if (data->change_stamp == f->change_stamp)
+	    /* Restore W's old_buffer slot but only if the configuration
+	       was saved and restored in between two redisplay cycles,
+	       that is, if F's saved change stamp and its current change
+	       stamp are equal.  In that case we should run W's buffer
+	       change functions provided the saved old_buffer and the
+	       restored buffer differ.  If the saved old_buffer and the
+	       restored buffer are one and the same, the window
+	       excursion was only temporary and it would be distracting
+	       to run the buffer change functions for it.
+
+	       If the change stamps are not equal, run the buffer change
+	       functions provided W's current buffer (which was stored
+	       by delete_all_child_windows above in W's old_buffer slot)
+	       and the buffer that will be restored differ (Bug#81079
+	       and Bug#81589).  */
+	    w->old_buffer = p->old_buffer;
+
 	  w->pixel_left = XFIXNAT (p->pixel_left);
 	  w->pixel_top = XFIXNAT (p->pixel_top);
 	  w->pixel_width = XFIXNAT (p->pixel_width);
@@ -8221,6 +8245,7 @@ save_window_save (Lisp_Object window, struct Lisp_Vector *vector, ptrdiff_t i)
       wset_temslot (w, make_fixnum (i)); i++;
       p->window = window;
       p->buffer = (WINDOW_LEAF_P (w) ? w->contents : Qnil);
+      p->old_buffer = w->old_buffer;
       p->pixel_left = make_fixnum (w->pixel_left);
       p->pixel_top = make_fixnum (w->pixel_top);
       p->pixel_width = make_fixnum (w->pixel_width);
@@ -8374,6 +8399,7 @@ saved by this function.  */)
   data->minibuf_selected_window = minibuf_level > 0 ? minibuf_selected_window : Qnil;
   data->root_window = FRAME_ROOT_WINDOW (f);
   data->focus_frame = FRAME_FOCUS_FRAME (f);
+  data->change_stamp = f->change_stamp;
   Lisp_Object tem = make_nil_vector (n_windows);
   data->saved_windows = tem;
   for (ptrdiff_t i = 0; i < n_windows; i++)
@@ -9448,7 +9474,10 @@ windows in the same combination.
 Other values are reserved for future use.
 
 A specific split operation may ignore the value of this variable if it
-is affected by a non-nil value of `window-combination-limit'.  */);
+is affected by a non-nil value of `window-combination-limit'.  If you
+want to use a sequence of `split-window' calls to produce a specific,
+predefined layout of windows on a frame, bind this variable temporarily
+to nil.  */);
   Vwindow_combination_resize = Qnil;
 
   DEFVAR_LISP ("window-combination-limit", Vwindow_combination_limit,

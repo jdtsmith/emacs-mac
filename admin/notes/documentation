@@ -106,7 +106,7 @@ For instance, this
     anywhere in sight is too confusing.
 
 may not need mentioning, because --daemon will give an error message
-saying it is not implemented, and other cases aren't affected.
+saying it's not implemented, and other cases aren't affected.
 
 The kind of change for which the user really needs help from Antinews
 is where a feature works _differently_ in the previous version.
@@ -145,6 +145,10 @@ This results in clickable Lisp symbols when the NEWS file is visited via
 follow this rule, like 'TAB' or ':type'.  Exception: the symbols t and
 nil are not quoted.
 
+Key names are embedded in angle brackets like '<LEFT>', except keys that
+have a special shorthand syntax: 'NUL', 'RET', 'TAB', 'LFD', 'ESC',
+'SPC' and 'DEL'.
+
 Arguments of a function are written in capital letters LIKE-THIS, and they
 are not quoted.
 
@@ -164,5 +168,3 @@ like subr.el, which are not quoted.
 Call 'emacs-news-view-mode'.  Lisp symbols and Info manual links shall
 be decorated, and clicking on them shall lead to the respective Help
 buffer or Info node.
-
-*** Do not use "it's", "you're" and alike.

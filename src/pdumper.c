@@ -268,10 +268,21 @@ struct dump_table_locator
 enum
   {
    DUMP_RELOC_TYPE_BITS = 5,
-   DUMP_RELOC_ALIGNMENT_BITS = 2,
 
-   /* Minimum alignment required by dump file format.  */
-   DUMP_RELOCATION_ALIGNMENT = 1 << DUMP_RELOC_ALIGNMENT_BITS,
+   /* Minimum alignment required by dump file format.  Lisp_Objects and raw
+      pointers can both be relocated, so this can be any integer power of 2
+      up to min (alignof (Lisp_Object), alignof (void *)).
+      Larger values help dump_reloc_set_offset support larger offsets.
+      The fix for bug#44531 was discovered late during Emacs 31 development,
+      so on Emacs 31 the value is 4 except on hosts where 4 is known to fail.
+      The only known failure is m68k a.out, so work around the problem
+      only if __mc68000__ is defined and the Lisp_Object alignment is 2,
+      which is a known property of the m68k a.out format.  */
+#ifdef __mc68000__
+   DUMP_RELOCATION_ALIGNMENT = min (4, alignof (Lisp_Object)),
+#else
+   DUMP_RELOCATION_ALIGNMENT = 4,
+#endif
 
    /* The alignment granularity (in bytes) for objects we store in the
       dump.  Always suitable for heap objects; may be more aligned.  */
@@ -303,14 +314,14 @@ dump_reloc_set_type (struct dump_reloc *reloc, enum dump_reloc_type type)
 static dump_off
 dump_reloc_get_offset (struct dump_reloc reloc)
 {
-  return reloc.raw_offset << DUMP_RELOC_ALIGNMENT_BITS;
+  return reloc.raw_offset * DUMP_RELOCATION_ALIGNMENT;
 }
 
 static void
 dump_reloc_set_offset (struct dump_reloc *reloc, dump_off offset)
 {
-  eassert (offset >= 0);
-  reloc->raw_offset = offset >> DUMP_RELOC_ALIGNMENT_BITS;
+  eassume (offset >= 0);
+  reloc->raw_offset = offset / DUMP_RELOCATION_ALIGNMENT;
   if (dump_reloc_get_offset (*reloc) != offset)
     error ("dump relocation out of range");
 }

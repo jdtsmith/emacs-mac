@@ -411,8 +411,8 @@ that the early init file is loaded much earlier during the startup
 process, so you can use it to customize some things that are
 initialized before loading the regular init file.  For example, you
 can customize the process of initializing the package system, by
-setting variables such as @var{package-load-list} or
-@var{package-enable-at-startup}.  @xref{Package Installation,,,
+setting variables such as @code{package-load-list} or
+@code{package-enable-at-startup}.  @xref{Package Installation,,,
 emacs,The GNU Emacs Manual}.
 
 @cindex default init file
@@ -1022,6 +1022,18 @@ as a string.  @var{var} should be a string.  If @var{var} is undefined
 in the environment, @code{getenv} returns @code{nil}.  It returns
 @samp{""} if @var{var} is set but null.  Within Emacs, a list of environment
 variables and their values is kept in the variable @code{process-environment}.
+
+Optional argument @var{frame}, if non-@code{nil}, specifies a frame, in
+which case the function searches @var{frame}'s parameter
+@code{environment} (@pxref{Basic Parameters}) for @var{var} instead of
+looking for it in @code{process-environment}.
+
+@cindex DISPLAY environment variable search
+The @samp{DISPLAY} environment variable is treated specially when
+@var{frame} is omitted or @code{nil}: if that variable is not found in
+@code{process-environment}, the function looks at the selected-frame's
+@code{display} parameter, and if that is @code{nil}, it also looks in
+@code{initial-environment}.
 
 @example
 @group

@@ -446,10 +446,11 @@ ev_modifiers_helper (unsigned int flags, unsigned int left_mask,
 /* This is a piece of code which is common to all the event handling
    methods.  Maybe it should even be a function.  */
 #define EV_TRAILER(e)						\
-  {								\
-    XSETFRAME (emacs_event->frame_or_window, emacsframe);	\
-    EV_TRAILER2 (e);						\
-  }
+  if (emacs_event->kind != NO_EVENT)				\
+    {								\
+      XSETFRAME (emacs_event->frame_or_window, emacsframe);	\
+      EV_TRAILER2 (e);						\
+    }
 
 #define EV_TRAILER2(e)                                                  \
   {                                                                     \
@@ -1651,8 +1652,13 @@ ns_make_frame_visible (struct frame *f)
           unblock_input ();
         }
 
-      /* Making a frame invisible seems to break the parent->child
-         relationship, so reinstate it.  */
+      /* A child window cannot remain attached while hidden.  Per Apple's
+         documentation, "Calling orderOut(_:) on a child window causes the
+         window to be removed from its parent window before being removed"
+         (https://developer.apple.com/documentation/appkit/nswindow/orderout(_:)),
+         and ns_make_frame_invisible hides the frame with -orderOut:.  The
+         parent->child relationship is therefore broken while invisible, so
+         reinstate it now that we are making the frame visible again.  */
       if ([window parentWindow] == nil && FRAME_PARENT_FRAME (f) != NULL)
         {
           block_input ();
@@ -6128,13 +6134,15 @@ ns_term_init (Lisp_Object display_name)
 #endif
                             NSPasteboardTypeURL, nil] retain];
 
-  /* If fullscreen is in init/default-frame-alist, focus isn't set
-     right for fullscreen windows, so set this.  */
-  [NSApp activateIgnoringOtherApps:YES];
-
   NSTRACE_MSG ("Call NSApp run");
-
   [NSApp run];
+
+#if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MAX_ALLOWED >= 140000
+  [NSApp activate];
+#else
+  [NSApp activateIgnoringOtherApps:YES];
+#endif
+
   ns_do_open_file = YES;
 
 #ifdef NS_IMPL_GNUSTEP
@@ -8421,13 +8429,37 @@ ns_in_echo_area (void)
 }
 
 #ifdef NS_IMPL_COCOA
+static void cancel_ns_deferred_UAZoomChangeFocus_timer ()
+{
+  if (ns_deferred_UAZoomChangeFocus_timer
+      && ns_deferred_UAZoomChangeFocus_timer.valid)
+    {
+      [ns_deferred_UAZoomChangeFocus_timer invalidate];
+      [ns_deferred_UAZoomChangeFocus_timer release];
+    }
+  ns_deferred_UAZoomChangeFocus_timer = nil;
+}
+#endif
+
+- (void)windowWillClose: (NSNotification *)notification
+{
+#ifdef NS_IMPL_COCOA
+  /* Cancel the zoom focus change timer if its window is closed before
+     it runs.  */
+  cancel_ns_deferred_UAZoomChangeFocus_timer ();
+#endif
+}
+
+#ifdef NS_IMPL_COCOA
 - (void)deferred_UAZoomChangeFocus_handler: (NSTimer *)timer
 {
-  EmacsView *view = FRAME_NS_VIEW (emacsframe);
-  ns_UAZoomChangeFocus (view, true);
-  [ns_deferred_UAZoomChangeFocus_timer invalidate];
-  [ns_deferred_UAZoomChangeFocus_timer release];
-  ns_deferred_UAZoomChangeFocus_timer = nil;
+  /* The frame may be deleted before the timer fires.  */
+  if (FRAME_LIVE_P (emacsframe))
+    {
+      EmacsView *view = FRAME_NS_VIEW (emacsframe);
+      ns_UAZoomChangeFocus (view, true);
+    }
+  cancel_ns_deferred_UAZoomChangeFocus_timer ();
 }
 #endif
 
@@ -9799,14 +9831,6 @@ ns_in_echo_area (void)
       if ([self respondsToSelector:@selector(setTabbingMode:)])
         [self setTabbingMode:NSWindowTabbingModeDisallowed];
 #endif
-      /* Always show the toolbar below the window title.  This is needed
-	 on Mac OS 11+ where the toolbar style is decided by the system
-	 (which is unpredictable) and the newfangled "compact" toolbar
-	 may be chosen (which is undesirable).  */
-#if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
-      if ([self respondsToSelector:@selector(setToolbarStyle:)])
-	[self setToolbarStyle: NSWindowToolbarStyleExpanded];
-#endif
     }
 
   return self;
@@ -9955,8 +9979,15 @@ ns_in_echo_area (void)
 	  [ourView toggleFullScreen:self];
 #endif
 
-      [parentWindow addChildWindow:self
-                           ordered:NSWindowAbove];
+      /* -addChildWindow: also orders the child window onto the screen, so
+         attaching a child frame Emacs considers invisible is what
+         resurrects a dismissed completion popup (corfu, company-box, ...)
+         when relationships are rebuilt.  Only attach a visible child; a
+         hidden one is re-attached by ns_make_frame_visible when it is
+         shown again.  */
+      if (FRAME_VISIBLE_P (ourFrame))
+        [parentWindow addChildWindow:self
+                             ordered:NSWindowAbove];
     }
 
   /* Check our child windows are configured correctly.  */

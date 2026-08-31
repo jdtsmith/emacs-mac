@@ -299,7 +299,10 @@ properties further down the directory hierarchy override ones higher up."
   "Return BACKEND-specific implementation of FUN.
 If there is no such implementation, return the default implementation;
 if that doesn't exist either, return nil."
-  (let ((f (vc-make-backend-sym backend fun)))
+  ;; Nullify `read-symbol-shorthands' to guard the `intern' calls below
+  ;; and in `vc-make-backend-sym' from potentially malicious shorthands.
+  (let* ((read-symbol-shorthands nil)
+         (f (vc-make-backend-sym backend fun)))
     (if (fboundp f) f
       ;; Load vc-BACKEND.el if needed.
       (require (intern (concat "vc-" (downcase (symbol-name backend)))))
@@ -587,12 +590,13 @@ If FILE is not registered, this function always returns nil.
 This function does not return nil without first confirming with the
 underlying VCS that FILE is unregistered; this is in contrast to
 `vc-symbolic-working-revision'."
-  (or (vc-file-getprop file 'vc-working-revision)
-      (let ((default-directory (file-name-directory file)))
-        (and (setq backend (or backend (vc-backend file)))
-             (vc-file-setprop file 'vc-working-revision
-                              (vc-call-backend backend 'working-revision
-                                               file))))))
+  (let ((abs (expand-file-name file)))
+    (or (vc-file-getprop abs 'vc-working-revision)
+        (let ((default-directory (file-name-directory abs)))
+          (and (setq backend (or backend (vc-backend file)))
+               (vc-file-setprop abs 'vc-working-revision
+                                (vc-call-backend backend 'working-revision
+                                                 file)))))))
 
 (defun vc-symbolic-working-revision (file &optional backend)
   "Return BACKEND's symbolic name for FILE's working revision.
@@ -955,10 +959,16 @@ In the latter case, VC mode is deactivated for this buffer."
       (cond
        ((setq backend (with-demoted-errors "VC refresh error: %S"
                         (vc-backend buffer-file-name)))
-        ;; Let the backend setup any buffer-local things he needs.
-        (vc-call-backend backend 'find-file-hook)
-	;; Compute the state and put it in the mode line.
-	(vc-mode-line buffer-file-name backend)
+        ;; When `auto-revert-handler' calls us then `default-directory'
+        ;; may be let-bound to something else for the purpose of some
+        ;; command that's currently doing some minibuffer prompting.
+        ;; Backend find-file-hook and mode-line-string functions should
+        ;; not need to be written so as to handle that possibility.
+        (let ((default-directory (buffer-local-toplevel-value 'default-directory)))
+          ;; Let the backend setup any buffer-local things it needs.
+          (vc-call-backend backend 'find-file-hook)
+	  ;; Compute the state and put it in the mode line.
+	  (vc-mode-line buffer-file-name backend))
 	(unless vc-make-backup-files
 	  ;; Use this variable, not make-backup-files,
 	  ;; because this is for things that depend on the file name.

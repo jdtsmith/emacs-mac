@@ -270,11 +270,7 @@ be used instead."
   "Alist of transformations to apply to URLs before loading it.
 Each element has the form (ORIG . REPLACEMENT), where ORIG is a regular
 expression and REPLACEMENT is the replacement text.  Every element will
-be tested in turn, allowing more than one transformation to be made.
-
-Note that ORIG and REPLACEMENT are passed as arguments to
-`string-match', so you can, for example, use match groups in ORIG and
-backreferences in REPLACEMENT."
+be tested in turn, allowing more than one transformation to be made."
   :type '(choice
           (const :tag "None" nil)
           (alist
@@ -317,7 +313,8 @@ Defaults to the value of `browse-url-mozilla-arguments' at the time
                                  "zen")
                                "firefox")
   "The name by which to invoke Firefox or a variant of it."
-  :type 'string)
+  :type 'string
+  :version "31.1")
 
 (defcustom browse-url-firefox-arguments nil
   "A list of strings to pass to Firefox (or variant) as arguments."
@@ -935,7 +932,9 @@ invert the prefix arg instead."
       (if (stringp dpy)
         (cond
          ((featurep 'pgtk)
-          (setq classname (pgtk-backend-display-class))
+          (setq classname
+                (if (window-system)
+                    (pgtk-backend-display-class)))
           (if (equal classname "GdkWaylandDisplay")
               (progn
                 ;; The `display' frame parameter is probably wrong.
@@ -987,8 +986,8 @@ opposite of the browser kind of `browse-url-browser-function'."
           (default (if (eq (browse-url--browser-kind
                             browse-url-browser-function (car url-arg))
                            'internal)
-                       'external
-                     'internal))
+                       "external"
+                     "internal"))
           (k (intern (completing-read
                       (format-prompt "Browser kind" default)
                       '(internal external)
@@ -1214,8 +1213,9 @@ used instead of `browse-url-new-window-flag'."
 ;;;###autoload
 (defun browse-url-firefox (url &optional new-window)
   "Ask the Firefox WWW browser to load URL.
-Defaults to the URL around or before point.  Passes the strings
-in the variable `browse-url-firefox-arguments' to Firefox.
+Defaults to the URL around or before point.  Invokes the program
+specified by `browse-url-firefox-program'.  Passes the strings
+in the variable `browse-url-firefox-arguments' to that program.
 
 Interactively, if the variable `browse-url-new-window-flag' is non-nil,
 loads the document in a new Firefox window.  A non-nil prefix argument
@@ -1246,9 +1246,9 @@ instead of `browse-url-new-window-flag'."
 ;;;###autoload
 (defun browse-url-chromium (url &optional _new-window)
   "Ask the Chromium WWW browser to load URL.
-Default to the URL around or before point.  The strings in
-variable `browse-url-chromium-arguments' are also passed to
-Chromium.
+Default to the URL around or before point.  Invokes the program
+specified by `browse-url-chromium-program'.  Passes the strings in
+variable `browse-url-chromium-arguments' to that program.
 The optional argument NEW-WINDOW is not used."
   (interactive (browse-url-interactive-arg "URL: "))
   (setq url (browse-url-encode-url url))
@@ -1264,9 +1264,9 @@ The optional argument NEW-WINDOW is not used."
 
 (defun browse-url-chrome (url &optional _new-window)
   "Ask the Google Chrome WWW browser to load URL.
-Default to the URL around or before point.  The strings in
-variable `browse-url-chrome-arguments' are also passed to
-Google Chrome.
+Default to the URL around or before point.  Invokes the program
+specified by `browse-url-chrome-program'.  Passes to that program
+the strings in variable `browse-url-chrome-arguments'.
 The optional argument NEW-WINDOW is not used."
   (interactive (browse-url-interactive-arg "URL: "))
   (setq url (browse-url-encode-url url))
@@ -1282,8 +1282,9 @@ The optional argument NEW-WINDOW is not used."
 
 (defun browse-url-epiphany (url &optional new-window)
   "Ask the GNOME Web (Epiphany) WWW browser to load URL.
-Default to the URL around or before point.  The strings in variable
-`browse-url-epiphany-arguments' are also passed to GNOME Web.
+Default to the URL around or before point.  Invokes the program
+specified by `browse-url-epiphany-program'.  Passes the strings
+in variable `browse-url-epiphany-arguments' to that program.
 
 When called interactively, if variable `browse-url-new-window-flag' is
 non-nil, load the document in a new GNOME Web window, otherwise use a
@@ -1353,7 +1354,9 @@ used instead of `browse-url-new-window-flag'."
 
 (defun browse-url-qutebrowser (url &optional new-window)
   "Ask the Qutebrowser WWW browser to load URL.
-Default to the URL around or before point.
+Default to the URL around or before point.  Invokes the program
+specified by `browse-url-qutebrowser-program'.  Passes the strings
+in the variable `browse-url-qutebrowser-arguments' to that program.
 
 When called interactively, if variable `browse-url-new-window-flag' is
 non-nil, load the document in a new Qutebrowser window, otherwise use a

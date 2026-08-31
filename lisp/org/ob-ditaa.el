@@ -2,7 +2,8 @@
 
 ;; Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
-;; Authors: Eric Schulte, Jarmo Hurri
+;; Authors: Eric Schulte
+;;          Jarmo Hurri
 ;; Keywords: literate programming, reproducible research
 ;; URL: https://orgmode.org
 
@@ -111,6 +112,7 @@ The executable can be configured via `org-ditaa-exec'."
 (defcustom org-ditaa-java-exec "java"
   "Java executable to use when evaluating ditaa blocks using a JAR."
   :group 'org-babel
+  :package-version '(Org . "9.8")
   :type 'string
   :risky t)
 

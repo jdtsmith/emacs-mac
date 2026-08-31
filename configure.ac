@@ -23,7 +23,7 @@ dnl  along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 AC_PREREQ([2.65])
 dnl Note this is parsed by (at least) make-dist and lisp/cedet/ede/emacs.el.
-AC_INIT([GNU Emacs], [31.0.50], [bug-gnu-emacs@gnu.org], [],
+AC_INIT([GNU Emacs], [31.1.50], [bug-gnu-emacs@gnu.org], [],
   [https://www.gnu.org/software/emacs/])
 
 if test "$XCONFIGURE" = "android"; then
@@ -5258,19 +5258,6 @@ You can find the instructions on how to compile and install libgccjit from
 source on this site:
 <https://gcc.gnu.org/wiki/JIT>.])])
 
-HAVE_NATIVE_COMP=no
-LIBGCCJIT_LIBS=
-LIBGCCJIT_CFLAGS=
-if test "$canonical" = i686-pc-cygwin; then
-  if test "${with_cygwin32_native_compilation}" = yes; then
-    with_native_compilation=yes
-  elif test "${with_native_compilation}" != no; then
-    AC_MSG_ERROR([Native compilation is not supported on 32-bit Cygwin.
-If you really want to try it anyway, use the configure option
-'--with-cygwin32-native-compilation'.])
-  fi
-fi
-
 AC_DEFUN([libgccjit_not_found], [
   AC_MSG_WARN([Elisp native compiler can't be enabled as libgccjit was not
 found.
@@ -5304,30 +5291,25 @@ source on this site:
 
   with_native_compilation=no])
 
+HAVE_NATIVE_COMP=no
+LIBGCCJIT_LIBS=
+LIBGCCJIT_CFLAGS=
+if test "$canonical" = i686-pc-cygwin; then
+  if test "${with_cygwin32_native_compilation}" = yes; then
+    with_native_compilation=yes
+  elif test "${with_native_compilation}" != no; then
+    AC_MSG_ERROR([Native compilation is not supported on 32-bit Cygwin.
+If you really want to try it anyway, use the configure option
+'--with-cygwin32-native-compilation'.])
+  fi
+fi
+
 if test "$with_features" = "no" \
    && test "${with_native_compilation}" = "default"; then
   with_native_compilation=no
 fi
 
-if test "${with_native_compilation}" = "default"; then
-    # Check if libgccjit is available.
-    AC_CHECK_LIB([gccjit], [gcc_jit_context_acquire],
-      [], [libgccjit_not_found])
-    AC_CHECK_HEADERS([libgccjit.h], [], [libgccjit_dev_not_found])
-    if test "${with_native_compilation}" != "no"; then
-      # Check if libgccjit really works.
-      AC_RUN_IFELSE([libgccjit_smoke_test], [], [libgccjit_broken])
-    fi
-fi
-
 if test "${with_native_compilation}" != "no"; then
-    if test "${HAVE_ZLIB}" = no; then
-       AC_MSG_ERROR(['--with-native-compilation' requires zlib])
-    fi
-
-    SAVE_CFLAGS=$CFLAGS
-    SAVE_LIBS=$LIBS
-
     if test "${opsys}" = "darwin"; then
       # Ensure libgccjit installed by Homebrew or macports can be found.
       if test -n "$BREW"; then
@@ -5364,15 +5346,38 @@ if test "${with_native_compilation}" != "no"; then
       fi
     fi
 
-    # In the default case we already checked
-    if test "${with_native_compilation}" != "default"; then
-      # Check if libgccjit is available.
-      AC_CHECK_LIB([gccjit], [gcc_jit_context_acquire],
-        [], [libgccjit_not_found_err])
-      AC_CHECK_HEADERS([libgccjit.h], [], [libgccjit_dev_not_found_err])
+    # Check if libgccjit is available.
+    native_compilation_requested=${with_native_compilation}
+    AC_CHECK_LIB([gccjit], [gcc_jit_context_acquire], [],
+        [if test "${native_compilation_requested}" = "default"; then
+	   libgccjit_not_found
+	 else
+	   libgccjit_not_found_err
+	 fi])
+    AC_CHECK_HEADERS([libgccjit.h], [],
+        [if test "${native_compilation_requested}" = "default"; then
+	   libgccjit_dev_not_found
+	 else
+	   libgccjit_dev_not_found_err
+	 fi])
+    if test "${with_native_compilation}" != "no"; then
       # Check if libgccjit really works.
-      AC_RUN_IFELSE([libgccjit_smoke_test], [], [libgccjit_broken_err])
+      AC_RUN_IFELSE([libgccjit_smoke_test], [],
+        [if test "${native_compilation_requested}" = "default"; then
+           libgccjit_broken
+	 else
+           libgccjit_broken_err
+         fi])
     fi
+fi
+
+if test "${with_native_compilation}" != "no"; then
+    if test "${HAVE_ZLIB}" = no; then
+       AC_MSG_ERROR(['--with-native-compilation' requires zlib])
+    fi
+
+    SAVE_CFLAGS=$CFLAGS
+    SAVE_LIBS=$LIBS
     HAVE_NATIVE_COMP=yes
     case "${opsys}" in
       # mingw32 loads the library dynamically.

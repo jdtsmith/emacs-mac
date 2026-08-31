@@ -421,6 +421,20 @@ of[ \t]+\"?\\([a-zA-Z]?:?[^\":\n]+\\)\"?:" 3 2 nil (1))
      nil
      (1 compilation-error-face))
 
+    ;; This must precede the `gnu' rule or the latter would match instead.
+    (rust
+     ,(rx bol (or (group-n 1 "error") (group-n 2 "warning") (group-n 3 "note"))
+          (? "[" (+ (in "A-Z" "0-9")) "]") ":" (* nonl)
+          "\n" (+ " ") "-->"
+          " " (group-n 4 (+ nonl))        ; file
+          ":" (group-n 5 (+ (in "0-9")))  ; line
+          ":" (group-n 6 (+ (in "0-9")))) ; column
+     4 5 6 (2 . 3)
+     nil
+     (1 compilation-error-face)
+     (2 compilation-warning-face)
+     (3 compilation-info-face))
+
     ;; Tested with Lua 5.1, 5.2, 5.3, 5.4, and LuaJIT 2.1.
     (lua
      ,(rx bol
@@ -581,19 +595,6 @@ during global destruction\\.$\\)" 1 2)
     (php
      "\\(?:Parse\\|Fatal\\) error: \\(.*\\) in \\(.*\\) on line \\([0-9]+\\)"
      2 3 nil nil)
-
-    (rust
-     ,(rx bol (or (group-n 1 "error") (group-n 2 "warning") (group-n 3 "note"))
-          (? "[" (+ (in "A-Z" "0-9")) "]") ":" (* nonl)
-          "\n" (+ " ") "-->"
-          " " (group-n 4 (+ nonl))        ; file
-          ":" (group-n 5 (+ (in "0-9")))  ; line
-          ":" (group-n 6 (+ (in "0-9")))) ; column
-     4 5 6 (2 . 3)
-     nil
-     (1 compilation-error-face)
-     (2 compilation-warning-face)
-     (3 compilation-info-face))
 
     (rxp
      "^\\(?:Error\\|Warnin\\(g\\)\\):.*\n.* line \\([0-9]+\\) char\
@@ -981,7 +982,8 @@ Elements in this list will be searched before those in
 
 The buffer-local value of this variable will be inherited by the
 compilation buffer."
-  :type '(repeat (string :tag "Directory")))
+  :type '(repeat (string :tag "Directory"))
+  :version "31.1")
 
 ;;;###autoload
 (defcustom compile-command
@@ -2821,13 +2823,23 @@ and runs `compilation-filter-hook'."
 
 (defun compilation-next-error (n &optional different-file pt)
   "Move point to the next error in the compilation buffer.
-This function does NOT find the source line like \\[next-error].
+This function does NOT find the source line like \\[next-error],
+but you can use \\[compilation-display-error] to find and
+display the corresponding source code.
 Prefix arg N says how many error messages to move forwards (or
 backwards, if negative).
+Where the current error ends and the next one begins is determined
+by the rules from `compilation-error-regexp-alist' that matched
+the compilation messages; this function moves point to where
+the \\+`compilation-message' text property changes its value.
+In general, all the messages that have the same line and column
+numbers are considered parts of a single compilation message.
+
 Optional arg DIFFERENT-FILE, if non-nil, means find next error for a
 file that is different from the current one.
 Optional arg PT, if non-nil, specifies the value of point to start
-looking for the next message."
+looking for the next message.
+In interacvtive invocations, DIFFERENT-FILE and PT are always nil."
   (interactive "p")
   (or (compilation-buffer-p (current-buffer))
       (error "Not in a compilation buffer"))
@@ -2871,7 +2883,8 @@ looking for the next message."
   "Move point to the previous error in the compilation buffer.
 Prefix arg N says how many error messages to move backwards (or
 forwards, if negative).
-Does NOT find the source line like \\[previous-error]."
+Does NOT find the source line like \\[previous-error].
+This is like `compilation-next-error', but moves in the other direction."
   (interactive "p")
   (compilation-next-error (- n)))
 

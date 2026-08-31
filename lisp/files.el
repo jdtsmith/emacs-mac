@@ -1331,7 +1331,7 @@ remote, otherwise search locally."
     ;; Use 1 rather than file-executable-p to better match the
     ;; behavior of call-process.
     (let ((default-directory (file-name-quote default-directory 'top)))
-      (locate-file command exec-path exec-suffixes 1))))
+      (locate-file command exec-path (default-value 'exec-suffixes) 1))))
 
 (declare-function read-library-name "find-func" nil)
 
@@ -4304,6 +4304,7 @@ all the specified local variables, but ignores any settings of \"mode:\"."
               (push elem file-local-variables-alist)))
           (hack-local-variables-apply))))))
 
+(defvar custom--theme-load-file)
 (defun internal--get-default-lexical-binding (from)
   (let ((mib (lambda (node) (buttonize node (lambda (_) (info node))
                                   nil "mouse-2: Jump to Info node"))))
@@ -4311,12 +4312,14 @@ all the specified local variables, but ignores any settings of \"mode:\"."
         (and (stringp from)
              (eql 0 (file-attribute-size (file-attributes from))))
         (let ((source
-               (if (not (and (bufferp from)
-                             (string-match-p "\\` \\*load\\*\\(-[0-9]+\\)?\\'"
-                                             (buffer-name from))
-                             load-file-name))
-                   from
-                 (abbreviate-file-name load-file-name))))
+               (if custom--theme-load-file
+                   (abbreviate-file-name custom--theme-load-file)
+                 (if (not (and (bufferp from)
+                               (string-match-p "\\` \\*load\\*\\(-[0-9]+\\)?\\'"
+                                               (buffer-name from))
+                               load-file-name))
+                     from
+                   (abbreviate-file-name load-file-name)))))
           (condition-case nil
               (display-warning
                `(files missing-lexbind-cookie

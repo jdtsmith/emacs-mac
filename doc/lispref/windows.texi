@@ -78,14 +78,19 @@ disambiguation, we use the term @dfn{window-system window} when we mean
 the window-system window corresponding to an Emacs frame.
 
 @cindex tiled windows
+@cindex window layout
   Unlike X windows, Emacs windows are @dfn{tiled}; they never overlap
 within the area of their frame.  When a window is created, resized, or
 deleted, the change in window space is taken from or given to other
 windows on the same frame, so that the total area of the frame is
-unchanged.
+unchanged.  The @dfn{window layout} of a frame is the result of all
+tiling operations for that frame.
 
+@cindex window object
+@cindex window identity
 In Emacs Lisp, windows are represented by a special Lisp object type
-(@pxref{Window Type}).
+(@pxref{Window Type}).  Two windows are identical if and only if they are
+represented by the same Lisp object.
 
 @defun windowp object
 This function returns @code{t} if @var{object} is a window (whether or
@@ -423,8 +428,8 @@ appears right below @var{window}.
 @cindex window in direction
 @defun window-in-direction direction &optional window ignore sign wrap minibuf
 This function returns the nearest live window in direction
-@var{direction} as seen from the position of @code{window-point} in
-window @var{window}.  The argument @var{direction} must be one of
+@var{direction} as seen from the position of @var{window}'s point
+(@pxref{Window Point}).  The argument @var{direction} must be one of
 @code{above}, @code{below}, @code{left} or @code{right}.  The optional
 argument @var{window} must denote a live window and defaults to the
 selected one.
@@ -731,7 +736,7 @@ rounded internally.  This is done in a way such that, if the window is a
 parent window, the sum of the total heights of all its child windows
 internally equals the total height of their parent.  This means that
 although two windows have the same pixel height, their internal total
-heights may differ by one line.  This means also, that if window is
+heights may differ by one line.  This means also, that if a window is
 vertically combined and has a next sibling, the topmost row of that
 sibling can be calculated as the sum of this window's topmost row and
 total height (@pxref{Coordinates and Windows})
@@ -740,7 +745,7 @@ total height (@pxref{Coordinates and Windows})
 returns the smallest integer larger than @var{window}'s pixel height
 divided by the canonical character height of its frame; if it is
 @code{floor}, it returns the largest integer smaller than said value;
-with any other @var{round} it returns the internal value of
+with any other value of @var{round} it returns the internal value of
 @var{windows}'s total height.
 @end defun
 
@@ -1627,15 +1632,18 @@ selected one.  Possible choices are
 
 @itemize
 @item @code{mru}
-(the default) choose the most recently used window on that frame.
+(the default) means to choose the most recently used window
+(@pxref{Cyclic Window Ordering}) other than the selected one on that
+frame.
 
 @item @code{pos}
-choose the window comprising the frame coordinates of point of the
-previously selected window on that frame.
+means to choose the window comprising the position of
+@code{window-point} (@pxref{Window Point}) of the previously selected
+window on that frame.
 
 @item @code{nil}
-choose the first window (the window returned by
-@code{frame-first-window}) on that frame.
+means to choose the first window (the window returned by
+@code{frame-first-window}, @pxref{Windows and Frames}) on that frame.
 @end itemize
 
 A window for which @code{window-no-other-p} (@pxref{Cyclic Window
@@ -2020,6 +2028,13 @@ combination.
 The default is @code{nil}.  Other values are reserved for future use.  A
 specific split operation may ignore the value of this variable if it is
 affected by a non-@code{nil} value of @code{window-combination-limit}.
+
+If you plan to use a sequence of @code{split-window} calls to produce a
+specific, predefined layout of windows on a frame, bind this variable
+temporarily to @code{nil}.  @code{window-state-put} (@pxref{Window
+Configurations}) and the functions which change window layouts
+(@pxref{Changing Window Layouts}) do that in order to restore a previous
+or systematically changed layout of a frame.
 @end defopt
 
   To illustrate the effect of @code{window-combination-resize}, consider
@@ -2286,7 +2301,11 @@ windows by deleting them first and resurrecting them
 (@pxref{Resurrecting Windows}) in their new locations afterwards.  No
 window gets lost and no window is added or duplicated.  Where possible,
 these commands try to preserve the relative size of windows as well as
-all other non-geometric properties including parameters.
+all other non-geometric properties including parameters.  These commands
+will signal an error if windows about to change their locations are
+atomic or of fixed size.  The option @code{transpose-dedicated-windows}
+described below decides whether dedicated windows may change their
+locations.
 
    The @var{window} argument of all functions described in this section
 must specify a valid parent window (@pxref{Windows and Frames}).  If it
@@ -2297,9 +2316,9 @@ below, we shall always assume that the windows displayed constitute
 their frame's main window and the @var{window} argument is @code{nil}
 unless stated otherwise.
 
-   The first two commands rotate a window layout either clockwise or
-counterclockwise.
 @cindex rotate window layout
+   The first two commands @dfn{rotate a window layout} either clockwise
+or counterclockwise.
 
 @deffn Command window-layout-rotate-clockwise &optional window
 This command rotates the window layout clockwise by 90 degrees.  Imagine
@@ -2339,9 +2358,10 @@ layout in the opposite direction as demonstrated in the example below.
 @end smallexample
 @end deffn
 
-The next two commands @sc{flip} the window layout---rotate it around an
-imaginary horizontal or vertical axis.
 @cindex flip window layout
+The next two commands @dfn{flip the window layout}---rotate it around an
+imaginary horizontal or vertical axis.  If the number of windows to be
+flipped is odd, the window in the middle remains in its original place.
 
 @deffn Command window-layout-flip-topdown &optional window
 This command flips windows such that windows on the bottom become
@@ -2363,7 +2383,7 @@ windows on the top and vice-versa as in the example below.
 
 @deffn Command window-layout-flip-leftright &optional window
 This command rearranges window in a way that the windows on the right
-become the window on the left, and vice-versa.
+become the windows on the left, and vice-versa.
 
 @smallexample
 @group
@@ -2379,7 +2399,7 @@ become the window on the left, and vice-versa.
 @end smallexample
 @end deffn
 
-The next command can be used for @sc{transposing} windows---changing
+The next command can be used to @dfn{transpose windows}---changing
 horizontal splits to vertical ones and vice-versa.
 @cindex transposing windows
 
@@ -2401,16 +2421,20 @@ becomes a vertical split and vice versa.
 @end smallexample
 @end deffn
 
-The final two commands can be used to rotate windows within the existing
-layout.  They are like the commands that rotate the layout but leave the
-underlying structure of the layout unchanged.  What actually changes are
-the positions of windows within the existing layout.
 @cindex rotating windows
+The final two commands can be used to @dfn{rotate windows} within the
+existing layout.  They are like the commands that rotate the layout but
+leave the underlying structure of the layout unchanged.  What actually
+changes are the positions of windows within the existing layout.  This
+happens in a way that the space formerly occupied by any window will be
+occupied by the window preceding (following if @var{reverse} is
+non-@code{nil}) it in the cyclic ordering of windows (@pxref{Cyclic
+Window Ordering}) on @var{window}'s frame.
 
 @deffn Command rotate-windows &optional window reverse
-This rotate windows under @var{window} in cyclic ordering.  The optional
-argument @var{reverse} means to rotate windows backward, in reverse
-cyclic order.
+This command rotates @var{window}'s child windows in cyclic ordering.
+The optional argument @var{reverse} means to rotate windows backwards,
+in reverse cyclic order.
 
 @smallexample
 @group
@@ -2427,7 +2451,7 @@ cyclic order.
 @end deffn
 
 @deffn Command rotate-windows-back &optional window
-This command rotates windows under @var{window} backward in cyclic
+This command rotates @var{window}'s child windows backwards in cyclic
 ordering.
 
 @smallexample
@@ -2444,13 +2468,23 @@ ordering.
 @end smallexample
 @end deffn
 
+All commands described above are subject to the following option.
+
+@defopt transpose-dedicated-windows
+If this is @code{nil}, the functions described in this section will
+report an error when they encounter a dedicated window (@pxref{Dedicated
+Windows}).  If this is @code{t}, they handle dedicated windows like
+non-dedicated ones.
+@end defopt
+
 The last two commands are subject to the following option.
 
 @defopt rotate-windows-change-selected
 If this is @code{nil}, the selected window will remain unaffected by
-@code{rotate-windows} and @code{rotate-windows-back}.  Otherwise, the
-selected window will change to the window that appears at the location
-of the selected window before any of these commands were invoked.
+@code{rotate-windows} and @code{rotate-windows-back}.  If this is
+@code{t} (the default), the selected window will change to the window
+that appears at the location of the window selected before any of these
+commands were invoked.
 @end defopt
 
 
@@ -2944,7 +2978,9 @@ buffer.
 @defopt switch-to-buffer-obey-display-actions
 If this variable is non-@code{nil}, @code{switch-to-buffer} respects
 display actions specified by @code{display-buffer-overriding-action},
-@code{display-buffer-alist} and other display related variables.
+@code{display-buffer-alist} (@pxref{Buffer Display Action Functions})
+and other buffer display related variables (@pxref{Buffer Display Action
+Alists}).
 @end defopt
 
 The next two commands are similar to @code{switch-to-buffer}, except for
@@ -3492,9 +3528,9 @@ must also provide an appropriate @code{window-height} entry.
 This function tries to display @var{buffer} in a window at the bottom
 of the selected frame.
 
-This either tries to split the window at the bottom of the frame or
-the frame's root window, or to reuse an existing window at the bottom
-of the selected frame.
+This either tries to split the window at the bottom of the frame or the
+frame's main window, or to reuse an existing window at the bottom of the
+selected frame.
 @end defun
 
 @defun display-buffer-pop-up-frame buffer alist
@@ -3727,8 +3763,8 @@ well.  @code{display-buffer-in-previous-window} consults it when
 searching for a window that previously displayed the buffer on another
 frame.
 
-Action function @code{display-buffer-in-tab} searches the tabs of the
-frame(s) identified by this entry, and also interprets the value
+The action function @code{display-buffer-in-tab} searches the tabs of
+the frame(s) identified by this entry, and also interprets the value
 @code{nil} differently.
 
 @vindex inhibit-switch-frame@r{, a buffer display action alist entry}
@@ -4934,6 +4970,11 @@ and @var{window-pos} is a marker that gives the window point position
 The list is ordered so that earlier elements correspond to more
 recently-shown buffers, and the first element usually corresponds to the
 buffer most recently removed from the window.
+
+As a rule, elements are removed from this list when their buffer gets
+killed.  In rare cases, however, elements may have survived the killing
+of their buffer.  It's a good idea therefore to always check buffers for
+liveness when processing the return value of this function.
 @end defun
 
 @defun set-window-prev-buffers window prev-buffers
@@ -7263,11 +7304,16 @@ and/or two columns.
 In the context of window states, the @dfn{clone of a window} is a window
 that has the same decorations and contents as the window whose state was
 used to produce it, but is actually represented by another window
-object.  Operating on the original or the clone of a window does not
-affect the other in any way.  Note that while @code{window-state-get}
-clones existing windows, these clones are not yet valid windows.  They
-become valid only after @code{window-state-put} has put them into a live
-frame.
+object.  Hence it does not have the same identity as the original
+window.  Operating on the original or the clone of a window does not
+affect the other in any way.
+
+Note that while @code{set-window-configuration} always restores the
+identity of the windows it puts back into their frame,
+@code{window-state-put} never does that.  Note also that while
+@code{window-state-get} clones existing windows, these clones are not
+yet valid windows.  They become valid only after @code{window-state-put}
+has put them into a live frame.
 
 By default, @code{set-window-configuration} and @code{window-state-put}
 may delete a window from the restored configuration or state when they
@@ -7552,7 +7598,7 @@ affected.
 @vindex min-margins@r{, a window parameter}
 The value of this parameter is a cons cell whose @sc{car} and
 @sc{cdr}, if non-@code{nil}, specify the minimum values (in columns)
-for the left and right margin of this window (@pxref{Display Margins}.
+for the left and right margin of this window (@pxref{Display Margins}).
 When present, Emacs will use these values instead of the actual margin
 widths for determining whether a window can be split or shrunk
 horizontally.

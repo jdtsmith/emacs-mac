@@ -3,7 +3,7 @@
 ;; Copyright (C) 2011-2026 Free Software Foundation, Inc.
 
 ;; Author: Nicolas Goaziou <n.goaziou at gmail dot com>
-;; Maintainer: Daniel Fleischer <danflscr@gmail.com>
+;; Maintainer: Pedro A. Aranda<paaguti aT gmail DoT com>
 ;; Keywords: outlines, hypermedia, calendar, text
 
 ;; This file is part of GNU Emacs.
@@ -1712,7 +1712,7 @@ Return the new header."
 	 ;; exclusively through ini files, return HEADER as-is.
 	 (header (if (or language-ini-only
 			 (not (stringp language-code))
-			 (not (string-match "\\\\usepackage\\[\\(.*\\)\\]{babel}" header)))
+			 (not (string-match "\\\\usepackage\\[\\([^]]*\\)\\]{babel}" header)))
 		     header
 		   (let ((options (save-match-data
 				    (org-split-string (match-string 1 header) ",[ \t]*"))))

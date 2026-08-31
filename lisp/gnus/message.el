@@ -2217,6 +2217,8 @@ see `message-narrow-to-headers-or-head'."
   (beginning-of-line)
   (while (looking-at "[ \t]")
     (forward-line -1))
+  ;; `syntax-propertize' can't widen so make sure it won't need to (bug#81035).
+  (syntax-propertize (point))
   (narrow-to-region
    (point)
    (progn
@@ -4400,6 +4402,9 @@ If COND is a function, METHOD will be inserted if COND returns
 a non-nil value when called in the message buffer without any
 arguments.  If METHOD is nil in this case, the return value of
 the function will be inserted instead.
+
+For an explanation of the \"X-Message-SMTP-Method\" header, see
+Info node `(message) Mail Variables'.
 
 Note: if the buffer already has a \"X-Message-SMTP-Method\"
 header, these rules are ignored, and the header is left
@@ -8655,6 +8660,9 @@ From headers in the original article."
                   (save-excursion
                     (goto-char end-of-headers)
                     (insert-before-markers header))))))))
+      ;; `syntax-propertize' can't widen so make sure it won't need to
+      ;; (bug#81035).
+      (syntax-propertize end-of-headers)
       (narrow-to-region end-of-headers (point-max)))))
 
 (defun message-hide-header-p (regexps)

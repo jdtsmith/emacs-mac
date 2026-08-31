@@ -3380,13 +3380,23 @@ of the secretfile is now owned by the user logged in from
 When @code{backup-directory-alist} is @code{nil} (the default), such
 problems do not occur.
 
-To ``turn off'' the backup feature for remote files and stop
-@value{tramp} from saving to the backup directory, use this:
+@vindex make-backup-files
+In case you do not want to use backup files for remote files, use
+connection-local variable @code{make-backup-files}
+@ifinfo
+(@pxref{Connection Variables, , , emacs})
+@end ifinfo
+like this:
 
 @lisp
 @group
-(add-to-list 'backup-directory-alist
-             (cons tramp-file-name-regexp nil))
+(connection-local-set-profile-variables
+ 'no-remote-backup-files '((make-backup-files . nil)))
+@end group
+
+@group
+(connection-local-set-profiles
+ '(:application tramp) 'no-remote-backup-files)
 @end group
 @end lisp
 
@@ -3396,13 +3406,13 @@ Disabling backups can be targeted to just the @option{su} and
 
 @lisp
 @group
-(setq backup-enable-predicate
-      (lambda (name)
-        (and (normal-backup-enable-predicate name)
-             (not
-              (let ((method (file-remote-p name 'method)))
-                (when (stringp method)
-                  (member method '("su" "sudo"))))))))
+(connection-local-set-profiles
+ '(:application tramp :protocol "su") 'no-remote-backup-files)
+@end group
+
+@group
+(connection-local-set-profiles
+ '(:application tramp :protocol "sudo") 'no-remote-backup-files)
 @end group
 @end lisp
 
@@ -3689,7 +3699,9 @@ brackets @file{@value{ipv6prefix}} and @file{@value{ipv6postfix}}.
 By default, @value{tramp} will use the current local user name as the
 remote user name for log in to the remote host.  Specifying a
 different name using the proper syntax will override this default
-behavior: @file{@trampfn{method,user@@host,path/to/file}}.
+behavior: @file{@trampfn{method,user@@host,path/to/file}}.  The user
+name can also be taken from an environment variable, like
+@file{@trampfn{method,@env{$MY_REMOTE_USER}@@host,path/to/file}}.
 
 @file{@trampfn{ssh,daniel@@melancholia,.emacs}} is for file
 @file{.emacs} in @samp{daniel}'s home directory on the host,
@@ -4226,6 +4238,14 @@ Let-binding in this way works regardless of whether the process to be
 called is local or remote, since @value{tramp} would add just the
 @env{HGPLAIN} setting and local processes would take whole value of
 @code{process-environment} along with the new value of @env{HGPLAIN}.
+
+@vindex tramp-propagate-emacsclient-tramp
+@vindex EMACSCLIENT_TRAMP@r{, environment variable}
+If you set the user option @code{tramp-propagate-emacsclient-tramp} to
+a non-@code{nil} value, the environment variable
+@env{EMACSCLIENT_TRAMP} will be set to a value which allows to call
+@command{emacsclient} from a process running on the remote
+host. @xref{emacsclient Options, , , emacs}.
 
 For integrating other Emacs packages so @value{tramp} can execute
 remotely, please file a bug report.  @xref{Bug Reports}.
@@ -6428,6 +6448,13 @@ You can change this directory by setting the user option
 
 
 @item
+I get an error @samp{Method `gdrive' not supported by GVFS}.
+
+@samp{google-drive} has been disabled in @acronym{GNOME} 50.  It is
+not clear yet whether and when it will be reenabled.
+@c @uref{https://discourse.gnome.org/t/google-drive-in-gnome-50/34417}
+
+@item
 How to ignore errors when changing file attributes?
 
 @vindex tramp-inhibit-errors-if-setting-file-attributes-fail
@@ -6958,7 +6985,7 @@ If the same @var{function} shall be used for different @value{tramp}
 backends, @code{tramp-add-external-operation} must be called for every
 backend, respectively.
 
-The optional argument @var{arg-type} specisfies, which argument of
+The optional argument @var{arg-type} specifies, which argument of
 @var{operation} shall be used in order to determine, whether the
 handler @var{function} should be called.  It can be
 
@@ -6973,6 +7000,10 @@ checked.  This is the default, if @var{arg-type} is @code{nil}.
 @item @code{process}@*
 @code{default-directory} of the process buffer of the first argument
 of @var{operation}, a process, is the remote file name to be checked.
+
+@item @code{tramp-file-name}@*
+The @code{tramp-file-name} structure of the first argument of
+@var{operation} is the remote file name to be checked.
 @end itemize
 
 If the first argument of @var{operation} is nil,
@@ -6996,6 +7027,26 @@ The example above could be changed like this:
 (tramp-add-external-operation
  #'my-test-operation #'my-handle-test-operation 'tramp-sh
  #'my-file-name-for-test-operation)
+@end group
+@end lisp
+@end defun
+
+@defun tramp-external-operation-p operation backend
+This checks, whether @value{tramp}'s backend @var{backend} supports
+external @var{operation}.  It returns the function registered as
+handler, or @code{nil}.  Example:
+
+@lisp
+@group
+(tramp-external-operation-p
+ #'my-test-operation 'tramp-sh)
+@result{} my-handle-test-operation
+@end group
+
+@group
+(tramp-external-operation-p
+ #'my-test-operation 'tramp-gvfs)
+@result{} nil
 @end group
 @end lisp
 @end defun

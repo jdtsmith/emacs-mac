@@ -6,6 +6,7 @@
 ;; Created: January 2025
 ;; Keywords: calendar
 ;; Human-Keywords: diary, calendar, iCalendar
+;; Package: icalendar
 
 ;; This file is part of GNU Emacs.
 
@@ -1365,7 +1366,7 @@ the iCalendar data."
             (local-dt (decode-time ts local-tz))
             (local-str (di:format-time local-dt)))
        (if (and original-tzname original-offset
-                (not (= original-offset local-offset)))
+                (not (eql original-offset local-offset)))
            (format "%s (%s)" local-str (di:format-time dt original-tzname))
          local-str)))))
 
@@ -2507,8 +2508,8 @@ zone export strategy requires it."
             (icr:tz-decode-time (encode-time dt) vtimezone)
           (icr:tz-set-zone dt vtimezone :error)))
        ((or (eq 'to-utc di:time-zone-export-strategy)
-            (di:-tz-is-utc-p)) ; we're already in UTC, so mark dt as such
-        (decode-time (encode-time dt) t))
+            (di:-tz-is-utc-p))
+        (icr:tz-decode-time (encode-time dt) t)) ; ensure dt is in UTC
        ((eq 'floating di:time-zone-export-strategy)
         (setf (decoded-time-zone dt) nil)
         dt)))))
@@ -2690,12 +2691,12 @@ recurrence rule values in these nodes are adjusted NDAYS forward."
                   :duration (ical:period-dur-value value)))
                 (t (ical:date/time-add value :day ndays)))))))
          (ical:rrule
-          (let ((mdays (ical:recur-by* 'BYMONTHDAY value))
-                (ydays (ical:recur-by* 'BYYEARDAY value))
-                (dows (ical:recur-by* 'BYDAY value))
+          (let ((mdays (ical:rrule-by* 'BYMONTHDAY value))
+                (ydays (ical:rrule-by* 'BYYEARDAY value))
+                (dows (ical:rrule-by* 'BYDAY value))
                 (bad-clause
-                 (cond ((ical:recur-by* 'BYSETPOS value) 'BYSETPOS)
-                       ((ical:recur-by* 'BYWEEKNO value) 'BYWEEKNO))))
+                 (cond ((ical:rrule-by* 'BYSETPOS value) 'BYSETPOS)
+                       ((ical:rrule-by* 'BYWEEKNO value) 'BYWEEKNO))))
             ;; We can't reliably subtract days in the following cases, so bail:
             (when (< 28 ndays)
               (di:signal-export-error
@@ -2970,12 +2971,12 @@ nil, if MONTHS, DAYS and YEARS are all integers)."
                    rdates (seq-remove (apply-partially #'equal dtstart) rdates))))
 
       ;; Return the pair of nodes (DTSTART RRULE) or (DTSTART RDATE):
-      (let* ((recur-value
+      (let* ((rrule-value
               (delq nil
                     `((FREQ ,freq)
                       ,(when bymonth (list 'BYMONTH bymonth))
                       ,(when bymonthday (list 'BYMONTHDAY bymonthday)))))
-           (rrule-node (when freq (ical:make-property ical:rrule recur-value)))
+           (rrule-node (when freq (ical:make-property ical:rrule rrule-value)))
            (rdate-node (when rdates
                          (ical:make-property ical:rdate rdates
                            (ical:valuetypeparam rdate-type))))
@@ -3340,7 +3341,10 @@ recursive calls to this function made by
           ;; Collect the remaining properties:
           (setq all-props (append (di:parse-summary-and-description) all-props))
           (setq all-props (append (di:parse-attendees-and-organizer) all-props))
-          (push (ical:make-property ical:dtstamp (decode-time nil t)) all-props)
+          (push
+           (ical:make-property ical:dtstamp
+               (icr:tz-decode-time (current-time) t)) ; ensure UTC
+           all-props)
           (let ((class (di:parse-class))
                 (location (di:parse-location))
                 (status (di:parse-status))
@@ -3548,7 +3552,7 @@ values (of the same type as START)."
            (interval (icr:find-interval date start rule)))
       (cl-typecase start
         (ical:date
-          (if (ical:recur-count rule)
+          (if (ical:rrule-count rule)
               (when (member date (icr:recurrences-to-count vevent))
                 entry)
             (when (member date (icr:recurrences-in-interval interval vevent))
@@ -3581,7 +3585,7 @@ values (of the same type as START)."
                       (ical:date/time-add-duration start duration))
                    (di:format-time-as-local start)))
                 (date-entry (concat entry-time " " entry)))
-           (when (memq (ical:recur-freq date-rule) '(HOURLY MINUTELY SECONDLY))
+           (when (memq (ical:rrule-freq date-rule) '(HOURLY MINUTELY SECONDLY))
              (setf (alist-get 'FREQ date-rule) 'DAILY)
              (setf (alist-get 'INTERVAL date-rule) 1)
              (setf (alist-get 'BYHOUR date-rule nil t) nil)

@@ -136,6 +136,9 @@ result in an endless loop.
 If you need Emacs to be able to recover from closing displays, compile
 it with the Lucid toolkit instead of GTK.
 
+One possible mitigation for the problem is described in
+https://debbugs.gnu.org/81124
+
 ** Emacs compiled with GTK+ 3 crashes when run under some X servers.
 This happens when the X server does not provide certain display
 features that the underlying GTK+ 3 toolkit assumes.  For example, this
@@ -494,6 +497,23 @@ installed GTK packages.  Some GNU/Linux distros no longer install
 support for those formats by default, so you might need to install
 additional support packages.  E.g., on Fedora you need to install the
 'gdk-pixbuf2-modules-extra' package.
+
+*** Resizing frames of GTK Emacs does not work on Wayland running on X11.
+
+This was reported with KDE Plasma, which recently is based on Wayland
+exclusively (as is GNOME).  The default character-wise resizing of the
+frame depends on whether the window manager is willing to process the
+hints provided by Emacs; evidently, Wayland-based window managers no
+longer do.
+
+One workaround is to customize frame-resize-pixelwise to a non-nil
+value.  Another workaround is to add a window rule in KDE Plasma's
+System Settings (under "Window Management->Application settings for
+Emacs->Size and Position") that forces KDE Plasma to obey geometry
+restrictions.
+
+Yet another solution is to use the PGTK build of Emacs, which works
+better on Wayland.
 
 ** Lisp problems
 
@@ -955,6 +975,16 @@ Emacs is linked.  With LD_RUN_PATH set, the linker will include a
 specified run-time search path in the executable.
 
 Please refer to the documentation of your dynamic linker for details.
+
+*** Using Enchant 2.x as the Ispell back-end signals an error.
+
+The error message says "enchant-2: Unknown option -C".
+
+This is because many dictionary definitions in the default value of
+'ispell-dictionary-alist' use the '-C' command-line option, which is not
+supported by some versions of Enchant 2.x.  Support for '-C' was added
+to Enchant in version 2.8.17, so use that or later version to solve this
+problem.
 
 *** When you run Ispell from Emacs, it reports a "misalignment" error.
 
@@ -2649,6 +2679,45 @@ all such characters will look the same on display, and the only way of
 knowing what is the real codepoint in the buffer is to go to the
 character and type "C-u C-x =".
 
+*** Display problems with Emoji on text terminals
+
+Some text-mode terminals cause problems with Emoji sequences: when
+displaying them, the Emacs text-mode frame could show gaps, misalignment
+between the display and cursor motion, and other visual artifacts and
+display problems.
+
+This can happen if the terminal and Emacs differ in their notions of how
+many columns (a.k.a. "character cells") a given sequence of characters
+takes on the screen when displayed.  As one example, Emoji sequences
+that begin with a non-Emoji character and end in U+FE0F VARIATION
+SELECTOR 16 are composed on display into an Emoji glyph, but the width
+of this glyph is up to the terminal and the font it uses to show the
+Emoji.  If the non-Emoji character that begins the sequence has the
+width 1, Emacs will think that its composition with VS-16 also takes 1
+column on the screen, because VS-16 has width of zero.  But some
+terminals which support Emoji sequences will show a double-width Emoji
+glyph in this case, without any way for Emacs to know that.  This causes
+cursor addressing to get out of sync and eventually messes up the
+display.  In particular, Kitty, Alacritty, Ghostty, and some other
+terminal emulators are known to behave like that.
+
+Similar problems can happen with composition of characters other than
+Emoji.
+
+The solution is to disable 'auto-composition-mode' on these
+terminals, for example, like this:
+
+  (setq auto-composition-mode "alacritty")
+
+This disables 'auto-composition-mode' on frames that display on
+terminals of the named type.  More generally, customizing the
+'auto-composition-mode' variable to have as value a string that the
+'tty-type' function returns on a terminal will disable compositions in
+windows shown on terminals of that type.  (You can also disable
+'auto-composition-mode' globally, if all your frames are on terminals
+that have this problem, by setting 'auto-composition-mode' to the nil
+value.)
+
 *** Messed-up display on the Kitty text terminal
 
 This terminal has its own peculiar ideas about display of unusual
@@ -2674,33 +2743,6 @@ Another workaround is to set 'nobreak-char-ascii-display' to a non-nil
 value, which will cause any non-ASCII space and hyphen characters to
 be displayed as their ASCII counterparts, with a special face.
 
-Kitty also differs from many other character terminals in how it
-handles character compositions.  As one example, Emoji sequences that
-begin with a non-Emoji character and end in U+FE0F VARIATION SELECTOR
-16 should be composed into an Emoji glyph; Kitty assumes that all such
-Emoji glyphs have 2-column width, whereas Emacs and many other text
-terminals display them as 1-column glyphs.  Again, this causes cursor
-addressing to get out of sync and eventually messes up the display.
-
-One possible workaround for problems caused by character composition
-is to turn off 'auto-composition-mode' on Kitty terminals, e.g. by
-customizing the 'auto-composition-mode' variable to have as value a
-string that the 'tty-type' function returns on those terminals.
-
-*** Display artifacts on the Alacritty text terminal
-
-This terminal is known to cause problems with Emoji sequences: when
-displaying them, the Emacs text-mode frame could show gaps and other
-visual artifacts.
-
-The solution is to disable 'auto-composition-mode' on these
-terminals, for example, like this:
-
-  (setq auto-composition-mode "alacritty")
-
-This disables 'auto-composition-mode' on frames that display on
-terminals of this type.
-
 ** Screen readers get confused about character position
 
 The Emacs display code sometimes emits TAB characters purely for motion
@@ -2712,6 +2754,12 @@ This can confuse screen reader software under certain terminal emulators
 
 in the terminal before starting Emacs may mitigate this.  See also the
 discussion in Bug#78474 <https://debbugs.gnu.org/78474>.
+
+Starting from version 31.1, Emacs by default no longer outputs series of
+TAB characters followed by BACKSPACE, which used to confuse some of the
+screen readers.  If you encounter some problems in this area, verify
+that the variable 'tty-cursor-movement-use-TAB-BS' is set to its default
+nil value.
 
 * Runtime problems specific to individual Unix variants
 
@@ -3156,6 +3204,25 @@ XKeymacs Version 3.47, deactivating XKeymacs when Emacs is active is
 not enough to avoid its messing with the keyboard input.  Exiting
 XKeymacs completely is reported to solve the problem.
 
+** Pasting non-ASCII characters into "emacs -nw" doesn't work.
+
+This happens if you paste using the Windows shortcuts, such as
+S-<Insert> and C-v or C-S-v.  Evidently, these paste methods support
+only ASCII text, at least in some Windows configurations.
+
+Instead, use the Emacs C-y key to paste from the clipboard, which on
+Windows works on text-only frames as well.  Make sure your
+customizations don't affect the value of 'interprogram-paste-function',
+which should be 'gui-selection-value', even in -nw sessions.  In
+addition, you should make sure the font used by the Windows Terminal
+supports the characters you paste (the default font set by Windows
+should be okay).  For best results, we also recommend to set the console
+codepage to 65001, which is the UTF-8 codepage.  You can do that with
+the following command, which should be done _before_ running Emacs on
+the Windows Terminal:
+
+  c:\> chcp 65001
+
 ** Pasting from Windows clipboard into Emacs doesn't work.
 
 This was reported to be the result of an anti-virus software blocking
@@ -3261,6 +3328,30 @@ To turn the Windows Magnifier off, click "Start->All Programs", or
 "All Apps", depending on your Windows version, then select
 "Accessibility" and click "Magnifier".  In the Magnifier Settings
 dialog that opens, click "Exit".
+
+** Cursor is invisible, or appears at times and then disappears
+
+This is known to happen if 'w32-use-visible-system-caret' is non-nil.
+That variable is nil by default, but if your system has the "Speech
+Recognition" feature enabled, Emacs automatically sets this variable
+non-nil at startup to allow the screen reader to read the relevant part
+of the Emacs display and dictate it.
+
+To turn this off on modern Windows systems, go to "Settings ->
+Accessibility -> Speech", and turn off "Voice access".  If you need to
+leave this accessibility feature turned on, you can alternatively set
+'w32-use-visible-system-caret' to the nil value in your init file:
+
+  (setq w32-use-visible-system-caret nil)
+
+If you do need to see the system caret in Emacs windows, you can instead
+work around this problem by disabling double-buffering in your init
+file:
+
+  (set-frame-parameter nil 'inhibit-double-buffering nil)
+
+Note that inhibiting double-buffering might cause the Emacs display to
+flicker in some cases.
 
 ** Problems with mouse-tracking and focus management
 
@@ -3601,6 +3692,41 @@ file; for example:
       "/usr/local/opt/libgccjit/lib/gcc/11"
       "/usr/local/opt/gcc/lib/gcc/11/gcc/x86_64-apple-darwin20/11.2.0") ":"))
 
+** Stuttering and missed keypresses during Native Compilation on macOS
+
+Natively compiled modules are validated by macOS the first time that
+they are loaded.  On some machines, this can cause Emacs to be
+temporarily less responsive while a large number of '*.eln' files are
+being compiled and loaded.
+
+One can force the first load of the module to happen in the async
+compilation worker by adding this to their early-init.el:
+
+  (setq native-comp-async-env-modifier-form
+	'(progn
+	   (defun c/native-comp--preload-eln-after-compile
+	       (compile function-or-file &optional with-late-load output)
+	     "Preload async native-comp output in the compiler child."
+	     (prog1 (funcall compile function-or-file with-late-load output)
+	       (when (and (stringp function-or-file) with-late-load)
+		 (with-demoted-errors "Async native .eln preload: %S"
+		   (let ((eln-file (comp-el-to-eln-filename function-or-file)))
+		     (when (file-exists-p eln-file)
+		       (native-elisp-load eln-file t)))))))
+
+	   (advice-add 'comp--native-compile
+		       :around #'c/native-comp--preload-eln-after-compile)))
+
+Alternatively, if one is willing to accept the associated security
+risks, one could disable library validation on their Emacs binary:
+
+  codesign --force --sign - \
+      --entitlements macos-disable-library-validation.entitlements \
+      src/emacs
+
+Disabling validation might expose you to security risks, so please
+consider that before using this recipe.
+
 ** Text dictation doesn't work on macOS
 
 The indication is that the macOS keyboard shortcut for dictation is ignored.
@@ -3636,6 +3762,13 @@ text mode session:
 This is because the SECONDARY selection is not implemented by the
 Wayland compositor being used.  A workaround is to use other kinds of
 selections.
+
+** Pasting non-ASCII text from Emacs into Chromium or Brave inserts mojibake.
+
+These are bugs in these browsers: they chose incorrect format of the
+copied text amongst those which Emacs provides.  Emacs provides UTF-8 as
+one of the formats, but these browsers use Latin-1 instead.  So please
+report these bugs to the developers of the respective browsers.
 
 ** Giant tool bar icons are displayed in some cases
 
@@ -3840,6 +3973,18 @@ The organization of the Settings app might disagree with that
 illustrated above, which if true you should consult the documentation
 or any search mechanism for it.
 
+** Emacs Input Methods don't work.
+
+When using the Android touchscreen keyboard, Emacs input methods set by
+'C-\' don't work.  This is because Android's virtual input methods
+function by applying editing commands directly to Emacs buffers, which
+circumvents and is not compatible with Emacs's character-centric input
+methods.  You can disable what the virtual input methods do by setting
+'overriding-text-conversion-style' to nil rather than 'lambda', at the
+cost of your virtual input method's own text editing aids, or (in some
+cases) the ability to perform character composition or input CJK or
+non-Latin scripts.
+
 ** Emacs is not compatible with the "Microsoft SwiftKey" input method.
 
 When enabled, windows are repeatedly recentered around earlier buffer
@@ -3908,6 +4053,12 @@ this form.
 The solution is to tell configure to use the correct C preprocessor
 for your C compiler (CPP="/opt/developerstudio12.6/bin/cc -E" in the
 above example).
+
+*** The Android build works with only older versions of Java.
+
+Only Java 19 and older work, because Java 19 was the last version to
+support "-source 7".  See <URL:https://debbugs.gnu.org/81211> for more
+details.
 
 ** Compilation
 

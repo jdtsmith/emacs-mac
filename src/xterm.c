@@ -19931,14 +19931,14 @@ handle_one_xevent (struct x_display_info *dpyinfo,
               x_clear_area (f,
                             event->xexpose.x, event->xexpose.y,
                             event->xexpose.width, event->xexpose.height);
+	      /* Paint the border before content (few operations, less
+		 chance for a compositor sync in between).  */
+	      x_clear_under_internal_border (f);
 #endif
               expose_frame (f, event->xexpose.x, event->xexpose.y,
 			    event->xexpose.width, event->xexpose.height);
 #ifndef USE_TOOLKIT_SCROLL_BARS
 	      x_scroll_bar_handle_exposure (f, (XEvent *) event);
-#endif
-#ifdef USE_GTK
-	      x_clear_under_internal_border (f);
 #endif
             }
 #ifndef USE_TOOLKIT_SCROLL_BARS
@@ -28133,7 +28133,8 @@ do_ewmh_fullscreen (struct frame *f)
 		  || cur == FULLSCREEN_MAXIMIZED)
 		set_wm_state (frame, false, dpyinfo->Xatom_net_wm_state_fullscreen,
 			      dpyinfo->Xatom_net_wm_state_maximized_vert);
-	      if (cur != FULLSCREEN_MAXIMIZED || x_frame_normalize_before_maximize)
+	      if ((cur != FULLSCREEN_MAXIMIZED  && cur != FULLSCREEN_BOTH)
+		  || x_frame_normalize_before_maximize)
 		set_wm_state (frame, true,
 			      dpyinfo->Xatom_net_wm_state_maximized_horz, None);
 	    }
@@ -28153,7 +28154,8 @@ do_ewmh_fullscreen (struct frame *f)
 		  || cur == FULLSCREEN_MAXIMIZED)
 		set_wm_state (frame, false, dpyinfo->Xatom_net_wm_state_fullscreen,
 			      dpyinfo->Xatom_net_wm_state_maximized_horz);
-	      if (cur != FULLSCREEN_MAXIMIZED || x_frame_normalize_before_maximize)
+	      if ((cur != FULLSCREEN_MAXIMIZED && cur != FULLSCREEN_BOTH)
+		  || x_frame_normalize_before_maximize)
 		set_wm_state (frame, true,
 			      dpyinfo->Xatom_net_wm_state_maximized_vert, None);
 	    }
@@ -28924,25 +28926,6 @@ x_get_focus_frame (struct frame *f)
   return lisp_focus;
 }
 
-/* Return the toplevel parent of F, if it is a child frame.
-   Otherwise, return NULL.  */
-
-static struct frame *
-x_get_toplevel_parent (struct frame *f)
-{
-  struct frame *parent;
-
-  if (!FRAME_PARENT_FRAME (f))
-    return NULL;
-
-  parent = FRAME_PARENT_FRAME (f);
-
-  while (FRAME_PARENT_FRAME (parent))
-    parent = FRAME_PARENT_FRAME (parent);
-
-  return parent;
-}
-
 static void
 x_set_input_focus (struct x_display_info *dpyinfo, Window window,
 		   Time time)
@@ -29066,11 +29049,9 @@ x_focus_frame (struct frame *f, bool noactivate)
 	     may not work if its parent is not activated.  */
 	  && !FRAME_PARENT_FRAME (f)
 	  /* If the focus is being transferred from a child frame to
-	     its toplevel parent, also use SetInputFocus.  */
+	     another frame, also use SetInputFocus.  */
 	  && (!dpyinfo->x_focus_frame
-	      || (x_get_toplevel_parent (dpyinfo->x_focus_frame)
-		  != f))
-	  && x_wm_supports (f, dpyinfo->Xatom_net_active_window))
+	      || !FRAME_PARENT_FRAME (dpyinfo->x_focus_frame)))
 	{
 	  /* When window manager activation is possible, use it
 	     instead.  The window manager is expected to perform any
@@ -29192,9 +29173,9 @@ x_make_frame_visible (struct frame *f)
 	{
 	  block_input ();
 #ifdef USE_GTK
-	  gtk_widget_show_all (FRAME_GTK_OUTER_WIDGET (f));
 	  XMoveWindow (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f),
 		       f->left_pos, f->top_pos);
+	  gtk_widget_show_all (FRAME_GTK_OUTER_WIDGET (f));
 #else
 	  XMapRaised (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f));
 #endif
@@ -32364,6 +32345,13 @@ static struct textconv_interface text_conversion_interface =
 void
 init_xterm (void)
 {
+#if defined(HAVE_XWIDGETS) && !defined(HAVE_PGTK)
+  /* Emacs uses off-screen gtk widgets for webkit views, which do not support
+     DMABUF or Compositing Mode; webkit aborts unless we disable those.  */
+    xputenv ("WEBKIT_DISABLE_DMABUF_RENDERER=1");
+    xputenv ("WEBKIT_DISABLE_COMPOSITING_MODE=1");
+#endif
+
 #ifndef HAVE_XINPUT2
   /* Emacs can handle only core input events when built without XI2
      support, so make sure Gtk doesn't use Xinput or Xinput2

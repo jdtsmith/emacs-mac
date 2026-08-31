@@ -263,7 +263,7 @@ sfnt_read_table_directory (int fd)
 
   rc = read (fd, subtable->subtables, subtable_size);
 
-  if (rc == -1 || rc < offset)
+  if (rc == -1 || rc < subtable_size)
     {
       xfree (subtable);
       return NULL;
@@ -736,6 +736,7 @@ sfnt_read_cmap_format_12 (int fd,
     return NULL;
 
   /* Allocate a buffer of sufficient size.  */
+  eassert (length < UINT32_MAX - sizeof *format12);
   format12 = xmalloc (length + sizeof *format12);
   format12->format = header->format;
   format12->reserved = header->length;
@@ -15904,8 +15905,8 @@ sfnt_vary_simple_glyph (struct sfnt_blend *blend, sfnt_glyph id,
 	      sfnt_swap16 (&coords[j]);
 	    }
 	}
-      else if ((index & 0xfff) > gvar->shared_coord_count)
-	/* index exceeds the number of shared tuples present.  */
+      else if (gvar->shared_coord_count <= (index & 0xfff))
+	/* The index is too large.  */
 	goto fail1;
       else
 	/* index points into gvar->axis_count coordinates making up
@@ -16276,8 +16277,8 @@ sfnt_vary_compound_glyph (struct sfnt_blend *blend, sfnt_glyph id,
 	      sfnt_swap16 (&coords[j]);
 	    }
 	}
-      else if ((index & 0xfff) > gvar->shared_coord_count)
-	/* index exceeds the number of shared tuples present.  */
+      else if (gvar->shared_coord_count <= (index & 0xfff))
+	/* The index is too large.  */
 	goto fail1;
       else
 	/* index points into gvar->axis_count coordinates making up

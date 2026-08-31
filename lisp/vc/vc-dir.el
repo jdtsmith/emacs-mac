@@ -161,17 +161,23 @@ proceed to mark and unmark other entries, without asking."
   :version "31.1")
 
 (defcustom vc-dir-auto-hide-up-to-date nil
-  "If non-nil, VC-Dir automatically hides \\+`up-to-date' and \\+`ignored' items.
+  "Whether VC-Dir auto-removes \\+`up-to-date'/\\+`ignored' files from display.
 
-If the value of this variable is the symbol `revert', \
-\\<vc-dir-mode-map>\\[revert-buffer] in VC-Dir
-buffers also does \\[vc-dir-hide-up-to-date].  \
-That is, refreshing the VC-Dir buffer also hides
-\\+`up-to-date' and \\+`ignored' items.
+If the value is nil, files shown in the VC-Dir buffer will remain on
+display if they become \\+`up-to-date' or \\+`ignored'.
+If the value is t, files are automatically removed from display when
+they become \\+`up-to-date' or \\+`ignored'.
+If the value is the symbol `revert', any displayed files that
+are \\+`up-to-date' or \\+`ignored' are removed from display
+by \\<vc-dir-mode-map>\\[revert-buffer], but they are not automatically removed
+when they become \\+`up-to-date' or \\+`ignored'.  That is,
+refreshing the VC-Dir buffer hides \\+`up-to-date' and \\+`ignored'
+files when the value is the symbol `revert'.
+Any other value is treated as t.
 
-If the value of this variable is any other non-nil value, then in
-addition, hide items whenever their state would change to
-\\+`up-to-date' or \\+`ignored'.
+VC-Dir never shows \\+`up-to-date' and \\+`ignored' files when the
+directory is first displayed.
+
 You can still use `vc-dir-show-fileentry' to manually add an entry for
 an \\+`up-to-date' or \\+`ignored' file."
   :type 'boolean
@@ -1093,7 +1099,10 @@ tracked by a VCS."
 The files will also be marked as deleted in the version control
 system."
   (interactive)
-  (vc-delete-file (or (vc-dir-marked-files) (vc-dir-current-file))))
+  (if-let* ((fileset-only-files
+             (nth 2 (vc-dir-deduce-fileset 'state-model-only-files))))
+      (vc-delete-file fileset-only-files)
+    (user-error "Nothing to delete here")))
 
 (defun vc-dir-find-file ()
   "Find the file on the current line."
@@ -1262,16 +1271,21 @@ that file."
     (nreverse result)))
 
 (defun vc-dir-recompute-file-state (fname def-dir)
-  (let* ((file-short (file-relative-name fname def-dir))
-	 (_remove-me-when-CVS-works
-	  (when (eq vc-dir-backend 'CVS)
-	    ;; FIXME: Warning: UGLY HACK.  The CVS backend caches the state
-	    ;; info, this forces the backend to update it.
-	    (vc-call-backend vc-dir-backend 'registered fname)))
-	 (state (vc-call-backend vc-dir-backend 'state fname))
-	 (extra (vc-call-backend vc-dir-backend
-				 'status-fileinfo-extra fname)))
-    (list file-short state extra)))
+  "Compute state of FNAME known to live inside DEF-DIR."
+  (let ((fname-short (file-relative-name fname def-dir)))
+    (when (eq vc-dir-backend 'CVS)
+      ;; FIXME: Warning: UGLY HACK.  The CVS backend caches the state
+      ;; info, this forces the backend to update it.
+      (vc-call-backend vc-dir-backend 'registered fname))
+    (let* ((default-directory def-dir)
+           (state (vc-call-backend vc-dir-backend 'state fname-short))
+           (extra (vc-call-backend vc-dir-backend
+                                   'status-fileinfo-extra fname-short)))
+      ;; Ensure we return a nil state if the file does not exist and is
+      ;; not tracked so that it disappears from VC-Dir (bug#81191).
+      (if (and (eq state 'up-to-date) (not (file-exists-p fname)))
+          (list fname-short nil nil)
+        (list fname-short state extra)))))
 
 (defun vc-dir-find-child-files (dirname)
   ;; Give a DIRNAME string return the list of all child files shown in
@@ -1305,8 +1319,8 @@ that file."
 
 (defun vc-dir-resynch-file (&optional fname)
   "Update the entries for FNAME in any directory buffers that list it."
-  (let ((file (file-truename (or fname buffer-file-name)))
-        (drop '()))
+  (let* ((file (file-truename (or fname buffer-file-name)))
+         (drop '()))
     (save-current-buffer
       ;; look for a vc-dir buffer that might show this file.
       (dolist (status-buf vc-dir-buffers)
@@ -1330,12 +1344,15 @@ that file."
 		      (vc-dir-resync-directory-files file)
 		      (ewoc-set-hf vc-ewoc
 				   (vc-dir-headers vc-dir-backend ddir) ""))
-                  (let* ((complete-state (vc-dir-recompute-file-state file ddir))
+                  (let* ((complete-state
+                          ;; Pass two truenames (bug#80803, bug#80967).
+                          (vc-dir-recompute-file-state file
+                                                       (file-truename ddir)))
 			 (state (cadr complete-state)))
-                    (vc-dir-update
-                     (list complete-state)
-                     status-buf (or (not state)
-				    (eq state 'up-to-date)))))))))))
+                    (vc-dir-update (list complete-state)
+                                   status-buf
+                                   (or (not state)
+				       (eq state 'up-to-date)))))))))))
     ;; Remove out-of-date entries from vc-dir-buffers.
     (setq vc-dir-buffers
           (cl-nset-difference vc-dir-buffers drop :test #'eq))))
@@ -1415,7 +1432,13 @@ therefore also disable the fetching."
 
 (defun vc-dir--count-outgoing (backend)
   "Call `vc--count-outgoing' with a delayed message and local quits."
-  (let ((inhibit-quit t))
+  (let ((inhibit-quit t)
+        ;; Hack for bug#81233 for the Emacs 30 release.
+        (enable-local-variables
+         (if (memq enable-local-variables '(:safe :all nil))
+             enable-local-variables
+           ;; Ignore other values that query.
+           :safe)))
     (prog1
         (with-local-quit
           (with-delayed-message
@@ -1496,7 +1519,19 @@ specific headers."
 					     'up-to-date))
 				(setf (vc-dir-fileinfo->state info) nil))
 
-                              (not (vc-dir-fileinfo->needs-update info))))))))))))
+                              (not (vc-dir-fileinfo->needs-update info))))
+               ;; One more pass to remove directory entries with no children.
+               (let ((inhibit-read-only t)
+                     (crt (ewoc-nth vc-ewoc -1))
+                     (first (ewoc-nth vc-ewoc 0)))
+                 (while (not (eq crt first))
+                   (let ((prev (ewoc-prev vc-ewoc crt)))
+                     (when (and (vc-dir-fileinfo->directory (ewoc-data crt))
+                                (let ((next (ewoc-next vc-ewoc crt)))
+                                  (or (null next)
+                                      (vc-dir-fileinfo->directory (ewoc-data next)))))
+                       (ewoc-delete vc-ewoc crt))
+                     (setq crt prev))))))))))))
 
 (defun vc-dir-revert-buffer-function (&optional _ignore-auto _noconfirm)
   (vc-dir-refresh)
@@ -1511,7 +1546,7 @@ Throw an error if another update process is in progress."
       (error "Another update process is in progress, cannot run two at a time")
     (let ((def-dir default-directory)
 	  (backend vc-dir-backend))
-      (when vc-dir-save-some-buffers-on-revert
+      (when (and vc-dir-save-some-buffers-on-revert (not non-essential))
         (vc-buffer-sync-fileset `(,vc-dir-backend (,def-dir)) t))
       (vc-set-mode-line-busy-indicator)
       ;; Call the `dir-status' backend function.
@@ -1712,18 +1747,20 @@ These are the commands available for use in the file status buffer:
 	  nil t nil nil)))))
   (unless backend
     (setq backend (vc-responsible-backend dir)))
-  (let (pop-up-windows)		      ; based on cvs-examine; bug#6204
-    (pop-to-buffer (vc-dir-prepare-status-buffer "*vc-dir*" dir backend)))
-  (if (derived-mode-p 'vc-dir-mode)
-      (vc-dir-refresh)
-    ;; FIXME: find a better way to pass the backend to `vc-dir-mode'.
-    (let ((use-vc-backend backend))
-      (vc-dir-mode)
-      ;; Activate the backend-specific minor mode, if any.
-      (when-let* ((minor-mode
-                   (intern-soft (format "vc-dir-%s-mode"
-                                        (downcase (symbol-name backend))))))
-        (funcall minor-mode 1)))))
+  (let ((pop-up-windows)		      ; based on cvs-examine; bug#6204
+        (buffer (vc-dir-prepare-status-buffer "*vc-dir*" dir backend)))
+    (with-current-buffer buffer
+      (if (derived-mode-p 'vc-dir-mode)
+          (vc-dir-refresh)
+        ;; FIXME: find a better way to pass the backend to `vc-dir-mode'.
+        (let ((use-vc-backend backend))
+          (vc-dir-mode)
+          ;; Activate the backend-specific minor mode, if any.
+          (when-let* ((minor-mode
+                       (intern-soft (format "vc-dir-%s-mode"
+                                            (downcase (symbol-name backend))))))
+            (funcall minor-mode 1)))))
+    (pop-to-buffer buffer)))
 
 (defun vc-default-dir-extra-headers (_backend _dir)
   ;; Be loud by default to remind people to add code to display

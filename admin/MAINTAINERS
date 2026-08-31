@@ -123,6 +123,9 @@ Amin Bandali
 	ERC
 	    lisp/erc/*
 	    doc/misc/erc.texi
+	lisp/net/browse-url.el
+	lisp/net/eww.el
+	lisp/url/*
 
 Andrea Corallo
 	Lisp native compiler
@@ -258,6 +261,11 @@ Stephane Marks
 
 Elías Gabriel Pérez
 	lisp/progmodes/hideshow.el
+
+F. Jason Park
+	ERC
+	    lisp/erc/*
+	    doc/misc/erc.texi
 
 ==============================================================================
 2. Areas that someone is willing to maintain, although he would not

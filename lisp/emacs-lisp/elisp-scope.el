@@ -1,4 +1,4 @@
-;;; elisp-scope.el --- Semantic analysis for Elisp symbols  -*- lexical-binding: t; -*-
+;;; elisp-scope.el --- Semantic analysis for Emacs Lisp symbols  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2025-2026 Free Software Foundation, Inc.
 
@@ -2794,6 +2794,7 @@ are analyzed."
                    (symbols-with-pos-enabled t)
                    (message-log-max nil)
                    (inhibit-message t)
+                   (macroexp-enable-preserve-posification nil)
                    (macroexpand-all-environment
                     (append (mapcar #'list elisp-scope-unsafe-macros) macroexpand-all-environment)))
                (ignore-errors (macroexpand-1 form macroexpand-all-environment)))
@@ -2824,9 +2825,14 @@ SYM; POS is the position of SYM in STREAM; ID is an object that uniquely
 identifies the local reference of SYM in the current defun, so different
 occurrences of SYM get the same ID (up to `equal') if and only if they
 refer to the same object; and lastly, DEF is the position in which SYM
-is locally defined, or nil.  If SYM is itself a binding occurrence, then
-POS and DEF are equal.  If SYM is not lexically bound, then DEF is nil
-and so is ID.
+is locally defined, or nil.  For the occurrence of SYM at the position
+where it is locally defined (a.k.a. \"bound\"), the values of POS and
+DEF are equal.  If SYM is not lexically bound, then DEF is nil and so
+is ID.
+
+CALLBACK should use ID by checking if it is nil or `equal' to other ID
+values produced in the same call to this function.  The specific value
+of a given ID is otherwise meaningless.
 
 As an example, when this function analyzes the following form
 

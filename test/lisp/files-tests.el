@@ -696,6 +696,8 @@ unquoted file names."
       (tmpdir nospecial-dir t)
     (should-error (directory-files-and-attributes nospecial-dir))))
 
+(defvar w32-downcase-file-names)
+
 (ert-deftest files-tests-directory-files-recursively-w32 ()
   "Test MS-Windows specific features of `directory-files-recursively'."
   (skip-unless (eq system-type 'windows-nt))
@@ -2153,10 +2155,10 @@ CALLERS-DIR specifies the value to let-bind
             (setq nb-saved-buffers 0)
             (with-current-buffer (car buffers)
               (cl-letf
-                  (((symbol-function 'read-key)
+                  (((symbol-function 'read-key-sequence-vector)
                     ;; Increase counter and answer 'n' when prompted
                     ;; to save a buffer.
-                    (lambda (&rest _) (incf nb-saved-buffers) ?n))
+                    (lambda (&rest _) (incf nb-saved-buffers) [?n]))
                    ;; Do not kill Emacs.
                    ((symbol-function 'kill-emacs) #'ignore)
                    (save-some-buffers-default-predicate callers-dir))

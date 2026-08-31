@@ -299,7 +299,7 @@ use that face for the ellipsis instead."
   :version "31.1")
 
 (defface hs-indicator-hide
-  '((t :inherit (shadow default)))
+  '((t :inherit shadow))
   "Face used in hideshow indicator to indicate a hidden block."
   :version "31.1")
 
@@ -334,15 +334,13 @@ comments too."
 (defcustom hs-hide-block-behavior 'after-bol
   "How hideshow should hide a block.
 If set to `after-bol', hide the innermost block to which the current
-line belongs.
+line belongs.  If set to `after-point', hide the block after point.
 
-If set to `after-cursor', hide the block after cursor position.
-
-This only has effect in `hs-hide-block', `hs-cycle', `hs-hide-level' and
+This affects only the `hs-hide-block', `hs-cycle', `hs-hide-level' and
 `hs-toggle-hiding' commands."
   :type
   '(choice
-    (const :tag "Hide the block after cursor" after-cursor)
+    (const :tag "Hide the block after point" after-point)
     (const :tag "Hide the block after beginning of current line" after-bol))
   :version "31.1")
 
@@ -567,8 +565,10 @@ KEYMAP, KEY and DEFINITION are the same arguments as the ones of
      :help "Show all the blocks in the buffer"]
     ["Hide Level"    hs-hide-level
      :help "Hide all block at levels below the current block"]
-    ["Toggle Hiding" hs-toggle-hiding
+    ["Toggle Hiding Current Block" hs-toggle-hiding
      :help "Toggle the hiding state of the current block"]
+    ["Toggle Hiding All Blocks" hs-toggle-all
+     :help "Toggle the hiding state of all the blocks"]
     "----"
     ["Hide comments when hiding all"
      (setq hs-hide-comments-when-hiding-all
@@ -1094,14 +1094,16 @@ the overlay: `invisible' `hs'.  Also, depending on variable
              `(left-fringe ,fringe-type ,face-or-icon)))
            ;; Margins
            ('margin
-            (propertize
-             "+" 'display
-             `((margin left-margin)
-               ,(or (plist-get (icon-elements face-or-icon) 'image)
-                    (propertize (icon-string face-or-icon)
-                                'keymap hs-indicators-map)))
-             'face face-or-icon
-             'keymap hs-indicators-map))
+            (let* ((icon-elements (icon-elements face-or-icon)))
+              (propertize
+               "+" 'display
+               `((margin left-margin)
+                 ,(or (plist-get icon-elements 'image)
+                      (propertize (plist-get icon-elements 'string)
+                                  'face `(,face-or-icon margin)
+                                  'keymap hs-indicators-map)))
+               'face `(,face-or-icon margin)
+               'keymap hs-indicators-map)))
            ;; EOL string
            ('nil
             (concat
@@ -1228,9 +1230,9 @@ DEFAULT is a value to use as fallback."
               (val (if (integerp nth)
                        (nth nth old-lookup)
                      (funcall nth old-lookup))))
-        (set (make-local-variable var) val)
+        (set-local var val)
       (when default
-        (set (make-local-variable var) default)))))
+        (set-local var default)))))
 
 ;; TODO: When `hs-special-modes-alist' is removed, `hs-grok-mode-type'
 ;; and `hs--set-variable' will no longer be necessary, but

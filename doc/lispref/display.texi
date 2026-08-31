@@ -531,7 +531,7 @@ This function calls @code{progress-reporter-update}, so the first
 message is printed immediately.
 @end defun
 
-@defun progress-reporter-update reporter &optional value suffix
+@defun progress-reporter-update reporter &optional value update-text
 This function does the main work of reporting progress of your
 operation.  It displays the message of @var{reporter}, followed by
 progress percentage determined by @var{value}.  If percentage is zero,
@@ -545,10 +545,11 @@ state of your operation and must be between @var{min-value} and
 @code{make-progress-reporter}.  For instance, if you scan a buffer,
 then @var{value} should be the result of a call to @code{point}.
 
-Optional argument @var{suffix} is a string to be displayed after
-@var{reporter}'s main message and progress text.  If @var{reporter} is
-a non-numerical reporter, then @var{value} should be @code{nil}, or a
-string to use instead of @var{suffix}.
+Optional argument @var{update-text} is a string to be displayed after
+@var{reporter}'s main message and progress text.  One typical use is as
+the ``step'' of a long-running process so the user knows where it is.
+If @var{reporter} is a non-numerical reporter, then @var{value} should
+be @code{nil}, or a string to use instead of @var{update-text}.
 
 This function respects @var{min-change} and @var{min-time} as passed
 to @code{make-progress-reporter} and so does not output new messages
@@ -557,11 +558,11 @@ try to reduce the number of calls to it: resulting overhead will most
 likely negate your effort.
 @end defun
 
-@defun progress-reporter-force-update reporter &optional value new-message suffix
+@defun progress-reporter-force-update reporter &optional value new-message update-text
 This function is similar to @code{progress-reporter-update} except
 that it prints a message in the echo area unconditionally.
 
-@var{reporter}, @var{value}, and @var{suffix} have the same meaning as for
+@var{reporter}, @var{value}, and @var{update-text} have the same meaning as for
 @code{progress-reporter-update}.  Optional @var{new-message} allows
 you to change the message of the @var{reporter}.  Since this function
 always updates the echo area, such a change will be immediately
@@ -2213,8 +2214,10 @@ Tables}).  The width of a tab character is usually @code{tab-width}
 @end defun
 
 @defun char-uppercase-p char
-Return non-@code{nil} if @var{char} is an uppercase character
-according to Unicode.
+Return non-@code{nil} if @var{char} is an upper-case character
+according to Unicode.  Note that a character is considered to be
+upper-case if the Unicode Standard defines a corresponding lower-case
+character.
 @end defun
 
 @defun string-width string &optional from to
@@ -3527,6 +3530,7 @@ non-selected window, Emacs applies the @code{mode-line-inactive} face.
 For a header line, Emacs applies the @code{header-line} face.
 For a tab line, Emacs applies the @code{tab-line} face.
 
+@cindex @code{margin} face, and face merging
 @item
 If the text comes from an overlay string via @code{before-string} or
 @code{after-string} properties (@pxref{Overlay Properties}), or from a
@@ -3535,8 +3539,14 @@ contain a @code{face} or @code{mouse-face} property, or these
 properties leave some face attributes undefined, but the buffer text
 affected by the overlay/display property does define a face or those
 attributes, Emacs applies the face attributes of the ``underlying''
-buffer text.  Note that this is so even if the overlay or display
-string is displayed in the display margins (@pxref{Display Margins}).
+buffer text.  However, this does not apply to strings displayed in the
+display margins, which use the @code{margin} face as the base instead
+(@pxref{Display Margins}).
+
+@item
+If the text is to be shown in the display margins, Emacs uses the
+@code{margin} face as the base, so any attribute not specified by the
+string's own face is taken from the @code{margin} face.
 
 @item
 If any given attribute has not been specified during the preceding
@@ -3799,29 +3809,42 @@ The default face, whose attributes are all specified.  All other faces
 implicitly inherit from it: any unspecified attribute defaults to the
 attribute on this face (@pxref{Face Attributes}).
 
+@vindex mode-line @r{faces}
 @item mode-line-active
 @itemx mode-line-inactive
 @itemx header-line
 @itemx tab-line
 Basic faces used for the mode line, header line, and tab line.
 
+@vindex tool-bar @r{face}
 @item tool-bar
+@vindex tab-bar @r{face}
 @itemx tab-bar
+@vindex fringe @r{face}
 @itemx fringe
+@vindex scroll-bar @r{face}
 @itemx scroll-bar
+@vindex window-divider @r{face}
 @itemx window-divider
+@vindex border @r{face}
 @itemx border
+@vindex child-frame-border @r{face}
 @itemx child-frame-border
 Basic faces used for the corresponding decorations of GUI frames.
 
+@vindex cursor @r{face}
 @item cursor
 The basic face used for the text cursor.
 
+@vindex margin @r{face}
 @item margin
 The basic face used for window margins, both on the left and on the
 right.  It is commonly used to customize the background of the empty
-areas of the margins.  It inherits from the @code{default} face.
+areas of the margins, and it also provides the base attributes for
+strings displayed in the margins (@pxref{Display Margins}).  It
+inherits from the @code{default} face.
 
+@vindex mouse @r{face}
 @item mouse
 The basic face used for displaying mouse-sensitive text when the mouse
 pointer is on that text.
@@ -3837,6 +3860,7 @@ These have the attributes indicated by their names (e.g., @code{bold}
 has a bold @code{:weight} attribute), with all other attributes
 unspecified (and so given by @code{default}).
 
+@vindex shadow @r{face}
 @item shadow
 For dimmed-out text.  For example, it is used for the ignored
 part of a filename in the minibuffer (@pxref{Minibuffer File,,
@@ -3852,15 +3876,21 @@ For stretches of text that should temporarily stand out.  For example,
 it is commonly assigned to the @code{mouse-face} property for cursor
 highlighting (@pxref{Special Properties}).
 
+@vindex match @r{face}
 @item match
+@vindex isearch @r{face}
 @itemx isearch
+@vindex lazy-highlight @r{face}
 @itemx lazy-highlight
 For text matching (respectively) permanent search matches, interactive
 search matches, and lazy highlighting other matches than the current
 interactive one.
 
+@vindex error @r{face}
 @item error
+@vindex warning @r{face}
 @itemx warning
+@vindex success @r{face}
 @itemx success
 For text concerning errors, warnings, or successes.  For example,
 these are used for messages in @file{*Compilation*} buffers.
@@ -5916,12 +5946,9 @@ the before-string.
 
   Note that if the string to be displayed in the margin doesn't fully
 specify its face, the nonspecified attributes are inherited from the
-@code{margin} face (@pxref{Basic Faces}).  The face merging mechanism
-ensures that the margin background remains consistent when margin
-annotations specify only a foreground color.  If you want a margin
-string to have a specific appearance independent of the @code{margin}
-face, make sure the string has a face specifying all required
-attributes.
+@code{margin} face (@pxref{Basic Faces}).  If you want a margin string
+to have a specific appearance independent of the @code{margin} face,
+make sure the string has a face specifying all required attributes.
 
   Before the display margins can display anything, you must give
 them a nonzero width.  The usual way to do that is to set these

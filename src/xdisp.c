@@ -1077,6 +1077,14 @@ bool redisplaying_p;
    the callers.  */
 bool display_working_on_window_p;
 
+/* Non-zero when we do not allow resizing frames.  For example,
+   display_mode_line and other functions produce glyphs for the mode
+   line, in particular when called from non-redisplay code (so
+   redisplaying_p is false).  We inhibit resizing of the frames during
+   that time, because that could change glyph_row pointers in the glyph
+   matrix behind the back of teh code which manipulates these pointers.  */
+int dont_resize_frames;
+
 /* If a string, XTread_socket generates an event to display that string.
    (The display is done in read_char.)  */
 
@@ -5955,7 +5963,11 @@ handle_display_prop (struct it *it)
 	  pos = IT_STRING_CHARPOS (*it);
 	  start = 0;
 	}
-      if (pos > start)
+      if (pos > start
+	  /* If we are iterating over a string and display-stack level
+	     is zero, this is a mode line or similar.  The case of
+	     it->sp > 0 is handled in set_iterator_to_next.  */
+	  || (STRINGP (object) && it->sp == 0))
 	display_min_width (it, pos, objwin, Qnil);
     }
 
@@ -6537,10 +6549,19 @@ handle_single_display_spec (struct it *it, Lisp_Object spec, Lisp_Object object,
 
       if (NILP (location))
 	it->area = TEXT_AREA;
-      else if (EQ (location, Qleft_margin))
-	it->area = LEFT_MARGIN_AREA;
       else
-	it->area = RIGHT_MARGIN_AREA;
+	{
+	  if (EQ (location, Qleft_margin))
+	    it->area = LEFT_MARGIN_AREA;
+	  else
+	    it->area = RIGHT_MARGIN_AREA;
+	  /* Use the 'margin' face for displaying text and images
+	     in the margins.  */
+	  it->face_id =
+	    NILP (Vface_remapping_alist)
+	    ? MARGIN_FACE_ID
+	    : lookup_basic_face (it->w, it->f, MARGIN_FACE_ID);
+	}
 
       if (STRINGP (value))
 	{
@@ -11280,10 +11301,18 @@ move_it_vertically_backward (struct it *it, int dy)
      y-distance.  */
   SAVE_IT (it2, *it, it2data);
   it2.max_ascent = it2.max_descent = 0;
+  ptrdiff_t to_pos = start_pos;
   do
     {
-      move_it_to (&it2, start_pos, -1, -1, it2.vpos + 1,
-		  MOVE_TO_POS | MOVE_TO_VPOS);
+      move_it_to (&it2, to_pos, -1, -1, it2.vpos + 1,
+		  (to_pos > 0
+		    ? (MOVE_TO_POS | MOVE_TO_VPOS)
+		   : MOVE_TO_VPOS));
+      /* Avoid inflooping of there's a large display string with several
+         embedded newlines, which makes move_it_to stop after START_POS
+         but still inside a display or overlay string.  */
+      if (IT_CHARPOS (it2) >= start_pos)
+	to_pos = -1;
     }
   while (!(IT_POS_VALID_AFTER_MOVE_P (&it2)
 	   /* If we are in a display string which starts at START_POS,
@@ -14009,6 +14038,9 @@ unwind_format_mode_line (Lisp_Object vector)
     }
 
   Vmode_line_unwind_vector = vector;
+
+  if (dont_resize_frames > 0)
+    dont_resize_frames--;
 }
 
 
@@ -14145,6 +14177,7 @@ gui_consider_frame_title (Lisp_Object frame)
       title_start = MODE_LINE_NOPROP_LEN (0);
       init_iterator (&it, XWINDOW (f->selected_window), -1, -1,
 		     NULL, DEFAULT_FACE_ID);
+      dont_resize_frames++;
       display_mode_element (&it, 0, -1, -1, fmt, Qnil, false);
       len = MODE_LINE_NOPROP_LEN (title_start);
       title = mode_line_noprop_buf + title_start;
@@ -15309,16 +15342,24 @@ handle_tab_bar_click (struct frame *f, int x, int y, bool down_p,
 
   if (down_p)
     {
-      /* Show the clicked button in pressed state.  */
+      /* Show the clicked button in pressed state, but only when
+	 the click was on the close button.  Clicking elsewhere on
+	 the tab should not change the close button's appearance,
+	 so just keep the ordinary mouse-face highlight.  */
       if (!NILP (Vmouse_highlight))
-	show_mouse_face (hlinfo, DRAW_IMAGE_SUNKEN, true);
+	show_mouse_face (hlinfo, close_p ? DRAW_IMAGE_SUNKEN : DRAW_MOUSE_FACE,
+			 true);
       f->last_tab_bar_item = prop_idx; /* record the pressed tab */
     }
   else
     {
-      /* Show item in released state.  */
+      /* Show item in released state.  Only change the close button's
+	 appearance when the click was on it.  Elsewhere keep the
+	 ordinary mouse-face highlight to avoid the close button
+	 blinking on release.  */
       if (!NILP (Vmouse_highlight))
-	show_mouse_face (hlinfo, DRAW_IMAGE_RAISED, true);
+	show_mouse_face (hlinfo, close_p ? DRAW_IMAGE_RAISED : DRAW_MOUSE_FACE,
+			 true);
       f->last_tab_bar_item = -1;
     }
 
@@ -24466,11 +24507,10 @@ extend_face_to_end_of_line (struct it *it)
 	     to fill the rest.  */
 	  if (WINDOW_LEFT_MARGIN_WIDTH (it->w) > 0
 	      && (it->glyph_row->used[LEFT_MARGIN_AREA]
-		  < WINDOW_LEFT_MARGIN_WIDTH (it->w)))
+		  < WINDOW_LEFT_MARGIN_COLS (it->w)))
 	    {
 	      int used = it->glyph_row->used[LEFT_MARGIN_AREA];
-	      int remaining_pixels = (WINDOW_LEFT_MARGIN_WIDTH (it->w)
-				      * FRAME_COLUMN_WIDTH (f));
+	      int remaining_pixels = WINDOW_LEFT_MARGIN_WIDTH (it->w);
 
 	      /* Subtract width of existing glyphs.  */
 	      struct glyph *g = it->glyph_row->glyphs[LEFT_MARGIN_AREA];
@@ -24505,11 +24545,10 @@ extend_face_to_end_of_line (struct it *it)
 	     to fill the rest.  */
 	  if (WINDOW_RIGHT_MARGIN_WIDTH (it->w) > 0
 	      && (it->glyph_row->used[RIGHT_MARGIN_AREA]
-		  < WINDOW_RIGHT_MARGIN_WIDTH (it->w)))
+		  < WINDOW_RIGHT_MARGIN_COLS (it->w)))
 	    {
 	      int used = it->glyph_row->used[RIGHT_MARGIN_AREA];
-	      int remaining_pixels = (WINDOW_RIGHT_MARGIN_WIDTH (it->w)
-				      * FRAME_COLUMN_WIDTH (f));
+	      int remaining_pixels = WINDOW_RIGHT_MARGIN_WIDTH (it->w);
 
 	      /* Subtract width of existing glyphs.  */
 	      struct glyph *g = it->glyph_row->glyphs[RIGHT_MARGIN_AREA];
@@ -26348,7 +26387,10 @@ display_line (struct it *it, int cursor_vpos)
 		      /* Fill the rest of the row with continuation
 			 glyphs like in 20.x.  */
 		      while (row->glyphs[TEXT_AREA] + row->used[TEXT_AREA]
-			     < row->glyphs[1 + TEXT_AREA])
+			     < (row->glyphs[1 + TEXT_AREA]
+				/* Account for the border glyph.  */
+				- (!WINDOW_RIGHTMOST_P (it->w)
+				   && WINDOW_RIGHT_MARGIN_WIDTH (it->w) == 0)))
 			produce_special_glyphs (it, IT_CONTINUATION,
 						it->bidi_it.paragraph_dir, false);
 
@@ -26663,13 +26705,11 @@ display_line (struct it *it, int cursor_vpos)
 
 	  /* If the default face is remapped or the 'margin' face has a
 	     non-default background, and the window has display margins,
-	     and no glyphs were written yet to the margins on this screen
-	     line, fill the margin area so that the margins use the
-	     correct background.  Placed here, after the if/else-if chain
-	     above, so it fires for all three truncation paths: TTY/no-fringe
-	     truncation glyph, GUI newline-overflow-into-fringe, and GUI
-	     regular truncation where the indicator is drawn as a fringe
-	     bitmap.  */
+	     extend the face in the margin area so that the margins use
+	     the correct background.  This handles all three truncation
+	     paths: TTY/no-fringe truncation glyph, GUI
+	     newline-overflow-into-fringe, and GUI regular truncation
+	     where the indicator is drawn as a fringe bitmap.  */
 	  {
 	    int margin_face_id =
 	      lookup_basic_face (it->w, it->f, MARGIN_FACE_ID);
@@ -26677,10 +26717,8 @@ display_line (struct it *it, int cursor_vpos)
 	         != DEFAULT_FACE_ID
 	         || FACE_FROM_ID (it->f, margin_face_id)->background
 	         != FRAME_BACKGROUND_PIXEL (it->f))
-	        && ((WINDOW_LEFT_MARGIN_WIDTH (it->w) > 0
-	             && it->glyph_row->used[LEFT_MARGIN_AREA] == 0)
-	            || (WINDOW_RIGHT_MARGIN_WIDTH (it->w) > 0
-	                && it->glyph_row->used[RIGHT_MARGIN_AREA] == 0)))
+	        && (WINDOW_LEFT_MARGIN_WIDTH (it->w) > 0
+	            || WINDOW_RIGHT_MARGIN_WIDTH (it->w) > 0))
 	      extend_face_to_end_of_line (it);
 	  }
 
@@ -28166,6 +28204,10 @@ display_mode_line (struct window *w, enum face_id face_id, Lisp_Object format)
 			 format_mode_line_unwind_data (NULL, NULL,
 						       Qnil, false));
 
+  /* We cannot allow frame-resizing as long as the code below runs,
+     because that could invalidate the it.glyph_row->glyphs pointers.  */
+  dont_resize_frames++;
+
   /* Temporarily make frame's keyboard the current kboard so that
      kboard-local variables in the mode_line_format will get the right
      values.  */
@@ -28281,8 +28323,6 @@ display_mode_line (struct window *w, enum face_id face_id, Lisp_Object format)
     }
   pop_kboard ();
 
-  unbind_to (count, Qnil);
-
   /* Fill up with spaces.  */
   display_string (" ", Qnil, Qnil, 0, 0, &it, 10000, -1, -1, 0);
 
@@ -28311,6 +28351,8 @@ display_mode_line (struct window *w, enum face_id face_id, Lisp_Object format)
 	last->pixel_width += max (0, (box_thickness
 				      - (it.current_x - it.last_visible_x)));
     }
+
+  unbind_to (count, Qnil);
 
   return it.glyph_row->height;
 }
@@ -28940,14 +28982,24 @@ store_mode_line_string (const char *string, Lisp_Object lisp_string,
       if (!NILP (mode_line_string_face))
 	{
 	  Lisp_Object face;
-	  if (NILP (props))
-	    props = Ftext_properties_at (make_fixnum (0), lisp_string);
-	  face = plist_get (props, Qface);
+	  Lisp_Object string_face =
+	    plist_get (Ftext_properties_at (make_fixnum (0), lisp_string),
+		       Qface);
+	  /* Use the face in PROPS, if any, falling back to the face of
+	     LISP_STRING.  */
+	  face = string_face;
+	  if (!NILP (props))
+	    {
+	      Lisp_Object propface = plist_get (props, Qface);
+	      if (!NILP (propface))
+		face = propface;
+	    }
 	  if (NILP (face))
 	    face = mode_line_string_face;
 	  else
 	    face = list2 (face, mode_line_string_face);
-	  props = list2 (Qface, face);
+	  props = Fcopy_sequence (props);
+	  props = plist_put (props, Qface, face);
 	  if (copy_string)
 	    lisp_string = Fcopy_sequence (lisp_string);
 	}
@@ -28989,7 +29041,7 @@ By default, the format is evaluated for the currently selected window.
 Optional second arg FACE specifies the face property to put on all
 characters for which no face is specified.  The value nil means the
 default face.  The value t means whatever face the window's mode line
-currently uses (either `mode-line' or `mode-line-inactive',
+currently uses (either `mode-line-active' or `mode-line-inactive',
 depending on whether the window is the selected window or not).
 An integer value means the value string has no text
 properties.
@@ -29005,7 +29057,7 @@ are the selected window and the WINDOW's buffer).  */)
   struct window *w;
   struct buffer *old_buffer = NULL;
   int face_id;
-  bool no_props = FIXNUMP (face);
+  bool no_props = INTEGERP (face);
   specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object str;
   int string_start = 0;
@@ -29040,6 +29092,13 @@ are the selected window and the WINDOW's buffer).  */)
     : EQ (face, Qtool_bar) ? TOOL_BAR_FACE_ID
     : DEFAULT_FACE_ID;
 
+  if (EQ (face, Qt))
+    face = EQ (window, selected_window)
+      ? Qmode_line_active
+      : Qmode_line_inactive;
+  else if (EQ (face, Qdefault))
+    face = Qnil;
+
   old_buffer = current_buffer;
 
   /* Save things including mode_line_proptrans_alist,
@@ -29054,6 +29113,7 @@ are the selected window and the WINDOW's buffer).  */)
   set_buffer_internal_1 (XBUFFER (buffer));
 
   init_iterator (&it, w, -1, -1, NULL, face_id);
+  dont_resize_frames++;
 
   /* Make sure `base_line_number` is fresh in case we encounter a `%l`.  */
   if (current_buffer == XBUFFER ((w)->contents)

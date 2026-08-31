@@ -63,7 +63,7 @@ SYNTAX can be one of the symbols `default' (default),
   (interactive
    (list
     (completing-read
-     "method: "
+     "Method: "
      (tramp-compat-seq-keep
       (lambda (x)
 	(when-let* ((name (symbol-name x))
@@ -678,33 +678,35 @@ Run BODY."
   "Convert FILENAME into a multi-hop file name with \"sudo\".
 An alternative method could be chosen with `tramp-file-name-with-method'."
   (setq filename (expand-file-name filename))
-  (let ((default-method (tramp-get-file-name-with-method)))
-    (if (tramp-tramp-file-p filename)
-	(with-parsed-tramp-file-name filename nil
-	  (cond
-	   ;; Remote file with proper method.
-	   ((string-equal method default-method)
-	    filename)
-	   ;; Remote file on the local host.
-	   ((and
-	     (stringp tramp-local-host-regexp) (stringp host)
-	     (string-match-p tramp-local-host-regexp host))
-	    (tramp-make-tramp-file-name
-	     (make-tramp-file-name
-	      :method default-method :localname localname)))
-	   ;; Remote file with multi-hop capable method.
-	   ((tramp-multi-hop-p v)
-	    (tramp-make-tramp-file-name
-	     (make-tramp-file-name
-	      :method (tramp-find-method default-method nil host)
-	      :user (tramp-find-user default-method nil host)
-	      :host (tramp-find-host default-method nil host)
-	      :localname localname :hop (tramp-make-tramp-hop-name v))))
-	   ;; Other remote file.
-	   (t (tramp-user-error v "Multi-hop with `%s' not applicable" method))))
-      ;; Local file.
-      (tramp-make-tramp-file-name
-       (make-tramp-file-name :method default-method :localname filename)))))
+  (expand-file-name
+   (let ((default-method (tramp-get-file-name-with-method)))
+     (if (tramp-tramp-file-p filename)
+	 (with-parsed-tramp-file-name filename nil
+	   (cond
+	    ;; Remote file with proper method.
+	    ((string-equal method default-method)
+	     filename)
+	    ;; Remote file on the local host.
+	    ((and
+	      (stringp tramp-local-host-regexp) (stringp host)
+	      (string-match-p tramp-local-host-regexp host))
+	     (tramp-make-tramp-file-name
+	      (make-tramp-file-name
+	       :method default-method :localname localname)))
+	    ;; Remote file with multi-hop capable method.
+	    ((tramp-multi-hop-p v)
+	     (tramp-make-tramp-file-name
+	      (make-tramp-file-name
+	       :method (tramp-find-method default-method nil host)
+	       :user (tramp-find-user default-method nil host)
+	       :host (tramp-find-host default-method nil host)
+	       :localname localname :hop (tramp-make-tramp-hop-name v))))
+	    ;; Other remote file.
+	    (t
+             (tramp-user-error v "Multi-hop with `%s' not applicable" method))))
+       ;; Local file.
+       (tramp-make-tramp-file-name
+        (make-tramp-file-name :method default-method :localname filename))))))
 
 ;; FIXME: We would like to rename this for Emacs 31.1 to a name that
 ;; does not encode the default method.  It is intended as a generic
@@ -794,9 +796,8 @@ This is needed if there are compatibility problems."
   (interactive)
   ;; We expect just one Tramp package is installed.
   (when-let*
-      ((dir (tramp-compat-funcall
-	     'package-desc-dir
-	     (car (alist-get 'tramp (bound-and-true-p package-alist))))))
+      ((dir (tramp-compat-funcall 'package-desc-dir
+	      (car (alist-get 'tramp (bound-and-true-p package-alist))))))
     (dolist (elc (directory-files dir 'full (rx ".elc" eos)))
       (delete-file elc))
     (with-current-buffer (get-buffer-create byte-compile-log-buffer)

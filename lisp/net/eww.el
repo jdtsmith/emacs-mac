@@ -1771,7 +1771,10 @@ just re-display the HTML already fetched."
     (put-text-property start (point) 'keymap eww-submit-map)
     ;; Pretend to touch-screen.el that this is a button.
     (put-text-property start (point) 'button t)
-    (insert " ")))
+    (insert " ")
+    (put-text-property start (1+ start) 'help-echo "Button")
+    ;; Mark this as an element we can TAB to.
+    (put-text-property start (1+ start) 'shr-tab-stop t)))
 
 (defun eww-form-checkbox (dom)
   (let ((start (point)))
@@ -1991,7 +1994,8 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
 				 :value (or (dom-attr dom 'value) "")))))))
      (t
       (eww-form-text dom)))
-    (unless (= start (point))
+    (unless (or (= start (point))
+                (equal type "submit"))
       (put-text-property start (1+ start) 'help-echo "Input field")
       ;; Mark this as an element we can TAB to.
       (put-text-property start (1+ start) 'shr-tab-stop t))))
@@ -2246,11 +2250,12 @@ Interactively, EVENT is the value of `last-nonmenu-event'."
 				    (plist-get eww-data :url)))))))
       (eww-browse-url
        (concat
-	(if (cdr (assq :action form))
-	    (shr-expand-url (cdr (assq :action form)) (plist-get eww-data :url))
-	  (plist-get eww-data :url))
-	"?"
-	(mm-url-encode-www-form-urlencoded values))))))
+        (shr-expand-url
+         (or (cdr (assq :action form))
+             (car (url-path-and-query (url-generic-parse-url (plist-get eww-data :url)))))
+         (plist-get eww-data :url))
+        "?"
+        (mm-url-encode-www-form-urlencoded values))))))
 
 (defun eww-browse-with-external-browser (&optional url)
   "Browse the current URL with an external browser.

@@ -501,6 +501,7 @@ MODE can be `c' or `cpp'.  STYLE can be `gnu', `k&r', `linux', `bsd'."
            ((parent-is ,(rx (or "function_definition"
                                 "struct_specifier"
                                 "enum_specifier"
+                                "union_specifier"
                                 "function_declarator"
                                 "template_declaration")))
             standalone-parent 0)
@@ -1275,7 +1276,10 @@ if `c-ts-mode-emacs-sources-support' is non-nil."
                     "case_statement")))
     (text ,(regexp-opt '("comment"
                          "raw_string_literal")))
-    (comment "comment"))
+    ;; This is commented out in Emacs 31 since 'treesit-forward-comment'
+    ;; can't uncomment block comments.  It's already fixed in Emacs 32.
+    ;; (comment "comment")
+    )
   "`treesit-thing-settings' for both C and C++.")
 
 ;;; Support for FOR_EACH_* macros
@@ -1475,7 +1479,9 @@ in your init files, or customize `treesit-enabled-modes'."
   :group 'c
   :after-hook (c-ts-mode-set-modeline)
 
-  (when (treesit-ensure-installed 'c)
+  ;; `treesit-ready-p' also checks for buffer size.
+  (when (and (treesit-ensure-installed 'c)
+             (treesit-ready-p 'c))
     ;; Create an "for-each" parser, see `c-ts-mode--emacs-set-ranges'
     ;; for more.
     (when c-ts-mode-emacs-sources-support
@@ -1554,7 +1560,9 @@ recommended to enable `electric-pair-mode' with this mode."
   :group 'c++
   :after-hook (c-ts-mode-set-modeline)
 
-  (when (treesit-ensure-installed 'cpp)
+  ;; `treesit-ready-p' also checks for buffer size.
+  (when (and (treesit-ensure-installed 'cpp)
+             (treesit-ready-p 'cpp))
     (let ((primary-parser (treesit-parser-create 'cpp)))
 
       ;; Syntax.

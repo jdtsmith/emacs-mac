@@ -312,11 +312,12 @@
             '("lisp/minibuffer.el" "src/minibuf.c")
             nil 9)
            '("*/minibuf" . 9)))
-  ;; A series of wildcards is preserved (for now), along with point's position.
+  ;; A series of `star's is collapsed into a single one, but point's
+  ;; position is preserved in the middle. (bug#81394)
   (should (equal
            (completion-pcm--merge-try
             '(star star point star "foo") '("xxfoo" "xyfoo") "" "")
-           '("x***foo" . 3)))
+           '("x**foo" . 2)))
   ;; The series of wildcards is considered together; if any of them wants the common suffix, it's generated.
   (should (equal
            (completion-pcm--merge-try
@@ -339,6 +340,31 @@
   (should (equal (completion-pcm-try-completion
                   "" '("fooxbar" "fooybar") nil 0)
                  '("foobar" . 3))))
+
+(ert-deftest completion-pcm-bug80914 ()
+  ;; Completing a partial match in an earlier component (here "s"
+  ;; matches both "sys" and "sources", which contain "class" and
+  ;; "clang") should not leave a stray `point' in the middle of the
+  ;; merged pattern (bug#80914).
+  (let ((default-directory (ert-resource-directory))
+        (input "pcm/s/cl"))
+    ;; The pattern has a single `point' at the end rather than an extra
+    ;; `point' after the "s".
+    (should (equal (car (completion-pcm--find-all-completions
+                    input #'completion--file-name-table nil (length input)))
+                   '("s" any "/" "cl" point)))))
+
+(ert-deftest completion-initials ()
+  ;; Should expand initials:
+  (should (equal (completion-initials-expand "/ttab" #'read-file-name-internal nil)
+                 "/t/t/a/b"))
+  (should (equal (completion-initials-expand "~/ttab" #'read-file-name-internal nil)
+                 "~/t/t/a/b"))
+  (should (equal (completion-initials-expand "/home//ttab" #'read-file-name-internal nil)
+                 "/home//t/t/a/b"))     ; bug#81241
+  ;; Should not expand initials:
+  (should-not (completion-initials-expand "/x/ttab" #'read-file-name-internal nil))
+  (should-not (completion-initials-expand "/usr/share/ttab" #'read-file-name-internal nil)))
 
 (ert-deftest completion-pcm-test-anydelim ()
   ;; After each delimiter is a special wildcard which matches any
@@ -612,6 +638,41 @@
                    (not (eq (current-buffer) (get-buffer "*Completions*")))))
       (execute-kbd-macro (kbd "TAB TAB"))
       (should (eq (current-buffer) (get-buffer "*Completions*"))))))
+
+(ert-deftest completion-auto-select-test-bug81635 ()
+  (dolist (format '(horizontal vertical one-column))
+    (let ((completion-auto-select t)
+          (completion-auto-wrap t)
+          (completions-format format))
+      (completing-read-with-minibuffer-setup
+          '("aa" "ab" "ac")
+        (cl-flet ((selected ()
+                    (and (eq (current-buffer) (get-buffer "*Completions*"))
+                         (get-text-property (point) 'completion--string))))
+          ;; TAB cycles forward through all candidates, then to the
+          ;; minibuffer, then back to the first candidate.
+          (execute-kbd-macro (kbd "a TAB"))
+          (should (equal (selected) "aa"))
+          (execute-kbd-macro (kbd "TAB"))
+          (should (equal (selected) "ab"))
+          (execute-kbd-macro (kbd "TAB"))
+          (should (equal (selected) "ac"))
+          (execute-kbd-macro (kbd "TAB"))
+          (should (minibufferp))
+          (execute-kbd-macro (kbd "TAB"))
+          (should (equal (selected) "aa"))
+          (execute-kbd-macro (kbd "TAB"))
+          (should (equal (selected) "ab"))
+          ;; S-TAB cycles backward, then to the minibuffer, then to the
+          ;; last candidate.
+          (execute-kbd-macro (kbd "<backtab>"))
+          (should (equal (selected) "aa"))
+          (execute-kbd-macro (kbd "<backtab>"))
+          (should (minibufferp))
+          (execute-kbd-macro (kbd "<backtab>"))
+          (should (equal (selected) "ac"))
+          (execute-kbd-macro (kbd "<backtab>"))
+          (should (equal (selected) "ab")))))))
 
 (ert-deftest completion-auto-wrap-test ()
   (let ((completion-auto-wrap nil))

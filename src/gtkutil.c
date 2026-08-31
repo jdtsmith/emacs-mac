@@ -1181,6 +1181,7 @@ xg_frame_set_char_size (struct frame *f, int width, int height)
   int outer_height
     = height + FRAME_TOOLBAR_HEIGHT (f) + FRAME_MENUBAR_HEIGHT (f);
   int outer_width = width + FRAME_TOOLBAR_WIDTH (f);
+  int scale = xg_get_scale (f);
 
 #ifndef HAVE_PGTK
   gtk_window_get_size (GTK_WINDOW (FRAME_GTK_OUTER_WIDGET (f)),
@@ -1200,8 +1201,10 @@ xg_frame_set_char_size (struct frame *f, int width, int height)
     }
 #endif
 
-  outer_height /= xg_get_scale (f);
-  outer_width /= xg_get_scale (f);
+  outer_height /= scale;
+  outer_width /= scale;
+  height = height / scale * scale;
+  width = width / scale * scale;
 
   xg_wm_set_size_hint (f, 0, 0);
 
@@ -1224,6 +1227,7 @@ xg_frame_set_char_size (struct frame *f, int width, int height)
 #ifndef HAVE_PGTK
   if (FRAME_PARENT_FRAME (f))
     {
+      /* Send the resize request immediately.  */
       gdk_window_resize (gtk_widget_get_window (FRAME_GTK_OUTER_WIDGET (f)),
 			 outer_width, outer_height);
       /* Resize all inner widgets and Cairo surface right away so the
@@ -1234,9 +1238,8 @@ xg_frame_set_char_size (struct frame *f, int width, int height)
       x_cr_update_surface_desired_size (f, width, height);
 #endif
     }
-  else
-    gtk_window_resize (GTK_WINDOW (FRAME_GTK_OUTER_WIDGET (f)),
-		       outer_width, outer_height);
+  gtk_window_resize (GTK_WINDOW (FRAME_GTK_OUTER_WIDGET (f)),
+		     outer_width, outer_height);
 #else
   if (FRAME_GTK_OUTER_WIDGET (f))
     gtk_window_resize (GTK_WINDOW (FRAME_GTK_OUTER_WIDGET (f)),
@@ -1328,6 +1331,9 @@ xg_frame_set_size_and_position (struct frame *f, int width, int height)
 
   outer_height /= scale;
   outer_width /= scale;
+  height = height / scale * scale;
+  width = width / scale * scale;
+
   x /= scale;
   y /= scale;
 
