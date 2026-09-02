@@ -1,6 +1,6 @@
 # emacs-mac
 
-This is an experimental build of the [emacs-mac](https://bitbucket.org/mituharu/emacs-mac) (aka Carbon[^1] Emacs) port of emacs, updated for Emacs v30.2, and Emacs master.
+This is an experimental build of the [emacs-mac](https://bitbucket.org/mituharu/emacs-mac) (aka Carbon[^1] Emacs) port of emacs, updated for Emacs v31.1, and Emacs master.
 
 > [!WARNING]
 > This is an experimental build of `emacs-mac`; there will certainly be bugs. We are looking for feedback and testing from experienced users.  If you are familiar with or willing to learn about running new builds of Emacs, including under a debugger, perfect.  If you are a Mac developer familiar with ObjC or Mac Window frameworks, even better (get in touch)!  Other users should stick to the official NS build or recent v29.4 emacs-mac release for now.
@@ -49,28 +49,6 @@ If you'd like to build with tree-sitter support, native-compilation, and RSVG (a
 brew install tree-sitter libgccjit librsvg
 ```
 
-#### Tree Sitter in Emacs 30
-
-If you'd like to build Emacs 30 (build on [this branch](https://github.com/jdtsmith/emacs-mac/tree/emacs-mac-30_1_exp)) with tree-sitter support, you'll need to install the older version `tree-sitter-0.25` to maintain compatibility.  For example:
-
-```bash
-brew install tree-sitter@0.25
-```
-
-With this version in place, inform configure of its location using `CFLAGS` and `LDDFLAGS`, for example:
-
-```bash
-CFLAGS="-I/opt/homebrew/opt/tree-sitter@0.25/include ..." LDDFLAGS="-L/opt/homebrew/opt/tree-sitter@0.25/lib" ./configure --with-tree-sitter ...
-```
-
-Note: use `CFLAGS` instead of `CPPFLAGS`. You can consult some Caveats with:
-
-```bash
-brew info tree-sitter@0.25
-```
-
-This is not required for Emacs 31, as it supports the latest tree-sitter ABI.
-
 ### Configure
 
 You can configure the app either as self-contained (all resources live within the app), or non-self-contained (the default).  A self-contained app is recommended.  The recommended configuration options are given below; see the file `README-mac` for others.
@@ -84,7 +62,7 @@ A _self-contained_ app by default will go into `/Applications/Emacs.app`.
 CFLAGS="-O2 -mcpu=native" ./configure --with-native-compilation --with-tree-sitter --enable-mac-app=yes --enable-mac-self-contained
 ```
 
-Optionally, you can add `-DFD_SETSIZE=10000 -D_DARWIN_UNLIMITED_SELECT` to `CFLAGS` to increase the file descriptor limit, to help with packages that open many connections (like LSP).
+Optionally, you can add `-DFD_SETSIZE=10000 -D_DARWIN_UNLIMITED_SELECT` to `CFLAGS` to increase the file descriptor limit, to help with packages that open many connections (like eglot/LSP).
 Note that this may degrade performance in some cases.
 
 You can specify another build directory for the self-contained app using `--enable-mac-app=/path/to/dir`.
@@ -186,7 +164,7 @@ If you get crashes or just want to help with debugging, it would be very useful 
 
 ## Contributions
 
-We are very happy to accept contributions, especially bug fixes and other improvements.  Note that, to preserve options for upstreaming, any contributor of substantial code must have valid copyright assignment paperwork with the FSF, and be willing to assign copyright, should that option be taken in the future.
+We are very happy to accept contributions, especially bug fixes and other improvements.
 
 ## Notes
 
