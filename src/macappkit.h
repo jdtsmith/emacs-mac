@@ -763,6 +763,7 @@ typedef NSInteger NSGlyphProperty;
 - (NSBitmapImageRep *)bitmapImageRep;
 - (void)storeModifyFrameParametersEvent:(Lisp_Object)alist;
 - (BOOL)isWindowFrontmost;
+- (NSSize)hintedWindowFrameSize:(NSSize)frameSize allowsLarger:(BOOL)flag;
 - (void)setupLiveResizeTransition;
 - (void)setShouldLiveResizeTriggerTransition:(BOOL)flag;
 - (void)setLiveResizeCompletionHandler:(void (^)(void))block;

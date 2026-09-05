@@ -2198,8 +2198,82 @@ static void mac_move_frame_window_structure_1 (struct frame *, int, int);
   setupResizeTrackingSuspended = YES;
 }
 
+/* Width of the band along the window edge that starts a resize.  */
+#define RESIZE_BORDER_MARGIN (8)
+
+/* Resize the window by dragging its edge, following EVENT until the
+   mouse is released.  Return NO if EVENT does not fall on an edge.
+
+   AppKit normally does this itself, but as of macOS 27 it declines to
+   start a resize for a border click that the Emacs event loop dequeues
+   and redispatches, which is how every event reaches the window here.  */
+
+- (BOOL)resizeByDraggingBorderWithEvent:(NSEvent *)event
+{
+  NSRect startFrame = self.frame;
+  NSPoint pt = event.locationInWindow;
+  BOOL onLeft = pt.x <= RESIZE_BORDER_MARGIN;
+  BOOL onRight = pt.x >= NSWidth (startFrame) - RESIZE_BORDER_MARGIN;
+  BOOL onBottom = pt.y <= RESIZE_BORDER_MARGIN;
+  BOOL onTop = pt.y >= NSHeight (startFrame) - RESIZE_BORDER_MARGIN;
+  NSPoint startLocation = NSEvent.mouseLocation;
+  id delegate = self.delegate;
+
+  if (!(onLeft || onRight || onBottom || onTop))
+    return NO;
+
+  while (true)
+    {
+      NSEvent *next =
+	[NSApp nextEventMatchingMask:(NSEventMaskLeftMouseDragged
+				      | NSEventMaskLeftMouseUp)
+			   untilDate:NSDate.distantFuture
+			      inMode:NSDefaultRunLoopMode dequeue:YES];
+      NSPoint location;
+      NSRect frameRect = startFrame;
+
+      if (next == nil || next.type == NSEventTypeLeftMouseUp)
+	break;
+
+      location = NSEvent.mouseLocation;
+      if (onRight)
+	frameRect.size.width = NSWidth (startFrame) + (location.x
+						       - startLocation.x);
+      else if (onLeft)
+	frameRect.size.width = NSWidth (startFrame) - (location.x
+						       - startLocation.x);
+      if (onTop)
+	frameRect.size.height = NSHeight (startFrame) + (location.y
+							 - startLocation.y);
+      else if (onBottom)
+	frameRect.size.height = NSHeight (startFrame) - (location.y
+							 - startLocation.y);
+
+      /* Snap to the frame's character cell, as a live resize would.  */
+      if ([delegate respondsToSelector:
+		      @selector (hintedWindowFrameSize:allowsLarger:)])
+	frameRect.size = [delegate hintedWindowFrameSize:frameRect.size
+					    allowsLarger:YES];
+
+      /* Dragging the left or bottom edge keeps the opposite one put.  */
+      if (onLeft)
+	frameRect.origin.x = NSMaxX (startFrame) - NSWidth (frameRect);
+      if (onBottom)
+	frameRect.origin.y = NSMaxY (startFrame) - NSHeight (frameRect);
+
+      [self setFrame:frameRect display:YES];
+    }
+
+  return YES;
+}
+
 - (void)sendEvent:(NSEvent *)event
 {
+  if (event.type == NSEventTypeLeftMouseDown
+      && mac_operating_system_version.major >= 27
+      && [self resizeByDraggingBorderWithEvent:event])
+    return;
+
   if ([event type] == NSEventTypeLeftMouseDown)
     {
       if (setupResizeTrackingSuspended)
