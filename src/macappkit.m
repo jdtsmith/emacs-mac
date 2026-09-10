@@ -11622,6 +11622,7 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 {
   mac_within_gui (^{
       NSMenu *newMenu, *mainMenu = [NSApp mainMenu], *helpMenu, *windowMenu = nil;
+      NSMenu *existingWindowsMenu = nil;
       NSInteger index = 1, nitems = [mainMenu numberOfItems];
       bool needs_update_p = deep_p;
 
@@ -11633,7 +11634,8 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 	  NSString *title = CFBridgingRelease (CFStringCreateWithCString
 					       (NULL, wv->name,
 						kCFStringEncodingMacRoman));
-	  NSMenu *submenu;
+	  NSMenu *submenu = nil;
+	  bool is_window_menu = false;
 
 	  /* The title of the Help menu needs to be localized in order
 	     for Spotlight for Help to be installed on Mac OS X
@@ -11649,8 +11651,11 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
           /* Localize Window Menu for consistency with AppKit provided
              menu items. */
 	  else if ([title isEqualToString:@"Window"])
-	    title = localizedMenuTitleForWindow;
-
+	    {
+	      title = localizedMenuTitleForWindow;
+	      is_window_menu = true;
+	      existingWindowsMenu = [NSApp windowsMenu];
+	    }
 
 	  if (!needs_update_p)
 	    {
@@ -11664,7 +11669,21 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 		}
 	    }
 
-	  submenu = [[NSMenu alloc] initWithTitle:title];
+	  if (is_window_menu && existingWindowsMenu != nil)
+	    {
+	      submenu = existingWindowsMenu;
+	      NSMenu *oldParent = [submenu supermenu];
+	      if (oldParent)
+                {
+                  NSInteger oldIndex = [oldParent indexOfItemWithSubmenu:submenu];
+                  if (oldIndex != -1)
+                      [[oldParent itemAtIndex:oldIndex] setSubmenu:nil];
+                }
+	      [submenu removeAllItems];
+	    }
+	  else
+	      submenu = [[NSMenu alloc] initWithTitle:title];
+
 	  [submenu setAutoenablesItems:NO];
 
 	  if (title == localizedMenuTitleForHelp)
@@ -11678,8 +11697,8 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 
 	  if (wv->contents)
 	    [submenu fillWithWidgetValue:wv->contents];
-
-	  MRC_RELEASE (submenu);
+	  if (submenu != existingWindowsMenu)
+	    MRC_RELEASE (submenu);
 	}
 
       if (!needs_update_p && index != nitems)
@@ -11695,9 +11714,12 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 
 	  [NSApp setMainMenu:newMenu];
 
-	  if (windowMenu && [windowMenu numberOfItems])
-	    [NSApp setWindowsMenu:windowMenu];
-
+	  if (windowMenu)
+	    {
+              [NSApp setWindowsMenu:nil];
+              [NSApp setWindowsMenu:windowMenu];
+	      [windowMenu update]; /* Ensure tiling keys are set */
+	    }
 	  if (helpMenu)
 	    [NSApp setHelpMenu:helpMenu];
 	}
