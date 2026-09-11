@@ -11062,11 +11062,15 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
 
 - (void)menuDidBeginTracking:(NSNotification *)notification
 {
-  if (!popup_activated ())
-    {
-      NSLog (@"Canceling unexpected menu tracking: %@", [NSApp currentEvent]);
-      [self cancelTracking];
-    }
+  if (@available(macOS 27.0, *)) {
+    /* macOS 27 has issues with out of band menu tracking */
+  } else {
+    if (!popup_activated ())
+      {
+	NSLog (@"Canceling unexpected menu tracking: %@", [NSApp currentEvent]);
+	[self cancelTracking];
+      }
+  }
 }
 
 @end				// EmacsMenu
