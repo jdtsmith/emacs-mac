@@ -1565,6 +1565,36 @@ static BOOL extendReadSocketIntervalOnce;
 
     default:
     OTHER:
+      NSEventType type = [event type];
+
+      if (type == NSEventTypeLeftMouseDown)
+	{
+	  NSWindow *window = [event window];
+	  if (window && [window isKindOfClass:[EmacsWindow class]])
+	    {
+	      NSPoint loc = [event locationInWindow];
+	      NSRect contentFrame = [[window contentView] frame];
+	      /* Toolbar/traffic-light button area */
+	      if (loc.y > contentFrame.size.height)
+		{
+		  [NSApp sendEvent:event];
+		  while (1)
+		    {
+		      NSEvent *nextEvent =
+			[NSApp nextEventMatchingMask:NSEventMaskAny
+					   untilDate:[NSDate distantFuture]
+					      inMode:NSDefaultRunLoopMode
+					     dequeue:YES];
+		      if (!nextEvent)
+			break;
+		      [NSApp sendEvent:nextEvent];
+		      if ([nextEvent type] == NSEventTypeLeftMouseUp)
+			break;
+		    }
+		  return;
+		}
+	    }
+	}
       [NSApp sendEvent:event];
       break;
     }
