@@ -1566,16 +1566,23 @@ static BOOL extendReadSocketIntervalOnce;
     default:
     OTHER:
       NSEventType type = [event type];
-
       if (type == NSEventTypeLeftMouseDown)
 	{
-	  NSWindow *window = [event window];
-	  if (window && [window isKindOfClass:[EmacsWindow class]])
+	  NSWindow *eventWindow = [event window];
+	  if (eventWindow)
 	    {
-	      NSPoint loc = [event locationInWindow];
-	      NSRect contentFrame = [[window contentView] frame];
-	      /* Toolbar/traffic-light button area */
-	      if (loc.y > contentFrame.size.height)
+	      BOOL isTitlebarAction = NO;
+	      if ([eventWindow isKindOfClass:
+				 NSClassFromString(@"NSToolbarFullScreenWindow")])
+		isTitlebarAction = YES;
+	      else if ([eventWindow isKindOfClass:[EmacsWindow class]])
+		{
+		  NSPoint loc = [event locationInWindow];
+		  NSRect contentFrame = [[eventWindow contentView] frame];
+		  if (loc.y > contentFrame.size.height)
+                isTitlebarAction = YES;
+		}
+	      if (isTitlebarAction)
 		{
 		  [NSApp sendEvent:event];
 		  while (1)
