@@ -1565,6 +1565,43 @@ static BOOL extendReadSocketIntervalOnce;
 
     default:
     OTHER:
+      NSEventType type = [event type];
+      if (type == NSEventTypeLeftMouseDown)
+	{
+	  NSWindow *eventWindow = [event window];
+	  if (eventWindow)
+	    {
+	      BOOL isTitlebarAction = NO;
+	      if ([eventWindow isKindOfClass:
+				 NSClassFromString(@"NSToolbarFullScreenWindow")])
+		isTitlebarAction = YES;
+	      else if ([eventWindow isKindOfClass:[EmacsWindow class]])
+		{
+		  NSPoint loc = [event locationInWindow];
+		  NSRect contentFrame = [[eventWindow contentView] frame];
+		  if (loc.y > contentFrame.size.height)
+                isTitlebarAction = YES;
+		}
+	      if (isTitlebarAction)
+		{
+		  [NSApp sendEvent:event];
+		  while (1)
+		    {
+		      NSEvent *nextEvent =
+			[NSApp nextEventMatchingMask:NSEventMaskAny
+					   untilDate:[NSDate distantFuture]
+					      inMode:NSDefaultRunLoopMode
+					     dequeue:YES];
+		      if (!nextEvent)
+			break;
+		      [NSApp sendEvent:nextEvent];
+		      if ([nextEvent type] == NSEventTypeLeftMouseUp)
+			break;
+		    }
+		  return;
+		}
+	    }
+	}
       [NSApp sendEvent:event];
       break;
     }
