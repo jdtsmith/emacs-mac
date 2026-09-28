@@ -32,7 +32,7 @@ For an experimental build synced with Emacs master, see [this branch](https://gi
 
 ## Install & Config
 
-See the `emacs-mac-30_1_exp` or `emacs-mac-gnu_master_exp` branch and the file `README-mac` for additional compile instructions.
+See the file `README-mac` for additional compile instructions.
 
 > [!NOTE]
 > On MacOS, `gcc` is aliased to the `clang` compiler, which is required to build `emacs-mac`.  Recent `gcc` versions either cannot build for the architecture (e.g. Apple Silicon) and/or do not support [blocks](https://en.wikipedia.org/wiki/Blocks_(C_language_extension)), which this build uses heavily.
