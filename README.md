@@ -17,6 +17,10 @@ Known working systems:
 - MacOS 14 (Sonoma) on ARM64 (M1, M3)
 - MacOS 12 (Monterey) on X86_64 (Intel)
 
+Systems with problems:
+
+- MacOS 27 (resize/menu issues)
+
 Please see the [discussion](../../discussions/categories/show-and-tell) for advice on build configurations for your system.
 
 >[!IMPORTANT]
