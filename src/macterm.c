@@ -3014,7 +3014,17 @@ mac_mouse_position (struct frame **fp, int insist, Lisp_Object *bar_window,
 	f1 = NULL;
 
       if (!f1)
-	f1 = XFRAME (mac_event_frame ());
+	{
+	  /* A daemon serving both GUI and TTY frames can have a TTY frame
+	     selected, and `mac_event_frame' falls back to the selected one.
+	     A TTY frame has no frame controller to ask for the mouse
+	     location, so leave the frame unreported instead.  Guarding this
+	     was first proposed in
+	     https://ylluminarious.github.io/2019/05/23/how-to-fix-the-emacs-mac-port-for-multi-tty-access/  */
+	  struct frame *f2 = XFRAME (mac_event_frame ());
+
+	  f1 = FRAME_MAC_P (f2) ? f2 : NULL;
+	}
     }
 
   if (f1)
@@ -5683,6 +5693,10 @@ mac_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
   Fset_input_interrupt_mode (Qnil);
 
   gui_init_fringe (terminal->rif);
+
+  /* Startup can inhibit window-system use until the first Mac terminal has
+     finished initialization.  AppKit events must be processed after that.  */
+  inhibit_window_system = false;
 
   unblock_input ();
 
