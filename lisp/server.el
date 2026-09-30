@@ -954,7 +954,7 @@ QTEXT must be already quoted."
     ;; can not make X frames.
     (cond ((featurep 'ns-win)
 	   (setq w 'ns display "ns"))
-	  ((eq window-system 'mac)
+	  ((featurep 'mac-win)
 	   (setq w 'mac display "Mac"))
           (t
       ;; FIXME! Not sure what this was for, and not sure how it should work
@@ -1346,7 +1346,6 @@ The following commands are accepted by the client:
                  (when (or (and (eq system-type 'windows-nt)
                                 (or (daemonp)
                                     (eq window-system 'w32)))
-                           (eq window-system 'mac)
                            ;; Client runs on Windows, but the server
                            ;; runs on a Posix host.
                            (equal tty-name "CONOUT$"))
