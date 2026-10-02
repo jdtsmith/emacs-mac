@@ -74,6 +74,9 @@ You can specify another build directory for the self-contained app using `--enab
 >[!NOTE]
 > Please note the `yes` argument to `--enable-mac-app=yes`, which is required to build a self-contained app under `/Applications`.
 
+>[!WARNING]
+> If you are on macOS26 but your SDK is update to the macOS27 version (check with `xcrun --show-sdk-version`), the build may fail with a segfault.  Please try again adding `-isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk` to your `CFLAGS` above to fall back to the earlier version for your system.
+
 #### Non self-contained
 
 ```bash
