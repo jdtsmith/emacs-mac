@@ -2271,8 +2271,140 @@ static void
 mac_draw_underdash (struct glyph_string *s, int decoration_width, int y,
 		    CGFloat thickness, const CGFloat *pattern)
 {
-    mac_draw_dashed_line (s->f, s->gc, s->x, y, decoration_width,
+  mac_draw_dashed_line (s->f, s->gc, s->x, y, decoration_width,
+			thickness, pattern);
+}
+
+static void
+mac_draw_underline (struct glyph_string *s, int decoration_width)
+{
+  // Patterns for CGContextSetLineDash.  These have static storage for
+  // use with the async version of MAC_BEGIN_DRAW_TO_FRAME.
+  static const CGFloat underdot_pattern[2] = { 1, 2 };
+  static const CGFloat underdash_pattern[2] = { 3, 2 };
+
+  unsigned long thickness, position;
+  int y;
+  bool did_set_foreground = false;
+  XGCValues xgcv;
+  const CGFloat *pattern = underdot_pattern;
+
+  if (s->prev
+      && s->prev->face->underline == FACE_UNDERLINE_SINGLE
+      && (s->prev->face->underline_at_descent_line_p
+	  == s->face->underline_at_descent_line_p)
+      && (s->prev->face->underline_pixels_above_descent_line
+	  == s->face->underline_pixels_above_descent_line))
+    {
+      /* We use the same underline style as the previous one.  */
+      thickness = s->prev->underline_thickness;
+      position = s->prev->underline_position;
+    }
+  else
+    {
+      struct font *font = font_for_underline_metrics (s);
+
+      unsigned long minimum_offset;
+      bool underline_at_descent_line;
+      bool use_underline_position_properties;
+      Lisp_Object val = (WINDOW_BUFFER_LOCAL_VALUE
+			 (Qunderline_minimum_offset, s->w));
+
+      if (FIXNUMP (val))
+	minimum_offset = max (0, XFIXNUM (val));
+      else
+	minimum_offset = 1;
+
+      val = (WINDOW_BUFFER_LOCAL_VALUE
+	     (Qx_underline_at_descent_line, s->w));
+      underline_at_descent_line
+	= (!(NILP (val) || BASE_EQ (val, Qunbound))
+	   || s->face->underline_at_descent_line_p);
+
+      val = (WINDOW_BUFFER_LOCAL_VALUE
+	     (Qx_use_underline_position_properties, s->w));
+      use_underline_position_properties
+	= !(NILP (val) || BASE_EQ (val, Qunbound));
+
+      /* Get the underline thickness.  Default is 1 pixel.  */
+      if (font && font->underline_thickness > 0)
+	thickness = font->underline_thickness;
+      else
+	thickness = 1;
+      if (underline_at_descent_line)
+	position = ((s->height - thickness)
+		    - (s->ybase - s->y)
+		    - s->face->underline_pixels_above_descent_line);
+      else
+	{
+	  /* Get the underline position.  This is the
+	     recommended vertical offset in pixels from
+	     the baseline to the top of the underline.
+	     This is a signed value according to the
+	     specs, and its default is
+
+	     ROUND ((maximum descent) / 2), with
+	     ROUND(x) = floor (x + 0.5)  */
+
+	  if (use_underline_position_properties
+	      && font && font->underline_position >= 0)
+	    position = font->underline_position;
+	  else if (font)
+	    position = (font->descent + 1) / 2;
+	  else
+	    position = minimum_offset;
+	}
+
+      /* Ignore minimum_offset if the amount of pixels was
+	 explicitly specified.  */
+      if (!s->face->underline_pixels_above_descent_line)
+	position = max (position, minimum_offset);
+    }
+
+  /* Check the sanity of thickness and position.  We should
+     avoid drawing underline out of the current line area.  */
+  if (s->y + s->height <= s->ybase + position)
+    position = (s->height - 1) - (s->ybase - s->y);
+  if (s->y + s->height < s->ybase + position + thickness)
+    thickness = (s->y + s->height) - (s->ybase + position);
+  s->underline_thickness = thickness;
+  s->underline_position = position;
+  y = s->ybase + position;
+
+  if (!s->face->underline_defaulted_p)
+    {
+      mac_get_gc_values (s->gc, GCForeground, &xgcv);
+      mac_set_foreground (s->gc, s->face->underline_color);
+      did_set_foreground = true;
+    }
+
+  switch (s->face->underline)
+    {
+    case FACE_UNDERLINE_DOUBLE_LINE:
+      mac_fill_rectangle (s->f, s->gc, s->x, y - thickness - 1,
+			  s->width, thickness);
+      FALLTHROUGH;
+
+    case FACE_UNDERLINE_SINGLE:
+      mac_fill_rectangle (s->f, s->gc, s->x, y, s->width, thickness);
+      break;
+
+    case FACE_UNDERLINE_DASHES:
+      pattern = underdash_pattern;
+      FALLTHROUGH;
+
+    case FACE_UNDERLINE_DOTS:
+      mac_draw_underdash (s, decoration_width, y,
 			  thickness, pattern);
+      break;
+
+    default:
+      /* Wave style was previously handled. */
+      break;
+    }
+
+  if (did_set_foreground)
+    mac_set_foreground (s->gc, xgcv.foreground);
 }
 
 /* Draw glyph string S.  */
@@ -2280,11 +2412,6 @@ mac_draw_underdash (struct glyph_string *s, int decoration_width, int y,
 static void
 mac_draw_glyph_string (struct glyph_string *s)
 {
-  // Patterns for CGContextSetLineDash.  These have static storage for
-  // use with the async version of MAC_BEGIN_DRAW_TO_FRAME.
-  static const CGFloat underdot_pattern[2] = { 1, 2 };
-  static const CGFloat underdash_pattern[2] = { 3, 2 };
-
   bool relief_drawn_p = false;
 
   /* If S draws into the background of its successors, draw the
@@ -2418,117 +2545,8 @@ mac_draw_glyph_string (struct glyph_string *s)
 		  mac_set_foreground (s->gc, xgcv.foreground);
 		}
 	    }
-	  else if (s->face->underline == FACE_UNDERLINE_SINGLE
-		   || s->face->underline == FACE_UNDERLINE_DOTS
-		   || s->face->underline == FACE_UNDERLINE_DASHES)
-	    {
-	      unsigned long thickness, position;
-	      int y;
-	      bool did_set_foreground = false;
-	      XGCValues xgcv;
-
-              if (s->prev
-		  && s->prev->face->underline == FACE_UNDERLINE_SINGLE
-		  && (s->prev->face->underline_at_descent_line_p
-		      == s->face->underline_at_descent_line_p)
-		  && (s->prev->face->underline_pixels_above_descent_line
-		      == s->face->underline_pixels_above_descent_line))
-		{
-		  /* We use the same underline style as the previous one.  */
-		  thickness = s->prev->underline_thickness;
-		  position = s->prev->underline_position;
-		}
-	      else
-		{
-		  struct font *font = font_for_underline_metrics (s);
-
-		  unsigned long minimum_offset;
-		  bool underline_at_descent_line;
-		  bool use_underline_position_properties;
-		  Lisp_Object val = (WINDOW_BUFFER_LOCAL_VALUE
-				     (Qunderline_minimum_offset, s->w));
-
-		  if (FIXNUMP (val))
-		    minimum_offset = max (0, XFIXNUM (val));
-		  else
-		    minimum_offset = 1;
-
-		  val = (WINDOW_BUFFER_LOCAL_VALUE
-			 (Qx_underline_at_descent_line, s->w));
-		  underline_at_descent_line
-		    = (!(NILP (val) || BASE_EQ (val, Qunbound))
-		       || s->face->underline_at_descent_line_p);
-
-		  val = (WINDOW_BUFFER_LOCAL_VALUE
-			 (Qx_use_underline_position_properties, s->w));
-		  use_underline_position_properties
-		    = !(NILP (val) || BASE_EQ (val, Qunbound));
-
-		  /* Get the underline thickness.  Default is 1 pixel.  */
-                  if (font && font->underline_thickness > 0)
-                    thickness = font->underline_thickness;
-		  else
-		    thickness = 1;
-		  if (underline_at_descent_line)
-		    position = ((s->height - thickness)
-				- (s->ybase - s->y)
-				- s->face->underline_pixels_above_descent_line);
-		  else
-		    {
-                      /* Get the underline position.  This is the
-                         recommended vertical offset in pixels from
-                         the baseline to the top of the underline.
-                         This is a signed value according to the
-                         specs, and its default is
-
-			 ROUND ((maximum descent) / 2), with
-			 ROUND(x) = floor (x + 0.5)  */
-
-		      if (use_underline_position_properties
-                          && font && font->underline_position >= 0)
-                        position = font->underline_position;
-                      else if (font)
-                        position = (font->descent + 1) / 2;
-		      else
-			position = minimum_offset;
-		    }
-
-		  /* Ignore minimum_offset if the amount of pixels was
-		     explicitly specified.  */
-		  if (!s->face->underline_pixels_above_descent_line)
-		    position = max (position, minimum_offset);
-		}
-	      /* Check the sanity of thickness and position.  We should
-		 avoid drawing underline out of the current line area.  */
-	      if (s->y + s->height <= s->ybase + position)
-		position = (s->height - 1) - (s->ybase - s->y);
-	      if (s->y + s->height < s->ybase + position + thickness)
-		thickness = (s->y + s->height) - (s->ybase + position);
-	      s->underline_thickness = thickness;
-	      s->underline_position = position;
-	      y = s->ybase + position;
-
-	      if (!s->face->underline_defaulted_p)
-		{
-		  mac_get_gc_values (s->gc, GCForeground, &xgcv);
-		  mac_set_foreground (s->gc, s->face->underline_color);
-		  did_set_foreground = true;
-		}
-
-	      if (s->face->underline == FACE_UNDERLINE_SINGLE)
-		mac_fill_rectangle (s->f, s->gc, s->x, y, s->width, thickness);
-	      else
-		{
-		  const CGFloat *pattern =
-		    (s->face->underline == FACE_UNDERLINE_DOTS)
-		    ? underdot_pattern : underdash_pattern;
-		  mac_draw_underdash (s, decoration_width, y,
-				      thickness, pattern);
-		}
-
-	      if (did_set_foreground)
-		mac_set_foreground (s->gc, xgcv.foreground);
-	    }
+	  else
+	    mac_draw_underline (s, decoration_width);
 	}
 
       /* Draw overline.  */
