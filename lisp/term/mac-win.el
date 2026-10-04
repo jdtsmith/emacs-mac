@@ -3157,8 +3157,9 @@ standard ones in `x-handle-args'."
   (overlay-put mac-ts-active-input-overlay 'display "")
 
   (x-apply-session-resources)
-  (add-to-list 'display-format-alist '("\\`Mac\\'" . mac))
   (setq mac-initialized t))
+
+(add-to-list 'display-format-alist '("\\`Mac\\'" . mac))
 
 (declare-function mac-own-selection-internal "macselect.c"
 		  (selection value &optional frame))

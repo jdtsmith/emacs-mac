@@ -793,6 +793,11 @@ typedef NSInteger NSGlyphProperty;
      from CALayer contents to backing bitmap after swapping.  */
   dispatch_semaphore_t copyFromFrontToBackSemaphore;
 
+  /* Queue that copy runs on.  It is private so it stays runnable when
+     AppKit work saturates the global dispatch workers, and per backing so
+     copies for different frames still overlap.  */
+  dispatch_queue_t copyFromFrontToBackQueue;
+
 #if HAVE_MAC_METAL
   /* GPU-accessible image data for backing bitmap and CALayer
      contents.  Both should be nil if backSurface is NULL, and both
