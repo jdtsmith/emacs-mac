@@ -1771,7 +1771,7 @@ affects all frames on the same terminal device.  */)
     emacs_abort ();
 #else /* not MSDOS */
 
-#ifdef defined WINDOWSNT || defined HAVE_MACGUI
+#if defined WINDOWSNT || defined HAVE_MACGUI
   if (!FRAME_TERMCAP_P (sf)
 #ifdef HAVE_MACGUI
       && sf->output_method != output_initial
