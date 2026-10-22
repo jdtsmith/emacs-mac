@@ -486,6 +486,26 @@ mac_cgevent_set_unicode_string_from_event_ref (CGEventRef cgevent,
 
 @end				// NSImage (Emacs)
 
+/* True if -[NSApplication run] should keep fetching and dispatching
+   events by itself instead of being stopped after our block.  On
+   macOS 27, dequeuing events in a nested event loop such as that of
+   handleQueuedNSEventsWithHoldingQuitIn: cancels all active gesture
+   recognizers, including the one that starts window resizing via
+   mouse dragging. */
+
+static BOOL passEventsToRunLoop;
+
+static void
+mac_stop_passing_events_to_run_loop (void)
+{
+  if (passEventsToRunLoop)
+    {
+      passEventsToRunLoop = NO;
+      [NSApp stop:nil];
+      [NSApp postDummyEvent];
+    }
+}
+
 @implementation NSApplication (Emacs)
 
 - (void)postDummyEvent
@@ -501,8 +521,12 @@ mac_cgevent_set_unicode_string_from_event_ref (CGEventRef cgevent,
 - (void)stopAfterCallingBlock:(void (NS_NOESCAPE ^)(void))block
 {
   block ();
-  [self stop:nil];
-  [self postDummyEvent];
+  /* Do not stop if we need the run loop to handle events itself */
+  if (!passEventsToRunLoop)
+    {
+      [self stop:nil];
+      [self postDummyEvent];
+    }
 }
 
 /* Temporarily run the main event loop during the call of the given
@@ -1180,6 +1204,25 @@ static bool handling_queued_nsevents_p;
     }
 }
 
+/* While mac_within_app's -run is dispatching events by itself, events
+   that handleOneNSEvent: treats specially are put back on the queue to
+   be handled after -run returns.  */
+
+- (void)sendEvent:(NSEvent *)event
+{
+  if (passEventsToRunLoop && [event type] == NSEventTypeKeyDown)
+    {
+      [self postEvent:event atStart:YES];
+      mac_stop_passing_events_to_run_loop ();
+      return;
+    }
+
+  [super sendEvent:event];
+
+  if (passEventsToRunLoop && [event type] == NSEventTypeLeftMouseUp)
+    mac_stop_passing_events_to_run_loop ();
+}
+
 - (void)setMainMenu:(NSMenu *)mainMenu
 {
   NSMenu *currentMainMenu = [self mainMenu];
@@ -1672,7 +1715,7 @@ static BOOL extendReadSocketIntervalOnce;
 	    }
 	}
 
-      while (1)
+      while (!passEventsToRunLoop)
 	{
 	  NSEvent *event;
 	  NSUInteger mask;
@@ -1699,6 +1742,23 @@ static BOOL extendReadSocketIntervalOnce;
 	  mask = ((!MOUSE_TRACKING_SUSPENDED_P ()
 		   && dpyinfo->saved_menu_event == NULL)
 		  ? NSEventMaskAny : (NSEventMaskAny & ~ANY_MOUSE_EVENT_MASK));
+	  if (@available (macOS 27.0, *))
+	    {
+	      /* A mouse down that may start resizing must be dequeued
+		 by -run rather than by us.  Otherwise, AppKit regards
+		 it as not safe for gesture recognizers.  Peeking does
+		 not have this problem.  */
+	      event = [NSApp nextEventMatchingMask:mask untilDate:expiration
+			     inMode:NSDefaultRunLoopMode dequeue:NO];
+	      if ([event type] == NSEventTypeLeftMouseDown
+		  && [[event window] isKindOfClass:EmacsWindow.class]
+		  && [(EmacsWindow *) [event window]
+					mouseDownMayStartResize:event])
+		{
+		  passEventsToRunLoop = YES;
+		  break;
+		}
+	    }
 	  event = [NSApp nextEventMatchingMask:mask untilDate:expiration
 			 inMode:NSDefaultRunLoopMode dequeue:YES];
 
@@ -2179,6 +2239,35 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
   return result;
 }
 
+/* Width of the area inside the window edges where a mouse down may
+   start resizing.  Mouse downs just outside the edges are also
+   delivered to the window.  This is used only if the internal API
+   testing resize hit area is not available. */
+#define RESIZE_EDGE_MARGIN (5)
+
+/* Return YES if the mouse down EVENT may start resizing the window.  */
+
+- (BOOL)mouseDownMayStartResize:(NSEvent *)event
+{
+  NSWindowStyleMask styleMask = [self styleMask];
+  NSPoint location = [event locationInWindow];
+  NSRect frame = [self frame];
+
+  if (!(styleMask & NSWindowStyleMaskResizable)
+      || (styleMask & NSWindowStyleMaskFullScreen))
+    return NO;
+
+  /* Ask AppKit if possible, as resize regions near the rounded
+     corners are not rectangular.  */
+  if ([self respondsToSelector:@selector(_resizeDirectionForMouseLocation:)])
+    return [self _resizeDirectionForMouseLocation:location] != -1;
+
+  return (location.x < RESIZE_EDGE_MARGIN
+	  || location.x >= NSWidth (frame) - RESIZE_EDGE_MARGIN
+	  || location.y < RESIZE_EDGE_MARGIN
+	  || location.y >= NSHeight (frame) - RESIZE_EDGE_MARGIN);
+}
+
 - (void)setupResizeTracking:(NSEvent *)event
 {
   resizeTrackingStartWindowSize = [self frame].size;
@@ -2193,6 +2282,7 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
 				    andLocation:event.locationInWindow]);
   [NSApp postEvent:mouseUpEvent atStart:YES];
   MOUSE_TRACKING_SET_RESUMPTION (emacsController, self, resumeResizeTracking);
+  mac_stop_passing_events_to_run_loop ();
 }
 
 - (void)resumeResizeTracking
@@ -2254,6 +2344,10 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
   mouseUpEvent = nil;
   [NSApp postEvent:mouseDownEvent atStart:YES];
   setupResizeTrackingSuspended = YES;
+  /* On macOS 27, the posted events must be dequeued by -run (not
+     -nextEventMatchingMask) so that the resize gesture can start.  */
+  if (@available (macOS 27.0, *))
+    passEventsToRunLoop = YES;
 }
 
 - (void)sendEvent:(NSEvent *)event
@@ -3906,6 +4000,10 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
 
 - (void)windowDidEndLiveResize:(NSNotification *)notification
 {
+  /* Live resize may end without suspension, e.g., while pixelwise
+     resizing, and the tracking may consume the mouse up event.  Be sure
+     to stop passing events via -run. */
+  mac_stop_passing_events_to_run_loop ();
   if (liveResizeCompletionHandler)
     {
       liveResizeCompletionHandler ();
@@ -7096,6 +7194,27 @@ event_phase_to_symbol (NSEventPhase phase)
 - (void)cursorUpdate:(NSEvent *)event
 {
   struct frame *f = [self emacsFrame];
+
+  /* On macOS 27, AppKit sends cursor updates inside the resize
+     regions along the window edges.  Keep the resize cursor there.  */
+  if (@available (macOS 27.0, *))
+    {
+      NSWindow *window = [self window];
+
+      if ([window respondsToSelector:@selector(_resizeDirectionForMouseLocation:)]
+	  && [window respondsToSelector:@selector(_cursorForResizeDirection:)])
+	{
+	  NSInteger direction =
+	    [window _resizeDirectionForMouseLocation:
+		      [window mouseLocationOutsideOfEventStream]];
+
+	  if (direction != -1)
+	    {
+	      [[window _cursorForResizeDirection:direction] set];
+	      return;
+	    }
+	}
+    }
 
   mac_cursor_set (f->output_data.mac->current_cursor);
 }
