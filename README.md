@@ -17,6 +17,10 @@ Known working systems:
 - MacOS 14 (Sonoma) on ARM64 (M1, M3)
 - MacOS 12 (Monterey) on X86_64 (Intel)
 
+Systems with problems:
+
+- MacOS 27 (resize/menu issues)
+
 Please see the [discussion](../../discussions/categories/show-and-tell) for advice on build configurations for your system.
 
 >[!IMPORTANT]
@@ -28,7 +32,7 @@ For an experimental build synced with Emacs master, see [this branch](https://gi
 
 ## Install & Config
 
-See the `emacs-mac-30_1_exp` or `emacs-mac-gnu_master_exp` branch and the file `README-mac` for additional compile instructions.
+See the file `README-mac` for additional compile instructions.
 
 > [!NOTE]
 > On MacOS, `gcc` is aliased to the `clang` compiler, which is required to build `emacs-mac`.  Recent `gcc` versions either cannot build for the architecture (e.g. Apple Silicon) and/or do not support [blocks](https://en.wikipedia.org/wiki/Blocks_(C_language_extension)), which this build uses heavily.
@@ -69,6 +73,9 @@ You can specify another build directory for the self-contained app using `--enab
 
 >[!NOTE]
 > Please note the `yes` argument to `--enable-mac-app=yes`, which is required to build a self-contained app under `/Applications`.
+
+>[!WARNING]
+> If you are on macOS26 but your SDK is update to the macOS27 version (check with `xcrun --show-sdk-version`), the build may fail with a segfault.  Please try again adding `-isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk` to your `CFLAGS` above to fall back to the earlier version for your system.
 
 #### Non self-contained
 
