@@ -19,7 +19,7 @@ Known working systems:
 
 Systems with problems:
 
-- MacOS 27 (resize/menu issues; see/test [fixes](../../pull/91))
+- MacOS 27 (resize/menu issues; see/test [fixes](../../pull/159))
 
 Please see the [discussion](../../discussions/categories/show-and-tell) for advice on build configurations for your system.
 
