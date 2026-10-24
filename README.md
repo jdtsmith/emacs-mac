@@ -12,14 +12,14 @@ This is an experimental build of the [emacs-mac](https://bitbucket.org/mituharu/
 
 Known working systems:
 
-- MacOS 26
-- MacOS 15 (Sequoia) on ARM64 (M1, M2, M3, M4), X86_64 (Intel)
-- MacOS 14 (Sonoma) on ARM64 (M1, M3)
-- MacOS 12 (Monterey) on X86_64 (Intel)
+- macOS 26
+- macOS 15 (Sequoia) on ARM64 (M1, M2, M3, M4), X86_64 (Intel)
+- macOS 14 (Sonoma) on ARM64 (M1, M3)
+- macOS 12 (Monterey) on X86_64 (Intel)
 
 Systems with problems:
 
-- MacOS 27 (resize/menu issues)
+- MacOS 27 (resize/menu issues; see/test [fixes](../../pull/91))
 
 Please see the [discussion](../../discussions/categories/show-and-tell) for advice on build configurations for your system.
 
@@ -171,7 +171,14 @@ If you get crashes or just want to help with debugging, it would be very useful 
 
 ## Contributions
 
-We are very happy to accept contributions, especially bug fixes and other improvements.
+We are very happy to accept contributions, especially bug fixes and other improvements.  
+
+### AI contributions
+
+We accept contributions (issues/PRs) created with the help of AI, but they must be clearly marked as such, and you must understand the commits at least at a high level. Please do not dump large AI-generated issue/PR prose.  Instead, shorten & rewrite these in your own words.  
+
+>[!IMPORTANT]
+> _Only_ the files `mac*.[chm]` and `lisp/term/mac-win.el` are "owned" by this build.  These are the only files which should be modified in new contributions, except in very rare circumstances (with a good reason).  Improvements to other files may be better targeted upstream (but note the different LLM contribution policy).
 
 ## Notes
 
