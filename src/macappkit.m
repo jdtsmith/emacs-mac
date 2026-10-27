@@ -7809,7 +7809,16 @@ mac_ts_active_input_string_in_echo_area_p (struct frame *f)
 
 - (void)viewFrameDidChange:(NSNotification *)notification
 {
-  if (![self inLiveResize]
+  BOOL reportsSizeChange = ![self inLiveResize];
+
+  /* On macOS 27, live resize ends asynchronously well after resize
+     tracking is suspended, and Lisp would redisplay with the old size
+     in the meantime, causing flashing.  Report the new size now. */
+  if (!reportsSizeChange)
+    if (@available (macOS 27.0, *))
+      reportsSizeChange = [emacsController isMouseTrackingSuspended];
+
+  if (reportsSizeChange
       && ([self autoresizingMask] & (NSViewWidthSizable | NSViewHeightSizable)))
     {
       struct frame *f = [self emacsFrame];
