@@ -2332,10 +2332,19 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
 	hysteresisCancelLocation.y = location.y;
     }
 
-  hysteresisCancelDragEvent =
-    [mouseUpEvent mouseEventByChangingType:NSEventTypeLeftMouseDragged
-			       andLocation:hysteresisCancelLocation];
-  [NSApp postEvent:hysteresisCancelDragEvent atStart:YES];
+  /* On macOS 27, the resize gesture recognizer takes this drag event
+     as an actual move and shrinks the window, unless it is coalesced
+     with a subsequent drag event from a mouse.  Trackpad drag events
+     are not coalesced with it.  */
+  if (@available (macOS 27.0, *))
+    ;
+  else
+    {
+      hysteresisCancelDragEvent =
+	[mouseUpEvent mouseEventByChangingType:NSEventTypeLeftMouseDragged
+				   andLocation:hysteresisCancelLocation];
+      [NSApp postEvent:hysteresisCancelDragEvent atStart:YES];
+    }
 
   mouseDownEvent = [mouseUpEvent
 		     mouseEventByChangingType:NSEventTypeLeftMouseDown
@@ -3539,7 +3548,15 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
   EmacsWindow *window = (EmacsWindow *) sender;
   NSEvent *currentEvent = [NSApp currentEvent];
   BOOL leftMouseDragged = ([currentEvent type] == NSEventTypeLeftMouseDragged);
+  BOOL pressureChanged = NO;
   NSSize result;
+
+  /* On macOS 27, resizing with a Force Touch trackpad may proceed
+     with a pressure event as the current event.  Treat it like a
+     drag except that it cannot suspend resize tracking.  */
+  if (@available (macOS 27.0, *))
+    pressureChanged = ([currentEvent type] == NSEventTypePressure
+		       && [window inLiveResize]);
 
   if (windowManagerState & WM_STATE_FULLSCREEN)
     {
@@ -3554,7 +3571,8 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
     }
   else
     {
-      if (leftMouseDragged || [emacsController isMouseTrackingSuspended])
+      if (leftMouseDragged || pressureChanged
+	  || [emacsController isMouseTrackingSuspended])
 	result = [self hintedWindowFrameSize:proposedFrameSize
 				allowsLarger:YES];
       else
@@ -3589,7 +3607,7 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
 
       [window suspendResizeTracking:currentEvent positionAdjustment:adjustment];
     }
-  else if ([window inLiveResize]
+  else if ([window inLiveResize] && !pressureChanged
 	   && [currentEvent type] != NSEventTypeLeftMouseUp)
     [self setupLiveResizeTransition];
 
