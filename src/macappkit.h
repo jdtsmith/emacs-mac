@@ -1088,6 +1088,7 @@ typedef NSInteger NSGlyphProperty;
 @interface NSMenu (Emacs)
 - (NSMenuItem *)addItemWithWidgetValue:(widget_value *)wv;
 - (void)fillWithWidgetValue:(widget_value *)first_wv;
+- (void)replaceEmacsItemsWithWidgetValue:(widget_value *)first_wv;
 @end
 
 @interface EmacsMenu : NSMenu

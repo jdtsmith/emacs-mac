@@ -113,7 +113,9 @@ static void mac_within_gui_and_here (void (^) (void),
 				     void (^) (void));
 static void mac_within_gui_allowing_inner_lisp (void (^) (void));
 static void mac_within_lisp (void (^) (void));
+static void mac_within_lisp_deferred (void (^) (void));
 static void mac_within_lisp_deferred_unless_popup (void (^) (void));
+static void mac_wake_up_select (void);
 
 static void mac_draw_queue_sync(void);
 
@@ -121,6 +123,12 @@ static void mac_draw_queue_sync(void);
 #if MAC_SELECT_ALLOW_LISP_EVALUATION
 static bool mac_select_allow_lisp_evaluation;
 #endif
+
+/* True if the menu bar has been updated in place (on macOS 27) since
+   the last call to mac_read_socket.  */
+static bool menuBarUpdatedInPlace;
+
+static void mac_handle_menu_bar_selection (int);
 
 @implementation NSData (Emacs)
 
@@ -1480,6 +1488,23 @@ static bool handling_queued_nsevents_p;
 
 - (void)setMenuItemSelectionToTag:(id)sender
 {
+  /* On macOS 27, menu bar items may be selected while no popup is
+     activated, i.e., outside mac_activate_menubar, in the external
+     menu-handling process now used on 27+.  Instead, handle the
+     selection in the Lisp thread when it next processes deferred
+     blocks. */
+  if (@available (macOS 27.0, *))
+    if (!popup_activated ())
+      {
+	int selection = [sender tag];
+
+	mac_within_lisp_deferred (^{
+	    mac_handle_menu_bar_selection (selection);
+	  });
+	mac_wake_up_select ();
+	return;
+      }
+
   menuItemSelection = [sender tag];
 }
 
@@ -1697,6 +1722,8 @@ static BOOL extendReadSocketIntervalOnce;
 
       hold_quit = bufp;
       count = 0;
+      /* Lisp may have changed the menu bar contents in the meantime. */
+      menuBarUpdatedInPlace = false;
 
       if (MOUSE_TRACKING_SUSPENDED_P ())
 	{
@@ -1722,8 +1749,11 @@ static BOOL extendReadSocketIntervalOnce;
 
 	  if (dpyinfo->saved_menu_event == NULL)
 	    {
+	      /* Note: on macOS27, menu clicks are handled out of
+		 process, hence we never see a click or keyboard event
+		 activating a menubar.  On 27+, menuNeedsUpdate: is used
+		 instead. */
 	      EventRef menu_event = peek_if_next_event_activates_menu_bar ();
-
 	      if (menu_event)
 		{
 		  struct input_event inev;
@@ -10969,6 +10999,20 @@ mac_font_dialog (struct frame *f)
 static void update_services_menu_types (void);
 static void mac_fake_menu_bar_click (EventPriority);
 
+/* On macOS 27, menu bar tracking runs out of process and we cannot
+   intercept the click that starts it.  Instead, we update the menu bar
+   contents in place just before AppKit is about to open one of its
+   submenus, by synchronously asking the Lisp thread (if waiting in
+   mac_select).  */
+
+/* Non-nil while mac_fill_menubar should update the existing submenus
+   in place rather than replacing the main menu.  The value is the
+   submenu that AppKit is about to open.  */
+static NSMenu *menuBarUpdateInPlaceForMenu;
+
+static void mac_update_menubar_in_place (void);
+static void mac_show_menu_bar_help (Lisp_Object);
+
 static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localizedMenuTitleForWindow;
 
 /* Maximum interval time in seconds between key down and modifier key
@@ -10990,6 +11034,12 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
     {
       item = (NSMenuItem *) [NSMenuItem separatorItem];
       [self addItem:item];
+
+      /* Mark it as our menu item for replaceEmacsItemsWithWidgetValue:.  */
+      EmacsWeakLispObject *weakLispObject =
+	[[EmacsWeakLispObject alloc] initWithLispObject:Qnil];
+      item.representedObject = weakLispObject;
+      MRC_RELEASE (weakLispObject);
     }
   else
     {
@@ -11085,6 +11135,28 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
     }
 
   [self setDelegate:emacsController];
+}
+
+/* Replace the items created by addItemWithWidgetValue: with those
+   defined by FIRST_WV, keeping the ones added by AppKit (e.g., in the
+   Edit menu) after them.  Used only on macOS27+ to work around out of
+   process menu tracking. */
+
+- (void)replaceEmacsItemsWithWidgetValue:(widget_value *)first_wv
+{
+  NSMenu *menu = [[NSMenu alloc] init];
+  NSInteger index = 0;
+
+  [menu fillWithWidgetValue:first_wv];
+  for (NSMenuItem *item in [NSArray arrayWithArray:self.itemArray])
+    if ([item.representedObject isKindOfClass:EmacsWeakLispObject.class])
+      [self removeItem:item];
+  for (NSMenuItem *item in [NSArray arrayWithArray:menu.itemArray])
+    {
+      [menu removeItem:item];
+      [self insertItem:item atIndex:index++];
+    }
+  MRC_RELEASE (menu);
 }
 
 @end				// NSMenu (Emacs)
@@ -11245,6 +11317,12 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
 
 - (void)menuDidBeginTracking:(NSNotification *)notification
 {
+  /* On macOS 27, menu bar tracking starts out of process without going
+     through mac_activate_menubar (no menu-press event is ever
+     received).  Let it proceed; menuNeedsUpdate: updates the
+     contents.  */
+  if (@available (macOS 27.0, *))
+    return;
   if (!popup_activated ())
     {
       NSLog (@"Canceling unexpected menu tracking: %@", [NSApp currentEvent]);
@@ -11276,9 +11354,51 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
 
 @implementation EmacsController (Menu)
 
+/* On macOS 27, update the menu bar contents just before AppKit opens a
+   menu bar submenu in its out-of-process tracking session (new on v27).
+   This is possible to do synchronously only if the Lisp thread is
+   waiting in mac_select and no other Lisp threads may run.  Otherwise,
+   the previous contents are shown.  AppKit may call this for all the
+   submenus at once (e.g., for Help menu search), but we update the
+   whole menu bar only once until the next mac_read_socket call.  */
+
+- (void)menuNeedsUpdate:(NSMenu *)menu
+{
+  if (@available (macOS 27.0, *))
+    {
+      NSMenu *mainMenu = [NSApp mainMenu];
+
+      if (popup_activated () || menuBarUpdatedInPlace
+	  || menuBarUpdateInPlaceForMenu
+	  || menu.supermenu != mainMenu
+	  /* The application menu is not ours.  */
+	  || [mainMenu indexOfItemWithSubmenu:menu] <= 0)
+	return;
+#if MAC_SELECT_ALLOW_LISP_EVALUATION
+      if (!mac_select_allow_lisp_evaluation)
+	return;
+      menuBarUpdatedInPlace = true;
+      menuBarUpdateInPlaceForMenu = menu;
+      mac_within_lisp (^{mac_update_menubar_in_place ();});
+      menuBarUpdateInPlaceForMenu = nil;
+#endif
+    }
+}
+
 - (void)menu:(NSMenu *)menu willHighlightItem:(NSMenuItem *)item
 {
-  if (!popup_activated ())
+  /* On macOS 27, also show help in a menu bar tracking session outside
+     mac_activate_menubar (see menuNeedsUpdate:), provided that the
+     menu bar was just updated, so the help objects are still alive,
+     and the Lisp thread is waiting in mac_select.  */
+  bool menu_bar_session_p = false;
+
+#if MAC_SELECT_ALLOW_LISP_EVALUATION
+  if (@available (macOS 27.0, *))
+    menu_bar_session_p = (!popup_activated () && menuBarUpdatedInPlace
+			  && mac_select_allow_lisp_evaluation);
+#endif
+  if (!popup_activated () && !menu_bar_session_p)
     return;
 
   id object = item.representedObject;
@@ -11289,7 +11409,10 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
   else
     help = Qnil;
 
-  mac_within_lisp (^{show_help_echo (help, Qnil, Qnil, Qnil);});
+  if (menu_bar_session_p)
+    mac_within_lisp (^{mac_show_menu_bar_help (help);});
+  else
+    mac_within_lisp (^{show_help_echo (help, Qnil, Qnil, Qnil);});
 }
 
 /* Start menu bar tracking and return when it is completed.
@@ -11458,26 +11581,49 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
 
 @end				// EmacsFrameController (Menu)
 
-static void
-mac_track_menu_with_block (void (^block) (void))
-{
-  eassert (!pthread_main_np ());
-  Lisp_Object mini_window, old_show_help_function = Vshow_help_function;
+/* Return the value to temporarily bind Vshow_help_function to during
+   menu tracking: tooltip-show-help-non-mode, or nil if the minibuffer
+   frame is not visible (because we don't want tooltips then).  */
 
-  /* Temporarily bind Vshow_help_function to
-     tooltip-show-help-non-mode (or nil if the minibuffer frame is not
-     visible) because we don't want tooltips during menu tracking.  */
-  Vshow_help_function = Qnil;
-  mini_window = FRAME_MINIBUF_WINDOW (SELECTED_FRAME ());
+static Lisp_Object
+mac_menu_show_help_function (void)
+{
+  Lisp_Object mini_window = FRAME_MINIBUF_WINDOW (SELECTED_FRAME ());
+
   if (WINDOWP (mini_window))
     {
       struct frame *mini_frame = XFRAME (WINDOW_FRAME (XWINDOW (mini_window)));
 
       if (FRAME_MAC_P (mini_frame)
 	  && FRAME_VISIBLE_P (mini_frame))
-	Vshow_help_function = intern ("tooltip-show-help-non-mode");
+	return intern ("tooltip-show-help-non-mode");
     }
+
+  return Qnil;
+}
+
+static void
+mac_track_menu_with_block (void (^block) (void))
+{
+  eassert (!pthread_main_np ());
+  Lisp_Object old_show_help_function = Vshow_help_function;
+
+  Vshow_help_function = mac_menu_show_help_function ();
   mac_within_gui_allowing_inner_lisp (block);
+  Vshow_help_function = old_show_help_function;
+}
+
+/* Show HELP for a highlighted menu bar item during a macOS 27 menu bar
+   tracking session outside mac_activate_menubar.  This is called in
+   the Lisp thread.  */
+
+static void
+mac_show_menu_bar_help (Lisp_Object help)
+{
+  Lisp_Object old_show_help_function = Vshow_help_function;
+
+  Vshow_help_function = mac_menu_show_help_function ();
+  show_help_echo (help, Qnil, Qnil, Qnil);
   Vshow_help_function = old_show_help_function;
 }
 
@@ -11536,6 +11682,48 @@ mac_activate_menubar (struct frame *f)
   unblock_input ();
 
   if (selection)
+    find_and_call_menu_selection (f, f->menu_bar_items_used, f->menu_bar_vector,
+				  (void *) (intptr_t) selection);
+}
+
+static Lisp_Object
+mac_update_menubar_in_place_1 (void *arg)
+{
+  set_frame_menubar (arg, true);
+
+  return Qnil;
+}
+
+static Lisp_Object
+mac_update_menubar_in_place_handler (enum nonlocal_exit type, Lisp_Object val)
+{
+  return Qnil;
+}
+
+/* Update the contents of the menu bar submenus for the selected frame
+   in place, without replacing the main menu itself.  This is called in
+   the Lisp thread via mac_within_lisp from menuNeedsUpdate: on macOS 27
+   and later.  Nonlocal exits must not escape to the GUI thread.  */
+
+static void
+mac_update_menubar_in_place (void)
+{
+  struct frame *f = SELECTED_FRAME ();
+
+  if (FRAME_MAC_P (f))
+    internal_catch_all (mac_update_menubar_in_place_1, f,
+			mac_update_menubar_in_place_handler);
+}
+
+/* Handle the menu bar item SELECTION made outside mac_activate_menubar
+   on macOS 27.  This is called in the Lisp thread.  */
+
+static void
+mac_handle_menu_bar_selection (int selection)
+{
+  struct frame *f = SELECTED_FRAME ();
+
+  if (FRAME_MAC_P (f) && selection)
     find_and_call_menu_selection (f, f->menu_bar_items_used, f->menu_bar_vector,
 				  (void *) (intptr_t) selection);
 }
@@ -11622,6 +11810,7 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 {
   mac_within_gui (^{
       NSMenu *newMenu, *mainMenu = [NSApp mainMenu], *helpMenu, *windowMenu = nil;
+      NSMenu *existingWindowsMenu = nil;
       NSInteger index = 1, nitems = [mainMenu numberOfItems];
       bool needs_update_p = deep_p;
 
@@ -11633,7 +11822,8 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 	  NSString *title = CFBridgingRelease (CFStringCreateWithCString
 					       (NULL, wv->name,
 						kCFStringEncodingMacRoman));
-	  NSMenu *submenu;
+	  NSMenu *submenu = nil;
+	  bool is_window_menu = false;
 
 	  /* The title of the Help menu needs to be localized in order
 	     for Spotlight for Help to be installed on Mac OS X
@@ -11649,8 +11839,27 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
           /* Localize Window Menu for consistency with AppKit provided
              menu items. */
 	  else if ([title isEqualToString:@"Window"])
-	    title = localizedMenuTitleForWindow;
+	    {
+	      title = localizedMenuTitleForWindow;
+	      is_window_menu = true;
+	      existingWindowsMenu = [NSApp windowsMenu];
+	    }
 
+	  if (menuBarUpdateInPlaceForMenu)
+	    {
+	      /* Refill the existing submenu with the same title.  Leave
+		 the Window menu alone while AppKit is opening it, as
+		 AppKit adds its own items to it then.  */
+	      if (wv->contents && index < nitems)
+		{
+		  submenu = [mainMenu itemAtIndex:index].submenu;
+		  if (submenu && [title isEqualToString:submenu.title]
+		      && !(is_window_menu
+			   && submenu == menuBarUpdateInPlaceForMenu))
+		    [submenu replaceEmacsItemsWithWidgetValue:wv->contents];
+		}
+	      continue;
+	    }
 
 	  if (!needs_update_p)
 	    {
@@ -11664,7 +11873,21 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 		}
 	    }
 
-	  submenu = [[NSMenu alloc] initWithTitle:title];
+	  if (is_window_menu && existingWindowsMenu != nil)
+	    {
+	      submenu = existingWindowsMenu;
+	      NSMenu *oldParent = [submenu supermenu];
+	      if (oldParent)
+                {
+                  NSInteger oldIndex = [oldParent indexOfItemWithSubmenu:submenu];
+                  if (oldIndex != -1)
+                      [[oldParent itemAtIndex:oldIndex] setSubmenu:nil];
+                }
+	      [submenu removeAllItems];
+	    }
+	  else
+	      submenu = [[NSMenu alloc] initWithTitle:title];
+
 	  [submenu setAutoenablesItems:NO];
 
 	  if (title == localizedMenuTitleForHelp)
@@ -11678,8 +11901,17 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 
 	  if (wv->contents)
 	    [submenu fillWithWidgetValue:wv->contents];
+	  /* For menuNeedsUpdate:.  Shallow submenus get no delegate
+	     otherwise.  */
+	  [submenu setDelegate:emacsController];
+	  if (submenu != existingWindowsMenu)
+	    MRC_RELEASE (submenu);
+	}
 
-	  MRC_RELEASE (submenu);
+      if (menuBarUpdateInPlaceForMenu)
+	{
+	  MRC_RELEASE (newMenu);
+	  return;
 	}
 
       if (!needs_update_p && index != nitems)
@@ -11695,9 +11927,12 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 
 	  [NSApp setMainMenu:newMenu];
 
-	  if (windowMenu && [windowMenu numberOfItems])
-	    [NSApp setWindowsMenu:windowMenu];
-
+	  if (windowMenu)
+	    {
+              [NSApp setWindowsMenu:nil];
+              [NSApp setWindowsMenu:windowMenu];
+	      [windowMenu update]; /* Ensure tiling keys are set */
+	    }
 	  if (helpMenu)
 	    [NSApp setHelpMenu:helpMenu];
 	}
@@ -17137,6 +17372,14 @@ write_one_byte_to_fd (int fd)
   while (rtnval == 0 || (rtnval < 0 && errno == EINTR));
 
   return rtnval;
+}
+
+/* Make mac_select return, if it is waiting.  */
+
+static void
+mac_wake_up_select (void)
+{
+  write_one_byte_to_fd (mac_select_fds[0]);
 }
 
 static void
