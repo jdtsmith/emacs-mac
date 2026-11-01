@@ -2337,7 +2337,34 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
      with a subsequent drag event from a mouse.  Trackpad drag events
      are not coalesced with it.  */
   if (@available (macOS 27.0, *))
-    ;
+    {
+      /* Instead, drag to the current pointer position projected
+	 across the edge (or to the pointer itself for a corner), so
+	 that the new resize gesture sees no movement along the edge
+	 at first.  Otherwise, it may take subsequent drag events
+	 mostly along the edge as moving the window.  The axes with
+	 hysteresis cancellation are those across the edge.  The
+	 gesture doesn't begin unless the drag moves at least a point
+	 or so, but where it moves to doesn't matter afterwards.  */
+      NSPoint pointer = [self mouseLocationOutsideOfEventStream];
+      NSPoint acrossEdge = location;
+      CGFloat dx = pointer.x - location.x, dy = pointer.y - location.y;
+      NSEvent *dragEvent;
+
+      if (hysteresisCancelLocation.x != location.x)
+	acrossEdge.x += fabs (dx) >= 2 ? dx : dx < 0 ? -2 : 2;
+      if (hysteresisCancelLocation.y != location.y)
+	acrossEdge.y += fabs (dy) >= 2 ? dy : dy < 0 ? -2 : 2;
+      dragEvent =
+	[mouseUpEvent mouseEventByChangingType:NSEventTypeLeftMouseDragged
+				   andLocation:acrossEdge];
+
+      /* Drag events queued while resize tracking was suspended
+	 would pull the window back to their stale positions.  */
+      [NSApp discardEventsMatchingMask:NSEventMaskLeftMouseDragged
+			   beforeEvent:dragEvent];
+      [NSApp postEvent:dragEvent atStart:YES];
+    }
   else
     {
       hysteresisCancelDragEvent =
