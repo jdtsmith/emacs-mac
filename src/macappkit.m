@@ -1467,6 +1467,8 @@ static bool handling_queued_nsevents_p;
 /* Event handling  */
 
 static EventRef peek_if_next_event_activates_menu_bar (void);
+static int mac_select_fds[2];
+static int write_one_byte_to_fd (int);
 
 /* Store BUFP to kbd_buffer.  */
 
@@ -1481,6 +1483,13 @@ static EventRef peek_if_next_event_activates_menu_bar (void);
     {
       kbd_buffer_store_event_hold (bufp, hold_quit);
       count++;
+      /* Outside -handleQueuedNSEventsWithHoldingQuitIn:, nothing tells
+	 a Lisp thread blocked in mac_select that input is pending: the
+	 run loop there doesn't return for a timer.  On macOS 27, a
+	 gesture recognizer delays mouse events and delivers them from
+	 such a timer once it fails, so wake mac_select explicitly.  */
+      if (!hold_quit && initialized)
+	write_one_byte_to_fd (mac_select_fds[0]);
     }
 }
 
