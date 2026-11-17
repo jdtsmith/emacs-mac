@@ -531,6 +531,12 @@ typedef NSInteger NSGlyphProperty;
 + (NSCursor *)_windowResizeSouthEastCursor;
 @end
 
+/* Both return or accept -1 for "not in a resize region".  */
+@interface NSWindow (Undocumented)
+- (NSInteger)_resizeDirectionForMouseLocation:(NSPoint)locationInWindow;
+- (NSCursor *)_cursorForResizeDirection:(NSInteger)direction;
+@end
+
 @interface EmacsApplication : NSApplication
 @end
 
@@ -649,6 +655,7 @@ typedef NSInteger NSGlyphProperty;
      EmacsWindow object.  */
   NSWindowTabGroup *observedTabGroup;
 }
+- (BOOL)mouseDownMayStartResize:(NSEvent *)event;
 - (void)suspendResizeTracking:(NSEvent *)event
 	   positionAdjustment:(NSPoint)adjustment;
 - (void)resumeResizeTracking;
@@ -1081,6 +1088,7 @@ typedef NSInteger NSGlyphProperty;
 @interface NSMenu (Emacs)
 - (NSMenuItem *)addItemWithWidgetValue:(widget_value *)wv;
 - (void)fillWithWidgetValue:(widget_value *)first_wv;
+- (void)replaceEmacsItemsWithWidgetValue:(widget_value *)first_wv;
 @end
 
 @interface EmacsMenu : NSMenu

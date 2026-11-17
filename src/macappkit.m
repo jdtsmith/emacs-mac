@@ -113,7 +113,9 @@ static void mac_within_gui_and_here (void (^) (void),
 				     void (^) (void));
 static void mac_within_gui_allowing_inner_lisp (void (^) (void));
 static void mac_within_lisp (void (^) (void));
+static void mac_within_lisp_deferred (void (^) (void));
 static void mac_within_lisp_deferred_unless_popup (void (^) (void));
+static void mac_wake_up_select (void);
 
 static void mac_draw_queue_sync(void);
 
@@ -121,6 +123,12 @@ static void mac_draw_queue_sync(void);
 #if MAC_SELECT_ALLOW_LISP_EVALUATION
 static bool mac_select_allow_lisp_evaluation;
 #endif
+
+/* True if the menu bar has been updated in place (on macOS 27) since
+   the last call to mac_read_socket.  */
+static bool menuBarUpdatedInPlace;
+
+static void mac_handle_menu_bar_selection (int);
 
 @implementation NSData (Emacs)
 
@@ -486,6 +494,26 @@ mac_cgevent_set_unicode_string_from_event_ref (CGEventRef cgevent,
 
 @end				// NSImage (Emacs)
 
+/* True if -[NSApplication run] should keep fetching and dispatching
+   events by itself instead of being stopped after our block.  On
+   macOS 27, dequeuing events in a nested event loop such as that of
+   handleQueuedNSEventsWithHoldingQuitIn: cancels all active gesture
+   recognizers, including the one that starts window resizing via
+   mouse dragging. */
+
+static BOOL passEventsToRunLoop;
+
+static void
+mac_stop_passing_events_to_run_loop (void)
+{
+  if (passEventsToRunLoop)
+    {
+      passEventsToRunLoop = NO;
+      [NSApp stop:nil];
+      [NSApp postDummyEvent];
+    }
+}
+
 @implementation NSApplication (Emacs)
 
 - (void)postDummyEvent
@@ -501,8 +529,12 @@ mac_cgevent_set_unicode_string_from_event_ref (CGEventRef cgevent,
 - (void)stopAfterCallingBlock:(void (NS_NOESCAPE ^)(void))block
 {
   block ();
-  [self stop:nil];
-  [self postDummyEvent];
+  /* Do not stop if we need the run loop to handle events itself */
+  if (!passEventsToRunLoop)
+    {
+      [self stop:nil];
+      [self postDummyEvent];
+    }
 }
 
 /* Temporarily run the main event loop during the call of the given
@@ -1180,6 +1212,25 @@ static bool handling_queued_nsevents_p;
     }
 }
 
+/* While mac_within_app's -run is dispatching events by itself, events
+   that handleOneNSEvent: treats specially are put back on the queue to
+   be handled after -run returns.  */
+
+- (void)sendEvent:(NSEvent *)event
+{
+  if (passEventsToRunLoop && [event type] == NSEventTypeKeyDown)
+    {
+      [self postEvent:event atStart:YES];
+      mac_stop_passing_events_to_run_loop ();
+      return;
+    }
+
+  [super sendEvent:event];
+
+  if (passEventsToRunLoop && [event type] == NSEventTypeLeftMouseUp)
+    mac_stop_passing_events_to_run_loop ();
+}
+
 - (void)setMainMenu:(NSMenu *)mainMenu
 {
   NSMenu *currentMainMenu = [self mainMenu];
@@ -1437,6 +1488,23 @@ static bool handling_queued_nsevents_p;
 
 - (void)setMenuItemSelectionToTag:(id)sender
 {
+  /* On macOS 27, menu bar items may be selected while no popup is
+     activated, i.e., outside mac_activate_menubar, in the external
+     menu-handling process now used on 27+.  Instead, handle the
+     selection in the Lisp thread when it next processes deferred
+     blocks. */
+  if (@available (macOS 27.0, *))
+    if (!popup_activated ())
+      {
+	int selection = [sender tag];
+
+	mac_within_lisp_deferred (^{
+	    mac_handle_menu_bar_selection (selection);
+	  });
+	mac_wake_up_select ();
+	return;
+      }
+
   menuItemSelection = [sender tag];
 }
 
@@ -1654,6 +1722,8 @@ static BOOL extendReadSocketIntervalOnce;
 
       hold_quit = bufp;
       count = 0;
+      /* Lisp may have changed the menu bar contents in the meantime. */
+      menuBarUpdatedInPlace = false;
 
       if (MOUSE_TRACKING_SUSPENDED_P ())
 	{
@@ -1672,15 +1742,18 @@ static BOOL extendReadSocketIntervalOnce;
 	    }
 	}
 
-      while (1)
+      while (!passEventsToRunLoop)
 	{
 	  NSEvent *event;
 	  NSUInteger mask;
 
 	  if (dpyinfo->saved_menu_event == NULL)
 	    {
+	      /* Note: on macOS27, menu clicks are handled out of
+		 process, hence we never see a click or keyboard event
+		 activating a menubar.  On 27+, menuNeedsUpdate: is used
+		 instead. */
 	      EventRef menu_event = peek_if_next_event_activates_menu_bar ();
-
 	      if (menu_event)
 		{
 		  struct input_event inev;
@@ -1699,6 +1772,23 @@ static BOOL extendReadSocketIntervalOnce;
 	  mask = ((!MOUSE_TRACKING_SUSPENDED_P ()
 		   && dpyinfo->saved_menu_event == NULL)
 		  ? NSEventMaskAny : (NSEventMaskAny & ~ANY_MOUSE_EVENT_MASK));
+	  if (@available (macOS 27.0, *))
+	    {
+	      /* A mouse down that may start resizing must be dequeued
+		 by -run rather than by us.  Otherwise, AppKit regards
+		 it as not safe for gesture recognizers.  Peeking does
+		 not have this problem.  */
+	      event = [NSApp nextEventMatchingMask:mask untilDate:expiration
+			     inMode:NSDefaultRunLoopMode dequeue:NO];
+	      if ([event type] == NSEventTypeLeftMouseDown
+		  && [[event window] isKindOfClass:EmacsWindow.class]
+		  && [(EmacsWindow *) [event window]
+					mouseDownMayStartResize:event])
+		{
+		  passEventsToRunLoop = YES;
+		  break;
+		}
+	    }
 	  event = [NSApp nextEventMatchingMask:mask untilDate:expiration
 			 inMode:NSDefaultRunLoopMode dequeue:YES];
 
@@ -2179,6 +2269,35 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
   return result;
 }
 
+/* Width of the area inside the window edges where a mouse down may
+   start resizing.  Mouse downs just outside the edges are also
+   delivered to the window.  This is used only if the internal API
+   testing resize hit area is not available. */
+#define RESIZE_EDGE_MARGIN (5)
+
+/* Return YES if the mouse down EVENT may start resizing the window.  */
+
+- (BOOL)mouseDownMayStartResize:(NSEvent *)event
+{
+  NSWindowStyleMask styleMask = [self styleMask];
+  NSPoint location = [event locationInWindow];
+  NSRect frame = [self frame];
+
+  if (!(styleMask & NSWindowStyleMaskResizable)
+      || (styleMask & NSWindowStyleMaskFullScreen))
+    return NO;
+
+  /* Ask AppKit if possible, as resize regions near the rounded
+     corners are not rectangular.  */
+  if ([self respondsToSelector:@selector(_resizeDirectionForMouseLocation:)])
+    return [self _resizeDirectionForMouseLocation:location] != -1;
+
+  return (location.x < RESIZE_EDGE_MARGIN
+	  || location.x >= NSWidth (frame) - RESIZE_EDGE_MARGIN
+	  || location.y < RESIZE_EDGE_MARGIN
+	  || location.y >= NSHeight (frame) - RESIZE_EDGE_MARGIN);
+}
+
 - (void)setupResizeTracking:(NSEvent *)event
 {
   resizeTrackingStartWindowSize = [self frame].size;
@@ -2193,6 +2312,7 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
 				    andLocation:event.locationInWindow]);
   [NSApp postEvent:mouseUpEvent atStart:YES];
   MOUSE_TRACKING_SET_RESUMPTION (emacsController, self, resumeResizeTracking);
+  mac_stop_passing_events_to_run_loop ();
 }
 
 - (void)resumeResizeTracking
@@ -2242,10 +2362,46 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
 	hysteresisCancelLocation.y = location.y;
     }
 
-  hysteresisCancelDragEvent =
-    [mouseUpEvent mouseEventByChangingType:NSEventTypeLeftMouseDragged
-			       andLocation:hysteresisCancelLocation];
-  [NSApp postEvent:hysteresisCancelDragEvent atStart:YES];
+  /* On macOS 27, the resize gesture recognizer takes this drag event
+     as an actual move and shrinks the window, unless it is coalesced
+     with a subsequent drag event from a mouse.  Trackpad drag events
+     are not coalesced with it.  */
+  if (@available (macOS 27.0, *))
+    {
+      /* Instead, drag to the current pointer position projected
+	 across the edge (or to the pointer itself for a corner), so
+	 that the new resize gesture sees no movement along the edge
+	 at first.  Otherwise, it may take subsequent drag events
+	 mostly along the edge as moving the window.  The axes with
+	 hysteresis cancellation are those across the edge.  The
+	 gesture doesn't begin unless the drag moves at least a point
+	 or so, but where it moves to doesn't matter afterwards.  */
+      NSPoint pointer = [self mouseLocationOutsideOfEventStream];
+      NSPoint acrossEdge = location;
+      CGFloat dx = pointer.x - location.x, dy = pointer.y - location.y;
+      NSEvent *dragEvent;
+
+      if (hysteresisCancelLocation.x != location.x)
+	acrossEdge.x += fabs (dx) >= 2 ? dx : dx < 0 ? -2 : 2;
+      if (hysteresisCancelLocation.y != location.y)
+	acrossEdge.y += fabs (dy) >= 2 ? dy : dy < 0 ? -2 : 2;
+      dragEvent =
+	[mouseUpEvent mouseEventByChangingType:NSEventTypeLeftMouseDragged
+				   andLocation:acrossEdge];
+
+      /* Drag events queued while resize tracking was suspended
+	 would pull the window back to their stale positions.  */
+      [NSApp discardEventsMatchingMask:NSEventMaskLeftMouseDragged
+			   beforeEvent:dragEvent];
+      [NSApp postEvent:dragEvent atStart:YES];
+    }
+  else
+    {
+      hysteresisCancelDragEvent =
+	[mouseUpEvent mouseEventByChangingType:NSEventTypeLeftMouseDragged
+				   andLocation:hysteresisCancelLocation];
+      [NSApp postEvent:hysteresisCancelDragEvent atStart:YES];
+    }
 
   mouseDownEvent = [mouseUpEvent
 		     mouseEventByChangingType:NSEventTypeLeftMouseDown
@@ -2254,6 +2410,10 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
   mouseUpEvent = nil;
   [NSApp postEvent:mouseDownEvent atStart:YES];
   setupResizeTrackingSuspended = YES;
+  /* On macOS 27, the posted events must be dequeued by -run (not
+     -nextEventMatchingMask) so that the resize gesture can start.  */
+  if (@available (macOS 27.0, *))
+    passEventsToRunLoop = YES;
 }
 
 - (void)sendEvent:(NSEvent *)event
@@ -3445,7 +3605,15 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
   EmacsWindow *window = (EmacsWindow *) sender;
   NSEvent *currentEvent = [NSApp currentEvent];
   BOOL leftMouseDragged = ([currentEvent type] == NSEventTypeLeftMouseDragged);
+  BOOL pressureChanged = NO;
   NSSize result;
+
+  /* On macOS 27, resizing with a Force Touch trackpad may proceed
+     with a pressure event as the current event.  Treat it like a
+     drag except that it cannot suspend resize tracking.  */
+  if (@available (macOS 27.0, *))
+    pressureChanged = ([currentEvent type] == NSEventTypePressure
+		       && [window inLiveResize]);
 
   if (windowManagerState & WM_STATE_FULLSCREEN)
     {
@@ -3460,7 +3628,8 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
     }
   else
     {
-      if (leftMouseDragged || [emacsController isMouseTrackingSuspended])
+      if (leftMouseDragged || pressureChanged
+	  || [emacsController isMouseTrackingSuspended])
 	result = [self hintedWindowFrameSize:proposedFrameSize
 				allowsLarger:YES];
       else
@@ -3495,7 +3664,7 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
 
       [window suspendResizeTracking:currentEvent positionAdjustment:adjustment];
     }
-  else if ([window inLiveResize]
+  else if ([window inLiveResize] && !pressureChanged
 	   && [currentEvent type] != NSEventTypeLeftMouseUp)
     [self setupLiveResizeTransition];
 
@@ -3906,6 +4075,10 @@ mac_with_suppressed_transparent_titlebar( NSWindow* window, BOOL assumeTranspare
 
 - (void)windowDidEndLiveResize:(NSNotification *)notification
 {
+  /* Live resize may end without suspension, e.g., while pixelwise
+     resizing, and the tracking may consume the mouse up event.  Be sure
+     to stop passing events via -run. */
+  mac_stop_passing_events_to_run_loop ();
   if (liveResizeCompletionHandler)
     {
       liveResizeCompletionHandler ();
@@ -7097,6 +7270,27 @@ event_phase_to_symbol (NSEventPhase phase)
 {
   struct frame *f = [self emacsFrame];
 
+  /* On macOS 27, AppKit sends cursor updates inside the resize
+     regions along the window edges.  Keep the resize cursor there.  */
+  if (@available (macOS 27.0, *))
+    {
+      NSWindow *window = [self window];
+
+      if ([window respondsToSelector:@selector(_resizeDirectionForMouseLocation:)]
+	  && [window respondsToSelector:@selector(_cursorForResizeDirection:)])
+	{
+	  NSInteger direction =
+	    [window _resizeDirectionForMouseLocation:
+		      [window mouseLocationOutsideOfEventStream]];
+
+	  if (direction != -1)
+	    {
+	      [[window _cursorForResizeDirection:direction] set];
+	      return;
+	    }
+	}
+    }
+
   mac_cursor_set (f->output_data.mac->current_cursor);
 }
 
@@ -7690,7 +7884,16 @@ mac_ts_active_input_string_in_echo_area_p (struct frame *f)
 
 - (void)viewFrameDidChange:(NSNotification *)notification
 {
-  if (![self inLiveResize]
+  BOOL reportsSizeChange = ![self inLiveResize];
+
+  /* On macOS 27, live resize ends asynchronously well after resize
+     tracking is suspended, and Lisp would redisplay with the old size
+     in the meantime, causing flashing.  Report the new size now. */
+  if (!reportsSizeChange)
+    if (@available (macOS 27.0, *))
+      reportsSizeChange = [emacsController isMouseTrackingSuspended];
+
+  if (reportsSizeChange
       && ([self autoresizingMask] & (NSViewWidthSizable | NSViewHeightSizable)))
     {
       struct frame *f = [self emacsFrame];
@@ -10823,6 +11026,20 @@ mac_font_dialog (struct frame *f)
 static void update_services_menu_types (void);
 static void mac_fake_menu_bar_click (EventPriority);
 
+/* On macOS 27, menu bar tracking runs out of process and we cannot
+   intercept the click that starts it.  Instead, we update the menu bar
+   contents in place just before AppKit is about to open one of its
+   submenus, by synchronously asking the Lisp thread (if waiting in
+   mac_select).  */
+
+/* Non-nil while mac_fill_menubar should update the existing submenus
+   in place rather than replacing the main menu.  The value is the
+   submenu that AppKit is about to open.  */
+static NSMenu *menuBarUpdateInPlaceForMenu;
+
+static void mac_update_menubar_in_place (void);
+static void mac_show_menu_bar_help (Lisp_Object);
+
 static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localizedMenuTitleForWindow;
 
 /* Maximum interval time in seconds between key down and modifier key
@@ -10844,6 +11061,12 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
     {
       item = (NSMenuItem *) [NSMenuItem separatorItem];
       [self addItem:item];
+
+      /* Mark it as our menu item for replaceEmacsItemsWithWidgetValue:.  */
+      EmacsWeakLispObject *weakLispObject =
+	[[EmacsWeakLispObject alloc] initWithLispObject:Qnil];
+      item.representedObject = weakLispObject;
+      MRC_RELEASE (weakLispObject);
     }
   else
     {
@@ -10939,6 +11162,28 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
     }
 
   [self setDelegate:emacsController];
+}
+
+/* Replace the items created by addItemWithWidgetValue: with those
+   defined by FIRST_WV, keeping the ones added by AppKit (e.g., in the
+   Edit menu) after them.  Used only on macOS27+ to work around out of
+   process menu tracking. */
+
+- (void)replaceEmacsItemsWithWidgetValue:(widget_value *)first_wv
+{
+  NSMenu *menu = [[NSMenu alloc] init];
+  NSInteger index = 0;
+
+  [menu fillWithWidgetValue:first_wv];
+  for (NSMenuItem *item in [NSArray arrayWithArray:self.itemArray])
+    if ([item.representedObject isKindOfClass:EmacsWeakLispObject.class])
+      [self removeItem:item];
+  for (NSMenuItem *item in [NSArray arrayWithArray:menu.itemArray])
+    {
+      [menu removeItem:item];
+      [self insertItem:item atIndex:index++];
+    }
+  MRC_RELEASE (menu);
 }
 
 @end				// NSMenu (Emacs)
@@ -11099,6 +11344,12 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
 
 - (void)menuDidBeginTracking:(NSNotification *)notification
 {
+  /* On macOS 27, menu bar tracking starts out of process without going
+     through mac_activate_menubar (no menu-press event is ever
+     received).  Let it proceed; menuNeedsUpdate: updates the
+     contents.  */
+  if (@available (macOS 27.0, *))
+    return;
   if (!popup_activated ())
     {
       NSLog (@"Canceling unexpected menu tracking: %@", [NSApp currentEvent]);
@@ -11130,9 +11381,51 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
 
 @implementation EmacsController (Menu)
 
+/* On macOS 27, update the menu bar contents just before AppKit opens a
+   menu bar submenu in its out-of-process tracking session (new on v27).
+   This is possible to do synchronously only if the Lisp thread is
+   waiting in mac_select and no other Lisp threads may run.  Otherwise,
+   the previous contents are shown.  AppKit may call this for all the
+   submenus at once (e.g., for Help menu search), but we update the
+   whole menu bar only once until the next mac_read_socket call.  */
+
+- (void)menuNeedsUpdate:(NSMenu *)menu
+{
+  if (@available (macOS 27.0, *))
+    {
+      NSMenu *mainMenu = [NSApp mainMenu];
+
+      if (popup_activated () || menuBarUpdatedInPlace
+	  || menuBarUpdateInPlaceForMenu
+	  || menu.supermenu != mainMenu
+	  /* The application menu is not ours.  */
+	  || [mainMenu indexOfItemWithSubmenu:menu] <= 0)
+	return;
+#if MAC_SELECT_ALLOW_LISP_EVALUATION
+      if (!mac_select_allow_lisp_evaluation)
+	return;
+      menuBarUpdatedInPlace = true;
+      menuBarUpdateInPlaceForMenu = menu;
+      mac_within_lisp (^{mac_update_menubar_in_place ();});
+      menuBarUpdateInPlaceForMenu = nil;
+#endif
+    }
+}
+
 - (void)menu:(NSMenu *)menu willHighlightItem:(NSMenuItem *)item
 {
-  if (!popup_activated ())
+  /* On macOS 27, also show help in a menu bar tracking session outside
+     mac_activate_menubar (see menuNeedsUpdate:), provided that the
+     menu bar was just updated, so the help objects are still alive,
+     and the Lisp thread is waiting in mac_select.  */
+  bool menu_bar_session_p = false;
+
+#if MAC_SELECT_ALLOW_LISP_EVALUATION
+  if (@available (macOS 27.0, *))
+    menu_bar_session_p = (!popup_activated () && menuBarUpdatedInPlace
+			  && mac_select_allow_lisp_evaluation);
+#endif
+  if (!popup_activated () && !menu_bar_session_p)
     return;
 
   id object = item.representedObject;
@@ -11143,7 +11436,10 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
   else
     help = Qnil;
 
-  mac_within_lisp (^{show_help_echo (help, Qnil, Qnil, Qnil);});
+  if (menu_bar_session_p)
+    mac_within_lisp (^{mac_show_menu_bar_help (help);});
+  else
+    mac_within_lisp (^{show_help_echo (help, Qnil, Qnil, Qnil);});
 }
 
 /* Start menu bar tracking and return when it is completed.
@@ -11312,26 +11608,49 @@ static NSString *localizedMenuTitleForEdit, *localizedMenuTitleForHelp, *localiz
 
 @end				// EmacsFrameController (Menu)
 
-static void
-mac_track_menu_with_block (void (^block) (void))
-{
-  eassert (!pthread_main_np ());
-  Lisp_Object mini_window, old_show_help_function = Vshow_help_function;
+/* Return the value to temporarily bind Vshow_help_function to during
+   menu tracking: tooltip-show-help-non-mode, or nil if the minibuffer
+   frame is not visible (because we don't want tooltips then).  */
 
-  /* Temporarily bind Vshow_help_function to
-     tooltip-show-help-non-mode (or nil if the minibuffer frame is not
-     visible) because we don't want tooltips during menu tracking.  */
-  Vshow_help_function = Qnil;
-  mini_window = FRAME_MINIBUF_WINDOW (SELECTED_FRAME ());
+static Lisp_Object
+mac_menu_show_help_function (void)
+{
+  Lisp_Object mini_window = FRAME_MINIBUF_WINDOW (SELECTED_FRAME ());
+
   if (WINDOWP (mini_window))
     {
       struct frame *mini_frame = XFRAME (WINDOW_FRAME (XWINDOW (mini_window)));
 
       if (FRAME_MAC_P (mini_frame)
 	  && FRAME_VISIBLE_P (mini_frame))
-	Vshow_help_function = intern ("tooltip-show-help-non-mode");
+	return intern ("tooltip-show-help-non-mode");
     }
+
+  return Qnil;
+}
+
+static void
+mac_track_menu_with_block (void (^block) (void))
+{
+  eassert (!pthread_main_np ());
+  Lisp_Object old_show_help_function = Vshow_help_function;
+
+  Vshow_help_function = mac_menu_show_help_function ();
   mac_within_gui_allowing_inner_lisp (block);
+  Vshow_help_function = old_show_help_function;
+}
+
+/* Show HELP for a highlighted menu bar item during a macOS 27 menu bar
+   tracking session outside mac_activate_menubar.  This is called in
+   the Lisp thread.  */
+
+static void
+mac_show_menu_bar_help (Lisp_Object help)
+{
+  Lisp_Object old_show_help_function = Vshow_help_function;
+
+  Vshow_help_function = mac_menu_show_help_function ();
+  show_help_echo (help, Qnil, Qnil, Qnil);
   Vshow_help_function = old_show_help_function;
 }
 
@@ -11390,6 +11709,48 @@ mac_activate_menubar (struct frame *f)
   unblock_input ();
 
   if (selection)
+    find_and_call_menu_selection (f, f->menu_bar_items_used, f->menu_bar_vector,
+				  (void *) (intptr_t) selection);
+}
+
+static Lisp_Object
+mac_update_menubar_in_place_1 (void *arg)
+{
+  set_frame_menubar (arg, true);
+
+  return Qnil;
+}
+
+static Lisp_Object
+mac_update_menubar_in_place_handler (enum nonlocal_exit type, Lisp_Object val)
+{
+  return Qnil;
+}
+
+/* Update the contents of the menu bar submenus for the selected frame
+   in place, without replacing the main menu itself.  This is called in
+   the Lisp thread via mac_within_lisp from menuNeedsUpdate: on macOS 27
+   and later.  Nonlocal exits must not escape to the GUI thread.  */
+
+static void
+mac_update_menubar_in_place (void)
+{
+  struct frame *f = SELECTED_FRAME ();
+
+  if (FRAME_MAC_P (f))
+    internal_catch_all (mac_update_menubar_in_place_1, f,
+			mac_update_menubar_in_place_handler);
+}
+
+/* Handle the menu bar item SELECTION made outside mac_activate_menubar
+   on macOS 27.  This is called in the Lisp thread.  */
+
+static void
+mac_handle_menu_bar_selection (int selection)
+{
+  struct frame *f = SELECTED_FRAME ();
+
+  if (FRAME_MAC_P (f) && selection)
     find_and_call_menu_selection (f, f->menu_bar_items_used, f->menu_bar_vector,
 				  (void *) (intptr_t) selection);
 }
@@ -11476,6 +11837,7 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 {
   mac_within_gui (^{
       NSMenu *newMenu, *mainMenu = [NSApp mainMenu], *helpMenu, *windowMenu = nil;
+      NSMenu *existingWindowsMenu = nil;
       NSInteger index = 1, nitems = [mainMenu numberOfItems];
       bool needs_update_p = deep_p;
 
@@ -11487,7 +11849,8 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 	  NSString *title = CFBridgingRelease (CFStringCreateWithCString
 					       (NULL, wv->name,
 						kCFStringEncodingMacRoman));
-	  NSMenu *submenu;
+	  NSMenu *submenu = nil;
+	  bool is_window_menu = false;
 
 	  /* The title of the Help menu needs to be localized in order
 	     for Spotlight for Help to be installed on Mac OS X
@@ -11503,8 +11866,27 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
           /* Localize Window Menu for consistency with AppKit provided
              menu items. */
 	  else if ([title isEqualToString:@"Window"])
-	    title = localizedMenuTitleForWindow;
+	    {
+	      title = localizedMenuTitleForWindow;
+	      is_window_menu = true;
+	      existingWindowsMenu = [NSApp windowsMenu];
+	    }
 
+	  if (menuBarUpdateInPlaceForMenu)
+	    {
+	      /* Refill the existing submenu with the same title.  Leave
+		 the Window menu alone while AppKit is opening it, as
+		 AppKit adds its own items to it then.  */
+	      if (wv->contents && index < nitems)
+		{
+		  submenu = [mainMenu itemAtIndex:index].submenu;
+		  if (submenu && [title isEqualToString:submenu.title]
+		      && !(is_window_menu
+			   && submenu == menuBarUpdateInPlaceForMenu))
+		    [submenu replaceEmacsItemsWithWidgetValue:wv->contents];
+		}
+	      continue;
+	    }
 
 	  if (!needs_update_p)
 	    {
@@ -11518,7 +11900,21 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 		}
 	    }
 
-	  submenu = [[NSMenu alloc] initWithTitle:title];
+	  if (is_window_menu && existingWindowsMenu != nil)
+	    {
+	      submenu = existingWindowsMenu;
+	      NSMenu *oldParent = [submenu supermenu];
+	      if (oldParent)
+                {
+                  NSInteger oldIndex = [oldParent indexOfItemWithSubmenu:submenu];
+                  if (oldIndex != -1)
+                      [[oldParent itemAtIndex:oldIndex] setSubmenu:nil];
+                }
+	      [submenu removeAllItems];
+	    }
+	  else
+	      submenu = [[NSMenu alloc] initWithTitle:title];
+
 	  [submenu setAutoenablesItems:NO];
 
 	  if (title == localizedMenuTitleForHelp)
@@ -11532,8 +11928,17 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 
 	  if (wv->contents)
 	    [submenu fillWithWidgetValue:wv->contents];
+	  /* For menuNeedsUpdate:.  Shallow submenus get no delegate
+	     otherwise.  */
+	  [submenu setDelegate:emacsController];
+	  if (submenu != existingWindowsMenu)
+	    MRC_RELEASE (submenu);
+	}
 
-	  MRC_RELEASE (submenu);
+      if (menuBarUpdateInPlaceForMenu)
+	{
+	  MRC_RELEASE (newMenu);
+	  return;
 	}
 
       if (!needs_update_p && index != nitems)
@@ -11549,9 +11954,12 @@ mac_fill_menubar (widget_value *first_wv, bool deep_p)
 
 	  [NSApp setMainMenu:newMenu];
 
-	  if (windowMenu && [windowMenu numberOfItems])
-	    [NSApp setWindowsMenu:windowMenu];
-
+	  if (windowMenu)
+	    {
+              [NSApp setWindowsMenu:nil];
+              [NSApp setWindowsMenu:windowMenu];
+	      [windowMenu update]; /* Ensure tiling keys are set */
+	    }
 	  if (helpMenu)
 	    [NSApp setHelpMenu:helpMenu];
 	}
@@ -16991,6 +17399,14 @@ write_one_byte_to_fd (int fd)
   while (rtnval == 0 || (rtnval < 0 && errno == EINTR));
 
   return rtnval;
+}
+
+/* Make mac_select return, if it is waiting.  */
+
+static void
+mac_wake_up_select (void)
+{
+  write_one_byte_to_fd (mac_select_fds[0]);
 }
 
 static void
